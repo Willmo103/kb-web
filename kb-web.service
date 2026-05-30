@@ -1,0 +1,23 @@
+[Unit]
+Description=Knowledge Base Web Service Ingestion and Dashboard
+After=network.target
+
+[Service]
+Type=simple
+# The user account under which the service runs.
+# Change this if you wish to run as a different system user (e.g. your active login account).
+User=will
+WorkingDirectory=/srv/kb-web
+
+# Load environment configuration variables (such as KB_PASSWORD, KB_OLLAMA_HOST, etc.)
+EnvironmentFile=/srv/kb-web/.env
+
+# Execute the entrypoint binary compiled inside the virtual environment
+ExecStart=/srv/kb-web/.venv/bin/kb-web serve --host 0.0.0.0 --port 8050
+
+# Restart settings on process death
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

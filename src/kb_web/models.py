@@ -1,0 +1,141 @@
+import json
+from typing import Optional
+from urllib.parse import urlparse, urljoin, quote_plus
+from pydantic import BaseModel, field_validator
+
+
+class ParsedUrl(BaseModel):
+    """Pydantic model representing decomposed parts of a URL.
+
+    Provides components like scheme, netloc, and fragments.
+    """
+
+    scheme: str
+    netloc: str
+    path: Optional[str] = None
+    fragments: Optional[str] = None
+    query: Optional[str] = None
+    port: Optional[int] = None
+    hostname: Optional[str] = None
+
+    @classmethod
+    def from_url(cls, url: str) -> "ParsedUrl":
+        """Deconstructs a string URL into structured ParsedUrl components.
+
+        Args:
+            url (str): String representing the full URL.
+
+        Returns:
+            ParsedUrl: Instance containing parsed URL attributes.
+        """
+        parsed = urlparse(url)
+        return cls(
+            scheme=parsed.scheme,
+            netloc=parsed.netloc,
+            path=parsed.path,
+            fragments=parsed.fragment,
+            query=parsed.query,
+            port=parsed.port,
+            hostname=parsed.hostname,
+        )
+
+
+class HTMLPage(BaseModel):
+    """Pydantic model representing a scraped web page.
+
+    Contains full raw HTML, converted Markdown, metadata, and extracted links.
+    """
+
+    url: str
+    html_content: str
+    md_content: str
+    links: list[str]
+    html_content_hash: str
+    md_content_hash: str
+    fetched_at: str
+    description: Optional[str] = None
+    keywords: Optional[list[str]] = None
+
+    @field_validator("links", mode="before")
+    @classmethod
+    def ensure_links_list(cls, v, info) -> list[str]:
+        """Validates and cleans the link list, resolving relative URLs to
+
+        absolute ones under the base URL.
+
+        Args:
+            v: Input link parameter (JSON string or list).
+            info: Validator field info containing page attributes.
+
+        Returns:
+            list[str]: Normalized absolute links.
+        """
+        url = info.data.get("url", "")
+        if isinstance(v, str):
+            try:
+                links_list = json.loads(v)
+                if isinstance(links_list, list):
+                    return [
+                        urljoin(url, link) if link.startswith("/") else link
+                        for link in links_list
+                    ]
+            except json.JSONDecodeError:
+                return [urljoin(url, v) if v.startswith("/") else v]
+        if isinstance(v, list):
+            return [
+                (
+                    urljoin(url, link)
+                    if isinstance(link, str) and link.startswith("/")
+                    else link
+                )
+                for link in v
+            ]
+        return v or []
+
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def ensure_keywords_list(cls, v) -> list[str]:
+        """Ensures that keywords input is parsed into a list of strings.
+
+        Args:
+            v: Input keyword parameter (JSON string or list).
+
+        Returns:
+            list[str]: Deserialized keyword list.
+        """
+        if isinstance(v, str):
+            try:
+                keywords_list = json.loads(v)
+                if isinstance(keywords_list, list):
+                    return keywords_list
+            except json.JSONDecodeError:
+                return [v]
+        return v or []
+
+    @property
+    def safe_url(self) -> str:
+        """URL-encoded variant of the page URL for safe query param transport.
+
+        Returns:
+            str: URL-encoded string.
+        """
+        return quote_plus(self.url)
+
+    @property
+    def base_url(self) -> str:
+        """Constructs the base origin URL (scheme + netloc) of the page.
+
+        Returns:
+            str: Origin URL (e.g. https://example.com).
+        """
+        parsed = urlparse(self.url)
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    @property
+    def parsed_url(self) -> ParsedUrl:
+        """Returns deconstructed components as a ParsedUrl class.
+
+        Returns:
+            ParsedUrl: Structured components.
+        """
+        return ParsedUrl.from_url(self.url)

@@ -22,6 +22,8 @@ dependencies = [
     "python-multipart>=0.0.29",
     "sqlite-utils>=3.39",
     "uvicorn>=0.47.0",
+    "typer>=0.26.4",
+    "markdown>=3.10.2",
 ]
 
 [project.scripts]
@@ -33,3 +35,8 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 kb-core = { git = "https://github.com/Willmo103/kb-core.git" }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

@@ -1,0 +1,137 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Server Maintenance Admin{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 max-w-4xl">
+
+    {% if completion_message %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-lg text-sm mb-6 shadow-sm">
+        {{ completion_message }}
+    </div>
+    {% endif %}
+
+    <h1 class="text-3xl font-extrabold text-gray-900 mb-6">⚙️ Server Dashboard</h1>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pb-12">
+
+        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Server Configurations</h3>
+                <p class="text-sm text-gray-500 mb-4">General server flags, Ollama host routing, and environment parameters.</p>
+                <div class="bg-gray-50 p-4 rounded border border-gray-100 text-center">
+                    <span class="text-xs text-gray-400 italic">Settings schema implementation pending future release.</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+            <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Pipeline Operations</h3>
+            <div class="flex flex-col gap-2">
+                <h4 class="font-semibold text-sm">Run Bulk Descriptions</h4>
+                <p class="text-xs text-gray-500">Scans database for cards missing an AI summary and spins them into a background processing loop.</p>
+                <span class="inline-block mt-1 mb-3 text-xs bg-amber-50 text-amber-700 font-mono px-2 py-1 rounded border border-amber-200 self-start">
+                    {{ unprocessed_count }} items pending
+                </span>
+                <form action="/admin/trigger-describe" method="post">
+                    <button type="submit" {% if unprocessed_count == 0 %}disabled class="w-full bg-gray-200 text-gray-400 text-sm py-2 px-4 rounded cursor-not-allowed" {% else %} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-2 px-4 rounded shadow-sm transition" {% endif %}>
+                        Execute Maintenance Loop
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm md:col-span-2">
+            <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Database Management</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+                <div>
+                    <h4 class="font-semibold text-sm mb-1">Export Knowledge Base</h4>
+                    <p class="text-xs text-gray-500 mb-4">Download a full JSON backup of the `fetched_pages` table.</p>
+                    <a href="/admin/export" target="_blank" class="block text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-sm font-medium py-2 px-4 rounded transition">
+                        ⬇️ Download JSON Backup
+                    </a>
+                </div>
+
+                <div class="border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-8">
+                    <h4 class="font-semibold text-sm mb-1">Import JSON Archive</h4>
+                    <p class="text-xs text-gray-500 mb-4">Upload a `.json` backup file. Bypasses Cloudflare limits via chunked WebSockets.</p>
+
+                    <input type="file" id="backupFile" accept=".json" class="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 mb-3"/>
+
+                    <button onclick="uploadBackupViaWebSocket()" id="uploadBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-2 px-4 rounded transition shadow-sm">
+                        ⬆️ Stream Upload to DB
+                    </button>
+                    <div id="uploadStatus" class="text-xs font-mono mt-3 hidden text-indigo-600">Uploading chunks...</div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function uploadBackupViaWebSocket() {
+        const fileInput = document.getElementById('backupFile');
+        const statusText = document.getElementById('uploadStatus');
+        const btn = document.getElementById('uploadBtn');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            alert("Please select a JSON file to import.");
+            return;
+        }
+
+        btn.disabled = true;
+        btn.classList.add('opacity-50', 'cursor-not-allowed');
+        statusText.classList.remove('hidden');
+        statusText.innerText = "Connecting to socket...";
+
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${wsProtocol}//${window.location.host}/admin/ws/import`);
+
+        ws.onopen = () => {
+            statusText.innerText = "Connection secured. Reading file...";
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                statusText.innerText = "Streaming data to server...";
+                const text = e.target.result;
+                const chunkSize = 1024 * 512;
+
+                for (let i = 0; i < text.length; i += chunkSize) {
+                    ws.send(text.slice(i, i + chunkSize));
+                }
+                ws.send("EOF");
+            };
+            reader.readAsText(file);
+        };
+
+        ws.onmessage = (event) => {
+            alert(event.data);
+            if (event.data.includes("SUCCESS")) {
+                window.location.reload();
+            } else {
+                resetUploadUI();
+            }
+        };
+
+        ws.onerror = (error) => {
+            console.error("WebSocket error:", error);
+            alert("Upload failed. Check server console.");
+            resetUploadUI();
+        };
+
+        ws.onclose = (event) => {
+            if(event.code === 1008) alert("Authentication failed for upload.");
+            resetUploadUI();
+        }
+
+        function resetUploadUI() {
+            btn.disabled = false;
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            statusText.classList.add('hidden');
+        }
+    }
+</script>
+{% endblock %}

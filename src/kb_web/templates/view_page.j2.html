@@ -1,0 +1,57 @@
+{% extends "base.j2.html" %}
+
+{% block title %}KB Viewer | {{ page.url[:30] }}...{% endblock %}
+
+{% block extra_head %}
+<link href="https://cdn.jsdelivr.net/npm/@tailwindcss/typography@0.4.1/dist/typography.min.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 max-w-4xl pb-8">
+
+    <div class="flex justify-between items-center mb-6">
+        <div class="truncate mr-4">
+            <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Engine Wiki Storage File</span>
+            <h1 class="text-lg font-bold text-gray-900 truncate">{{ page.url }}</h1>
+        </div>
+
+        <button onclick="shareWikiPage()" class="text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium py-2 px-4 border border-indigo-200 rounded transition shadow-sm whitespace-nowrap flex items-center gap-2">
+            <span>📤</span> Share Link
+        </button>
+    </div>
+
+    <div class="bg-white p-8 rounded-lg shadow-sm border border-gray-200 mb-6">
+        <div class="prose max-w-none">
+            {{ rendered_wiki_html | safe }}
+        </div>
+    </div>
+
+    <details class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden group">
+        <summary class="bg-gray-100 px-6 py-3 font-semibold text-sm text-gray-700 cursor-pointer select-none group-hover:bg-gray-200 transition">
+            📋 View Raw Extracted Markdown Content Context
+        </summary>
+        <div class="p-6 border-t border-gray-200 bg-gray-50">
+            <pre class="text-xs font-mono text-gray-600 overflow-x-auto whitespace-pre-wrap leading-relaxed">{{ page.md_content }}</pre>
+        </div>
+    </details>
+
+</div>
+
+<script>
+    function shareWikiPage() {
+        // Use the native OS share sheet if available (mobile/modern browsers)
+        if (navigator.share) {
+            navigator.share({
+                title: 'Knowledge Base Wiki Entry',
+                text: 'Check out this extracted wiki entry:',
+                url: window.location.href
+            }).catch((error) => console.log('Sharing failed', error));
+        } else {
+            // Fallback for older browsers or desktop environments
+            navigator.clipboard.writeText(window.location.href).then(() => {
+                alert("Article link copied to clipboard!");
+            });
+        }
+    }
+</script>
+{% endblock %}
