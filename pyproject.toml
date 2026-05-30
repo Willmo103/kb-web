@@ -1,0 +1,35 @@
+[project]
+name = "kb-web"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "WIll Morris", email = "88165849+Willmo103@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "kb-core",
+    "brotli>=1.2.0",
+    "bs4>=0.0.2",
+    "dotenv>=0.9.9",
+    "fastapi>=0.136.1",
+    "html2text>=2025.4.15",
+    "html5lib>=1.1",
+    "jinja2>=3.1.6",
+    "ollama>=0.6.2",
+    "pydantic>=2.13.4",
+    "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.29",
+    "sqlite-utils>=3.39",
+    "uvicorn>=0.47.0",
+]
+
+[project.scripts]
+kb-web = "kb_web:main"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+kb-core = { git = "https://github.com/Willmo103/kb-core.git" }
