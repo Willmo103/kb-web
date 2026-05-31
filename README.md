@@ -8,7 +8,10 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - **Chrome Browser Extension Ingest**: Features an unpackaged Chrome extension targeting `/api/import/html` to instantly post raw tab HTML, bypassing authentication and JavaScript obstacles.
 - **AI Wiki Conversion**: Rewrites raw scraped web pages into clean, highly structured markdown wiki entries starting with H1 titles `# Title` using Ollama.
 - **Tag Curation & Editing**: Automates tag generation through Ollama classification prompts and allows manual tag updates inside the UI.
-- **Interactive Action Triggers**: Supports 1-click Wiki and Tag re-generation directly on the page view profile.
+- **Root Chronological Archive Feed**: Hitting `/` directly renders the public ingestion feed, omitting any login restrictions.
+- **Source Page Re-fetching with Version Snapshots**: Re-fetches the page URL. If successful, archives the current copy in `page_versions` and updates the latest page with the newly ingested content; otherwise, rolls back and retains the original page.
+- **Secure Password Manager**: Allows logged-in administrators to change the passcode after verifying current credentials from the web UI.
+- **Interactive Action Triggers**: Supports 1-click Wiki, Tag, and source URL re-fetching / re-generation directly on the page view profile.
 - **Administrative Settings Portal**: Prefills and updates Ollama hosts/models, system prompts, API keys, and Gotify details directly from the Web UI.
 - **Chunked WS Ingest**: Supports uploading JSON database backups over WebSockets.
 - **JSON Streams**: Streams database records out as downloadable files.

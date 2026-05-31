@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import secrets
+import sqlite_utils
 import time
 from typing import Optional, AsyncGenerator
 from urllib.parse import urlparse, urljoin, quote_plus, unquote_plus
@@ -350,7 +351,7 @@ def get_login_page() -> HTMLResponse:
         HTMLResponse: Rendered login page.
     """
     template = _jinja_env.get_template("login.j2.html")
-    return HTMLResponse(content=template.render())
+    return HTMLResponse(content=template.render(is_admin=False))
 
 
 @app.post("/login", response_model=None)
@@ -379,7 +380,8 @@ def handle_login(password: str = Form(...)) -> HTMLResponse | RedirectResponse:
 
     return HTMLResponse(
         content=_jinja_env.get_template("login.j2.html").render(
-            error="Invalid security credentials."
+            error="Invalid security credentials.",
+            is_admin=False
         )
     )
 
@@ -387,8 +389,9 @@ def handle_login(password: str = Form(...)) -> HTMLResponse | RedirectResponse:
 # --- UNPROTECTED PUBLIC ROUTES (Accessible to Anyone) ---
 
 
+@app.get("/", response_class=HTMLResponse)
 @app.get("/pages", response_class=HTMLResponse)
-def view_all_pages() -> HTMLResponse:
+def view_all_pages(request: Request) -> HTMLResponse:
     """Lists historically captured records, showing parsed title tags or links.
 
     Returns:
@@ -408,35 +411,72 @@ def view_all_pages() -> HTMLResponse:
                 print(f"Database row validation error: {e}")
                 continue
 
+    # Check if user is logged in as an administrator
+    clear_expired_tokens()
+    token = request.cookies.get(COOKIE_NAME)
+    is_admin = token in ACTIVE_SESSIONS and ACTIVE_SESSIONS[token] >= time.time()
+
     template = _jinja_env.get_template("pages_list.j2.html")
-    return HTMLResponse(content=template.render(pages=pages_list))
+    return HTMLResponse(content=template.render(pages=pages_list, is_admin=is_admin))
 
 
 @app.get("/view/page", response_class=HTMLResponse)
-def view_saved_page(request: Request, url: str = Query(...)) -> HTMLResponse:
+def view_saved_page(
+    request: Request,
+    url: str = Query(...),
+    version_id: Optional[int] = Query(None),
+    msg: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+) -> HTMLResponse:
     """Renders the AI-cleaned or raw markdown page view as rendered HTML.
 
     Args:
         request (Request): FastAPI request context.
         url (str): Key matching requested page.
+        version_id (int, optional): Specific version ID to load.
+        msg (str, optional): Alert message.
+        error (str, optional): Alert error message.
 
     Returns:
         HTMLResponse: Formatted document output.
     """
     db = _get_db()
     decoded_url = unquote_plus(url)
-    try:
-        row = db["fetched_pages"].get(decoded_url)
-        page_obj = HTMLPage(**row)
-    except sqlite_utils.db.NotFoundError:
-        return HTMLResponse(
-            content="<h1>Wiki Article Profile Missing</h1>", status_code=404
-        )
+    page_obj = None
+
+    if version_id:
+        try:
+            row = db["page_versions"].get(int(version_id))
+            page_obj = HTMLPage(**row)
+        except (sqlite_utils.db.NotFoundError, ValueError):
+            pass
+
+    if not page_obj:
+        try:
+            row = db["fetched_pages"].get(decoded_url)
+            page_obj = HTMLPage(**row)
+        except sqlite_utils.db.NotFoundError:
+            return HTMLResponse(
+                content="<h1>Wiki Article Profile Missing</h1>", status_code=404
+            )
 
     # Check if user is logged in as an administrator
     clear_expired_tokens()
     token = request.cookies.get(COOKIE_NAME)
     is_admin = token in ACTIVE_SESSIONS and ACTIVE_SESSIONS[token] >= time.time()
+
+    current_fetched_at = None
+    try:
+        current_row = db["fetched_pages"].get(decoded_url)
+        current_fetched_at = current_row.get("fetched_at")
+    except sqlite_utils.db.NotFoundError:
+        pass
+
+    versions = []
+    if "page_versions" in db.table_names():
+        versions = list(
+            db["page_versions"].rows_where("url = ? ORDER BY id ASC", [decoded_url])
+        )
 
     rendered_wiki_html = markdown.markdown(
         page_obj.description or "", extensions=["fenced_code", "tables"]
@@ -447,6 +487,11 @@ def view_saved_page(request: Request, url: str = Query(...)) -> HTMLResponse:
             page=page_obj,
             rendered_wiki_html=rendered_wiki_html,
             is_admin=is_admin,
+            versions=versions,
+            active_version_id=version_id,
+            current_fetched_at=current_fetched_at,
+            msg=msg,
+            error=error,
         )
     )
 
@@ -454,7 +499,7 @@ def view_saved_page(request: Request, url: str = Query(...)) -> HTMLResponse:
 # --- PROTECTED ADMIN ROUTES (Passphrase Required) ---
 
 
-@app.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
+@app.get("/import", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
 def get_import_url_page() -> HTMLResponse:
     """Serves the primary admin entry page where URL import strings can be submitted.
 
@@ -462,7 +507,7 @@ def get_import_url_page() -> HTMLResponse:
         HTMLResponse: Ingestion form.
     """
     template = _jinja_env.get_template("url_import.j2.html")
-    return HTMLResponse(content=template.render())
+    return HTMLResponse(content=template.render(is_admin=True))
 
 
 @app.get("/import/shared-url", dependencies=[Depends(verify_auth)], response_model=None)
@@ -483,7 +528,7 @@ def handle_incoming_mobile_share(
     """
     target_link = url or text
     if not target_link:
-        return RedirectResponse(url="/")
+        return RedirectResponse(url="/import")
 
     # Filter out lead description text if any exists
     if "http" in target_link:
@@ -491,7 +536,7 @@ def handle_incoming_mobile_share(
         target_link = target_link[start_idx:].split()[0]
 
     template = _jinja_env.get_template("url_import.j2.html")
-    return HTMLResponse(content=template.render(prefilled_url=target_link))
+    return HTMLResponse(content=template.render(prefilled_url=target_link, is_admin=True))
 
 
 @app.post("/import/url", dependencies=[Depends(verify_auth)], response_model=None)
@@ -514,7 +559,7 @@ def handle_url_import(
         # Show error feedback directly in form
         return HTMLResponse(
             content=_jinja_env.get_template("url_import.j2.html").render(
-                error_message=str(e), prefilled_url=url
+                error_message=str(e), prefilled_url=url, is_admin=True
             )
         )
 
@@ -573,7 +618,10 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
     template = _jinja_env.get_template("admin.j2.html")
     return HTMLResponse(
         content=template.render(
-            unprocessed_count=count, completion_message=msg, config=config
+            unprocessed_count=count,
+            completion_message=msg,
+            config=config,
+            is_admin=True,
         )
     )
 
@@ -697,11 +745,119 @@ def handle_update_tags(
     return RedirectResponse(url=f"/view/page?url={quote_plus(url)}", status_code=303)
 
 
+@app.get("/logout")
+def handle_logout() -> RedirectResponse:
+    """Clears session state authentication credentials."""
+    response = RedirectResponse(url="/", status_code=303)
+    response.delete_cookie(COOKIE_NAME)
+    return response
+
+
+@app.post(
+    "/admin/change-password", dependencies=[Depends(verify_auth)], response_model=None
+)
+def handle_change_password(
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+) -> RedirectResponse:
+    """Validates the current password and saves a new admin passcode."""
+    if current_password != config.admin_password:
+        return RedirectResponse(
+            url="/admin?msg=Error:+Current+password+is+incorrect.",
+            status_code=303,
+        )
+
+    config.admin_password = new_password
+    config.save()
+    return RedirectResponse(
+        url="/admin?msg=Password+successfully+updated.",
+        status_code=303,
+    )
+
+
+@app.post(
+    "/admin/refetch/page", dependencies=[Depends(verify_auth)], response_model=None
+)
+def handle_refetch_page(
+    request: Request,
+    url: str = Query(...),
+) -> RedirectResponse:
+    """Re-fetches the page URL. If successful, archives the current version and updates."""
+    db = _get_db()
+    decoded_url = unquote_plus(url)
+    try:
+        page_data = fetch_url(decoded_url)
+    except Exception as e:
+        print(f"Administrative Refetch Failure: {e}")
+        return RedirectResponse(
+            url=f"/view/page?url={quote_plus(decoded_url)}&error=Failed+to+re-fetch+source+page:+{quote_plus(str(e))}",
+            status_code=303,
+        )
+
+    # Archive the old page data into page_versions if it existed
+    try:
+        current_row = db["fetched_pages"].get(decoded_url)
+        db["page_versions"].insert(
+            {
+                "url": current_row["url"],
+                "title": current_row.get("title"),
+                "html_content": current_row.get("html_content"),
+                "md_content": current_row.get("md_content"),
+                "links": current_row.get("links"),
+                "html_content_hash": current_row.get("html_content_hash"),
+                "md_content_hash": current_row.get("md_content_hash"),
+                "fetched_at": current_row.get("fetched_at"),
+                "description": current_row.get("description"),
+                "keywords": current_row.get("keywords"),
+                "tags": current_row.get("tags"),
+            }
+        )
+    except sqlite_utils.db.NotFoundError:
+        pass
+
+    # Process and clean the newly fetched content
+    wiki_entry = extract_wiki_content(page_data)
+    page_data.description = wiki_entry
+
+    title = decoded_url
+    soup = BeautifulSoup(page_data.html_content, "html5lib")
+    if soup.title:
+        title = soup.title.string
+    if not title:
+        title = urlparse(decoded_url).netloc or decoded_url
+
+    if wiki_entry.strip().startswith("#"):
+        first_line = wiki_entry.strip().split("\n")[0]
+        title = first_line.replace("#", "").strip()
+
+    page_data.title = title
+    tags = extract_tags_content(page_data)
+    page_data.tags = tags
+
+    # Write back the current latest details
+    serialized = page_data.model_dump()
+    serialized["links"] = json.dumps(serialized["links"])
+    serialized["keywords"] = json.dumps(serialized["keywords"])
+    serialized["tags"] = json.dumps(serialized["tags"])
+
+    db["fetched_pages"].upsert(serialized, pk="url")
+
+    # Send notifier alerts
+    base_url = str(request.base_url).rstrip("/")
+    view_url = f"{base_url}/view/page?url={page_data.safe_url}"
+    post_to_gotify(page_data, view_url)
+
+    return RedirectResponse(
+        url=f"/view/page?url={quote_plus(decoded_url)}&msg=Source+page+successfully+re-fetched+and+new+version+created.",
+        status_code=303,
+    )
+
+
 @app.post(
     "/admin/delete/page", dependencies=[Depends(verify_auth)], response_model=None
 )
 def handle_delete_page(url: str = Form(...)) -> RedirectResponse:
-    """Deletes an ingested page profile from the database.
+    """Deletes an ingested page profile and all its archived versions from the database.
 
     Args:
         url (str): target page URL to remove.
@@ -712,10 +868,12 @@ def handle_delete_page(url: str = Form(...)) -> RedirectResponse:
     db = _get_db()
     try:
         db["fetched_pages"].delete(url)
-        print(f"Administrative Delete: Removed {url} from fetched_pages table.")
+        if "page_versions" in db.table_names():
+            db.execute("DELETE FROM page_versions WHERE url = ?", [url])
+        print(f"Administrative Delete: Removed {url} and all archived versions from database.")
     except sqlite_utils.db.NotFoundError:
         raise HTTPException(status_code=404, detail="Target page profile not found.")
-    return RedirectResponse(url="/pages", status_code=303)
+    return RedirectResponse(url="/", status_code=303)
 
 
 @app.post("/admin/trigger-describe", dependencies=[Depends(verify_auth)])

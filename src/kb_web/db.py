@@ -60,3 +60,28 @@ def init_db(db: sqlite_utils.Database) -> None:
                 print("Schema Migration: Added 'tags' column to fetched_pages table.")
             except Exception as e:
                 print(f"Error migrating database (adding tags column): {e}")
+
+    # Initialize page_versions table for archiving historical snapshots
+    if "page_versions" not in db.table_names():
+        try:
+            db["page_versions"].create(
+                {
+                    "id": int,
+                    "url": str,
+                    "title": str,
+                    "html_content": str,
+                    "md_content": str,
+                    "links": str,
+                    "html_content_hash": str,
+                    "md_content_hash": str,
+                    "fetched_at": str,
+                    "description": str,
+                    "keywords": str,
+                    "tags": str,
+                },
+                pk="id",
+            )
+            print("Initialized database table: page_versions")
+        except Exception as e:
+            print(f"Error creating page_versions table: {e}")
+

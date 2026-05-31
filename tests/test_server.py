@@ -85,10 +85,13 @@ def test_public_routes(client: TestClient) -> None:
     response = client.get("/pages")
     assert response.status_code == 200
 
+    response = client.get("/")
+    assert response.status_code == 200
+
 
 def test_auth_route_guard_redirects(client: TestClient) -> None:
     """Ensures protected endpoints redirect requests missing auth cookies."""
-    response = client.get("/", follow_redirects=False)
+    response = client.get("/import", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
 
@@ -219,10 +222,155 @@ def test_admin_only_features_and_deletion(client: TestClient) -> None:
         follow_redirects=False
     )
     assert del_success.status_code == 303
-    assert del_success.headers["location"] == "/pages"
+    assert del_success.headers["location"] == "/"
 
     # Verify deleted
     import sqlite_utils
     with pytest.raises(sqlite_utils.db.NotFoundError):
         db["fetched_pages"].get("https://example.com/testpage")
+
+
+def test_change_password(client: TestClient) -> None:
+    """Verifies that admins can change their password securely."""
+    # Authenticate first
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    
+    # Verify wrong password fails
+    resp = client.post(
+        "/admin/change-password",
+        data={"current_password": "wrong-password", "new_password": "new-admin-pass"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert resp.status_code == 303
+    assert "Error" in resp.headers["location"]
+    
+    # Verify correct password succeeds
+    original_pass = server_config.admin_password
+    resp = client.post(
+        "/admin/change-password",
+        data={"current_password": original_pass, "new_password": "new-admin-pass"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert resp.status_code == 303
+    assert "updated" in resp.headers["location"]
+    assert server_config.admin_password == "new-admin-pass"
+    
+    # Restore original password for other tests
+    server_config.admin_password = original_pass
+    server_config.save()
+
+
+def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
+    """Verifies page re-fetching behavior, version snapshot archiving, and error recovery."""
+    # Mock Ollama chat/tagging
+    class DummyMessage:
+        content = "# Refetched Title\n\nNew wiki body text. tags: updated, refetched"
+
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    monkeypatch.setattr(ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse())
+
+    # Insert a page into the database first
+    db = get_db(server_config)
+    page_data = {
+        "url": "https://example.com/refetchpage",
+        "title": "A Test Page Title",
+        "html_content": "<html><body>Hello Test</body></html>",
+        "md_content": "Hello Test",
+        "links": '["/another"]',
+        "html_content_hash": "hash1",
+        "md_content_hash": "hash2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "description": "Original wiki summary description.",
+        "keywords": '["test"]',
+        "tags": '["tag-one"]'
+    }
+    db["fetched_pages"].insert(page_data)
+
+    # Login to get admin cookie
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+
+    # Mock fetch_url to return new details
+    def mock_fetch_url(url: str):
+        from kb_web.models import HTMLPage
+        return HTMLPage(
+            url=url,
+            title="A Test Page Title",
+            html_content="<html><body>Hello Refetched</body></html>",
+            md_content="Hello Refetched",
+            links=[],
+            html_content_hash="refetchedhash1",
+            md_content_hash="refetchedhash2",
+            fetched_at="2026-05-31T13:00:00",
+            description="",
+            keywords=[],
+            tags=[]
+        )
+    monkeypatch.setattr("kb_web.server.fetch_url", mock_fetch_url)
+
+    # Perform Refetch
+    resp = client.post(
+        "/admin/refetch/page?url=https%3A%2F%2Fexample.com%2Frefetchpage",
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert resp.status_code == 303
+    assert "re-fetched" in resp.headers["location"]
+
+    # Verify latest is updated
+    row = db["fetched_pages"].get("https://example.com/refetchpage")
+    assert row["title"] == "Refetched Title"
+    assert "New wiki body text" in row["description"]
+
+    # Verify historical version is archived
+    versions = list(db["page_versions"].rows_where("url = ?", ["https://example.com/refetchpage"]))
+    assert len(versions) == 1
+    assert versions[0]["title"] == "A Test Page Title"
+    assert versions[0]["description"] == "Original wiki summary description."
+
+    # View page and verify switcher is present
+    resp_view = client.get("/view/page?url=https%3A%2F%2Fexample.com%2Frefetchpage")
+    assert resp_view.status_code == 200
+    assert "Version History:" in resp_view.text
+    assert "Version 1" in resp_view.text
+
+    # View historical version
+    version_id = versions[0]["id"]
+    resp_version_view = client.get(
+        f"/view/page?url=https%3A%2F%2Fexample.com%2Frefetchpage&version_id={version_id}"
+    )
+    assert resp_version_view.status_code == 200
+    assert "You are viewing a historical version" in resp_version_view.text
+    assert "Original wiki summary description." in resp_version_view.text
+
+    # Mock fetch failure
+    def mock_fetch_fail(url: str):
+        raise RuntimeError("Server offline")
+    monkeypatch.setattr("kb_web.server.fetch_url", mock_fetch_fail)
+
+    # Attempt refetch (should keep original)
+    resp_fail = client.post(
+        "/admin/refetch/page?url=https%3A%2F%2Fexample.com%2Frefetchpage",
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert resp_fail.status_code == 303
+    assert "error" in resp_fail.headers["location"]
+
+    # Verify database hasn't changed (latest is still Refetched Title)
+    row_after = db["fetched_pages"].get("https://example.com/refetchpage")
+    assert row_after["title"] == "Refetched Title"
 
