@@ -11,14 +11,27 @@ fi
 echo "Installing kb-web service..."
 
 # Paths
-SRC_SERVICE="/srv/kb-web/kb-web.service"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC_SERVICE="$SCRIPT_DIR/../kb-web.service"
 DEST_SERVICE="/etc/systemd/system/kb-web.service"
 
 # Check if source service file exists
 if [ ! -f "$SRC_SERVICE" ]; then
   echo "Error: Source service file not found at $SRC_SERVICE."
-  echo "Ensure the repository is cloned at /srv/kb-web/ and this script is run from there."
   exit 1
+fi
+
+# Ensure virtual environment and executable exist
+if [ ! -f "/srv/kb-web/.venv/bin/kb-web" ]; then
+  echo "Virtual environment or kb-web executable not found at /srv/kb-web/.venv/bin/kb-web."
+  if command -v uv &> /dev/null; then
+    echo "Running 'uv sync' to set up the virtual environment..."
+    (cd /srv/kb-web && uv sync)
+  else
+    echo "Error: 'uv' package manager is not installed or not in PATH."
+    echo "Please install uv or manually set up the virtual environment at /srv/kb-web/.venv/"
+    exit 1
+  fi
 fi
 
 # Copy service file

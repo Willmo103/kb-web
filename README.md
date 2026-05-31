@@ -102,12 +102,10 @@ sudo chown -R will:will /srv/kb-web
 ```
 
 ### 2. Setup Virtual Environment & Install
-Create a Python virtual environment and install the package dependencies:
+Synchronize the virtual environment and dependencies using `uv`:
 ```bash
 cd /srv/kb-web
-python3 -m venv .venv
-.venv/bin/pip install --upgrade pip
-.venv/bin/pip install .
+uv sync
 ```
 
 ### 3. Scaffolding Environment Variables
