@@ -1,12 +1,14 @@
+import json
+
+import ollama
 import pytest
 from fastapi.testclient import TestClient
-import json
-import ollama
 
 from kb_web.config import Config
 from kb_web.db import get_db
 from kb_web.models import HTMLPage
-from kb_web.server import app, config as server_config
+from kb_web.server import app
+from kb_web.server import config as server_config
 
 
 @pytest.fixture(autouse=True)

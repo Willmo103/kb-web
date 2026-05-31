@@ -1,8 +1,9 @@
-"""Configuration for the kb-web application.
+"""
+Configuration for the kb-web application.
 """
 
-import os
 import json
+import os
 from typing import Optional
 
 from kb_core.config import Config as BaseConfig

@@ -1,4 +1,9 @@
+"""
+Database initialization and utilities for the Knowledge Base Web Importer application.
+"""
+
 import sqlite_utils
+
 from .config import Config
 
 
@@ -84,4 +89,3 @@ def init_db(db: sqlite_utils.Database) -> None:
             print("Initialized database table: page_versions")
         except Exception as e:
             print(f"Error creating page_versions table: {e}")
-

@@ -1,3 +1,7 @@
+"""
+CLI Module for the Knowledge Base Web Importer application.
+"""
+
 import typer
 import uvicorn
 

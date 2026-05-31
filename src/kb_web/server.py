@@ -1,36 +1,26 @@
-from datetime import datetime
+"""
+Server entry point for the Knowledge Base Web Importer application.
+"""
+
 import hashlib
 import json
-import os
 import secrets
-import sqlite_utils
 import time
-from typing import Optional, AsyncGenerator
-from urllib.parse import urlparse, urljoin, quote_plus, unquote_plus
+from datetime import datetime
+from typing import AsyncGenerator, Optional
+from urllib.parse import quote_plus, unquote_plus, urljoin, urlparse
 
-from fastapi import (
-    FastAPI,
-    Form,
-    Request,
-    Query,
-    Depends,
-    HTTPException,
-    BackgroundTasks,
-    WebSocket,
-    WebSocketDisconnect,
-)
-from fastapi.responses import (
-    HTMLResponse,
-    RedirectResponse,
-    JSONResponse,
-    StreamingResponse,
-)
-from html2text import HTML2Text
 import httpx
 import jinja2
 import markdown
 import ollama
+import sqlite_utils
 from bs4 import BeautifulSoup  # type: ignore
+from fastapi import (BackgroundTasks, Depends, FastAPI, Form, HTTPException,
+                     Query, Request, WebSocket, WebSocketDisconnect)
+from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
+                               StreamingResponse)
+from html2text import HTML2Text
 from pydantic import BaseModel
 
 from .config import Config
@@ -380,8 +370,7 @@ def handle_login(password: str = Form(...)) -> HTMLResponse | RedirectResponse:
 
     return HTMLResponse(
         content=_jinja_env.get_template("login.j2.html").render(
-            error="Invalid security credentials.",
-            is_admin=False
+            error="Invalid security credentials.", is_admin=False
         )
     )
 
@@ -536,7 +525,9 @@ def handle_incoming_mobile_share(
         target_link = target_link[start_idx:].split()[0]
 
     template = _jinja_env.get_template("url_import.j2.html")
-    return HTMLResponse(content=template.render(prefilled_url=target_link, is_admin=True))
+    return HTMLResponse(
+        content=template.render(prefilled_url=target_link, is_admin=True)
+    )
 
 
 @app.post("/import/url", dependencies=[Depends(verify_auth)], response_model=None)
@@ -689,9 +680,7 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
         first_line = wiki_entry.strip().split("\n")[0]
         title = first_line.replace("#", "").strip()
 
-    db["fetched_pages"].update(
-        decoded_url, {"description": wiki_entry, "title": title}
-    )
+    db["fetched_pages"].update(decoded_url, {"description": wiki_entry, "title": title})
     return RedirectResponse(
         url=f"/view/page?url={quote_plus(decoded_url)}", status_code=303
     )
@@ -870,7 +859,9 @@ def handle_delete_page(url: str = Form(...)) -> RedirectResponse:
         db["fetched_pages"].delete(url)
         if "page_versions" in db.table_names():
             db.execute("DELETE FROM page_versions WHERE url = ?", [url])
-        print(f"Administrative Delete: Removed {url} and all archived versions from database.")
+        print(
+            f"Administrative Delete: Removed {url} and all archived versions from database."
+        )
     except sqlite_utils.db.NotFoundError:
         raise HTTPException(status_code=404, detail="Target page profile not found.")
     return RedirectResponse(url="/", status_code=303)
@@ -1041,9 +1032,7 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
             tags=[],
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Failed to parse page HTML: {e}"
-        )
+        raise HTTPException(status_code=400, detail=f"Failed to parse page HTML: {e}")
 
     # Ingest wiki summary using LLM
     wiki_entry = extract_wiki_content(page_data)
