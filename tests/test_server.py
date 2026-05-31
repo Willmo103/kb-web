@@ -149,3 +149,80 @@ def test_api_html_import(client: TestClient, monkeypatch) -> None:
     assert row["title"] == "Extracted Title"
     assert "Extracted Title" in row["description"]
     assert row["tags"] is not None
+
+
+def test_admin_only_features_and_deletion(client: TestClient) -> None:
+    """Verifies that wiki / tag regeneration, manual tag editing, and page deletion are protected and only shown to admin."""
+    # 1. Insert a page into the database
+    db = get_db(server_config)
+    page_data = {
+        "url": "https://example.com/testpage",
+        "title": "A Test Page Title",
+        "html_content": "<html><body>Hello Test</body></html>",
+        "md_content": "Hello Test",
+        "links": '["/another"]',
+        "html_content_hash": "hash1",
+        "md_content_hash": "hash2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "description": "This is a wiki summary description.",
+        "keywords": '["test"]',
+        "tags": '["tag-one", "tag-two"]'
+    }
+    db["fetched_pages"].insert(page_data)
+
+    # 2. View page as non-admin (without cookies)
+    response = client.get("/view/page?url=https://example.com/testpage")
+    assert response.status_code == 200
+    assert "A Test Page Title" in response.text
+    assert "This is a wiki summary description." in response.text
+    assert "tag-one" in response.text
+    # Admin actions should not be visible
+    assert "Regenerate Wiki" not in response.text
+    assert "Regenerate Tags" not in response.text
+    assert "Delete Entry" not in response.text
+    assert "Edit Tags" not in response.text
+
+    # 3. Attempt deletion without auth (before logging in to avoid cookie persistence)
+    del_fail = client.post(
+        "/admin/delete/page",
+        data={"url": "https://example.com/testpage"},
+        follow_redirects=False
+    )
+    assert del_fail.status_code == 303  # redirects to login
+    assert db["fetched_pages"].get("https://example.com/testpage") is not None
+
+    # 4. Log in as admin
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    assert login_resp.status_code == 303
+    session_cookie = login_resp.cookies.get("kb_session")
+    assert session_cookie is not None
+
+    # 5. View page as admin
+    response_admin = client.get(
+        "/view/page?url=https://example.com/testpage"
+    )
+    assert response_admin.status_code == 200
+    # Admin actions should be visible
+    assert "Regenerate Wiki" in response_admin.text
+    assert "Regenerate Tags" in response_admin.text
+    assert "Delete Entry" in response_admin.text
+    assert "Edit Tags" in response_admin.text
+
+    # 6. Attempt deletion with auth
+    del_success = client.post(
+        "/admin/delete/page",
+        data={"url": "https://example.com/testpage"},
+        follow_redirects=False
+    )
+    assert del_success.status_code == 303
+    assert del_success.headers["location"] == "/pages"
+
+    # Verify deleted
+    import sqlite_utils
+    with pytest.raises(sqlite_utils.db.NotFoundError):
+        db["fetched_pages"].get("https://example.com/testpage")
+

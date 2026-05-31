@@ -22,6 +22,7 @@
         </div>
 
         <div class="flex flex-wrap gap-2 items-center">
+            {% if is_admin %}
             <form action="/admin/regenerate/wiki?url={{ page.safe_url }}" method="post" class="m-0">
                 <button type="submit" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm whitespace-nowrap">
                     🔄 Regenerate Wiki
@@ -32,6 +33,13 @@
                     🏷️ Regenerate Tags
                 </button>
             </form>
+            <form action="/admin/delete/page" method="post" onsubmit="return confirm('Are you sure you want to permanently delete this entry?');" class="m-0">
+                <input type="hidden" name="url" value="{{ page.url }}" />
+                <button type="submit" class="text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold py-2 px-3 border border-red-200 rounded transition shadow-sm whitespace-nowrap">
+                    🗑️ Delete Entry
+                </button>
+            </form>
+            {% endif %}
             <button onclick="shareWikiPage()" class="text-xs bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-2 px-3 border border-gray-200 rounded transition shadow-sm whitespace-nowrap">
                 📤 Share Link
             </button>
@@ -50,14 +58,17 @@
                 <span class="text-xs text-gray-400 italic">No tags assigned.</span>
             {% endif %}
         </div>
+        {% if is_admin %}
         <div>
             <button onclick="toggleEditTagsForm()" class="text-xs font-bold text-gray-600 hover:text-gray-900 border border-gray-200 bg-white py-1.5 px-3 rounded shadow-sm hover:shadow transition">
                 ✏️ Edit Tags
             </button>
         </div>
+        {% endif %}
     </div>
 
     <!-- Manual Tags form segment (toggled by JavaScript) -->
+    {% if is_admin %}
     <div id="editTagsForm" class="hidden bg-white p-5 rounded-lg border border-gray-200 mb-6 shadow-inner">
         <form action="/admin/update/tags" method="post" class="flex flex-col gap-3">
             <input type="hidden" name="url" value="{{ page.url }}" />
@@ -71,6 +82,7 @@
             </div>
         </form>
     </div>
+    {% endif %}
 
     <!-- Clean wiki page content -->
     <div class="bg-white p-8 rounded-lg shadow-sm border border-gray-200 mb-6">

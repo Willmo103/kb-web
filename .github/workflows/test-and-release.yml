@@ -1,0 +1,56 @@
+name: Test and Release
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  test-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run tests
+        run: |
+          uv sync
+          uv run pytest
+
+      - name: Bump version and push tag
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Bump project patch version
+          uv version --bump patch
+          NEW_VERSION=$(uv version --short)
+          
+          # Stage and commit version changes
+          git add pyproject.toml uv.lock
+          git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
+          
+          # Tag the release
+          git tag "v$NEW_VERSION"
+          
+          # Push the commit and the tags back to the active branch
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          git push origin HEAD:$BRANCH_NAME --follow-tags

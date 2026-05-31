@@ -413,10 +413,11 @@ def view_all_pages() -> HTMLResponse:
 
 
 @app.get("/view/page", response_class=HTMLResponse)
-def view_saved_page(url: str = Query(...)) -> HTMLResponse:
+def view_saved_page(request: Request, url: str = Query(...)) -> HTMLResponse:
     """Renders the AI-cleaned or raw markdown page view as rendered HTML.
 
     Args:
+        request (Request): FastAPI request context.
         url (str): Key matching requested page.
 
     Returns:
@@ -432,12 +433,21 @@ def view_saved_page(url: str = Query(...)) -> HTMLResponse:
             content="<h1>Wiki Article Profile Missing</h1>", status_code=404
         )
 
+    # Check if user is logged in as an administrator
+    clear_expired_tokens()
+    token = request.cookies.get(COOKIE_NAME)
+    is_admin = token in ACTIVE_SESSIONS and ACTIVE_SESSIONS[token] >= time.time()
+
     rendered_wiki_html = markdown.markdown(
         page_obj.description or "", extensions=["fenced_code", "tables"]
     )
     template = _jinja_env.get_template("view_page.j2.html")
     return HTMLResponse(
-        content=template.render(page=page_obj, rendered_wiki_html=rendered_wiki_html)
+        content=template.render(
+            page=page_obj,
+            rendered_wiki_html=rendered_wiki_html,
+            is_admin=is_admin,
+        )
     )
 
 
@@ -685,6 +695,27 @@ def handle_update_tags(
     tags = [t.strip().lower() for t in tags_csv.split(",") if t.strip()]
     db["fetched_pages"].update(url, {"tags": json.dumps(tags)})
     return RedirectResponse(url=f"/view/page?url={quote_plus(url)}", status_code=303)
+
+
+@app.post(
+    "/admin/delete/page", dependencies=[Depends(verify_auth)], response_model=None
+)
+def handle_delete_page(url: str = Form(...)) -> RedirectResponse:
+    """Deletes an ingested page profile from the database.
+
+    Args:
+        url (str): target page URL to remove.
+
+    Returns:
+        RedirectResponse: Redirection back to main archive library list.
+    """
+    db = _get_db()
+    try:
+        db["fetched_pages"].delete(url)
+        print(f"Administrative Delete: Removed {url} from fetched_pages table.")
+    except sqlite_utils.db.NotFoundError:
+        raise HTTPException(status_code=404, detail="Target page profile not found.")
+    return RedirectResponse(url="/pages", status_code=303)
 
 
 @app.post("/admin/trigger-describe", dependencies=[Depends(verify_auth)])
