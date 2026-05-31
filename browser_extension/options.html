@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+  <head>
+    <title>KB Ingest Settings</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background-color: #fdf6e3;
+        color: #586e75;
+        padding: 24px;
+        width: 320px;
+        margin: 0;
+        box-sizing: border-box;
+      }
+      h3 {
+        color: #cb4b16; /* Retro Orange accent */
+        margin-top: 0;
+        margin-bottom: 16px;
+        font-size: 16px;
+        border-bottom: 2px solid #eee8d5;
+        padding-bottom: 8px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      label {
+        display: block;
+        margin-top: 16px;
+        font-weight: bold;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #657b83;
+      }
+      input {
+        width: 100%;
+        padding: 10px;
+        margin-top: 6px;
+        background-color: #eee8d5;
+        border: 1px solid #93a1a1;
+        color: #586e75;
+        border-radius: 4px;
+        font-size: 13px;
+        font-family: monospace;
+        box-sizing: border-box;
+        transition: border-color 0.2s ease;
+      }
+      input:focus {
+        outline: none;
+        border-color: #cb4b16;
+      }
+      button {
+        width: 100%;
+        margin-top: 24px;
+        padding: 12px;
+        background-color: #cb4b16;
+        color: #fdf6e3;
+        border: none;
+        font-weight: bold;
+        border-radius: 4px;
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        transition: background-color 0.2s ease;
+      }
+      button:hover {
+        background-color: #b58900; /* Solarized Gold hover */
+      }
+      #status {
+        color: #859900; /* Green success alert */
+        margin-top: 12px;
+        font-size: 12px;
+        font-weight: bold;
+        text-align: center;
+        min-height: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>KB Ingest Settings</h3>
+
+    <label for="endpoint">FastAPI API Endpoint URL:</label>
+    <input
+      type="text"
+      id="endpoint"
+      placeholder="http://localhost:8050/api/import/html"
+    />
+
+    <label for="apiKey">Ingestion API Key:</label>
+    <input type="password" id="apiKey" placeholder="e.g. secret-api-key" />
+
+    <button id="save">Save Configurations</button>
+    <div id="status"></div>
+
+    <script src="options.js"></script>
+  </body>
+</html>

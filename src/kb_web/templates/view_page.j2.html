@@ -1,6 +1,6 @@
 {% extends "base.j2.html" %}
 
-{% block title %}KB Viewer | {{ page.url[:30] }}...{% endblock %}
+{% block title %}KB Viewer | {{ page.title or page.url[:30] }}{% endblock %}
 
 {% block extra_head %}
 <link href="https://cdn.jsdelivr.net/npm/@tailwindcss/typography@0.4.1/dist/typography.min.css" rel="stylesheet">
@@ -9,23 +9,77 @@
 {% block content %}
 <div class="container mx-auto px-4 max-w-4xl pb-8">
 
-    <div class="flex justify-between items-center mb-6">
+    <!-- Header profile segment -->
+    <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6 border-b pb-4 border-gray-200">
         <div class="truncate mr-4">
             <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Engine Wiki Storage File</span>
-            <h1 class="text-lg font-bold text-gray-900 truncate">{{ page.url }}</h1>
+            <h1 class="text-xl font-extrabold text-gray-900 truncate mt-0.5">{{ page.title or page.url }}</h1>
+            {% if page.title and page.title != page.url %}
+            <p class="text-xs text-gray-400 truncate mt-0.5">
+                Target: <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono">{{ page.url }}</a>
+            </p>
+            {% endif %}
         </div>
 
-        <button onclick="shareWikiPage()" class="text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium py-2 px-4 border border-indigo-200 rounded transition shadow-sm whitespace-nowrap flex items-center gap-2">
-            <span>📤</span> Share Link
-        </button>
+        <div class="flex flex-wrap gap-2 items-center">
+            <form action="/admin/regenerate/wiki?url={{ page.safe_url }}" method="post" class="m-0">
+                <button type="submit" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm whitespace-nowrap">
+                    🔄 Regenerate Wiki
+                </button>
+            </form>
+            <form action="/admin/regenerate/tags?url={{ page.safe_url }}" method="post" class="m-0">
+                <button type="submit" class="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold py-2 px-3 border border-amber-200 rounded transition shadow-sm whitespace-nowrap">
+                    🏷️ Regenerate Tags
+                </button>
+            </form>
+            <button onclick="shareWikiPage()" class="text-xs bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-2 px-3 border border-gray-200 rounded transition shadow-sm whitespace-nowrap">
+                📤 Share Link
+            </button>
+        </div>
     </div>
 
+    <!-- Tags display and manual editing trigger -->
+    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-sm">
+        <div class="flex flex-wrap gap-1.5 items-center">
+            <span class="text-xs font-bold text-gray-500 uppercase tracking-wider mr-2">Tags:</span>
+            {% if page.tags %}
+                {% for tag in page.tags %}
+                <span class="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded border border-yellow-200 font-mono">{{ tag }}</span>
+                {% endfor %}
+            {% else %}
+                <span class="text-xs text-gray-400 italic">No tags assigned.</span>
+            {% endif %}
+        </div>
+        <div>
+            <button onclick="toggleEditTagsForm()" class="text-xs font-bold text-gray-600 hover:text-gray-900 border border-gray-200 bg-white py-1.5 px-3 rounded shadow-sm hover:shadow transition">
+                ✏️ Edit Tags
+            </button>
+        </div>
+    </div>
+
+    <!-- Manual Tags form segment (toggled by JavaScript) -->
+    <div id="editTagsForm" class="hidden bg-white p-5 rounded-lg border border-gray-200 mb-6 shadow-inner">
+        <form action="/admin/update/tags" method="post" class="flex flex-col gap-3">
+            <input type="hidden" name="url" value="{{ page.url }}" />
+            <div>
+                <label for="tags_csv" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Configure Tags (Comma-Separated)</label>
+                <input type="text" name="tags_csv" id="tags_csv" value="{{ page.tags | join(', ') }}" class="block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="e.g. coding, database, tutorial" />
+            </div>
+            <div class="flex justify-end gap-2">
+                <button type="button" onclick="toggleEditTagsForm()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded transition">Cancel</button>
+                <button type="submit" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded transition">Save Tags</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Clean wiki page content -->
     <div class="bg-white p-8 rounded-lg shadow-sm border border-gray-200 mb-6">
         <div class="prose max-w-none">
             {{ rendered_wiki_html | safe }}
         </div>
     </div>
 
+    <!-- Raw content viewer detail -->
     <details class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden group">
         <summary class="bg-gray-100 px-6 py-3 font-semibold text-sm text-gray-700 cursor-pointer select-none group-hover:bg-gray-200 transition">
             📋 View Raw Extracted Markdown Content Context
@@ -38,8 +92,12 @@
 </div>
 
 <script>
+    function toggleEditTagsForm() {
+        const form = document.getElementById('editTagsForm');
+        form.classList.toggle('hidden');
+    }
+
     function shareWikiPage() {
-        // Use the native OS share sheet if available (mobile/modern browsers)
         if (navigator.share) {
             navigator.share({
                 title: 'Knowledge Base Wiki Entry',
@@ -47,7 +105,6 @@
                 url: window.location.href
             }).catch((error) => console.log('Sharing failed', error));
         } else {
-            // Fallback for older browsers or desktop environments
             navigator.clipboard.writeText(window.location.href).then(() => {
                 alert("Article link copied to clipboard!");
             });

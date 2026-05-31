@@ -30,6 +30,7 @@ import jinja2
 import markdown
 import ollama
 from bs4 import BeautifulSoup  # type: ignore
+from pydantic import BaseModel
 
 from .config import Config
 from .db import get_db
@@ -41,10 +42,8 @@ app = FastAPI(title="Knowledge Base Web Importer")
 config = Config()
 
 # Set up Jinja2 environment utilizing PackageLoader for clean packaging
+_jinja_env = jinja2.Environment(loader=jinja2.Environment().loader)
 _jinja_env = jinja2.Environment(loader=jinja2.PackageLoader("kb_web", "templates"))
-
-# Set up Ollama Client using configured host
-_client = ollama.Client(host=config.ollama_host)
 
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -59,6 +58,14 @@ ACTIVE_SESSIONS: dict[str, float] = {}
 SESSION_EXPIRATION_SECONDS = 3600 * 24  # 24 hours
 
 
+DEFAULT_TAGS_PROMPT = (
+    "You are a professional categorization assistant. Analyze the following web page content "
+    "and generate a list of 5 to 10 relevant tags, keywords, or labels for cataloging it. "
+    "Respond ONLY with a comma-separated list of tags (e.g., 'python, web-development, tutorial'). "
+    "Do not reply with any filler headers, introductory remarks, or formatting."
+)
+
+
 def _get_db():
     """Helper dependency to retrieve a clean database handle.
 
@@ -66,6 +73,15 @@ def _get_db():
         sqlite_utils.Database: Connection wrapper to ~/.kb/kb.db.
     """
     return get_db(config)
+
+
+def _get_ollama_client() -> ollama.Client:
+    """Helper to dynamically instantiate the Ollama client based on configured host.
+
+    Returns:
+        ollama.Client: Dynamic client instance.
+    """
+    return ollama.Client(host=config.ollama_host)
 
 
 def clear_expired_tokens() -> None:
@@ -91,6 +107,30 @@ def verify_auth(request: Request) -> None:
     if not token or token not in ACTIVE_SESSIONS:
         # Redirect directly to login form
         raise HTTPException(status_code=303, headers={"Location": "/login"})
+
+
+def verify_api_key(request: Request) -> None:
+    """Security guard verifying API Key header matching KB_API_KEY.
+
+    Args:
+        request (Request): Incoming FastAPI HTTP request.
+
+    Raises:
+        HTTPException: 401 Unauthorized if API key is invalid or missing.
+    """
+    api_key_header = request.headers.get("X-API-Key")
+    if not api_key_header:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            api_key_header = auth_header[7:]
+        else:
+            api_key_header = auth_header
+
+    if config.api_key:
+        if api_key_header != config.api_key:
+            raise HTTPException(
+                status_code=401, detail="Unauthorized: Invalid API key."
+            )
 
 
 # --- Public Web Share Target Metadata Endpoints ---
@@ -187,6 +227,7 @@ def fetch_url(url: str) -> HTMLPage:
 
         return HTMLPage(
             url=url,
+            title=url,
             html_content=html_content,
             md_content=md_content,
             links=links,
@@ -195,6 +236,7 @@ def fetch_url(url: str) -> HTMLPage:
             fetched_at=datetime.now().isoformat(),
             description="",
             keywords=[],
+            tags=[],
         )
     except Exception as e:
         raise RuntimeError(f"Failed to cleanly convert webpage elements: {str(e)}")
@@ -209,18 +251,12 @@ def extract_wiki_content(html_page: HTMLPage) -> str:
     Returns:
         str: Summarized or cleaned Markdown wiki entry.
     """
-    sys_prompt = (
-        "You are an expert knowledge-base engineer. Extract the core informational content "
-        "from the provided web page markdown and rewrite it as a clean, highly structured, "
-        "and objective wiki entry. Strip out all ads, clickbait, sidebars, navigation links, cookie banners, "
-        "and user comments. Keep only the valuable data, analysis, code blocks, or technical tutorials. "
-        "Output ONLY the final markdown text. Do not reply with conversational filler headers."
-    )
     try:
-        response = _client.chat(
-            model="gemma4:latest",
+        client = _get_ollama_client()
+        response = client.chat(
+            model=config.ollama_model,
             messages=[
-                {"role": "system", "content": sys_prompt},
+                {"role": "system", "content": config.wiki_prompt},
                 {
                     "role": "user",
                     "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{html_page.md_content}",
@@ -231,6 +267,35 @@ def extract_wiki_content(html_page: HTMLPage) -> str:
     except Exception as e:
         print(f"Ollama extraction failed: {e}")
         return f"# Ingestion Backup \n\nAI Processing skipped or failed. Raw layout captured below.\n\n {html_page.md_content[:2000]}"
+
+
+def extract_tags_content(html_page: HTMLPage) -> list[str]:
+    """Queries Ollama to extract descriptive tags from markdown content.
+
+    Args:
+        html_page (HTMLPage): Input page model.
+
+    Returns:
+        list[str]: Array of extracted tags.
+    """
+    try:
+        client = _get_ollama_client()
+        response = client.chat(
+            model=config.ollama_model,
+            messages=[
+                {"role": "system", "content": DEFAULT_TAGS_PROMPT},
+                {
+                    "role": "user",
+                    "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{html_page.md_content}",
+                },
+            ],
+        )
+        tags_str = response.message.content
+        tags = [t.strip().lower() for t in tags_str.split(",") if t.strip()]
+        return [t for t in tags if t]
+    except Exception as e:
+        print(f"Ollama tagging failed: {e}")
+        return []
 
 
 def post_to_gotify(page: HTMLPage, view_url: str) -> None:
@@ -324,7 +389,7 @@ def handle_login(password: str = Form(...)) -> HTMLResponse | RedirectResponse:
 
 @app.get("/pages", response_class=HTMLResponse)
 def view_all_pages() -> HTMLResponse:
-    """Lists historically captured records, showing parsed information tiles.
+    """Lists historically captured records, showing parsed title tags or links.
 
     Returns:
         HTMLResponse: Grid page list.
@@ -446,6 +511,21 @@ def handle_url_import(
     wiki_entry = extract_wiki_content(page_data)
     page_data.description = wiki_entry
 
+    title = url
+    soup = BeautifulSoup(page_data.html_content, "html5lib")
+    if soup.title:
+        title = soup.title.string
+    if not title:
+        title = urlparse(url).netloc or url
+
+    if wiki_entry.strip().startswith("#"):
+        first_line = wiki_entry.strip().split("\n")[0]
+        title = first_line.replace("#", "").strip()
+
+    page_data.title = title
+    tags = extract_tags_content(page_data)
+    page_data.tags = tags
+
     base_url = str(request.base_url).rstrip("/")
     view_url = f"{base_url}/view/page?url={page_data.safe_url}"
 
@@ -453,6 +533,7 @@ def handle_url_import(
     serialized = page_data.model_dump()
     serialized["links"] = json.dumps(serialized["links"])
     serialized["keywords"] = json.dumps(serialized["keywords"])
+    serialized["tags"] = json.dumps(serialized["tags"])
 
     db["fetched_pages"].upsert(serialized, pk="url")
     post_to_gotify(page_data, view_url)
@@ -481,8 +562,129 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
 
     template = _jinja_env.get_template("admin.j2.html")
     return HTMLResponse(
-        content=template.render(unprocessed_count=count, completion_message=msg)
+        content=template.render(
+            unprocessed_count=count, completion_message=msg, config=config
+        )
     )
+
+
+@app.post("/admin/config", dependencies=[Depends(verify_auth)], response_model=None)
+def handle_config_update(
+    ollama_host: str = Form(...),
+    ollama_model: str = Form(...),
+    api_key: str = Form(None),
+    gotify_url: str = Form(None),
+    gotify_token: str = Form(None),
+    wiki_prompt: str = Form(...),
+) -> RedirectResponse:
+    """Saves updated server settings (Ollama and Gotify parameters) to config file.
+
+    Args:
+        ollama_host (str): host endpoint.
+        ollama_model (str): LLM model name.
+        api_key (str): Chrome extension credential.
+        gotify_url (str): Gotify url endpoint.
+        gotify_token (str): Gotify application token.
+        wiki_prompt (str): System prompt.
+
+    Returns:
+        RedirectResponse: Redirection to admin panel with success feedback message.
+    """
+    config.ollama_host = ollama_host
+    config.ollama_model = ollama_model
+    config.api_key = api_key
+    config.gotify_url = gotify_url or None
+    config.gotify_token = gotify_token or None
+    config.wiki_prompt = wiki_prompt
+    config.save()
+
+    return RedirectResponse(
+        url="/admin?msg=Configurations+successfully+saved+and+reloaded.",
+        status_code=303,
+    )
+
+
+@app.post(
+    "/admin/regenerate/wiki", dependencies=[Depends(verify_auth)], response_model=None
+)
+def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
+    """Triggers the Ollama wiki page re-generation process for a page.
+
+    Args:
+        url (str): target article URL.
+
+    Returns:
+        RedirectResponse: Redirects to the viewing portal.
+    """
+    db = _get_db()
+    decoded_url = unquote_plus(url)
+    try:
+        row = db["fetched_pages"].get(decoded_url)
+        page_obj = HTMLPage(**row)
+    except sqlite_utils.db.NotFoundError:
+        raise HTTPException(status_code=404, detail="Ingested page profile missing.")
+
+    wiki_entry = extract_wiki_content(page_obj)
+
+    title = page_obj.title or page_obj.url
+    if wiki_entry.strip().startswith("#"):
+        first_line = wiki_entry.strip().split("\n")[0]
+        title = first_line.replace("#", "").strip()
+
+    db["fetched_pages"].update(
+        decoded_url, {"description": wiki_entry, "title": title}
+    )
+    return RedirectResponse(
+        url=f"/view/page?url={quote_plus(decoded_url)}", status_code=303
+    )
+
+
+@app.post(
+    "/admin/regenerate/tags", dependencies=[Depends(verify_auth)], response_model=None
+)
+def handle_regenerate_tags(url: str = Query(...)) -> RedirectResponse:
+    """Triggers the Ollama tags extraction routine for a page.
+
+    Args:
+        url (str): target article URL.
+
+    Returns:
+        RedirectResponse: Redirects to the viewing portal.
+    """
+    db = _get_db()
+    decoded_url = unquote_plus(url)
+    try:
+        row = db["fetched_pages"].get(decoded_url)
+        page_obj = HTMLPage(**row)
+    except sqlite_utils.db.NotFoundError:
+        raise HTTPException(status_code=404, detail="Ingested page profile missing.")
+
+    tags = extract_tags_content(page_obj)
+    db["fetched_pages"].update(decoded_url, {"tags": json.dumps(tags)})
+    return RedirectResponse(
+        url=f"/view/page?url={quote_plus(decoded_url)}", status_code=303
+    )
+
+
+@app.post(
+    "/admin/update/tags", dependencies=[Depends(verify_auth)], response_model=None
+)
+def handle_update_tags(
+    url: str = Form(...), tags_csv: str = Form(...)
+) -> RedirectResponse:
+    """Receives manually configured tags list from UI form and logs to database.
+
+    Args:
+        url (str): target page URL.
+        tags_csv (str): Comma separated tag labels.
+
+    Returns:
+        RedirectResponse: Redirects to the viewing portal.
+    """
+    db = _get_db()
+    tags = [t.strip().lower() for t in tags_csv.split(",") if t.strip()]
+    db["fetched_pages"].update(url, {"tags": json.dumps(tags)})
+    return RedirectResponse(url=f"/view/page?url={quote_plus(url)}", status_code=303)
 
 
 @app.post("/admin/trigger-describe", dependencies=[Depends(verify_auth)])
@@ -571,6 +773,7 @@ async def websocket_import(websocket: WebSocket) -> None:
                 serialized = page_obj.model_dump()
                 serialized["links"] = json.dumps(serialized["links"])
                 serialized["keywords"] = json.dumps(serialized["keywords"])
+                serialized["tags"] = json.dumps(serialized["tags"])
                 db["fetched_pages"].upsert(serialized, pk="url")
                 success_count += 1
             except Exception as e:
@@ -591,3 +794,95 @@ async def websocket_import(websocket: WebSocket) -> None:
             await websocket.close(code=1011)
         except Exception:
             pass
+
+
+# --- SPECIFIC API ENDPOINT FOR BROWSER EXTENSION ---
+
+
+class HTMLImportPayload(BaseModel):
+    url: str
+    html_content: str
+    title: Optional[str] = None
+
+
+@app.post(
+    "/api/import/html", dependencies=[Depends(verify_api_key)], response_model=None
+)
+def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
+    """Accepts raw HTML posts directly from browser extensions and processes them.
+
+    Args:
+        payload (HTMLImportPayload): Input parameters (url and HTML string).
+        request (Request): FastAPI request context.
+
+    Returns:
+        dict: Ingestion success payload.
+    """
+    db = _get_db()
+    try:
+        html_content = payload.html_content
+        url = payload.url
+
+        h = HTML2Text()
+        h.ignore_links = True
+        md_content = h.handle(html_content)
+
+        soup = BeautifulSoup(html_content, "html5lib")
+        links = [a.get("href") for a in soup.find_all("a", href=True)]
+        links = [urljoin(url, link) if link.startswith("/") else link for link in links]
+
+        # Extract pre-assigned title or page default title tag if available
+        title = payload.title
+        if not title and soup.title:
+            title = soup.title.string
+        if not title:
+            title = urlparse(url).netloc or url
+
+        page_data = HTMLPage(
+            url=url,
+            title=title,
+            html_content=html_content,
+            md_content=md_content,
+            links=links,
+            html_content_hash=hashlib.sha256(html_content.encode("utf-8")).hexdigest(),
+            md_content_hash=hashlib.sha256(md_content.encode("utf-8")).hexdigest(),
+            fetched_at=datetime.now().isoformat(),
+            description="",
+            keywords=[],
+            tags=[],
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to parse page HTML: {e}"
+        )
+
+    # Ingest wiki summary using LLM
+    wiki_entry = extract_wiki_content(page_data)
+    page_data.description = wiki_entry
+
+    # Extract title from markdown H1 if available
+    if wiki_entry.strip().startswith("#"):
+        first_line = wiki_entry.strip().split("\n")[0]
+        title = first_line.replace("#", "").strip()
+
+    page_data.title = title
+
+    # Automatically generate tags
+    tags = extract_tags_content(page_data)
+    page_data.tags = tags
+
+    base_url = str(request.base_url).rstrip("/")
+    view_url = f"{base_url}/view/page?url={page_data.safe_url}"
+
+    # Dump properties to database
+    serialized = page_data.model_dump()
+    serialized["links"] = json.dumps(serialized["links"])
+    serialized["keywords"] = json.dumps(serialized["keywords"])
+    serialized["tags"] = json.dumps(serialized["tags"])
+
+    db["fetched_pages"].upsert(serialized, pk="url")
+
+    # Send dynamic Gotify push notification using the configured settings
+    post_to_gotify(page_data, view_url)
+
+    return {"status": "success", "url": url, "view_url": view_url}

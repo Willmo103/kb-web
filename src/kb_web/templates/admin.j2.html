@@ -19,9 +19,35 @@
             <div>
                 <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Server Configurations</h3>
                 <p class="text-sm text-gray-500 mb-4">General server flags, Ollama host routing, and environment parameters.</p>
-                <div class="bg-gray-50 p-4 rounded border border-gray-100 text-center">
-                    <span class="text-xs text-gray-400 italic">Settings schema implementation pending future release.</span>
-                </div>
+                <form action="/admin/config" method="post" class="space-y-4">
+                    <div>
+                        <label for="ollama_host" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Ollama Host URL</label>
+                        <input type="text" name="ollama_host" id="ollama_host" value="{{ config.ollama_host }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required />
+                    </div>
+                    <div>
+                        <label for="ollama_model" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Ollama Model</label>
+                        <input type="text" name="ollama_model" id="ollama_model" value="{{ config.ollama_model }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required />
+                    </div>
+                    <div>
+                        <label for="api_key" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Browser Extension API Key</label>
+                        <input type="text" name="api_key" id="api_key" value="{{ config.api_key or '' }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="API key (leave blank to disable auth)" />
+                    </div>
+                    <div>
+                        <label for="gotify_url" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Gotify Server URL</label>
+                        <input type="text" name="gotify_url" id="gotify_url" value="{{ config.gotify_url or '' }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="e.g. http://gotify.local" />
+                    </div>
+                    <div>
+                        <label for="gotify_token" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Gotify App Token</label>
+                        <input type="text" name="gotify_token" id="gotify_token" value="{{ config.gotify_token or '' }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="e.g. A1B2C3D4" />
+                    </div>
+                    <div>
+                        <label for="wiki_prompt" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Wiki Extraction System Prompt</label>
+                        <textarea name="wiki_prompt" id="wiki_prompt" rows="5" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required>{{ config.wiki_prompt }}</textarea>
+                    </div>
+                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded transition shadow-sm">
+                        Save Configurations
+                    </button>
+                </form>
             </div>
         </div>
 

@@ -19,7 +19,8 @@ def get_db(config: Config) -> sqlite_utils.Database:
 def init_db(db: sqlite_utils.Database) -> None:
     """Checks for the presence of the `fetched_pages` table and initializes
 
-    its schema if it is missing.
+    its schema if it is missing. Runs schema migrations to append title and
+    tags columns if they are not already present in the table.
 
     Args:
         db (sqlite_utils.Database): Database object to check and initialize.
@@ -29,6 +30,7 @@ def init_db(db: sqlite_utils.Database) -> None:
         db["fetched_pages"].create(
             {
                 "url": str,
+                "title": str,  # Page title (assigned during wiki generation)
                 "html_content": str,
                 "md_content": str,
                 "links": str,  # JSON-encoded array of URLs
@@ -37,7 +39,24 @@ def init_db(db: sqlite_utils.Database) -> None:
                 "fetched_at": str,
                 "description": str,  # Ingestion summary or wiki content
                 "keywords": str,  # JSON-encoded array of strings
+                "tags": str,  # JSON-encoded array of tags/labels
             },
             pk="url",
         )
         print("Initialized database table: fetched_pages")
+    else:
+        # Schema migration helper for existing databases
+        columns = db["fetched_pages"].columns_dict
+        if "title" not in columns:
+            try:
+                db["fetched_pages"].add_column("title", str)
+                print("Schema Migration: Added 'title' column to fetched_pages table.")
+            except Exception as e:
+                print(f"Error migrating database (adding title column): {e}")
+
+        if "tags" not in columns:
+            try:
+                db["fetched_pages"].add_column("tags", str)
+                print("Schema Migration: Added 'tags' column to fetched_pages table.")
+            except Exception as e:
+                print(f"Error migrating database (adding tags column): {e}")
