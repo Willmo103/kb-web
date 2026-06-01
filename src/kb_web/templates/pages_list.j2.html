@@ -17,6 +17,27 @@
         {% endif %}
     </div>
 
+    <!-- Search Form -->
+    <div class="mb-6">
+        <form method="GET" action="/" class="flex gap-2">
+            <input 
+                type="text" 
+                name="q" 
+                placeholder="Search by title or tag..." 
+                value="{{ q }}" 
+                class="flex-grow px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm shadow-sm bg-white"
+            >
+            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg text-sm transition shadow-sm">
+                Search
+            </button>
+            {% if q %}
+            <a href="/" class="bg-gray-150 hover:bg-gray-200 text-gray-700 font-medium py-2 px-4 rounded-lg text-sm transition flex items-center border border-gray-200 shadow-sm">
+                Clear
+            </a>
+            {% endif %}
+        </form>
+    </div>
+
     {% if not pages %}
     <div class="bg-white border border-gray-200 rounded-lg p-12 text-center shadow-sm">
         <p class="text-gray-500 text-sm">No wiki articles inside system. Submit items to populate table context indices.</p>
@@ -41,6 +62,15 @@
                 <p class="text-xs text-gray-400 truncate mt-0.5">
                     <a href="{{ page.url }}" target="_blank" class="hover:underline">{{ page.url }}</a>
                 </p>
+                {% endif %}
+                {% if page.tags %}
+                <div class="flex flex-wrap gap-1.5 mt-2">
+                    {% for tag in page.tags %}
+                    <span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full border border-indigo-100">
+                        {{ tag }}
+                    </span>
+                    {% endfor %}
+                </div>
                 {% endif %}
             </div>
             <a href="/view/page?url={{ page.safe_url }}" class="bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-medium py-2 px-3 border border-gray-200 rounded transition whitespace-nowrap">

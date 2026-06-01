@@ -1,4 +1,4 @@
-# kb-web
+# <img src="assets/kb-web-icon.svg" width="48" height="48" valign="middle" style="margin-right: 10px;"/> kb-web
 
 A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosystem. It provides a FastAPI web portal for capturing and importing web pages, cleaning them using Ollama LLM agents, searching the archive, and streaming database exports.
 

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <rect width="1024" height="1024" fill="#F4EFEA" rx="120"/>
+  <!-- Globe lines -->
+  <circle cx="512" cy="512" r="300" stroke="#7F8C8D" stroke-width="20" fill="none"/>
+  <ellipse cx="512" cy="512" rx="150" ry="300" stroke="#7F8C8D" stroke-width="20" fill="none"/>
+  <line x1="212" y1="512" x2="812" y2="512" stroke="#7F8C8D" stroke-width="20"/>
+  <!-- Text 'kb' -->
+  <text x="512" y="560" font-family="Georgia, serif" font-size="140" font-weight="bold" fill="#16A085" text-anchor="middle">kb</text>
+</svg>
