@@ -30,11 +30,10 @@ def serve(
         port (int): Port integer value.
         reload (bool): Flag defining hot-reload state.
     """
-    # Import server inside function block to ensure rapid CLI startup execution
-    from .server import app as fastapi_app
+    # Import runner inside function block to ensure rapid CLI startup execution
+    from .gunicorn_runner import run_server
 
-    typer.echo(f"Initializing kb-web server on http://{host}:{port}")
-    uvicorn.run("kb_web.server:app", host=host, port=port, reload=reload)
+    run_server("kb_web.server:app", host=host, port=port, reload=reload)
 
 
 if __name__ == "__main__":

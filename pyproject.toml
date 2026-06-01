@@ -24,6 +24,7 @@ dependencies = [
     "uvicorn>=0.47.0",
     "typer>=0.26.4",
     "markdown>=3.10.2",
+    "gunicorn>=26.0.0",
 ]
 
 [project.scripts]
