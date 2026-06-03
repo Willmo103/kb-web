@@ -16,10 +16,24 @@ import markdown
 import ollama
 import sqlite_utils
 from bs4 import BeautifulSoup  # type: ignore
-from fastapi import (BackgroundTasks, Depends, FastAPI, Form, HTTPException,
-                     Query, Request, WebSocket, WebSocketDisconnect)
-from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
-                               StreamingResponse, FileResponse)
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+    FileResponse,
+)
 from html2text import HTML2Text
 from pydantic import BaseModel
 
@@ -131,6 +145,7 @@ def verify_api_key(request: Request) -> None:
 def get_local_icon() -> FileResponse:
     """Serves the local manifest icon.png."""
     import os
+
     icon_path = os.path.join(os.path.dirname(__file__), "templates", "icon.png")
     if os.path.exists(icon_path):
         return FileResponse(icon_path)
@@ -141,6 +156,7 @@ def get_local_icon() -> FileResponse:
 def get_favicon() -> FileResponse:
     """Serves the local favicon.ico."""
     import os
+
     favicon_path = os.path.join(os.path.dirname(__file__), "templates", "favicon.ico")
     if os.path.exists(favicon_path):
         return FileResponse(favicon_path)
@@ -412,7 +428,7 @@ def view_all_pages(request: Request, q: Optional[str] = Query(None)) -> HTMLResp
         if q:
             rows = db.execute_returning_dicts(
                 "SELECT * FROM fetched_pages WHERE title LIKE ? OR tags LIKE ? ORDER BY ROWID DESC",
-                [f"%{q}%", f"%{q}%"]
+                [f"%{q}%", f"%{q}%"],
             )
         else:
             rows = db.execute_returning_dicts(
@@ -432,7 +448,9 @@ def view_all_pages(request: Request, q: Optional[str] = Query(None)) -> HTMLResp
     is_admin = token in ACTIVE_SESSIONS and ACTIVE_SESSIONS[token] >= time.time()
 
     template = _jinja_env.get_template("pages_list.j2.html")
-    return HTMLResponse(content=template.render(pages=pages_list, is_admin=is_admin, q=q or ""))
+    return HTMLResponse(
+        content=template.render(pages=pages_list, is_admin=is_admin, q=q or "")
+    )
 
 
 @app.get("/view/page", response_class=HTMLResponse)
@@ -686,11 +704,18 @@ def test_gotify(
 ) -> dict:
     """Sends a test notification to verify Gotify settings without saving them."""
     if not gotify_url or not gotify_token:
-        return {"status": "error", "message": "Both Gotify Server URL and App Token are required."}
+        return {
+            "status": "error",
+            "message": "Both Gotify Server URL and App Token are required.",
+        }
     try:
         from kb_core.notifier import Gotify
+
         notifier = Gotify(token=gotify_token, url=gotify_url)
-        notifier.send_notification("Gotify Connection Test", "This is a test notification from the Knowledge Base Web Importer.")
+        notifier.send_notification(
+            "Gotify Connection Test",
+            "This is a test notification from the Knowledge Base Web Importer.",
+        )
         return {"status": "success", "message": "Test notification sent successfully."}
     except Exception as e:
         return {"status": "error", "message": f"Failed to send notification: {str(e)}"}
@@ -703,9 +728,13 @@ def test_ollama(
 ) -> dict:
     """Tests connection to Ollama server and checks available models."""
     if not ollama_host or not ollama_model:
-        return {"status": "error", "message": "Both Ollama Host URL and Model are required."}
+        return {
+            "status": "error",
+            "message": "Both Ollama Host URL and Model are required.",
+        }
     try:
         import ollama
+
         client = ollama.Client(host=ollama_host)
         models_response = client.list()
         model_names = []
@@ -729,10 +758,13 @@ def test_ollama(
 
         return {
             "status": "success",
-            "message": f"Successfully connected to Ollama server. Available models: {', '.join(model_names[:5])}"
+            "message": f"Successfully connected to Ollama server. Available models: {', '.join(model_names[:5])}",
         }
     except Exception as e:
-        return {"status": "error", "message": f"Failed to connect to Ollama server: {str(e)}"}
+        return {
+            "status": "error",
+            "message": f"Failed to connect to Ollama server: {str(e)}",
+        }
 
 
 @app.post(
@@ -1154,7 +1186,7 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
 def handle_page_import(payload: HTMLPage, request: Request) -> dict:
     """Accepts full HTMLPage Pydantic payloads (e.g. from kb-rss) and processes/saves them."""
     db = _get_db()
-    
+
     # If title is missing or generic, determine one
     if not payload.title:
         title = payload.url
@@ -1164,12 +1196,12 @@ def handle_page_import(payload: HTMLPage, request: Request) -> dict:
         if not title:
             title = urlparse(payload.url).netloc or payload.url
         payload.title = title
-        
+
     # Generate description if empty
     if not payload.description:
         wiki_entry = extract_wiki_content(payload)
         payload.description = wiki_entry
-        
+
         # Extract title from H1 if it was just generated
         if wiki_entry.strip().startswith("#"):
             first_line = wiki_entry.strip().split("\n")[0]

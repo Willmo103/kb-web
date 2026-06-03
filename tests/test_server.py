@@ -68,7 +68,7 @@ def test_models() -> None:
         md_content_hash="mhash",
         fetched_at="2026-05-30T12:00:00",
         keywords='["test", "keyword"]',
-        tags='["tag1", "tag2"]'
+        tags='["tag1", "tag2"]',
     )
     # Relative path should map to absolute base URL
     assert "https://example.com/about" in page.links
@@ -117,6 +117,7 @@ def test_login_flow(client: TestClient) -> None:
 
 def test_api_html_import(client: TestClient, monkeypatch) -> None:
     """Tests the /api/import/html browser extension endpoint with API keys and mocks."""
+
     # Mock Ollama chat to avoid active model checks during unit tests
     class DummyMessage:
         content = "# Extracted Title\n\nWiki text body content. tags: tech, web, python"
@@ -124,7 +125,9 @@ def test_api_html_import(client: TestClient, monkeypatch) -> None:
     class DummyChatResponse:
         message = DummyMessage()
 
-    monkeypatch.setattr(ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse())
+    monkeypatch.setattr(
+        ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse()
+    )
 
     # Set key in server config
     server_config.api_key = "secure-auth-key"
@@ -132,7 +135,7 @@ def test_api_html_import(client: TestClient, monkeypatch) -> None:
     payload = {
         "url": "https://example.com/blog/mypost",
         "html_content": "<html><head><title>My Blog Post Title</title></head><body>Content</body></html>",
-        "title": "My Blog Post Title"
+        "title": "My Blog Post Title",
     }
 
     # Test without API Key in headers (should reject with 401)
@@ -140,11 +143,15 @@ def test_api_html_import(client: TestClient, monkeypatch) -> None:
     assert response.status_code == 401
 
     # Test with incorrect API Key (should reject with 401)
-    response = client.post("/api/import/html", json=payload, headers={"X-API-Key": "wrong-key"})
+    response = client.post(
+        "/api/import/html", json=payload, headers={"X-API-Key": "wrong-key"}
+    )
     assert response.status_code == 401
 
     # Test with correct API Key (should succeed)
-    response = client.post("/api/import/html", json=payload, headers={"X-API-Key": "secure-auth-key"})
+    response = client.post(
+        "/api/import/html", json=payload, headers={"X-API-Key": "secure-auth-key"}
+    )
     assert response.status_code == 200
     assert response.json()["status"] == "success"
 
@@ -171,7 +178,7 @@ def test_admin_only_features_and_deletion(client: TestClient) -> None:
         "fetched_at": "2026-05-31T12:00:00",
         "description": "This is a wiki summary description.",
         "keywords": '["test"]',
-        "tags": '["tag-one", "tag-two"]'
+        "tags": '["tag-one", "tag-two"]',
     }
     db["fetched_pages"].insert(page_data)
 
@@ -191,7 +198,7 @@ def test_admin_only_features_and_deletion(client: TestClient) -> None:
     del_fail = client.post(
         "/admin/delete/page",
         data={"url": "https://example.com/testpage"},
-        follow_redirects=False
+        follow_redirects=False,
     )
     assert del_fail.status_code == 303  # redirects to login
     assert db["fetched_pages"].get("https://example.com/testpage") is not None
@@ -207,9 +214,7 @@ def test_admin_only_features_and_deletion(client: TestClient) -> None:
     assert session_cookie is not None
 
     # 5. View page as admin
-    response_admin = client.get(
-        "/view/page?url=https://example.com/testpage"
-    )
+    response_admin = client.get("/view/page?url=https://example.com/testpage")
     assert response_admin.status_code == 200
     # Admin actions should be visible
     assert "Regenerate Wiki" in response_admin.text
@@ -221,13 +226,14 @@ def test_admin_only_features_and_deletion(client: TestClient) -> None:
     del_success = client.post(
         "/admin/delete/page",
         data={"url": "https://example.com/testpage"},
-        follow_redirects=False
+        follow_redirects=False,
     )
     assert del_success.status_code == 303
     assert del_success.headers["location"] == "/"
 
     # Verify deleted
     import sqlite_utils
+
     with pytest.raises(sqlite_utils.db.NotFoundError):
         db["fetched_pages"].get("https://example.com/testpage")
 
@@ -241,29 +247,29 @@ def test_change_password(client: TestClient) -> None:
         follow_redirects=False,
     )
     session_cookie = login_resp.cookies.get("kb_session")
-    
+
     # Verify wrong password fails
     resp = client.post(
         "/admin/change-password",
         data={"current_password": "wrong-password", "new_password": "new-admin-pass"},
         cookies={"kb_session": session_cookie},
-        follow_redirects=False
+        follow_redirects=False,
     )
     assert resp.status_code == 303
     assert "Error" in resp.headers["location"]
-    
+
     # Verify correct password succeeds
     original_pass = server_config.admin_password
     resp = client.post(
         "/admin/change-password",
         data={"current_password": original_pass, "new_password": "new-admin-pass"},
         cookies={"kb_session": session_cookie},
-        follow_redirects=False
+        follow_redirects=False,
     )
     assert resp.status_code == 303
     assert "updated" in resp.headers["location"]
     assert server_config.admin_password == "new-admin-pass"
-    
+
     # Restore original password for other tests
     server_config.admin_password = original_pass
     server_config.save()
@@ -271,6 +277,7 @@ def test_change_password(client: TestClient) -> None:
 
 def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
     """Verifies page re-fetching behavior, version snapshot archiving, and error recovery."""
+
     # Mock Ollama chat/tagging
     class DummyMessage:
         content = "# Refetched Title\n\nNew wiki body text. tags: updated, refetched"
@@ -278,7 +285,9 @@ def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
     class DummyChatResponse:
         message = DummyMessage()
 
-    monkeypatch.setattr(ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse())
+    monkeypatch.setattr(
+        ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse()
+    )
 
     # Insert a page into the database first
     db = get_db(server_config)
@@ -293,7 +302,7 @@ def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
         "fetched_at": "2026-05-31T12:00:00",
         "description": "Original wiki summary description.",
         "keywords": '["test"]',
-        "tags": '["tag-one"]'
+        "tags": '["tag-one"]',
     }
     db["fetched_pages"].insert(page_data)
 
@@ -308,6 +317,7 @@ def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
     # Mock fetch_url to return new details
     def mock_fetch_url(url: str):
         from kb_web.models import HTMLPage
+
         return HTMLPage(
             url=url,
             title="A Test Page Title",
@@ -319,15 +329,16 @@ def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
             fetched_at="2026-05-31T13:00:00",
             description="",
             keywords=[],
-            tags=[]
+            tags=[],
         )
+
     monkeypatch.setattr("kb_web.server.fetch_url", mock_fetch_url)
 
     # Perform Refetch
     resp = client.post(
         "/admin/refetch/page?url=https%3A%2F%2Fexample.com%2Frefetchpage",
         cookies={"kb_session": session_cookie},
-        follow_redirects=False
+        follow_redirects=False,
     )
     assert resp.status_code == 303
     assert "re-fetched" in resp.headers["location"]
@@ -338,7 +349,9 @@ def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
     assert "New wiki body text" in row["description"]
 
     # Verify historical version is archived
-    versions = list(db["page_versions"].rows_where("url = ?", ["https://example.com/refetchpage"]))
+    versions = list(
+        db["page_versions"].rows_where("url = ?", ["https://example.com/refetchpage"])
+    )
     assert len(versions) == 1
     assert versions[0]["title"] == "A Test Page Title"
     assert versions[0]["description"] == "Original wiki summary description."
@@ -361,13 +374,14 @@ def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
     # Mock fetch failure
     def mock_fetch_fail(url: str):
         raise RuntimeError("Server offline")
+
     monkeypatch.setattr("kb_web.server.fetch_url", mock_fetch_fail)
 
     # Attempt refetch (should keep original)
     resp_fail = client.post(
         "/admin/refetch/page?url=https%3A%2F%2Fexample.com%2Frefetchpage",
         cookies={"kb_session": session_cookie},
-        follow_redirects=False
+        follow_redirects=False,
     )
     assert resp_fail.status_code == 303
     assert "error" in resp_fail.headers["location"]
@@ -375,4 +389,3 @@ def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
     # Verify database hasn't changed (latest is still Refetched Title)
     row_after = db["fetched_pages"].get("https://example.com/refetchpage")
     assert row_after["title"] == "Refetched Title"
-
