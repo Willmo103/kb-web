@@ -19,9 +19,12 @@
 
     <div class="w-full px-4 pt-4">
         <div class="mb-6 flex justify-between items-center bg-white p-4 rounded-lg border border-gray-200 shadow-sm max-w-4xl mx-auto">
-            <div class="flex gap-4">
-                <a href="/" class="text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center">
+            <div class="flex gap-4 font-semibold text-sm">
+                <a href="/" class="text-indigo-600 hover:text-indigo-800 flex items-center">
                     <span class="mr-1">🏠</span> Home
+                </a>
+                <a href="/tags" class="text-indigo-600 hover:text-indigo-800 flex items-center">
+                    <span class="mr-1">🏷️</span> Tags
                 </a>
             </div>
             {% if is_admin %}

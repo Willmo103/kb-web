@@ -4,6 +4,8 @@ Server entry point for the Knowledge Base Web Importer application.
 
 import hashlib
 import json
+import math
+import re
 import secrets
 import time
 from datetime import datetime
@@ -110,8 +112,9 @@ def verify_auth(request: Request) -> None:
     clear_expired_tokens()
     token = request.cookies.get(COOKIE_NAME)
     if not token or token not in ACTIVE_SESSIONS:
-        # Redirect directly to login form
-        raise HTTPException(status_code=303, headers={"Location": "/login"})
+        # Redirect directly to login form, preserving destination
+        redirect_url = f"/login?next={quote_plus(str(request.url))}"
+        raise HTTPException(status_code=303, headers={"Location": redirect_url})
 
 
 def verify_api_key(request: Request) -> None:
@@ -207,6 +210,133 @@ def get_service_worker() -> HTMLResponse:
     )
 
 
+# --- Helper Functions for URL Handling & YouTube Scraping ---
+
+
+def extract_first_url(text: str) -> str:
+    """Extracts the first web URL from a block of text, supporting common copy-paste errors."""
+    text = text.strip()
+    # Find any sequence containing http:// or https:// or even http: / https:
+    match = re.search(r"https?:/*\S+", text)
+    if match:
+        url = match.group(0)
+        # Standardize scheme if it's like http:example.com
+        if url.startswith("http:") and not url.startswith("http://"):
+            url = "http://" + url[5:]
+        elif url.startswith("https:") and not url.startswith("https://"):
+            url = "https://" + url[6:]
+        # Strip trailing punctuation
+        url = url.rstrip(".,;()[]{}\"\"''")
+        return url
+
+    # Fallback search for a bare domain with path, e.g. example.com/article
+    match_domain = re.search(r"[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/\S*)?", text)
+    if match_domain:
+        url = match_domain.group(0)
+        url = url.rstrip(".,;()[]{}\"\"''")
+        return "https://" + url
+
+    return text
+
+
+def extract_youtube_video_id(url: str) -> Optional[str]:
+    """Helper to parse out YouTube video ID from various link structures."""
+    try:
+        parsed = urlparse(url)
+        if parsed.hostname in ("youtu.be", "www.youtu.be"):
+            return parsed.path.lstrip("/")
+        if parsed.hostname in ("youtube.com", "www.youtube.com", "m.youtube.com"):
+            if parsed.path == "/watch":
+                from urllib.parse import parse_qs
+
+                return parse_qs(parsed.query).get("v", [None])[0]
+            if parsed.path.startswith(("/embed/", "/v/")):
+                return parsed.path.split("/")[2]
+    except Exception:
+        pass
+    return None
+
+
+def fetch_youtube_video_page(url: str, video_id: str) -> HTMLPage:
+    """Retrieves YouTube video metadata and pulls subtitle transcripts to construct custom HTML/markdown documents."""
+    title = f"YouTube Video {video_id}"
+    description = ""
+
+    # 1. Fetch metadata using yt-dlp
+    try:
+        import yt_dlp
+
+        ydl_opts = {"skip_download": True, "quiet": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            title = info.get("title", title)
+            description = info.get("description", "")
+    except Exception as e:
+        print(f"yt-dlp metadata extraction failed: {e}")
+        # fallback to basic BeautifulSoup title fetching
+        try:
+            res = httpx.get(url, headers=HEADERS, follow_redirects=True, timeout=10)
+            soup = BeautifulSoup(res.text, "html5lib")
+            if soup.title:
+                title = soup.title.string.replace(" - YouTube", "")
+        except Exception:
+            pass
+
+    # 2. Retrieve transcripts using youtube-transcript-api
+    transcript = None
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        # Format timestamps into transcripts
+        transcript_lines = []
+        for entry in transcript_list:
+            start_sec = int(entry["start"])
+            minutes = start_sec // 60
+            seconds = start_sec % 60
+            timestamp = f"[{minutes:02d}:{seconds:02d}]"
+            transcript_lines.append(f"{timestamp} {entry['text']}")
+        transcript = "\n".join(transcript_lines)
+    except Exception as e:
+        print(f"youtube-transcript-api retrieval failed for {video_id}: {e}")
+
+    # 3. Assemble document markdown and custom HTML
+    if transcript:
+        md_content = f"# {title}\n\n## Video Description\n{description}\n\n## Transcript\n{transcript}"
+    else:
+        md_content = f"# {title}\n\n## Video Description\n{description}\n\n*(Transcript not available)*"
+
+    html_content = f"""
+    <html>
+    <head><title>{title}</title></head>
+    <body>
+        <h1>{title}</h1>
+        <div class="video-container" style="margin: 20px 0;">
+            <iframe width="560" height="315" src="https://www.youtube.com/embed/{video_id}" frameborder="0" allowfullscreen></iframe>
+        </div>
+        <h2>Description</h2>
+        <pre style="white-space: pre-wrap;">{description}</pre>
+        <h2>Transcript</h2>
+        <pre style="white-space: pre-wrap;">{transcript or "No transcript available."}</pre>
+    </body>
+    </html>
+    """
+
+    return HTMLPage(
+        url=url,
+        title=title,
+        html_content=html_content,
+        md_content=md_content,
+        links=[],
+        html_content_hash=hashlib.sha256(html_content.encode("utf-8")).hexdigest(),
+        md_content_hash=hashlib.sha256(md_content.encode("utf-8")).hexdigest(),
+        fetched_at=datetime.now().isoformat(),
+        description="",
+        keywords=[],
+        tags=[],
+    )
+
+
 # --- Core Ingestion Logic & Safety Fallbacks ---
 
 
@@ -224,6 +354,13 @@ def fetch_url(url: str) -> HTMLPage:
     Raises:
         RuntimeError: If download fails or format is invalid.
     """
+    video_id = extract_youtube_video_id(url)
+    if video_id:
+        try:
+            return fetch_youtube_video_page(url, video_id)
+        except Exception as e:
+            raise RuntimeError(f"YouTube transcript extraction failed: {e}")
+
     try:
         response = httpx.get(url, timeout=15, follow_redirects=True, headers=HEADERS)
         response.raise_for_status()
@@ -370,31 +507,45 @@ def run_bulk_description_maintenance() -> None:
 
 
 @app.get("/login", response_class=HTMLResponse)
-def get_login_page() -> HTMLResponse:
+def get_login_page(next: Optional[str] = Query(None)) -> HTMLResponse:
     """Serves the login page to the user.
 
     Returns:
         HTMLResponse: Rendered login page.
     """
     template = _jinja_env.get_template("login.j2.html")
-    return HTMLResponse(content=template.render(is_admin=False))
+    return HTMLResponse(content=template.render(is_admin=False, next=next))
 
 
 @app.post("/login", response_model=None)
-def handle_login(password: str = Form(...)) -> HTMLResponse | RedirectResponse:
+def handle_login(
+    password: str = Form(...), next: Optional[str] = Form(None)
+) -> HTMLResponse | RedirectResponse:
     """Processes credential inputs, establishing cookie session records on success.
 
     Args:
         password (str): Form password entry.
+        next (str, optional): Target URL to redirect to after successful authentication.
 
     Returns:
-        HTMLResponse | RedirectResponse: Redirection to home or error output page.
+        HTMLResponse | RedirectResponse: Redirection to target/home or error output page.
     """
     if password == config.admin_password:
         session_token = secrets.token_hex(32)
         ACTIVE_SESSIONS[session_token] = time.time() + SESSION_EXPIRATION_SECONDS
 
-        response = RedirectResponse(url="/", status_code=303)
+        redirect_target = next if next else "/"
+        if redirect_target.startswith("http://") or redirect_target.startswith(
+            "https://"
+        ):
+            parsed_next = urlparse(redirect_target)
+            redirect_target = parsed_next.path
+            if parsed_next.query:
+                redirect_target += f"?{parsed_next.query}"
+            if not redirect_target.startswith("/"):
+                redirect_target = "/" + redirect_target
+
+        response = RedirectResponse(url=redirect_target, status_code=303)
         response.set_cookie(
             key=COOKIE_NAME,
             value=session_token,
@@ -406,7 +557,7 @@ def handle_login(password: str = Form(...)) -> HTMLResponse | RedirectResponse:
 
     return HTMLResponse(
         content=_jinja_env.get_template("login.j2.html").render(
-            error="Invalid security credentials.", is_admin=False
+            error="Invalid security credentials.", is_admin=False, next=next
         )
     )
 
@@ -511,6 +662,8 @@ def view_saved_page(
             db["page_versions"].rows_where("url = ? ORDER BY id ASC", [decoded_url])
         )
 
+    similar_pages = get_similar_articles(db, decoded_url)
+
     rendered_wiki_html = markdown.markdown(
         page_obj.description or "", extensions=["fenced_code", "tables"]
     )
@@ -525,6 +678,7 @@ def view_saved_page(
             current_fetched_at=current_fetched_at,
             msg=msg,
             error=error,
+            similar_pages=similar_pages,
         )
     )
 
@@ -563,10 +717,7 @@ def handle_incoming_mobile_share(
     if not target_link:
         return RedirectResponse(url="/import")
 
-    # Filter out lead description text if any exists
-    if "http" in target_link:
-        start_idx = target_link.find("http")
-        target_link = target_link[start_idx:].split()[0]
+    target_link = extract_first_url(target_link)
 
     template = _jinja_env.get_template("url_import.j2.html")
     return HTMLResponse(
@@ -588,6 +739,7 @@ def handle_url_import(
         HTMLResponse | RedirectResponse: Redirection to article view on success.
     """
     db = _get_db()
+    url = extract_first_url(url)
     try:
         page_data = fetch_url(url)
     except RuntimeError as e:
@@ -626,6 +778,7 @@ def handle_url_import(
     serialized["tags"] = json.dumps(serialized["tags"])
 
     db["fetched_pages"].upsert(serialized, pk="url")
+    update_article_embedding(db, page_data.url)
     post_to_gotify(page_data, view_url)
     return RedirectResponse(url=view_url, status_code=303)
 
@@ -665,6 +818,7 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
 def handle_config_update(
     ollama_host: str = Form(...),
     ollama_model: str = Form(...),
+    ollama_embedding_model: str = Form(...),
     api_key: str = Form(None),
     gotify_url: str = Form(None),
     gotify_token: str = Form(None),
@@ -675,6 +829,7 @@ def handle_config_update(
     Args:
         ollama_host (str): host endpoint.
         ollama_model (str): LLM model name.
+        ollama_embedding_model (str): embedding model name.
         api_key (str): Chrome extension credential.
         gotify_url (str): Gotify url endpoint.
         gotify_token (str): Gotify application token.
@@ -685,6 +840,7 @@ def handle_config_update(
     """
     config.ollama_host = ollama_host
     config.ollama_model = ollama_model
+    config.ollama_embedding_model = ollama_embedding_model
     config.api_key = api_key
     config.gotify_url = gotify_url or None
     config.gotify_token = gotify_token or None
@@ -795,6 +951,7 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
         title = first_line.replace("#", "").strip()
 
     db["fetched_pages"].update(decoded_url, {"description": wiki_entry, "title": title})
+    update_article_embedding(db, decoded_url)
     return RedirectResponse(
         url=f"/view/page?url={quote_plus(decoded_url)}", status_code=303
     )
@@ -822,6 +979,7 @@ def handle_regenerate_tags(url: str = Query(...)) -> RedirectResponse:
 
     tags = extract_tags_content(page_obj)
     db["fetched_pages"].update(decoded_url, {"tags": json.dumps(tags)})
+    update_article_embedding(db, decoded_url)
     return RedirectResponse(
         url=f"/view/page?url={quote_plus(decoded_url)}", status_code=303
     )
@@ -845,6 +1003,7 @@ def handle_update_tags(
     db = _get_db()
     tags = [t.strip().lower() for t in tags_csv.split(",") if t.strip()]
     db["fetched_pages"].update(url, {"tags": json.dumps(tags)})
+    update_article_embedding(db, url)
     return RedirectResponse(url=f"/view/page?url={quote_plus(url)}", status_code=303)
 
 
@@ -944,6 +1103,7 @@ def handle_refetch_page(
     serialized["tags"] = json.dumps(serialized["tags"])
 
     db["fetched_pages"].upsert(serialized, pk="url")
+    update_article_embedding(db, decoded_url)
 
     # Send notifier alerts
     base_url = str(request.base_url).rstrip("/")
@@ -973,8 +1133,10 @@ def handle_delete_page(url: str = Form(...)) -> RedirectResponse:
         db["fetched_pages"].delete(url)
         if "page_versions" in db.table_names():
             db.execute("DELETE FROM page_versions WHERE url = ?", [url])
+        if "article_embeddings" in db.table_names():
+            db.execute("DELETE FROM article_embeddings WHERE url = ?", [url])
         print(
-            f"Administrative Delete: Removed {url} and all archived versions from database."
+            f"Administrative Delete: Removed {url} and all archived versions/embeddings from database."
         )
     except sqlite_utils.db.NotFoundError:
         raise HTTPException(status_code=404, detail="Target page profile not found.")
@@ -1173,6 +1335,7 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
     serialized["tags"] = json.dumps(serialized["tags"])
 
     db["fetched_pages"].upsert(serialized, pk="url")
+    update_article_embedding(db, page_data.url)
 
     # Send dynamic Gotify push notification using the configured settings
     post_to_gotify(page_data, view_url)
@@ -1221,8 +1384,243 @@ def handle_page_import(payload: HTMLPage, request: Request) -> dict:
     serialized["tags"] = json.dumps(serialized["tags"])
 
     db["fetched_pages"].upsert(serialized, pk="url")
+    update_article_embedding(db, payload.url)
 
     # Send dynamic Gotify push notification
     post_to_gotify(payload, view_url)
 
     return {"status": "success", "url": payload.url, "view_url": view_url}
+
+
+# --- Similarity Embeddings, Tags Listing, and Maintenance Pipelines ---
+
+
+def ensure_model_available(client: ollama.Client, model_name: str) -> None:
+    """Checks if the requested model is present in Ollama locally, pulling it if missing."""
+    try:
+        models_response = client.list()
+        existing_models = []
+        if isinstance(models_response, dict):
+            models_list = models_response.get("models", [])
+            for m in models_list:
+                if isinstance(m, dict):
+                    existing_models.append(m.get("name", ""))
+                else:
+                    existing_models.append(str(m))
+        elif hasattr(models_response, "models"):
+            for m in models_response.models:
+                if hasattr(m, "model"):
+                    existing_models.append(m.model)
+                elif hasattr(m, "name"):
+                    existing_models.append(m.name)
+        else:
+            existing_models = [str(m) for m in models_response]
+
+        # Standardize matching to check tag presence
+        if (
+            model_name not in existing_models
+            and f"{model_name}:latest" not in existing_models
+        ):
+            print(f"Ollama model '{model_name}' not found locally. Initiating pull...")
+            client.pull(model_name)
+            print(f"Successfully pulled Ollama model '{model_name}'")
+    except Exception as e:
+        print(f"Failed to automatically pull Ollama model '{model_name}': {e}")
+
+
+def update_article_embedding(db, url: str) -> None:
+    """Generates embedding for the article and saves/updates it in the database."""
+    try:
+        row = db["fetched_pages"].get(url)
+        tags_json = row.get("tags") or "[]"
+        try:
+            tags = json.loads(tags_json)
+        except Exception:
+            tags = []
+        description = row.get("description") or ""
+
+        text_to_embed = f"Tags: {', '.join(tags)}\n\nDescription: {description}"
+        if not text_to_embed.strip():
+            return
+
+        client = _get_ollama_client()
+        emb_model = getattr(config, "ollama_embedding_model", "nomic-embed-text")
+
+        ensure_model_available(client, emb_model)
+
+        try:
+            response = client.embeddings(model=emb_model, prompt=text_to_embed[:4000])
+            embedding = response["embedding"]
+        except Exception as e:
+            print(
+                f"Ollama embedding with model '{emb_model}' failed: {e}. Trying main model '{config.ollama_model}'..."
+            )
+            ensure_model_available(client, config.ollama_model)
+            response = client.embeddings(
+                model=config.ollama_model, prompt=text_to_embed[:4000]
+            )
+            embedding = response["embedding"]
+
+        db["article_embeddings"].upsert(
+            {
+                "url": url,
+                "embedding": json.dumps(embedding),
+                "updated_at": datetime.now().isoformat(),
+            },
+            pk="url",
+        )
+        print(f"Successfully generated and stored embedding for: {url}")
+    except Exception as e:
+        print(f"Failed to generate embedding for {url}: {e}")
+
+
+def cosine_similarity(v1: list[float], v2: list[float]) -> float:
+    """Computes the cosine similarity between two float vectors."""
+    if not v1 or not v2 or len(v1) != len(v2):
+        return 0.0
+    dot_product = sum(a * b for a, b in zip(v1, v2))
+    magnitude_v1 = math.sqrt(sum(a * a for a in v1))
+    magnitude_v2 = math.sqrt(sum(a * a for a in v2))
+    if magnitude_v1 == 0.0 or magnitude_v2 == 0.0:
+        return 0.0
+    return dot_product / (magnitude_v1 * magnitude_v2)
+
+
+def get_similar_articles(db, current_url: str, limit: int = 5) -> list[dict]:
+    """Calculates cosine similarity between current_url and all other articles.
+
+    Returns:
+        list[dict]: List of similar articles with title, url, tags, similarity score.
+    """
+    try:
+        if "article_embeddings" not in db.table_names():
+            return []
+
+        try:
+            current_row = db["article_embeddings"].get(current_url)
+            current_emb = json.loads(current_row["embedding"])
+        except (sqlite_utils.db.NotFoundError, ValueError, KeyError):
+            return []
+
+        all_embeddings = list(db["article_embeddings"].rows)
+        similarities = []
+
+        for row in all_embeddings:
+            other_url = row["url"]
+            if other_url == current_url:
+                continue
+
+            try:
+                other_emb = json.loads(row["embedding"])
+                similarity = cosine_similarity(current_emb, other_emb)
+
+                page_row = db["fetched_pages"].get(other_url)
+                tags_json = page_row.get("tags") or "[]"
+                try:
+                    tags = json.loads(tags_json)
+                except Exception:
+                    tags = []
+
+                similarities.append(
+                    {
+                        "url": other_url,
+                        "title": page_row.get("title") or other_url,
+                        "tags": tags,
+                        "similarity": round(similarity * 100, 1),
+                    }
+                )
+            except Exception:
+                continue
+
+        similarities.sort(key=lambda x: x["similarity"], reverse=True)
+        return similarities[:limit]
+    except Exception as e:
+        print(f"Error computing similar articles: {e}")
+        return []
+
+
+def run_bulk_embedding_maintenance() -> None:
+    """Loops through all fetched pages, generating embeddings for any that are missing."""
+    db = _get_db()
+    if "fetched_pages" in db.table_names():
+        rows = list(db.execute_returning_dicts("SELECT url FROM fetched_pages"))
+        for row in rows:
+            url = row["url"]
+            exists = False
+            if "article_embeddings" in db.table_names():
+                try:
+                    db["article_embeddings"].get(url)
+                    exists = True
+                except sqlite_utils.db.NotFoundError:
+                    pass
+
+            if not exists:
+                update_article_embedding(db, url)
+
+
+@app.post("/admin/trigger-embeddings", dependencies=[Depends(verify_auth)])
+def trigger_bulk_embeddings(background_tasks: BackgroundTasks) -> RedirectResponse:
+    """Initiates an asynchronous background job generating missing article embeddings."""
+    background_tasks.add_task(run_bulk_embedding_maintenance)
+    return RedirectResponse(
+        url="/admin?msg=Background+embedding+generation+loop+successfully+initiated.",
+        status_code=303,
+    )
+
+
+@app.get("/tags", response_class=HTMLResponse)
+def view_tags(request: Request, tag: Optional[str] = Query(None)) -> HTMLResponse:
+    """Renders all tags with counts, and allows filtering articles by a selected tag."""
+    db = _get_db()
+
+    # Retrieve all tags and compute counts
+    tag_counts = {}
+    if "fetched_pages" in db.table_names():
+        rows = db.execute_returning_dicts("SELECT tags FROM fetched_pages")
+        for row in rows:
+            tags_json = row.get("tags")
+            if tags_json:
+                try:
+                    tags = json.loads(tags_json)
+                    for t in tags:
+                        t = t.strip().lower()
+                        if t:
+                            tag_counts[t] = tag_counts.get(t, 0) + 1
+                except Exception:
+                    continue
+
+    # Sort tags by count descending, then alphabetically
+    sorted_tags = dict(sorted(tag_counts.items(), key=lambda x: (-x[1], x[0])))
+
+    # Filter pages by selected tag
+    pages_list = []
+    if tag:
+        tag_lower = tag.strip().lower()
+        if "fetched_pages" in db.table_names():
+            rows = db.execute_returning_dicts(
+                "SELECT * FROM fetched_pages ORDER BY ROWID DESC"
+            )
+            for row in rows:
+                tags_json = row.get("tags")
+                if tags_json:
+                    try:
+                        tags = json.loads(tags_json)
+                        if any(t.strip().lower() == tag_lower for t in tags):
+                            pages_list.append(HTMLPage(**row))
+                    except Exception:
+                        continue
+
+    # Check if user is logged in as an administrator
+    clear_expired_tokens()
+    token = request.cookies.get(COOKIE_NAME)
+    is_admin = token in ACTIVE_SESSIONS and ACTIVE_SESSIONS[token] >= time.time()
+
+    template = _jinja_env.get_template("tags.j2.html")
+    return HTMLResponse(
+        content=template.render(
+            tags_with_counts=sorted_tags,
+            selected_tag=tag,
+            pages=pages_list,
+            is_admin=is_admin,
+        )
+    )

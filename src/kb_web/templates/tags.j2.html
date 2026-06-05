@@ -1,0 +1,89 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Knowledge Base Tags{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 max-w-4xl pb-8">
+
+    <div class="flex justify-between items-center mb-8 border-b border-gray-200 pb-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">🏷️ Tag Index Curation</h1>
+            <p class="text-sm text-gray-500">Browse and sort captured knowledge by descriptive labels.</p>
+        </div>
+    </div>
+
+    <!-- Tags Cloud / Grid -->
+    <div class="bg-white border border-gray-200 rounded-lg p-6 shadow-sm mb-8">
+        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">All Active Tags</h2>
+        {% if not tags_with_counts %}
+        <p class="text-sm text-gray-400 italic">No tags have been extracted or assigned yet.</p>
+        {% else %}
+        <div class="flex flex-wrap gap-2.5">
+            <a href="/tags" class="px-3 py-1.5 rounded-full text-xs font-semibold border {% if not selected_tag %}bg-indigo-600 text-white border-indigo-600{% else %}bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100{% endif %}">
+                All Tags
+            </a>
+            {% for tag_name, count in tags_with_counts.items() %}
+            <a href="/tags?tag={{ tag_name | urlencode }}" class="px-3 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1.5 transition {% if selected_tag == tag_name %}bg-indigo-600 text-white border-indigo-600{% else %}bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100{% endif %}">
+                <span>{{ tag_name }}</span>
+                <span class="px-1.5 py-0.5 rounded-full text-[10px] {% if selected_tag == tag_name %}bg-indigo-500 text-white{% else %}bg-indigo-150 text-indigo-800{% endif %}">{{ count }}</span>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Selected Tag Articles List -->
+    {% if selected_tag %}
+    <div class="mb-4 flex items-center justify-between">
+        <h2 class="text-lg font-bold text-gray-900">
+            Showing articles tagged: <span class="px-2 py-0.5 bg-yellow-100 text-yellow-800 border border-yellow-250 rounded font-mono text-sm">{{ selected_tag }}</span>
+        </h2>
+        <span class="text-xs text-gray-500 font-mono">{{ pages | length }} items found</span>
+    </div>
+    {% endif %}
+
+    {% if selected_tag and not pages %}
+    <div class="bg-white border border-gray-200 rounded-lg p-8 text-center shadow-sm">
+        <p class="text-gray-500 text-sm">No wiki articles associated with this tag.</p>
+    </div>
+    {% elif pages %}
+    <div class="space-y-3">
+        {% for page in pages %}
+        <div class="bg-white border border-gray-200 rounded-lg p-5 hover:border-indigo-400 transition flex justify-between items-center gap-4 shadow-sm">
+            <div class="truncate">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-mono rounded border border-gray-200">
+                        {{ page.parsed_url.hostname or "Source" }}
+                    </span>
+                    <span class="text-xs text-gray-400">{{ page.fetched_at[:16].replace("T", " ") }}</span>
+                </div>
+                <h2 class="text-base font-bold text-gray-900 truncate">
+                    <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600">
+                        {{ page.title or page.url }}
+                    </a>
+                </h2>
+                {% if page.title and page.title != page.url %}
+                <p class="text-xs text-gray-400 truncate mt-0.5">
+                    <a href="{{ page.url }}" target="_blank" class="hover:underline">{{ page.url }}</a>
+                </p>
+                {% endif %}
+                {% if page.tags %}
+                <div class="flex flex-wrap gap-1.5 mt-2">
+                    {% for tag in page.tags %}
+                    <span class="px-2 py-0.5 text-xs font-semibold rounded-full border {% if tag == selected_tag %}bg-yellow-100 text-yellow-800 border-yellow-200{% else %}bg-indigo-50 text-indigo-700 border-indigo-100{% endif %}">
+                        {{ tag }}
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            <a href="/view/page?url={{ page.safe_url }}" class="bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-medium py-2 px-3 border border-gray-200 rounded transition whitespace-nowrap">
+                Open Entry
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

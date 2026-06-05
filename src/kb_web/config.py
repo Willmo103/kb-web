@@ -39,6 +39,9 @@ class Config(BaseConfig):
         # 1. Apply defaults or environment variables first
         self.ollama_host: str = os.getenv("KB_OLLAMA_HOST", "http://localhost:11434")
         self.ollama_model: str = os.getenv("KB_OLLAMA_MODEL", "gemma4:latest")
+        self.ollama_embedding_model: str = os.getenv(
+            "KB_OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"
+        )
         self.admin_password: str = os.getenv("KB_PASSWORD", "admin123")
         self.api_key: Optional[str] = os.getenv("KB_API_KEY", "kb-secret-key")
         self.wiki_prompt: str = os.getenv("KB_WIKI_PROMPT", DEFAULT_WIKI_PROMPT)
@@ -55,6 +58,8 @@ class Config(BaseConfig):
                         self.ollama_host = data["ollama_host"]
                     if "ollama_model" in data:
                         self.ollama_model = data["ollama_model"]
+                    if "ollama_embedding_model" in data:
+                        self.ollama_embedding_model = data["ollama_embedding_model"]
                     if "admin_password" in data:
                         self.admin_password = data["admin_password"]
                     if "api_key" in data:
@@ -77,6 +82,7 @@ class Config(BaseConfig):
             data = {
                 "ollama_host": self.ollama_host,
                 "ollama_model": self.ollama_model,
+                "ollama_embedding_model": self.ollama_embedding_model,
                 "admin_password": self.admin_password,
                 "api_key": self.api_key,
                 "wiki_prompt": self.wiki_prompt,

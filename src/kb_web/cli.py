@@ -36,5 +36,14 @@ def serve(
     run_server("kb_web.server:app", host=host, port=port, reload=reload)
 
 
+@app.command()
+def mcp() -> None:
+    """Starts the Model Context Protocol (MCP) server for agents to query articles."""
+    from .mcp_server import mcp as mcp_server
+
+    typer.echo("Starting Knowledge Base MCP server on stdio...")
+    mcp_server.run()
+
+
 if __name__ == "__main__":
     app()

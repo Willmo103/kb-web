@@ -19,7 +19,7 @@
         <form id="ingestForm" action="/import/url" method="post" onsubmit="showSpinner()" class="space-y-4">
             <div>
                 <label for="url" class="block text-sm font-semibold text-gray-700 mb-2">URL to Import:</label>
-                <input type="url" id="url" name="url" required value="{{ prefilled_url or '' }}" placeholder="https://example.com/article"
+                <input type="text" id="url" name="url" required value="{{ prefilled_url or '' }}" placeholder="https://example.com/article"
                        class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900">
             </div>
 
@@ -35,6 +35,14 @@
             <div class="text-sm text-gray-600 font-medium animate-pulse">Running HTML2Text conversion and prompt extraction hooks...</div>
         </div>
     </div>
+
+    <div class="mt-6 bg-gray-50 border border-gray-200 rounded-lg p-5">
+        <h3 class="text-sm font-bold text-gray-800 mb-1">💡 Quick Share Bookmarklet</h3>
+        <p class="text-xs text-gray-500 mb-3">Drag this link to your bookmarks bar. Click it on any website to immediately share and ingest it into your Knowledge Base.</p>
+        <a id="bookmarkletLink" href="#" class="inline-block text-xs font-bold text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1.5 rounded transition shadow-sm select-none">
+            📥 Share to KB
+        </a>
+    </div>
 </div>
 
 <script>
@@ -42,5 +50,11 @@
         document.getElementById('formActions').classList.add('hidden');
         document.getElementById('loadingIndicator').classList.remove('hidden');
     }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        const origin = window.location.origin;
+        const bookmarkletCode = "javascript:(function(){window.open('" + origin + "/import/shared-url?url='+encodeURIComponent(window.location.href)+'&title='+encodeURIComponent(document.title),'_blank');})()";
+        document.getElementById('bookmarkletLink').setAttribute('href', bookmarkletCode);
+    });
 </script>
 {% endblock %}

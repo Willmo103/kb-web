@@ -89,3 +89,19 @@ def init_db(db: sqlite_utils.Database) -> None:
             print("Initialized database table: page_versions")
         except Exception as e:
             print(f"Error creating page_versions table: {e}")
+
+    # Initialize article_embeddings table for similarity comparisons
+    if "article_embeddings" not in db.table_names():
+        try:
+            db["article_embeddings"].create(
+                {
+                    "url": str,
+                    "embedding": str,  # JSON-encoded list[float]
+                    "updated_at": str,
+                },
+                pk="url",
+                foreign_keys=[("url", "fetched_pages", "url")],
+            )
+            print("Initialized database table: article_embeddings")
+        except Exception as e:
+            print(f"Error creating article_embeddings table: {e}")

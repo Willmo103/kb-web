@@ -12,7 +12,7 @@ from kb_web.server import config as server_config
 
 
 @pytest.fixture(autouse=True)
-def setup_temp_db(tmp_path) -> None:
+def setup_temp_db(tmp_path, monkeypatch) -> None:
     """Fixture to override config database path to a temp file, isolating test DB state."""
     old_db_path = server_config.db_path
     temp_db = tmp_path / "test_kb.db"
@@ -20,6 +20,17 @@ def setup_temp_db(tmp_path) -> None:
 
     # Ensure schema is preloaded
     _ = get_db(server_config)
+
+    # Mock Ollama Client embeddings, list, and pull globally to keep tests fast and offline
+    monkeypatch.setattr(
+        ollama.Client, "embeddings", lambda *args, **kwargs: {"embedding": [0.1] * 384}
+    )
+    monkeypatch.setattr(
+        ollama.Client,
+        "list",
+        lambda *args, **kwargs: {"models": [{"name": "nomic-embed-text:latest"}]},
+    )
+    monkeypatch.setattr(ollama.Client, "pull", lambda *args, **kwargs: None)
 
     yield
 
@@ -95,7 +106,7 @@ def test_auth_route_guard_redirects(client: TestClient) -> None:
     """Ensures protected endpoints redirect requests missing auth cookies."""
     response = client.get("/import", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert response.headers["location"].startswith("/login")
 
 
 def test_login_flow(client: TestClient) -> None:
@@ -389,3 +400,164 @@ def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
     # Verify database hasn't changed (latest is still Refetched Title)
     row_after = db["fetched_pages"].get("https://example.com/refetchpage")
     assert row_after["title"] == "Refetched Title"
+
+
+def test_dirty_url_extraction() -> None:
+    """Tests that extract_first_url resolves URLs from dirty text blocks."""
+    from kb_web.server import extract_first_url
+
+    # Check prefix text
+    assert (
+        extract_first_url("source: XCD http://xcd.com/article/12345")
+        == "http://xcd.com/article/12345"
+    )
+    assert (
+        extract_first_url("Headline - https://news.example.com/item?id=5")
+        == "https://news.example.com/item?id=5"
+    )
+
+    # Check malformed scheme support
+    assert (
+        extract_first_url("source: http:example.com/article")
+        == "http://example.com/article"
+    )
+
+    # Check bare domain with path
+    assert (
+        extract_first_url("check this domain.org/path/sub")
+        == "https://domain.org/path/sub"
+    )
+
+    # Check trailing punctuation cleaning
+    assert (
+        extract_first_url("Link: (https://example.com/page).")
+        == "https://example.com/page"
+    )
+
+
+def test_tags_view(client: TestClient) -> None:
+    """Verifies the /tags endpoint lists assigned tags and counts correctly."""
+    db = get_db(server_config)
+
+    # Ingest a page with specific tags
+    page_data_1 = {
+        "url": "https://example.com/page-a",
+        "title": "Page A",
+        "html_content": "A",
+        "md_content": "A",
+        "links": "[]",
+        "html_content_hash": "a1",
+        "md_content_hash": "a2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "description": "Desc A",
+        "keywords": "[]",
+        "tags": '["coding", "python"]',
+    }
+    page_data_2 = {
+        "url": "https://example.com/page-b",
+        "title": "Page B",
+        "html_content": "B",
+        "md_content": "B",
+        "links": "[]",
+        "html_content_hash": "b1",
+        "md_content_hash": "b2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "description": "Desc B",
+        "keywords": "[]",
+        "tags": '["coding", "database"]',
+    }
+    db["fetched_pages"].insert(page_data_1)
+    db["fetched_pages"].insert(page_data_2)
+
+    # 1. Fetch tags index view
+    resp = client.get("/tags")
+    assert resp.status_code == 200
+    assert "coding" in resp.text
+    assert "python" in resp.text
+    assert "database" in resp.text
+
+    # 2. Filter by tag
+    resp_tag = client.get("/tags?tag=python")
+    assert resp_tag.status_code == 200
+    assert "Page A" in resp_tag.text
+    assert "Page B" not in resp_tag.text
+
+
+def test_login_redirect_preservation(client: TestClient) -> None:
+    """Ensures verify_auth redirects with a next parameter and login forwards it."""
+    # Attempting to access protected url_import should redirect with next parameter
+    resp = client.get("/import", follow_redirects=False)
+    assert resp.status_code == 303
+    location = resp.headers["location"]
+    assert "/login?next=" in location
+    assert "import" in location
+
+    # Performing login with next parameter should redirect back to /import
+    resp_login = client.post(
+        "/login",
+        data={"password": server_config.admin_password, "next": "/import"},
+        follow_redirects=False,
+    )
+    assert resp_login.status_code == 303
+    assert resp_login.headers["location"] == "/import"
+
+
+def test_youtube_scraping(monkeypatch) -> None:
+    """Verifies that YouTube video links pull metadata and transcripts successfully."""
+    from kb_web.server import fetch_url, extract_youtube_video_id
+
+    # Validate video ID extraction
+    assert (
+        extract_youtube_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        == "dQw4w9WgXcQ"
+    )
+    assert extract_youtube_video_id("https://youtu.be/dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+
+    # Mock youtube-transcript-api and yt-dlp metadata
+    class DummyYoutubeDL:
+        def __init__(self, opts=None):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+        def extract_info(self, url, download=False):
+            return {
+                "title": "Never Gonna Give You Up",
+                "description": "Official Rick Astley video description details.",
+            }
+
+    class DummyTranscriptApi:
+        @staticmethod
+        def get_transcript(video_id):
+            return [
+                {"text": "We're no strangers to love", "start": 0.5, "duration": 3.0},
+                {
+                    "text": "You know the rules and so do I",
+                    "start": 3.5,
+                    "duration": 2.5,
+                },
+            ]
+
+    import sys
+
+    # Monkeypatch modules
+    import yt_dlp
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", DummyYoutubeDL)
+
+    import youtube_transcript_api
+
+    monkeypatch.setattr(
+        youtube_transcript_api, "YouTubeTranscriptApi", DummyTranscriptApi
+    )
+
+    # Run extraction via fetch_url
+    page = fetch_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert page.title == "Never Gonna Give You Up"
+    assert "Never Gonna Give You Up" in page.html_content
+    assert "We're no strangers to love" in page.md_content
+    assert "[00:03] You know the rules and so do I" in page.md_content

@@ -13,6 +13,7 @@
         {% endif %}
 
         <form action="/login" method="post" class="space-y-4">
+            <input type="hidden" name="next" value="{{ next or '' }}">
             <div>
                 <label for="password" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">Passphrase</label>
                 <input type="password" id="password" name="password" required autofocus

@@ -25,6 +25,9 @@ dependencies = [
     "typer>=0.26.4",
     "markdown>=3.10.2",
     "gunicorn>=26.0.0",
+    "youtube-transcript-api>=0.6.3",
+    "yt-dlp>=2025.1.15",
+    "mcp>=0.1.0",
 ]
 
 [project.scripts]
