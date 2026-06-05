@@ -40,7 +40,7 @@ from html2text import HTML2Text
 from pydantic import BaseModel
 
 from .config import Config
-from .db import get_db
+from .db import get_db, init_db
 from .models import HTMLPage
 
 app = FastAPI(title="Knowledge Base Web Importer")
@@ -72,13 +72,26 @@ DEFAULT_TAGS_PROMPT = (
 )
 
 
+_cached_db = None
+_cached_db_path = None
+
+
 def _get_db():
     """Helper dependency to retrieve a clean database handle.
 
     Returns:
         sqlite_utils.Database: Connection wrapper to ~/.kb/kb.db.
     """
-    return get_db(config)
+    global _cached_db, _cached_db_path
+    db_path = config.db_path
+    if _cached_db is None or _cached_db_path != db_path:
+        import sqlite3
+
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        _cached_db = sqlite_utils.Database(conn)
+        _cached_db_path = db_path
+        init_db(_cached_db)
+    return _cached_db
 
 
 def _get_ollama_client() -> ollama.Client:
