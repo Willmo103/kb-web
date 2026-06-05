@@ -61,7 +61,6 @@ HEADERS = {
 }
 
 COOKIE_NAME = "kb_session"
-ACTIVE_SESSIONS: dict[str, float] = {}
 SESSION_EXPIRATION_SECONDS = 3600 * 24  # 24 hours
 
 
@@ -92,13 +91,14 @@ def _get_ollama_client() -> ollama.Client:
 
 
 def clear_expired_tokens() -> None:
-    """Evicts expired login tokens from memory state."""
-    current_time = time.time()
-    expired_keys = [
-        token for token, expiry in ACTIVE_SESSIONS.items() if expiry < current_time
-    ]
-    for key in expired_keys:
-        del ACTIVE_SESSIONS[key]
+    """Evicts expired login tokens from database session state."""
+    db = _get_db()
+    if "active_sessions" in db.table_names():
+        try:
+            current_time = time.time()
+            db.execute("DELETE FROM active_sessions WHERE expiry < ?", [current_time])
+        except Exception as e:
+            print(f"Error clearing expired sessions: {e}")
 
 
 def verify_auth(request: Request) -> None:
@@ -111,7 +111,20 @@ def verify_auth(request: Request) -> None:
     """
     clear_expired_tokens()
     token = request.cookies.get(COOKIE_NAME)
-    if not token or token not in ACTIVE_SESSIONS:
+    is_valid = False
+    if token:
+        db = _get_db()
+        if "active_sessions" in db.table_names():
+            try:
+                row = db["active_sessions"].get(token)
+                if row["expiry"] >= time.time():
+                    is_valid = True
+            except sqlite_utils.db.NotFoundError:
+                pass
+            except Exception as e:
+                print(f"Error checking active session: {e}")
+
+    if not is_valid:
         # Redirect directly to login form, preserving destination
         redirect_url = f"/login?next={quote_plus(str(request.url))}"
         raise HTTPException(status_code=303, headers={"Location": redirect_url})
@@ -562,7 +575,15 @@ def handle_login(
     """
     if password == config.admin_password:
         session_token = secrets.token_hex(32)
-        ACTIVE_SESSIONS[session_token] = time.time() + SESSION_EXPIRATION_SECONDS
+        db = _get_db()
+        db["active_sessions"].insert(
+            {
+                "token": session_token,
+                "expiry": time.time() + SESSION_EXPIRATION_SECONDS,
+            },
+            pk="token",
+            replace=True,
+        )
 
         redirect_target = next if next else "/"
         if redirect_target.startswith("http://") or redirect_target.startswith(
@@ -626,7 +647,17 @@ def view_all_pages(request: Request, q: Optional[str] = Query(None)) -> HTMLResp
     # Check if user is logged in as an administrator
     clear_expired_tokens()
     token = request.cookies.get(COOKIE_NAME)
-    is_admin = token in ACTIVE_SESSIONS and ACTIVE_SESSIONS[token] >= time.time()
+    is_admin = False
+    if token:
+        db = _get_db()
+        if "active_sessions" in db.table_names():
+            try:
+                row = db["active_sessions"].get(token)
+                is_admin = row["expiry"] >= time.time()
+            except sqlite_utils.db.NotFoundError:
+                pass
+            except Exception as e:
+                print(f"Error checking active session: {e}")
 
     template = _jinja_env.get_template("pages_list.j2.html")
     return HTMLResponse(
@@ -677,7 +708,17 @@ def view_saved_page(
     # Check if user is logged in as an administrator
     clear_expired_tokens()
     token = request.cookies.get(COOKIE_NAME)
-    is_admin = token in ACTIVE_SESSIONS and ACTIVE_SESSIONS[token] >= time.time()
+    is_admin = False
+    if token:
+        db = _get_db()
+        if "active_sessions" in db.table_names():
+            try:
+                row = db["active_sessions"].get(token)
+                is_admin = row["expiry"] >= time.time()
+            except sqlite_utils.db.NotFoundError:
+                pass
+            except Exception as e:
+                print(f"Error checking active session: {e}")
 
     current_fetched_at = None
     try:
@@ -1038,10 +1079,20 @@ def handle_update_tags(
 
 
 @app.get("/logout")
-def handle_logout() -> RedirectResponse:
+def handle_logout(request: Request) -> RedirectResponse:
     """Clears session state authentication credentials."""
     response = RedirectResponse(url="/", status_code=303)
+    token = request.cookies.get(COOKIE_NAME)
     response.delete_cookie(COOKIE_NAME)
+    if token:
+        db = _get_db()
+        if "active_sessions" in db.table_names():
+            try:
+                db["active_sessions"].delete(token)
+            except sqlite_utils.db.NotFoundError:
+                pass
+            except Exception as e:
+                print(f"Error deleting session: {e}")
     return response
 
 
@@ -1233,7 +1284,20 @@ async def websocket_import(websocket: WebSocket) -> None:
 
     # WebSocket Cookie-based authentication check
     token = websocket.cookies.get(COOKIE_NAME)
-    if not token or token not in ACTIVE_SESSIONS:
+    is_valid = False
+    if token:
+        db = _get_db()
+        if "active_sessions" in db.table_names():
+            try:
+                row = db["active_sessions"].get(token)
+                if row["expiry"] >= time.time():
+                    is_valid = True
+            except sqlite_utils.db.NotFoundError:
+                pass
+            except Exception as e:
+                print(f"Error checking active session in websocket: {e}")
+
+    if not is_valid:
         await websocket.send_text("AUTH_FAILED")
         await websocket.close(code=1008)
         return
@@ -1643,7 +1707,17 @@ def view_tags(request: Request, tag: Optional[str] = Query(None)) -> HTMLRespons
     # Check if user is logged in as an administrator
     clear_expired_tokens()
     token = request.cookies.get(COOKIE_NAME)
-    is_admin = token in ACTIVE_SESSIONS and ACTIVE_SESSIONS[token] >= time.time()
+    is_admin = False
+    if token:
+        db = _get_db()
+        if "active_sessions" in db.table_names():
+            try:
+                row = db["active_sessions"].get(token)
+                is_admin = row["expiry"] >= time.time()
+            except sqlite_utils.db.NotFoundError:
+                pass
+            except Exception as e:
+                print(f"Error checking active session: {e}")
 
     template = _jinja_env.get_template("tags.j2.html")
     return HTMLResponse(

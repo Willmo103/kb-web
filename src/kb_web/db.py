@@ -105,3 +105,17 @@ def init_db(db: sqlite_utils.Database) -> None:
             print("Initialized database table: article_embeddings")
         except Exception as e:
             print(f"Error creating article_embeddings table: {e}")
+
+    # Initialize active_sessions table for persistent session tracking
+    if "active_sessions" not in db.table_names():
+        try:
+            db["active_sessions"].create(
+                {
+                    "token": str,
+                    "expiry": float,
+                },
+                pk="token",
+            )
+            print("Initialized database table: active_sessions")
+        except Exception as e:
+            print(f"Error creating active_sessions table: {e}")
