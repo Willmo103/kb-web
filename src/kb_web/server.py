@@ -87,7 +87,7 @@ def _get_db():
     if _cached_db is None or _cached_db_path != db_path:
         import sqlite3
 
-        conn = sqlite3.connect(db_path, check_same_thread=False)
+        conn = sqlite3.connect(db_path, timeout=30.0, check_same_thread=False)
         _cached_db = sqlite_utils.Database(conn)
         _cached_db_path = db_path
         init_db(_cached_db)

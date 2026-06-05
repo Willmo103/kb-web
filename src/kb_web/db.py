@@ -30,6 +30,11 @@ def init_db(db: sqlite_utils.Database) -> None:
     Args:
         db (sqlite_utils.Database): Database object to check and initialize.
     """
+    try:
+        db.enable_wal()
+    except Exception as e:
+        print(f"Warning: Failed to enable WAL mode: {e}")
+
     if "fetched_pages" not in db.table_names():
         # Create table with correct schema types and declare url as primary key
         db["fetched_pages"].create(
