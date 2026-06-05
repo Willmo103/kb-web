@@ -542,8 +542,6 @@ def test_youtube_scraping(monkeypatch) -> None:
                 },
             ]
 
-    import sys
-
     # Monkeypatch modules
     import yt_dlp
 
@@ -555,9 +553,31 @@ def test_youtube_scraping(monkeypatch) -> None:
         youtube_transcript_api, "YouTubeTranscriptApi", DummyTranscriptApi
     )
 
-    # Run extraction via fetch_url
+    # Run extraction via fetch_url (static method path)
     page = fetch_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     assert page.title == "Never Gonna Give You Up"
     assert "Never Gonna Give You Up" in page.html_content
     assert "We're no strangers to love" in page.md_content
     assert "[00:03] You know the rules and so do I" in page.md_content
+
+    # Now test instance method fallback path
+    class DummySnippet:
+        def __init__(self, text, start):
+            self.text = text
+            self.start = start
+
+    class DummyTranscriptApiInstance:
+        def fetch(self, video_id, languages=("en",), preserve_formatting=False):
+            return [
+                DummySnippet("We're no strangers to love", 0.5),
+                DummySnippet("You know the rules and so do I", 3.5),
+            ]
+
+    monkeypatch.setattr(
+        youtube_transcript_api, "YouTubeTranscriptApi", DummyTranscriptApiInstance
+    )
+
+    page2 = fetch_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert page2.title == "Never Gonna Give You Up"
+    assert "We're no strangers to love" in page2.md_content
+    assert "[00:03] You know the rules and so do I" in page2.md_content

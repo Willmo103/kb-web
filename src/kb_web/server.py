@@ -266,7 +266,22 @@ def fetch_youtube_video_page(url: str, video_id: str) -> HTMLPage:
     try:
         import yt_dlp
 
-        ydl_opts = {"skip_download": True, "quiet": True}
+        class QuietLogger:
+            def debug(self, msg):
+                pass
+
+            def warning(self, msg):
+                pass
+
+            def error(self, msg):
+                pass
+
+        ydl_opts = {
+            "skip_download": True,
+            "quiet": True,
+            "no_warnings": True,
+            "logger": QuietLogger(),
+        }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             title = info.get("title", title)
@@ -287,15 +302,30 @@ def fetch_youtube_video_page(url: str, video_id: str) -> HTMLPage:
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
 
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        # Support both classmethod-based (older) and instance-based (newer) APIs
+        if hasattr(YouTubeTranscriptApi, "get_transcript"):
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        else:
+            transcript_list = YouTubeTranscriptApi().fetch(video_id)
+
         # Format timestamps into transcripts
         transcript_lines = []
         for entry in transcript_list:
-            start_sec = int(entry["start"])
+            # Handle both list of dicts (older) and list of FetchedTranscriptSnippet objects (newer)
+            if hasattr(entry, "start"):
+                start_sec = int(entry.start)
+            else:
+                start_sec = int(entry.get("start", 0))
+
+            if hasattr(entry, "text"):
+                text_content = entry.text
+            else:
+                text_content = entry.get("text", "")
+
             minutes = start_sec // 60
             seconds = start_sec % 60
             timestamp = f"[{minutes:02d}:{seconds:02d}]"
-            transcript_lines.append(f"{timestamp} {entry['text']}")
+            transcript_lines.append(f"{timestamp} {text_content}")
         transcript = "\n".join(transcript_lines)
     except Exception as e:
         print(f"youtube-transcript-api retrieval failed for {video_id}: {e}")

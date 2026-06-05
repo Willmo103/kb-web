@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-06-05
+### Fixed
+- Fixed YouTube video transcript extraction on newer versions of `youtube-transcript-api` that use instance-based APIs.
+- Silenced `yt-dlp` warning output regarding missing `ffmpeg` and JavaScript runtimes on target server environments.
+- Cleaned up unused imports in testing module.
+
 ## [0.1.10] - 2026-06-04
 ### Added
 - Model Context Protocol (MCP) server stdio API integration.
