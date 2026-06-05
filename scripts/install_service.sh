@@ -34,6 +34,45 @@ if [ ! -f "/srv/kb-web/.venv/bin/kb-web" ]; then
   fi
 fi
 
+# Ensure ffmpeg and JavaScript runtime (deno) are installed
+echo "Checking external dependencies..."
+if ! command -v ffmpeg &> /dev/null; then
+  echo "ffmpeg not found. Attempting to install..."
+  if command -v apt-get &> /dev/null; then
+    apt-get update && apt-get install -y ffmpeg
+  elif command -v dnf &> /dev/null; then
+    dnf install -y ffmpeg
+  else
+    echo "Warning: Package manager not recognized. Please install ffmpeg manually."
+  fi
+else
+  echo "ffmpeg is already installed."
+fi
+
+JS_FOUND=false
+for runtime in deno node bun; do
+  if command -v $runtime &> /dev/null; then
+    echo "JavaScript runtime found: ($runtime)"
+    JS_FOUND=true
+    break
+  fi
+fi
+
+if [ "$JS_FOUND" = false ]; then
+  echo "No JavaScript runtime found. Installing Deno system-wide..."
+  if command -v curl &> /dev/null; then
+    curl -fsSL https://deno.land/install.sh | sh
+    if [ -f "/root/.deno/bin/deno" ]; then
+      cp /root/.deno/bin/deno /usr/local/bin/
+      echo "Deno successfully installed system-wide."
+    else
+      echo "Warning: Deno binary not found at /root/.deno/bin/deno after installation."
+    fi
+  else
+    echo "Warning: 'curl' is required to install Deno. Please install curl or deno manually."
+  fi
+fi
+
 # Copy service file
 cp "$SRC_SERVICE" "$DEST_SERVICE"
 chmod 644 "$DEST_SERVICE"

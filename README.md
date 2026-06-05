@@ -93,6 +93,13 @@ uv run pytest
 
 This codebase is deployed on a Linux server by cloning the repository to `/srv/kb-web/`.
 
+### External Dependencies
+For full YouTube link metadata and transcript extraction support, the production server requires:
+- **`ffmpeg`**: Required by `yt-dlp` to download, convert, and merge video streams correctly.
+- **JavaScript Runtime (`deno` or `node.js`)**: Required by `yt-dlp` to execute YouTube signature scripts for media extraction.
+
+The provided service installation script (`scripts/install_service.sh`) will automatically check for and attempt to install these packages system-wide if run with sudo.
+
 ### 1. Clone & Set Ownership
 Ensure the repository is checked out at `/srv/kb-web` and owned by your system user:
 ```bash
