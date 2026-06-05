@@ -581,3 +581,96 @@ def test_youtube_scraping(monkeypatch) -> None:
     assert page2.title == "Never Gonna Give You Up"
     assert "We're no strangers to love" in page2.md_content
     assert "[00:03] You know the rules and so do I" in page2.md_content
+
+
+def test_get_requests_are_write_free(client: TestClient) -> None:
+    """Asserts that calling GET endpoints does not issue any database write operations."""
+    import sqlite_utils
+    from unittest.mock import patch
+
+    write_commands = ["insert", "update", "delete", "drop", "create", "replace"]
+    executed_queries = []
+
+    original_execute = sqlite_utils.Database.execute
+
+    def mock_execute(self, sql, *args, **kwargs):
+        sql_lower = sql.strip().lower()
+        executed_queries.append(sql)
+        for cmd in write_commands:
+            if sql_lower.startswith(cmd):
+                raise AssertionError(f"Write query detected on read-only request: {sql}")
+        return original_execute(self, sql, *args, **kwargs)
+
+    # Insert a page to read
+    db = get_db(server_config)
+    db["fetched_pages"].insert({
+        "url": "https://example.com/readonly-test",
+        "title": "Read Only Title",
+        "html_content": "A",
+        "md_content": "A",
+        "links": "[]",
+        "html_content_hash": "h1",
+        "md_content_hash": "m1",
+        "fetched_at": "2026-05-31T12:00:00",
+        "tags": "[]"
+    }, replace=True)
+
+    with patch.object(sqlite_utils.Database, "execute", mock_execute):
+        # 1. Hit the home page
+        response = client.get("/")
+        assert response.status_code == 200
+
+        # 2. Hit pages index
+        response = client.get("/pages")
+        assert response.status_code == 200
+
+        # 3. Hit tags listing
+        response = client.get("/tags")
+        assert response.status_code == 200
+
+        # 4. View page details
+        response = client.get("/view/page?url=https%3A%2F%2Fexample.com%2Freadonly-test")
+        assert response.status_code == 200
+
+    # Ensure some SELECT queries actually ran (verifying our mock intercepted correctly)
+    assert len(executed_queries) > 0
+    assert any("select" in q.lower() for q in executed_queries)
+
+
+def test_concurrent_reads_no_lock(client: TestClient) -> None:
+    """Verifies that multiple concurrent GET requests can be processed concurrently without database locks."""
+    import concurrent.futures
+
+    # Ensure there's data in the database
+    db = get_db(server_config)
+    db["fetched_pages"].insert({
+        "url": "https://example.com/concurrent-test",
+        "title": "Concurrent Title",
+        "html_content": "A",
+        "md_content": "A",
+        "links": "[]",
+        "html_content_hash": "h2",
+        "md_content_hash": "m2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "tags": "[]"
+    }, replace=True)
+
+    endpoints = [
+        "/",
+        "/pages",
+        "/tags",
+        "/view/page?url=https%3A%2F%2Fexample.com%2Fconcurrent-test"
+    ]
+
+    # Run 20 concurrent requests across 5 threads
+    def run_request(url):
+        resp = client.get(url)
+        return resp.status_code
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(run_request, url) for _ in range(5) for url in endpoints]
+        results = [f.result() for f in concurrent.futures.as_completed(futures)]
+
+    assert len(results) == 20
+    assert all(status == 200 for status in results)
+

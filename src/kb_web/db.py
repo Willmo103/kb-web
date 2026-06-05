@@ -111,16 +111,10 @@ def init_db(db: sqlite_utils.Database) -> None:
         except Exception as e:
             print(f"Error creating article_embeddings table: {e}")
 
-    # Initialize active_sessions table for persistent session tracking
-    if "active_sessions" not in db.table_names():
+    # Drop legacy active_sessions table if it exists to clean up database schema
+    if "active_sessions" in db.table_names():
         try:
-            db["active_sessions"].create(
-                {
-                    "token": str,
-                    "expiry": float,
-                },
-                pk="token",
-            )
-            print("Initialized database table: active_sessions")
+            db["active_sessions"].drop()
+            print("Dropped legacy database table: active_sessions")
         except Exception as e:
-            print(f"Error creating active_sessions table: {e}")
+            print(f"Warning: Failed to drop active_sessions table: {e}")

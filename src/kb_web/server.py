@@ -72,8 +72,10 @@ DEFAULT_TAGS_PROMPT = (
 )
 
 
-_cached_db = None
-_cached_db_path = None
+import threading
+
+_local = threading.local()
+_init_lock = threading.Lock()
 
 
 def _get_db():
@@ -82,16 +84,19 @@ def _get_db():
     Returns:
         sqlite_utils.Database: Connection wrapper to ~/.kb/kb.db.
     """
-    global _cached_db, _cached_db_path
     db_path = config.db_path
-    if _cached_db is None or _cached_db_path != db_path:
+    db = getattr(_local, "db", None)
+    db_path_cached = getattr(_local, "db_path", None)
+    if db is None or db_path_cached != db_path:
         import sqlite3
 
         conn = sqlite3.connect(db_path, timeout=30.0, check_same_thread=False)
-        _cached_db = sqlite_utils.Database(conn)
-        _cached_db_path = db_path
-        init_db(_cached_db)
-    return _cached_db
+        db = sqlite_utils.Database(conn)
+        with _init_lock:
+            init_db(db)
+        _local.db = db
+        _local.db_path = db_path
+    return db
 
 
 def _get_ollama_client() -> ollama.Client:
@@ -103,15 +108,54 @@ def _get_ollama_client() -> ollama.Client:
     return ollama.Client(host=config.ollama_host)
 
 
-def clear_expired_tokens() -> None:
-    """Evicts expired login tokens from database session state."""
-    db = _get_db()
-    if "active_sessions" in db.table_names():
-        try:
-            current_time = time.time()
-            db.execute("DELETE FROM active_sessions WHERE expiry < ?", [current_time])
-        except Exception as e:
-            print(f"Error clearing expired sessions: {e}")
+def _get_session_secret() -> bytes:
+    """Derives a cryptographically secure key for session signatures from the admin password."""
+    return hashlib.sha256(config.admin_password.encode("utf-8")).digest()
+
+
+def generate_session_token(expiry_time: float) -> str:
+    """Generates a tamper-proof session token containing the expiration timestamp.
+
+    Args:
+        expiry_time (float): Session expiration timestamp.
+
+    Returns:
+        str: Cryptographically signed token string.
+    """
+    import hmac
+
+    payload = str(int(expiry_time))
+    secret = _get_session_secret()
+    signature = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def verify_session_token(token: str) -> bool:
+    """Verifies a signed token's cryptographic signature and expiration.
+
+    Args:
+        token (str): Signed token string from cookie.
+
+    Returns:
+        bool: True if signature is valid and timestamp is in the future.
+    """
+    if not token or "." not in token:
+        return False
+    try:
+        import hmac
+
+        payload, signature = token.split(".", 1)
+        expiry_time = int(payload)
+        if expiry_time < time.time():
+            return False
+
+        secret = _get_session_secret()
+        expected_signature = hmac.new(
+            secret, payload.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(signature, expected_signature)
+    except Exception:
+        return False
 
 
 def verify_auth(request: Request) -> None:
@@ -122,22 +166,8 @@ def verify_auth(request: Request) -> None:
     Args:
         request (Request): Incoming FastAPI HTTP request.
     """
-    clear_expired_tokens()
     token = request.cookies.get(COOKIE_NAME)
-    is_valid = False
-    if token:
-        db = _get_db()
-        if "active_sessions" in db.table_names():
-            try:
-                row = db["active_sessions"].get(token)
-                if row["expiry"] >= time.time():
-                    is_valid = True
-            except sqlite_utils.db.NotFoundError:
-                pass
-            except Exception as e:
-                print(f"Error checking active session: {e}")
-
-    if not is_valid:
+    if not token or not verify_session_token(token):
         # Redirect directly to login form, preserving destination
         redirect_url = f"/login?next={quote_plus(str(request.url))}"
         raise HTTPException(status_code=303, headers={"Location": redirect_url})
@@ -587,16 +617,8 @@ def handle_login(
         HTMLResponse | RedirectResponse: Redirection to target/home or error output page.
     """
     if password == config.admin_password:
-        session_token = secrets.token_hex(32)
-        db = _get_db()
-        db["active_sessions"].insert(
-            {
-                "token": session_token,
-                "expiry": time.time() + SESSION_EXPIRATION_SECONDS,
-            },
-            pk="token",
-            replace=True,
-        )
+        expiry_time = time.time() + SESSION_EXPIRATION_SECONDS
+        session_token = generate_session_token(expiry_time)
 
         redirect_target = next if next else "/"
         if redirect_target.startswith("http://") or redirect_target.startswith(
@@ -658,19 +680,8 @@ def view_all_pages(request: Request, q: Optional[str] = Query(None)) -> HTMLResp
                 continue
 
     # Check if user is logged in as an administrator
-    clear_expired_tokens()
     token = request.cookies.get(COOKIE_NAME)
-    is_admin = False
-    if token:
-        db = _get_db()
-        if "active_sessions" in db.table_names():
-            try:
-                row = db["active_sessions"].get(token)
-                is_admin = row["expiry"] >= time.time()
-            except sqlite_utils.db.NotFoundError:
-                pass
-            except Exception as e:
-                print(f"Error checking active session: {e}")
+    is_admin = bool(token and verify_session_token(token))
 
     template = _jinja_env.get_template("pages_list.j2.html")
     return HTMLResponse(
@@ -719,19 +730,8 @@ def view_saved_page(
             )
 
     # Check if user is logged in as an administrator
-    clear_expired_tokens()
     token = request.cookies.get(COOKIE_NAME)
-    is_admin = False
-    if token:
-        db = _get_db()
-        if "active_sessions" in db.table_names():
-            try:
-                row = db["active_sessions"].get(token)
-                is_admin = row["expiry"] >= time.time()
-            except sqlite_utils.db.NotFoundError:
-                pass
-            except Exception as e:
-                print(f"Error checking active session: {e}")
+    is_admin = bool(token and verify_session_token(token))
 
     current_fetched_at = None
     try:
@@ -1095,17 +1095,7 @@ def handle_update_tags(
 def handle_logout(request: Request) -> RedirectResponse:
     """Clears session state authentication credentials."""
     response = RedirectResponse(url="/", status_code=303)
-    token = request.cookies.get(COOKIE_NAME)
     response.delete_cookie(COOKIE_NAME)
-    if token:
-        db = _get_db()
-        if "active_sessions" in db.table_names():
-            try:
-                db["active_sessions"].delete(token)
-            except sqlite_utils.db.NotFoundError:
-                pass
-            except Exception as e:
-                print(f"Error deleting session: {e}")
     return response
 
 
@@ -1297,18 +1287,7 @@ async def websocket_import(websocket: WebSocket) -> None:
 
     # WebSocket Cookie-based authentication check
     token = websocket.cookies.get(COOKIE_NAME)
-    is_valid = False
-    if token:
-        db = _get_db()
-        if "active_sessions" in db.table_names():
-            try:
-                row = db["active_sessions"].get(token)
-                if row["expiry"] >= time.time():
-                    is_valid = True
-            except sqlite_utils.db.NotFoundError:
-                pass
-            except Exception as e:
-                print(f"Error checking active session in websocket: {e}")
+    is_valid = bool(token and verify_session_token(token))
 
     if not is_valid:
         await websocket.send_text("AUTH_FAILED")
@@ -1718,19 +1697,8 @@ def view_tags(request: Request, tag: Optional[str] = Query(None)) -> HTMLRespons
                         continue
 
     # Check if user is logged in as an administrator
-    clear_expired_tokens()
     token = request.cookies.get(COOKIE_NAME)
-    is_admin = False
-    if token:
-        db = _get_db()
-        if "active_sessions" in db.table_names():
-            try:
-                row = db["active_sessions"].get(token)
-                is_admin = row["expiry"] >= time.time()
-            except sqlite_utils.db.NotFoundError:
-                pass
-            except Exception as e:
-                print(f"Error checking active session: {e}")
+    is_admin = bool(token and verify_session_token(token))
 
     template = _jinja_env.get_template("tags.j2.html")
     return HTMLResponse(
