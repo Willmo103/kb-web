@@ -674,3 +674,113 @@ def test_concurrent_reads_no_lock(client: TestClient) -> None:
     assert len(results) == 20
     assert all(status == 200 for status in results)
 
+
+def test_virtual_sites(client: TestClient, monkeypatch) -> None:
+    """Verifies that the /sites page lists grouped domains and /view/site renders them properly with generated wiki summaries."""
+    db = get_db(server_config)
+
+    # Mock Ollama chat to avoid active model checks during site wiki generation
+    class DummyMessage:
+        content = "# Mocked Site Wiki\n\nWiki text body content for the site."
+
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    monkeypatch.setattr(
+        ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse()
+    )
+
+    # Ingest some pages from same and different domains
+    db["fetched_pages"].insert({
+        "url": "https://github.com/trending",
+        "title": "GitHub Trending",
+        "html_content": "A",
+        "md_content": "A",
+        "links": "[]",
+        "html_content_hash": "h1",
+        "md_content_hash": "m1",
+        "fetched_at": "2026-05-31T12:00:00",
+        "description": "Wiki for trending page",
+        "tags": '["coding"]'
+    }, replace=True)
+
+    db["fetched_pages"].insert({
+        "url": "https://github.com/foo",
+        "title": "GitHub Foo",
+        "html_content": "B",
+        "md_content": "B",
+        "links": "[]",
+        "html_content_hash": "h2",
+        "md_content_hash": "m2",
+        "fetched_at": "2026-05-31T12:05:00",
+        "description": "Wiki for foo page",
+        "tags": '["coding"]'
+    }, replace=True)
+
+    db["fetched_pages"].insert({
+        "url": "https://google.com/search",
+        "title": "Google Search",
+        "html_content": "C",
+        "md_content": "C",
+        "links": "[]",
+        "html_content_hash": "h3",
+        "md_content_hash": "m3",
+        "fetched_at": "2026-05-31T12:10:00",
+        "description": "Wiki for search page",
+        "tags": '["search"]'
+    }, replace=True)
+
+    # 1. Fetch sites list view
+    resp = client.get("/sites")
+    assert resp.status_code == 200
+    assert "github.com" in resp.text
+    assert "google.com" in resp.text
+    assert "2 pages" in resp.text
+    assert "1 page" in resp.text
+
+    # 2. Fetch specific site profile
+    resp_site = client.get("/view/site?site=github.com")
+    assert resp_site.status_code == 200
+    assert "github.com" in resp_site.text
+    assert "GitHub Trending" in resp_site.text
+    assert "GitHub Foo" in resp_site.text
+    assert "Mocked Site Wiki" in resp_site.text  # Verifies site wiki generation is called and rendered
+
+    # Verify site wiki cached in DB
+    assert "site_wikis" in db.table_names()
+    cached = db["site_wikis"].get("github.com")
+    assert "Mocked Site Wiki" in cached["wiki_content"]
+
+    # 3. Test regeneration endpoint (admin only)
+    # Login to get admin cookie
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+
+    # Change mock content to verify regeneration
+    class AnotherMessage:
+        content = "# Regenerated Site Wiki\n\nRegenerated wiki text body content."
+
+    class AnotherChatResponse:
+        message = AnotherMessage()
+
+    monkeypatch.setattr(
+        ollama.Client, "chat", lambda *args, **kwargs: AnotherChatResponse()
+    )
+
+    resp_regen = client.post(
+        "/admin/regenerate/site-wiki?site=github.com",
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False,
+    )
+    assert resp_regen.status_code == 303
+    assert "Site+wiki+regeneration+triggered" in resp_regen.headers["location"]
+
+    # Retrieve again (should show regenerated wiki)
+    resp_site_regen = client.get("/view/site?site=github.com")
+    assert resp_site_regen.status_code == 200
+    assert "Regenerated Site Wiki" in resp_site_regen.text
+

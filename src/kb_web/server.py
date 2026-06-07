@@ -748,14 +748,55 @@ def view_saved_page(
 
     similar_pages = get_similar_articles(db, decoded_url)
 
+    # Filter and resolve links
+    scraped_links = []
+    if page_obj.links:
+        from urllib.parse import urlparse, urljoin
+        origin_parsed = urlparse(page_obj.url)
+        origin_domain = (origin_parsed.netloc or origin_parsed.path or "").lower()
+        if origin_domain.startswith("www."):
+            origin_domain = origin_domain[4:]
+            
+        for link in page_obj.links:
+            if not link or link.startswith("#"):
+                continue
+            abs_link = urljoin(page_obj.url, link)
+            link_parsed = urlparse(abs_link)
+            link_domain = (link_parsed.netloc or link_parsed.path or "").lower()
+            if link_domain.startswith("www."):
+                link_domain = link_domain[4:]
+            if link_domain == origin_domain:
+                scraped_links.append(abs_link)
+        # Deduplicate while preserving order
+        scraped_links = list(dict.fromkeys(scraped_links))
+
+    # Check which links are already ingested
+    ingested_urls = set()
+    if scraped_links and "fetched_pages" in db.table_names():
+        placeholders = ", ".join(["?"] * len(scraped_links))
+        rows = db.execute_returning_dicts(
+            f"SELECT url FROM fetched_pages WHERE url IN ({placeholders})",
+            scraped_links
+        )
+        ingested_urls = {r["url"] for r in rows}
+        
+    page_links_data = [
+        {"url": link, "ingested": link in ingested_urls}
+        for link in scraped_links
+    ]
+
     rendered_wiki_html = markdown.markdown(
         page_obj.description or "", extensions=["fenced_code", "tables"]
+    )
+    rendered_md_html = markdown.markdown(
+        page_obj.md_content or "", extensions=["fenced_code", "tables"]
     )
     template = _jinja_env.get_template("view_page.j2.html")
     return HTMLResponse(
         content=template.render(
             page=page_obj,
             rendered_wiki_html=rendered_wiki_html,
+            rendered_md_html=rendered_md_html,
             is_admin=is_admin,
             versions=versions,
             active_version_id=version_id,
@@ -763,6 +804,7 @@ def view_saved_page(
             msg=msg,
             error=error,
             similar_pages=similar_pages,
+            scraped_links=page_links_data,
         )
     )
 
@@ -1708,4 +1750,210 @@ def view_tags(request: Request, tag: Optional[str] = Query(None)) -> HTMLRespons
             pages=pages_list,
             is_admin=is_admin,
         )
+    )
+
+
+def get_url_basename(url: str) -> str:
+    """Helper to extract the domain/hostname as site basename from a URL, stripping www."""
+    parsed = urlparse(url)
+    hostname = parsed.netloc or parsed.path
+    if not hostname:
+        return "unknown"
+    hostname = hostname.lower()
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+    return hostname
+
+
+def get_or_create_site_wiki(db, site_name: str, pages: list[HTMLPage]) -> str:
+    """Gets or generates a site-wide wiki summarizing all pages belonging to the site."""
+    if "site_wikis" not in db.table_names():
+        try:
+            db["site_wikis"].create(
+                {"site": str, "wiki_content": str, "updated_at": str},
+                pk="site",
+            )
+        except Exception as e:
+            print(f"Error creating site_wikis table: {e}")
+
+    try:
+        wiki_row = db["site_wikis"].get(site_name)
+        return wiki_row["wiki_content"]
+    except sqlite_utils.db.NotFoundError:
+        pass
+
+    # Extract all page descriptions to synthesize
+    valid_descriptions = [
+        p.description
+        for p in pages
+        if p.description and "AI Processing skipped" not in p.description
+    ]
+    if not valid_descriptions:
+        valid_descriptions = [p.md_content[:1000] for p in pages if p.md_content]
+
+    if not valid_descriptions:
+        return f"# {site_name}\n\n*No page descriptions or content available to generate site wiki.*"
+
+    combined_content = "\n\n---\n\n".join(valid_descriptions[:10])
+
+    prompt = (
+        f"You are a professional technical writer. Write a cohesive, structured, and comprehensive wiki summary "
+        f"for the site '{site_name}' based on the individual summaries/contents of the pages that belong to it: \n\n"
+        f"Use clean markdown headings, lists, and tables as necessary. Do not mention that you are summarizing."
+    )
+
+    try:
+        client = _get_ollama_client()
+        response = client.chat(
+            model=config.ollama_model,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": combined_content},
+            ],
+        )
+        site_wiki = response.message.content
+    except Exception as e:
+        print(f"Ollama site wiki generation failed for {site_name}: {e}")
+        site_wiki = (
+            f"# {site_name} Wiki\n\nGenerated fallback from page summaries:\n\n"
+            + "\n\n".join(valid_descriptions[:5])
+        )
+
+    try:
+        db["site_wikis"].insert(
+            {
+                "site": site_name,
+                "wiki_content": site_wiki,
+                "updated_at": datetime.now().isoformat(),
+            },
+            replace=True,
+        )
+    except Exception as e:
+        print(f"Failed to cache site wiki: {e}")
+
+    return site_wiki
+
+
+@app.get("/sites", response_class=HTMLResponse)
+def view_all_sites(request: Request) -> HTMLResponse:
+    """Lists all virtual 'sites' which are groups of pages by domain basename."""
+    db = _get_db()
+    sites_dict = {}
+
+    if "fetched_pages" in db.table_names():
+        rows = list(db["fetched_pages"].rows)
+        for row in rows:
+            url = row["url"]
+            basename = get_url_basename(url)
+            if basename not in sites_dict:
+                sites_dict[basename] = {
+                    "name": basename,
+                    "pages_count": 0,
+                    "pages": [],
+                }
+            sites_dict[basename]["pages_count"] += 1
+            sites_dict[basename]["pages"].append(row)
+
+    # Sort sites by pages_count descending, then alphabetically
+    sorted_sites = sorted(
+        sites_dict.values(), key=lambda x: (-x["pages_count"], x["name"])
+    )
+
+    # Check if user is logged in as an administrator
+    token = request.cookies.get(COOKIE_NAME)
+    is_admin = bool(token and verify_session_token(token))
+
+    template = _jinja_env.get_template("sites_list.j2.html")
+    return HTMLResponse(
+        content=template.render(sites=sorted_sites, is_admin=is_admin)
+    )
+
+
+@app.get("/view/site", response_class=HTMLResponse)
+def view_site_profile(
+    request: Request,
+    site: str = Query(...),
+    msg: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+) -> HTMLResponse:
+    """Renders the profile page for a specific virtual 'site', showing its pages and its consolidated site wiki."""
+    db = _get_db()
+    site_name = site.strip().lower()
+
+    pages = []
+    if "fetched_pages" in db.table_names():
+        rows = list(db["fetched_pages"].rows)
+        for row in rows:
+            if get_url_basename(row["url"]) == site_name:
+                pages.append(HTMLPage(**row))
+
+    if not pages:
+        return HTMLResponse(
+            content=f"<h1>Site '{site_name}' has no imported pages.</h1>",
+            status_code=404,
+        )
+
+    # Get or generate site wiki
+    site_wiki = get_or_create_site_wiki(db, site_name, pages)
+
+    rendered_wiki_html = markdown.markdown(
+        site_wiki or "", extensions=["fenced_code", "tables"]
+    )
+
+    # Get other sites for the sidebar
+    sites_dict = {}
+    if "fetched_pages" in db.table_names():
+        rows = list(db["fetched_pages"].rows)
+        for row in rows:
+            url = row["url"]
+            basename = get_url_basename(url)
+            if basename not in sites_dict:
+                sites_dict[basename] = {
+                    "name": basename,
+                    "pages_count": 0,
+                }
+            sites_dict[basename]["pages_count"] += 1
+
+    sorted_sites = sorted(
+        sites_dict.values(), key=lambda x: (-x["pages_count"], x["name"])
+    )
+
+    # Check if user is logged in as an administrator
+    token = request.cookies.get(COOKIE_NAME)
+    is_admin = bool(token and verify_session_token(token))
+
+    template = _jinja_env.get_template("view_site.j2.html")
+    return HTMLResponse(
+        content=template.render(
+            site_name=site_name,
+            pages=pages,
+            rendered_wiki_html=rendered_wiki_html,
+            other_sites=sorted_sites,
+            is_admin=is_admin,
+            msg=msg,
+            error=error,
+        )
+    )
+
+
+@app.post(
+    "/admin/regenerate/site-wiki",
+    dependencies=[Depends(verify_auth)],
+    response_model=None,
+)
+def handle_regenerate_site_wiki(site: str = Query(...)) -> RedirectResponse:
+    """Deletes cached site wiki and forces regeneration using Ollama."""
+    db = _get_db()
+    site_name = site.strip().lower()
+
+    # Delete cache
+    if "site_wikis" in db.table_names():
+        try:
+            db["site_wikis"].delete(site_name)
+        except sqlite_utils.db.NotFoundError:
+            pass
+
+    return RedirectResponse(
+        url=f"/view/site?site={quote_plus(site_name)}&msg=Site+wiki+regeneration+triggered.",
+        status_code=303,
     )

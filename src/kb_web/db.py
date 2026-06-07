@@ -111,6 +111,21 @@ def init_db(db: sqlite_utils.Database) -> None:
         except Exception as e:
             print(f"Error creating article_embeddings table: {e}")
 
+    # Initialize site_wikis table for caching virtual site profiles' wiki descriptions
+    if "site_wikis" not in db.table_names():
+        try:
+            db["site_wikis"].create(
+                {
+                    "site": str,
+                    "wiki_content": str,
+                    "updated_at": str,
+                },
+                pk="site",
+            )
+            print("Initialized database table: site_wikis")
+        except Exception as e:
+            print(f"Error creating site_wikis table: {e}")
+
     # Drop legacy active_sessions table if it exists to clean up database schema
     if "active_sessions" in db.table_names():
         try:

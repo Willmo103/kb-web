@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.18] - 2026-06-06
+### Added
+- Created virtual sites index view (`/sites`) and individual site profile views (`/view/site`).
+- Added database caching via `site_wikis` table for consolidated site-wide wikis synthesized by Ollama.
+- Integrated same-domain scraped links grid on `/view/page` route with confirmation modal ingestion pipelines.
+- Rendered original scraped markdown content as styled HTML inside collapsible details element.
+- Positioned semantically similar articles panel inside a sticky left sidebar.
+- Added `test_virtual_sites` unit test covering new routes, grouping logic, and wiki compilation.
+
 ## [0.1.15] - 2026-06-05
 ### Changed
 - Refactored authentication to use stateless, cryptographically signed session cookies (HMAC-SHA256), resolving Gunicorn write contention and database locks.

@@ -7,21 +7,21 @@
 {% endblock %}
 
 {% block content %}
-<div class="container mx-auto px-4 max-w-4xl pb-8">
+<div class="container mx-auto px-4 max-w-7xl pb-8">
 
     {% if msg %}
-    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-lg text-sm mb-6 shadow-sm">
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-lg text-sm mb-6 shadow-sm max-w-6xl mx-auto">
         {{ msg }}
     </div>
     {% endif %}
     {% if error %}
-    <div class="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-sm mb-6 shadow-sm">
+    <div class="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-sm mb-6 shadow-sm max-w-6xl mx-auto">
         {{ error }}
     </div>
     {% endif %}
 
     {% if active_version_id %}
-    <div class="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-lg text-sm mb-6 shadow-sm flex justify-between items-center">
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-lg text-sm mb-6 shadow-sm flex justify-between items-center max-w-6xl mx-auto">
         <span>⚠️ You are viewing a historical version of this page fetched on <strong>{{ page.fetched_at[:16] | replace('T', ' ') }}</strong>.</span>
         <a href="/view/page?url={{ page.safe_url }}" class="text-xs font-bold bg-white border border-amber-300 hover:bg-amber-100 px-3 py-1.5 rounded transition shadow-sm">
             View Current Version
@@ -29,154 +29,218 @@
     </div>
     {% endif %}
 
-    <!-- Header profile segment -->
-    <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6 border-b pb-4 border-gray-200">
-        <div class="truncate mr-4">
-            <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Engine Wiki Storage File</span>
-            <h1 class="text-xl font-extrabold text-gray-900 truncate mt-0.5">{{ page.title or page.url }}</h1>
-            {% if page.title and page.title != page.url %}
-            <p class="text-xs text-gray-400 truncate mt-0.5">
-                Target: <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono">{{ page.url }}</a>
-            </p>
-            {% endif %}
-        </div>
+    <div class="flex flex-col lg:flex-row gap-6 max-w-6xl mx-auto">
 
-        <div class="flex flex-wrap gap-2 items-center">
-            {% if is_admin %}
-            <form action="/admin/regenerate/wiki?url={{ page.safe_url }}" method="post" class="m-0">
-                <button type="submit" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm whitespace-nowrap">
-                    🔄 Regenerate Wiki
-                </button>
-            </form>
-            <form action="/admin/regenerate/tags?url={{ page.safe_url }}" method="post" class="m-0">
-                <button type="submit" class="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold py-2 px-3 border border-amber-200 rounded transition shadow-sm whitespace-nowrap">
-                    🏷️ Regenerate Tags
-                </button>
-            </form>
-            <form action="/admin/refetch/page?url={{ page.safe_url }}" method="post" class="m-0">
-                <button type="submit" class="text-xs bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold py-2 px-3 border border-sky-200 rounded transition shadow-sm whitespace-nowrap">
-                    🔄 Re-fetch Page
-                </button>
-            </form>
-            <form action="/admin/delete/page" method="post" onsubmit="return confirm('Are you sure you want to permanently delete this entry?');" class="m-0">
-                <input type="hidden" name="url" value="{{ page.url }}" />
-                <button type="submit" class="text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold py-2 px-3 border border-red-200 rounded transition shadow-sm whitespace-nowrap">
-                    🗑️ Delete Entry
-                </button>
-            </form>
-            {% endif %}
-            <button onclick="shareWikiPage()" class="text-xs bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-2 px-3 border border-gray-200 rounded transition shadow-sm whitespace-nowrap">
-                📤 Share Link
-            </button>
-        </div>
-    </div>
-
-    <!-- Tags display and manual editing trigger -->
-    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-sm">
-        <div class="flex flex-wrap gap-1.5 items-center">
-            <span class="text-xs font-bold text-gray-500 uppercase tracking-wider mr-2">Tags:</span>
-            {% if page.tags %}
-                {% for tag in page.tags %}
-                <span class="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded border border-yellow-200 font-mono">{{ tag }}</span>
-                {% endfor %}
-            {% else %}
-                <span class="text-xs text-gray-400 italic">No tags assigned.</span>
-            {% endif %}
-        </div>
-        {% if is_admin %}
-        <div>
-            <button onclick="toggleEditTagsForm()" class="text-xs font-bold text-gray-600 hover:text-gray-900 border border-gray-200 bg-white py-1.5 px-3 rounded shadow-sm hover:shadow transition">
-                ✏️ Edit Tags
-            </button>
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- Manual Tags form segment (toggled by JavaScript) -->
-    {% if is_admin %}
-    <div id="editTagsForm" class="hidden bg-white p-5 rounded-lg border border-gray-200 mb-6 shadow-inner">
-        <form action="/admin/update/tags" method="post" class="flex flex-col gap-3">
-            <input type="hidden" name="url" value="{{ page.url }}" />
-            <div>
-                <label for="tags_csv" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Configure Tags (Comma-Separated)</label>
-                <input type="text" name="tags_csv" id="tags_csv" value="{{ page.tags | join(', ') }}" class="block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="e.g. coding, database, tutorial" />
-            </div>
-            <div class="flex justify-end gap-2">
-                <button type="button" onclick="toggleEditTagsForm()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded transition">Cancel</button>
-                <button type="submit" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded transition">Save Tags</button>
-            </div>
-        </form>
-    </div>
-    {% endif %}
-
-    <!-- Version History selector panel -->
-    {% if versions %}
-    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 flex flex-col gap-2 shadow-sm">
-        <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Version History:</span>
-        <div class="flex flex-wrap gap-2 items-center text-xs">
-            <a href="/view/page?url={{ page.safe_url }}" class="px-2 py-1 rounded border {% if not active_version_id %}bg-indigo-600 text-white border-indigo-600{% else %}bg-white text-gray-700 border-gray-300 hover:bg-gray-50{% endif %}">
-                Current Version ({{ current_fetched_at[:16] | replace('T', ' ') if current_fetched_at else 'Latest' }})
-            </a>
-            {% for v in versions %}
-            <a href="/view/page?url={{ page.safe_url }}&version_id={{ v.id }}" class="px-2 py-1 rounded border {% if active_version_id == v.id %}bg-indigo-600 text-white border-indigo-600{% else %}bg-white text-gray-700 border-gray-300 hover:bg-gray-50{% endif %}">
-                Version {{ loop.index }} ({{ v.fetched_at[:16] | replace('T', ' ') }})
-            </a>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- Clean wiki page content -->
-    <div class="bg-white p-8 rounded-lg shadow-sm border border-gray-200 mb-6">
-        <div class="prose max-w-none">
-            {{ rendered_wiki_html | safe }}
-        </div>
-    </div>
-
-    <!-- Similar Articles Panel -->
-    {% if similar_pages %}
-    <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm mb-6">
-        <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 border-b pb-2">🧠 Semantically Similar Articles</h3>
-        <div class="space-y-3">
-            {% for sim in similar_pages %}
-            <div class="flex items-center justify-between gap-4 p-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded transition">
-                <div class="truncate">
-                    <h4 class="text-sm font-bold text-gray-900 truncate">
-                        <a href="/view/page?url={{ sim.url | urlencode }}" class="hover:text-indigo-600">
-                            {{ sim.title }}
-                        </a>
-                    </h4>
-                    {% if sim.tags %}
-                    <div class="flex flex-wrap gap-1 mt-1">
-                        {% for t in sim.tags %}
-                        <span class="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-semibold rounded border border-indigo-100">{{ t }}</span>
-                        {% endfor %}
+        <!-- Left Sidebar (Similar Articles) -->
+        {% if similar_pages %}
+        <aside class="w-full lg:w-64 flex-shrink-0 lg:sticky lg:top-4 h-fit">
+            <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+                <h3 class="text-xs font-bold text-gray-450 uppercase tracking-wider mb-4 border-b pb-2">🧠 Similar Articles</h3>
+                <div class="space-y-3">
+                    {% for sim in similar_pages %}
+                    <div class="p-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded transition flex flex-col gap-1.5">
+                        <h4 class="text-xs font-bold text-gray-900 line-clamp-2 leading-tight">
+                            <a href="/view/page?url={{ sim.url | urlencode }}" class="hover:text-indigo-650">
+                                {{ sim.title }}
+                            </a>
+                        </h4>
+                        {% if sim.tags %}
+                        <div class="flex flex-wrap gap-1 mt-1">
+                            {% for t in sim.tags[:2] %}
+                            <span class="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[9px] font-semibold rounded border border-indigo-100">{{ t }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        <div class="flex items-center justify-between text-[10px] text-gray-500 font-mono mt-1">
+                            <span>{{ sim.similarity }}% match</span>
+                            <a href="/view/page?url={{ sim.url | urlencode }}" class="text-indigo-600 hover:text-indigo-800 font-bold">Open</a>
+                        </div>
                     </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </aside>
+        {% endif %}
+
+        <!-- Main Content Area -->
+        <main class="flex-grow min-w-0">
+            <!-- Header profile segment -->
+            <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6 border-b pb-4 border-gray-200">
+                <div class="truncate mr-4">
+                    <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Engine Wiki Storage File</span>
+                    <h1 class="text-xl font-extrabold text-gray-900 truncate mt-0.5">{{ page.title or page.url }}</h1>
+                    {% if page.title and page.title != page.url %}
+                    <p class="text-xs text-gray-400 truncate mt-0.5">
+                        Target: <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono">{{ page.url }}</a>
+                    </p>
                     {% endif %}
                 </div>
-                <div class="flex items-center gap-3">
-                    <span class="text-xs font-semibold text-gray-500 font-mono">{{ sim.similarity }}% match</span>
-                    <a href="/view/page?url={{ sim.url | urlencode }}" class="text-xs font-bold text-indigo-600 hover:text-indigo-850 border border-indigo-200 bg-white hover:bg-indigo-50 py-1 px-2.5 rounded transition shadow-sm">
-                        Open
-                    </a>
+
+                <div class="flex flex-wrap gap-2 items-center">
+                    {% if is_admin %}
+                    <form action="/admin/regenerate/wiki?url={{ page.safe_url }}" method="post" class="m-0">
+                        <button type="submit" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm whitespace-nowrap">
+                            🔄 Regenerate Wiki
+                        </button>
+                    </form>
+                    <form action="/admin/regenerate/tags?url={{ page.safe_url }}" method="post" class="m-0">
+                        <button type="submit" class="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold py-2 px-3 border border-amber-200 rounded transition shadow-sm whitespace-nowrap">
+                            🏷️ Regenerate Tags
+                        </button>
+                    </form>
+                    <form action="/admin/refetch/page?url={{ page.safe_url }}" method="post" class="m-0">
+                        <button type="submit" class="text-xs bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold py-2 px-3 border border-sky-200 rounded transition shadow-sm whitespace-nowrap">
+                            🔄 Re-fetch Page
+                        </button>
+                    </form>
+                    <form action="/admin/delete/page" method="post" onsubmit="return confirm('Are you sure you want to permanently delete this entry?');" class="m-0">
+                        <input type="hidden" name="url" value="{{ page.url }}" />
+                        <button type="submit" class="text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold py-2 px-3 border border-red-200 rounded transition shadow-sm whitespace-nowrap">
+                            🗑️ Delete Entry
+                        </button>
+                    </form>
+                    {% endif %}
+                    <button onclick="shareWikiPage()" class="text-xs bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-2 px-3 border border-gray-200 rounded transition shadow-sm whitespace-nowrap">
+                        📤 Share Link
+                    </button>
                 </div>
             </div>
-            {% endfor %}
+
+            <!-- Tags display and manual editing trigger -->
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-sm">
+                <div class="flex flex-wrap gap-1.5 items-center">
+                    <span class="text-xs font-bold text-gray-500 uppercase tracking-wider mr-2">Tags:</span>
+                    {% if page.tags %}
+                        {% for tag in page.tags %}
+                        <span class="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded border border-yellow-200 font-mono">{{ tag }}</span>
+                        {% endfor %}
+                    {% else %}
+                        <span class="text-xs text-gray-400 italic">No tags assigned.</span>
+                    {% endif %}
+                </div>
+                {% if is_admin %}
+                <div>
+                    <button onclick="toggleEditTagsForm()" class="text-xs font-bold text-gray-600 hover:text-gray-900 border border-gray-200 bg-white py-1.5 px-3 rounded shadow-sm hover:shadow transition">
+                        ✏️ Edit Tags
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Manual Tags form segment (toggled by JavaScript) -->
+            {% if is_admin %}
+            <div id="editTagsForm" class="hidden bg-white p-5 rounded-lg border border-gray-200 mb-6 shadow-inner">
+                <form action="/admin/update/tags" method="post" class="flex flex-col gap-3">
+                    <input type="hidden" name="url" value="{{ page.url }}" />
+                    <div>
+                        <label for="tags_csv" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Configure Tags (Comma-Separated)</label>
+                        <input type="text" name="tags_csv" id="tags_csv" value="{{ page.tags | join(', ') }}" class="block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="e.g. coding, database, tutorial" />
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button type="button" onclick="toggleEditTagsForm()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded transition">Cancel</button>
+                        <button type="submit" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded transition">Save Tags</button>
+                    </div>
+                </form>
+            </div>
+            {% endif %}
+
+            <!-- Version History selector panel -->
+            {% if versions %}
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 flex flex-col gap-2 shadow-sm">
+                <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Version History:</span>
+                <div class="flex flex-wrap gap-2 items-center text-xs">
+                    <a href="/view/page?url={{ page.safe_url }}" class="px-2 py-1 rounded border {% if not active_version_id %}bg-indigo-600 text-white border-indigo-600{% else %}bg-white text-gray-700 border-gray-300 hover:bg-gray-50{% endif %}">
+                        Current Version ({{ current_fetched_at[:16] | replace('T', ' ') if current_fetched_at else 'Latest' }})
+                    </a>
+                    {% for v in versions %}
+                    <a href="/view/page?url={{ page.safe_url }}&version_id={{ v.id }}" class="px-2 py-1 rounded border {% if active_version_id == v.id %}bg-indigo-600 text-white border-indigo-600{% else %}bg-white text-gray-700 border-gray-300 hover:bg-gray-50{% endif %}">
+                        Version {{ loop.index }} ({{ v.fetched_at[:16] | replace('T', ' ') }})
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Clean wiki page content -->
+            <div class="bg-white p-8 rounded-lg shadow-sm border border-gray-200 mb-6 animate-fade-in">
+                <div class="prose max-w-none">
+                    {{ rendered_wiki_html | safe }}
+                </div>
+            </div>
+
+            <!-- Scraped same-domain links panel -->
+            {% if scraped_links %}
+            <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm mb-6">
+                <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 border-b pb-2">🔗 Same-Domain Scraped Links</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-2">
+                    {% for item in scraped_links %}
+                    <div class="flex items-center justify-between gap-3 p-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded transition">
+                        <div class="truncate">
+                            {% if item.ingested %}
+                            <a href="/view/page?url={{ item.url | urlencode }}" class="text-emerald-700 hover:text-emerald-950 font-medium text-xs break-all flex items-center gap-1">
+                                📁 {{ item.url }}
+                            </a>
+                            {% else %}
+                                {% if is_admin %}
+                                <a href="#" onclick="openIngestModal('{{ item.url }}'); return false;" class="text-indigo-650 hover:text-indigo-850 hover:underline text-xs font-mono break-all flex items-center gap-1">
+                                    📥 {{ item.url }}
+                                </a>
+                                {% else %}
+                                <span class="text-gray-500 text-xs font-mono break-all">{{ item.url }}</span>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            {% if item.ingested %}
+                            <span class="px-1.5 py-0.5 bg-emerald-105 text-emerald-800 text-[9px] font-semibold rounded border border-emerald-200 whitespace-nowrap">Ingested</span>
+                            {% endif %}
+                            <a href="{{ item.url }}" target="_blank" class="text-[10px] text-gray-550 hover:text-gray-800 hover:underline font-bold" title="Visit original external page">
+                                ↗️ Visit
+                            </a>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Collapsible Original Markdown (rendered as HTML) -->
+            <details class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden group mb-6">
+                <summary class="bg-gray-100 px-6 py-3 font-semibold text-sm text-gray-700 cursor-pointer select-none group-hover:bg-gray-200 transition flex justify-between items-center">
+                    <span>📋 View Original Scraped Markdown Content</span>
+                    <span class="text-xs text-gray-400 font-normal">click to expand</span>
+                </summary>
+                <div class="p-6 border-t border-gray-200 bg-gray-50 prose max-w-none max-h-128 overflow-y-auto">
+                    {{ rendered_md_html | safe }}
+                </div>
+            </details>
+        </main>
+    </div>
+</div>
+
+<!-- Ingestion Confirmation Modal -->
+<div id="ingest-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4">
+    <div class="bg-white rounded-lg p-6 max-w-md w-full shadow-2xl border border-gray-200 animate-fade-in">
+        <h3 class="text-lg font-bold text-gray-950 mb-2 flex items-center">
+            <span class="mr-2">📥</span> Ingest Link
+        </h3>
+        <p class="text-sm text-gray-600 mb-4">Are you sure you want to ingest this page into the Knowledge Base? This will fetch its contents and generate a wiki summary with Ollama.</p>
+        <p id="modal-url-text" class="text-xs font-mono bg-gray-100 p-3 rounded break-all text-gray-805 mb-6 border border-gray-200"></p>
+        <div class="flex justify-end gap-3">
+            <button onclick="closeIngestModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded transition">
+                Cancel
+            </button>
+            <button onclick="submitIngestion()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded transition shadow-sm">
+                Confirm Ingestion
+            </button>
         </div>
     </div>
-    {% endif %}
-
-    <!-- Raw content viewer detail -->
-    <details class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden group">
-        <summary class="bg-gray-100 px-6 py-3 font-semibold text-sm text-gray-700 cursor-pointer select-none group-hover:bg-gray-200 transition">
-            📋 View Raw Extracted Markdown Content Context
-        </summary>
-        <div class="p-6 border-t border-gray-200 bg-gray-50">
-            <pre class="text-xs font-mono text-gray-600 overflow-x-auto whitespace-pre-wrap leading-relaxed">{{ page.md_content }}</pre>
-        </div>
-    </details>
-
 </div>
+
+<!-- Hidden form for link ingestion submission -->
+<form id="ingest-form" action="/import/url" method="post" class="hidden">
+    <input type="hidden" name="url" id="ingest-form-url" />
+</form>
 
 <script>
     function toggleEditTagsForm() {
@@ -196,6 +260,24 @@
                 alert("Article link copied to clipboard!");
             });
         }
+    }
+
+    let urlToIngest = '';
+
+    function openIngestModal(url) {
+        urlToIngest = url;
+        document.getElementById('modal-url-text').innerText = url;
+        document.getElementById('ingest-modal').classList.remove('hidden');
+    }
+
+    function closeIngestModal() {
+        document.getElementById('ingest-modal').classList.add('hidden');
+    }
+
+    function submitIngestion() {
+        if (!urlToIngest) return;
+        document.getElementById('ingest-form-url').value = urlToIngest;
+        document.getElementById('ingest-form').submit();
     }
 </script>
 {% endblock %}
