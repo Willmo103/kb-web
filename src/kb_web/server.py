@@ -653,11 +653,15 @@ def handle_login(
 
 @app.get("/", response_class=HTMLResponse)
 @app.get("/pages", response_class=HTMLResponse)
-def view_all_pages(request: Request, q: Optional[str] = Query(None)) -> HTMLResponse:
-    """Lists historically captured records, showing parsed title tags or links.
+def view_all_pages(
+    request: Request,
+    q: Optional[str] = Query(None),
+    view: str = Query("articles"),
+) -> HTMLResponse:
+    """Lists historically captured records or grouped sites with a left-hand navigation menu.
 
     Returns:
-        HTMLResponse: Grid page list.
+        HTMLResponse: Index page with selected view segment.
     """
     db = _get_db()
     pages_list = []
@@ -679,13 +683,42 @@ def view_all_pages(request: Request, q: Optional[str] = Query(None)) -> HTMLResp
                 print(f"Database row validation error: {e}")
                 continue
 
+    # Fetch and compute sites
+    sites_dict = {}
+    if "fetched_pages" in db.table_names():
+        rows_raw = db.execute_returning_dicts(
+            "SELECT url, title, description, tags, fetched_at FROM fetched_pages"
+        )
+        for row in rows_raw:
+            url = row["url"]
+            basename = get_url_basename(url)
+            if basename not in sites_dict:
+                sites_dict[basename] = {
+                    "name": basename,
+                    "pages_count": 0,
+                    "pages": [],
+                }
+            sites_dict[basename]["pages_count"] += 1
+            sites_dict[basename]["pages"].append(row)
+
+    # Sort sites by pages_count descending, then alphabetically
+    sorted_sites = sorted(
+        sites_dict.values(), key=lambda x: (-x["pages_count"], x["name"])
+    )
+
     # Check if user is logged in as an administrator
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))
 
     template = _jinja_env.get_template("pages_list.j2.html")
     return HTMLResponse(
-        content=template.render(pages=pages_list, is_admin=is_admin, q=q or "")
+        content=template.render(
+            pages=pages_list,
+            sites=sorted_sites,
+            view=view,
+            is_admin=is_admin,
+            q=q or "",
+        )
     )
 
 
@@ -752,20 +785,12 @@ def view_saved_page(
     scraped_links = []
     if page_obj.links:
         from urllib.parse import urlparse, urljoin
-        origin_parsed = urlparse(page_obj.url)
-        origin_domain = (origin_parsed.netloc or origin_parsed.path or "").lower()
-        if origin_domain.startswith("www."):
-            origin_domain = origin_domain[4:]
-            
         for link in page_obj.links:
             if not link or link.startswith("#"):
                 continue
             abs_link = urljoin(page_obj.url, link)
             link_parsed = urlparse(abs_link)
-            link_domain = (link_parsed.netloc or link_parsed.path or "").lower()
-            if link_domain.startswith("www."):
-                link_domain = link_domain[4:]
-            if link_domain == origin_domain:
+            if link_parsed.scheme in ("http", "https"):
                 scraped_links.append(abs_link)
         # Deduplicate while preserving order
         scraped_links = list(dict.fromkeys(scraped_links))
@@ -1766,38 +1791,9 @@ def get_url_basename(url: str) -> str:
 
 
 @app.get("/sites", response_class=HTMLResponse)
-def view_all_sites(request: Request) -> HTMLResponse:
-    """Lists all virtual 'sites' which are groups of pages by domain basename."""
-    db = _get_db()
-    sites_dict = {}
-
-    if "fetched_pages" in db.table_names():
-        rows = list(db["fetched_pages"].rows)
-        for row in rows:
-            url = row["url"]
-            basename = get_url_basename(url)
-            if basename not in sites_dict:
-                sites_dict[basename] = {
-                    "name": basename,
-                    "pages_count": 0,
-                    "pages": [],
-                }
-            sites_dict[basename]["pages_count"] += 1
-            sites_dict[basename]["pages"].append(row)
-
-    # Sort sites by pages_count descending, then alphabetically
-    sorted_sites = sorted(
-        sites_dict.values(), key=lambda x: (-x["pages_count"], x["name"])
-    )
-
-    # Check if user is logged in as an administrator
-    token = request.cookies.get(COOKIE_NAME)
-    is_admin = bool(token and verify_session_token(token))
-
-    template = _jinja_env.get_template("sites_list.j2.html")
-    return HTMLResponse(
-        content=template.render(sites=sorted_sites, is_admin=is_admin)
-    )
+def view_all_sites(request: Request) -> RedirectResponse:
+    """Redirects to the index page with view=sites."""
+    return RedirectResponse(url="/?view=sites", status_code=303)
 
 
 @app.get("/view/site", response_class=HTMLResponse)

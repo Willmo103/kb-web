@@ -29,7 +29,7 @@
     </div>
     {% endif %}
 
-    <div class="flex flex-col lg:flex-row gap-6 max-w-6xl mx-auto">
+    <div class="flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto">
 
         <!-- Left Sidebar (Similar Articles) -->
         {% if similar_pages %}
@@ -58,50 +58,14 @@
         <!-- Main Content Area -->
         <main class="flex-grow min-w-0">
             <!-- Header profile segment -->
-            <div class="flex flex-col md:flex-row justify-between items-start gap-4 mb-6 border-b pb-4 border-gray-200">
-                <div class="truncate mr-4 flex-grow">
-                    <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Engine Wiki Storage File</span>
-                    <h1 class="text-xl font-extrabold text-gray-900 truncate mt-0.5">{{ page.title or page.url }}</h1>
-                    {% if page.title and page.title != page.url %}
-                    <p class="text-xs text-gray-400 truncate mt-0.5">
-                        Target: <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono">{{ page.url }}</a>
-                    </p>
-                    {% endif %}
-                </div>
-
-                <div class="flex flex-col gap-2 w-full md:w-48 flex-shrink-0">
-                    {% if is_admin %}
-                    <form action="/admin/regenerate/wiki?url={{ page.safe_url }}" method="post" class="m-0">
-                        <button type="submit" class="w-full text-left text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm flex items-center gap-2">
-                            <span>🔄</span> Regenerate Wiki
-                        </button>
-                    </form>
-                    <form action="/admin/regenerate/tags?url={{ page.safe_url }}" method="post" class="m-0">
-                        <button type="submit" class="w-full text-left text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold py-2 px-3 border border-amber-200 rounded transition shadow-sm flex items-center gap-2">
-                            <span>🏷️</span> Regenerate Tags
-                        </button>
-                    </form>
-                    <form action="/admin/refetch/page?url={{ page.safe_url }}" method="post" class="m-0">
-                        <button type="submit" class="w-full text-left text-xs bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold py-2 px-3 border border-sky-200 rounded transition shadow-sm flex items-center gap-2">
-                            <span>🔄</span> Re-fetch Page
-                        </button>
-                    </form>
-                    {% endif %}
-                    
-                    <div class="flex gap-2">
-                        {% if is_admin %}
-                        <form action="/admin/delete/page" method="post" onsubmit="return confirm('Are you sure you want to permanently delete this entry?');" class="m-0 flex-grow">
-                            <input type="hidden" name="url" value="{{ page.url }}" />
-                            <button type="submit" class="w-full text-center text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold py-2 px-3 border border-red-200 rounded transition shadow-sm flex items-center justify-center gap-1">
-                                🗑️ Delete Entry
-                            </button>
-                        </form>
-                        {% endif %}
-                        <button onclick="shareWikiPage()" class="{% if is_admin %}w-1/2 flex-grow{% else %}w-full{% endif %} text-center text-xs bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-2 px-3 border border-gray-200 rounded transition shadow-sm flex items-center justify-center gap-1">
-                            <span>📤</span> Share Link
-                        </button>
-                    </div>
-                </div>
+            <div class="mb-6 border-b pb-4 border-gray-200">
+                <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Engine Wiki Storage File</span>
+                <h1 class="text-2xl font-extrabold text-gray-900 mt-0.5">{{ page.title or page.url }}</h1>
+                {% if page.title and page.title != page.url %}
+                <p class="text-xs text-gray-400 truncate mt-1">
+                    Target: <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600 break-all">{{ page.url }}</a>
+                </p>
+                {% endif %}
             </div>
 
             <!-- Tags display and manual editing trigger -->
@@ -169,7 +133,7 @@
             <!-- Scraped same-domain links panel -->
             {% if scraped_links %}
             <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm mb-6">
-                <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 border-b pb-2">🔗 Same-Domain Scraped Links</h3>
+                <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 border-b pb-2">🔗 Page Links</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-2">
                     {% for item in scraped_links %}
                     <div class="flex items-center justify-between gap-3 p-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded transition">
@@ -213,6 +177,41 @@
                 </div>
             </details>
         </main>
+
+        <!-- Right Sidebar (Actions) -->
+        <aside class="w-full lg:w-64 flex-shrink-0 lg:sticky lg:top-4 h-fit">
+            <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+                <h3 class="text-xs font-bold text-gray-450 uppercase tracking-wider mb-4 border-b pb-2">⚡ Actions</h3>
+                <div class="flex flex-col gap-2.5">
+                    {% if is_admin %}
+                    <form action="/admin/regenerate/wiki?url={{ page.safe_url }}" method="post" class="m-0">
+                        <button type="submit" class="w-full text-left text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm flex items-center gap-2">
+                            <span>🔄</span> Regenerate Wiki
+                        </button>
+                    </form>
+                    <form action="/admin/regenerate/tags?url={{ page.safe_url }}" method="post" class="m-0">
+                        <button type="submit" class="w-full text-left text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold py-2 px-3 border border-amber-200 rounded transition shadow-sm flex items-center gap-2">
+                            <span>🏷️</span> Regenerate Tags
+                        </button>
+                    </form>
+                    <form action="/admin/refetch/page?url={{ page.safe_url }}" method="post" class="m-0">
+                        <button type="submit" class="w-full text-left text-xs bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold py-2 px-3 border border-sky-200 rounded transition shadow-sm flex items-center gap-2">
+                            <span>🔄</span> Re-fetch Page
+                        </button>
+                    </form>
+                    <form action="/admin/delete/page" method="post" onsubmit="return confirm('Are you sure you want to permanently delete this entry?');" class="m-0">
+                        <input type="hidden" name="url" value="{{ page.url }}" />
+                        <button type="submit" class="w-full text-left text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold py-2 px-3 border border-red-200 rounded transition shadow-sm flex items-center gap-2">
+                            <span>🗑️</span> Delete Entry
+                        </button>
+                    </form>
+                    {% endif %}
+                    <button onclick="shareWikiPage()" class="w-full text-left text-xs bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold py-2 px-3 border border-gray-200 rounded transition shadow-sm flex items-center gap-2">
+                        <span>📤</span> Share Link
+                    </button>
+                </div>
+            </div>
+        </aside>
     </div>
 </div>
 

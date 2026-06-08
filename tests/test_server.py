@@ -720,7 +720,7 @@ def test_virtual_sites(client: TestClient, monkeypatch) -> None:
     }, replace=True)
 
     # 1. Fetch sites list view
-    resp = client.get("/sites")
+    resp = client.get("/sites", follow_redirects=True)
     assert resp.status_code == 200
     assert "github.com" in resp.text
     assert "google.com" in resp.text
