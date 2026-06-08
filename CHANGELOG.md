@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.19] - 2026-06-07
+### Changed
+- Simplified site profiles (`/view/site`) to only display the listing of scraped pages under that domain, removing legacy Ollama site-wide wiki generation and cached table references.
+- Re-styled page viewer buttons layout to a vertical flex-column formatted directly to the right of the title block.
+- Removed tag badges from similar articles in the left sidebar panel.
+- Updated unit tests to align with simplified sites logic.
+
 ## [0.1.18] - 2026-06-06
 ### Added
 - Created virtual sites index view (`/sites`) and individual site profile views (`/view/site`).

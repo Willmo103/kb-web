@@ -58,23 +58,6 @@
                         Consolidated profile of <strong>{{ pages | length }}</strong> ingested page{% if pages | length > 1 %}s{% endif %}.
                     </p>
                 </div>
-                {% if is_admin %}
-                <div>
-                    <form action="/admin/regenerate/site-wiki?site={{ site_name | urlencode }}" method="post" class="m-0">
-                        <button type="submit" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm whitespace-nowrap">
-                            🔄 Regenerate Site Wiki
-                        </button>
-                    </form>
-                </div>
-                {% endif %}
-            </div>
-
-            <!-- Site Wiki Summary Section -->
-            <div class="bg-white p-8 rounded-lg shadow-sm border border-gray-200 mb-6">
-                <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">📖 Generated Site Wiki</h2>
-                <div class="prose max-w-none">
-                    {{ rendered_wiki_html | safe }}
-                </div>
             </div>
 
             <!-- Pages Belonging to Site Section -->
