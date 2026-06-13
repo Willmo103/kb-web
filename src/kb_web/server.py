@@ -667,7 +667,7 @@ def view_all_pages(
         if q:
             if has_yt_table:
                 query = """
-                    SELECT f.*, y.creator, y.video_id 
+                    SELECT f.*, y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url
                     FROM fetched_pages f 
                     LEFT JOIN youtube_videos y ON f.url = y.url
                     WHERE f.title LIKE ? OR f.tags LIKE ?
@@ -682,7 +682,7 @@ def view_all_pages(
         else:
             if has_yt_table:
                 query = """
-                    SELECT f.*, y.creator, y.video_id 
+                    SELECT f.*, y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url
                     FROM fetched_pages f 
                     LEFT JOIN youtube_videos y ON f.url = y.url
                     ORDER BY f.ROWID DESC
@@ -702,8 +702,11 @@ def view_all_pages(
                         if not selected_creator or creator == selected_creator:
                             page_obj = HTMLPage(**row)
                             page_obj.creator = creator
-                            # Temporarily attach video_id as custom attribute
+                            # Temporarily attach custom attributes
                             page_obj.video_id = video_id
+                            page_obj.duration = row.get("duration")
+                            page_obj.view_count = row.get("view_count")
+                            page_obj.thumbnail_url = row.get("thumbnail_url")
                             videos_list.append(page_obj)
                 else:
                     if view != "videos":
@@ -855,6 +858,13 @@ def view_saved_page(
                 content="<h1>Wiki Article Profile Missing</h1>", status_code=404
             )
 
+    video_metadata = None
+    if "youtube_videos" in db.table_names():
+        try:
+            video_metadata = db["youtube_videos"].get(decoded_url)
+        except sqlite_utils.db.NotFoundError:
+            pass
+
     # Check if user is logged in as an administrator
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))
@@ -925,6 +935,7 @@ def view_saved_page(
             similar_pages=similar_pages,
             scraped_links=page_links_data,
             video_id=video_id,
+            video_metadata=video_metadata,
         )
     )
 
@@ -1205,6 +1216,34 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
     update_article_embedding(db, decoded_url)
     return RedirectResponse(
         url=f"/view/page?url={quote_plus(decoded_url)}", status_code=303
+    )
+
+
+@app.post(
+    "/admin/regenerate/youtube-metadata", dependencies=[Depends(verify_auth)], response_model=None
+)
+def handle_regenerate_youtube_metadata(url: str = Query(...)) -> RedirectResponse:
+    """Triggers re-fetching and updating YouTube video metadata for a page."""
+    db = _get_db()
+    decoded_url = unquote_plus(url)
+    video_id = extract_youtube_video_id(decoded_url)
+    if not video_id:
+        return RedirectResponse(
+            url=f"/view/page?url={quote_plus(decoded_url)}&error=Not+a+valid+YouTube+video+URL.",
+            status_code=303,
+        )
+
+    try:
+        save_youtube_metadata_helper(db, decoded_url, force_fetch=True)
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/view/page?url={quote_plus(decoded_url)}&error=Failed+to+regenerate+video+metadata:+{quote_plus(str(e))}",
+            status_code=303,
+        )
+
+    return RedirectResponse(
+        url=f"/view/page?url={quote_plus(decoded_url)}&msg=YouTube+metadata+successfully+regenerated.",
+        status_code=303,
     )
 
 
@@ -1687,41 +1726,66 @@ def ensure_model_available(client: ollama.Client, model_name: str) -> None:
         print(f"Failed to automatically pull Ollama model '{model_name}': {e}")
 
 
-def save_youtube_metadata_helper(db, url: str, creator: Optional[str] = None) -> None:
+def save_youtube_metadata_helper(db, url: str, creator: Optional[str] = None, force_fetch: bool = False) -> None:
     """Saves YouTube metadata to the youtube_videos table.
 
-    If creator is not provided and it's a YouTube video, attempts metadata fetch using yt-dlp.
+    Attempts metadata fetch using yt-dlp to populate creator, channel_id, duration, view_count, and thumbnail_url.
     """
     video_id = extract_youtube_video_id(url)
     if not video_id:
         return
 
-    # Check if we already have it in the database and creator is valid
-    if "youtube_videos" in db.table_names():
+    channel_id = None
+    duration = None
+    view_count = None
+    thumbnail_url = f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg"
+
+    # Check if we already have it in the database and it is complete
+    if "youtube_videos" in db.table_names() and not force_fetch:
         try:
             existing = db["youtube_videos"].get(url)
-            if existing and existing.get("creator") != "Unknown Creator" and not creator:
-                return  # already have uploader info
+            if existing and existing.get("creator") != "Unknown Creator":
+                if creator:
+                    pass
+                else:
+                    return  # already have uploader info
         except sqlite_utils.db.NotFoundError:
             pass
 
-    # If creator is not provided, fetch it using yt-dlp
-    if not creator or creator == "Unknown Creator":
-        try:
-            import yt_dlp
-            ydl_opts = {"skip_download": True, "quiet": True, "no_warnings": True}
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                creator = info.get("uploader") or info.get("channel") or "Unknown Creator"
-        except Exception as e:
-            print(f"Failed to fetch YouTube metadata in helper for {url}: {e}")
-            creator = creator or "Unknown Creator"
+    # Fetch it using yt-dlp
+    try:
+        import yt_dlp
+        class QuietLogger:
+            def debug(self, msg): pass
+            def warning(self, msg): pass
+            def error(self, msg): pass
+
+        ydl_opts = {
+            "skip_download": True,
+            "quiet": True,
+            "no_warnings": True,
+            "logger": QuietLogger(),
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            creator = info.get("uploader") or info.get("channel") or creator or "Unknown Creator"
+            channel_id = info.get("channel_id")
+            duration = info.get("duration")
+            view_count = info.get("view_count")
+            thumbnail_url = info.get("thumbnail") or thumbnail_url
+    except Exception as e:
+        print(f"Failed to fetch YouTube metadata in helper for {url}: {e}")
+        creator = creator or "Unknown Creator"
 
     try:
         db["youtube_videos"].upsert({
             "url": url,
             "video_id": video_id,
             "creator": creator,
+            "channel_id": channel_id,
+            "duration": duration,
+            "view_count": view_count,
+            "thumbnail_url": thumbnail_url,
             "updated_at": datetime.now().isoformat()
         }, pk="url")
         print(f"Successfully saved YouTube video metadata for: {url}")

@@ -122,12 +122,17 @@
                     <div class="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm">
                         <div class="relative aspect-video w-full bg-gray-100 flex items-center justify-center">
                             {% if vid.video_id %}
-                            <img src="https://img.youtube.com/vi/{{ vid.video_id }}/mqdefault.jpg" class="w-full h-full object-cover" alt="{{ vid.title }}" />
+                            <img src="{{ vid.thumbnail_url if vid.thumbnail_url else 'https://img.youtube.com/vi/' ~ vid.video_id ~ '/mqdefault.jpg' }}" class="w-full h-full object-cover" alt="{{ vid.title }}" />
                             <div class="absolute inset-0 bg-black bg-opacity-10 hover:bg-opacity-20 transition flex items-center justify-center">
                                 <a href="/view/page?url={{ vid.safe_url }}" class="bg-white bg-opacity-90 hover:bg-opacity-100 text-indigo-700 rounded-full w-12 h-12 flex items-center justify-center shadow-md transition transform hover:scale-105">
                                     <span class="text-xl pl-0.5">▶</span>
                                 </a>
                             </div>
+                            {% if vid.duration %}
+                            <span class="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white text-[10px] font-bold px-1.5 py-0.5 rounded font-mono">
+                                {{ vid.duration // 60 }}:{{ "%02d" | format(vid.duration % 60) }}
+                            </span>
+                            {% endif %}
                             {% endif %}
                         </div>
                         <div class="p-5 flex-grow">
@@ -135,7 +140,11 @@
                                 <span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded border border-indigo-100">
                                     {{ vid.creator or "YouTube" }}
                                 </span>
+                                {% if vid.view_count %}
+                                <span class="text-xs text-gray-400 font-mono">{{ "{:,}".format(vid.view_count) }} views</span>
+                                {% else %}
                                 <span class="text-xs text-gray-400">{{ vid.fetched_at[:10] }}</span>
+                                {% endif %}
                             </div>
                             <h2 class="text-base font-bold text-gray-900 leading-snug line-clamp-2">
                                 <a href="/view/page?url={{ vid.safe_url }}" class="hover:text-indigo-650">

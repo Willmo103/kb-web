@@ -68,6 +68,43 @@
                 {% endif %}
             </div>
 
+            <!-- YouTube video details/attributes block -->
+            {% if video_id %}
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 flex flex-wrap items-center gap-6 shadow-sm text-xs text-gray-750">
+                <div class="flex items-center gap-1.5">
+                    <span class="text-gray-450 font-bold uppercase tracking-wider text-[10px]">Creator:</span>
+                    <span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 font-semibold rounded border border-indigo-100">
+                        {{ video_metadata.creator if video_metadata and video_metadata.creator else "Unknown Creator" }}
+                    </span>
+                </div>
+                {% if video_metadata and video_metadata.duration %}
+                <div class="flex items-center gap-1.5">
+                    <span class="text-gray-450 font-bold uppercase tracking-wider text-[10px]">Duration:</span>
+                    <span class="font-mono text-gray-800">
+                        {{ video_metadata.duration // 60 }}:{{ "%02d" | format(video_metadata.duration % 60) }}
+                    </span>
+                </div>
+                {% endif %}
+                {% if video_metadata and video_metadata.view_count %}
+                <div class="flex items-center gap-1.5">
+                    <span class="text-gray-450 font-bold uppercase tracking-wider text-[10px]">Views:</span>
+                    <span class="font-mono text-gray-800">{{ "{:,}".format(video_metadata.view_count) }}</span>
+                </div>
+                {% endif %}
+                {% if video_metadata and video_metadata.channel_id %}
+                <div class="flex items-center gap-1.5">
+                    <span class="text-gray-450 font-bold uppercase tracking-wider text-[10px]">Channel ID:</span>
+                    <span class="font-mono text-gray-550">{{ video_metadata.channel_id }}</span>
+                </div>
+                {% endif %}
+                {% if video_metadata and video_metadata.updated_at %}
+                <div class="flex items-center gap-1.5 ml-auto text-[10px] text-gray-400 font-mono">
+                    <span>Metadata Updated: {{ video_metadata.updated_at[:16] | replace('T', ' ') }}</span>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
             <!-- Tags display and manual editing trigger -->
             <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-sm">
                 <div class="flex flex-wrap gap-1.5 items-center">
@@ -203,6 +240,13 @@
                             <span>🏷️</span> Regenerate Tags
                         </button>
                     </form>
+                    {% if video_id %}
+                    <form action="/admin/regenerate/youtube-metadata?url={{ page.safe_url }}" method="post" class="m-0">
+                        <button type="submit" class="w-full text-left text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-2 px-3 border border-rose-200 rounded transition shadow-sm flex items-center gap-2">
+                            <span>📺</span> Regenerate Video Attrs
+                        </button>
+                    </form>
+                    {% endif %}
                     <form action="/admin/refetch/page?url={{ page.safe_url }}" method="post" class="m-0">
                         <button type="submit" class="w-full text-left text-xs bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold py-2 px-3 border border-sky-200 rounded transition shadow-sm flex items-center gap-2">
                             <span>🔄</span> Re-fetch Page

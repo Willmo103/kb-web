@@ -836,3 +836,80 @@ def test_youtube_videos_lookup_table() -> None:
     assert "creator" in cols
     assert "updated_at" in cols
 
+
+def test_regenerate_youtube_metadata(client: TestClient, monkeypatch) -> None:
+    """Verifies that YouTube metadata is correctly regenerated using handle_regenerate_youtube_metadata endpoint."""
+    from urllib.parse import quote_plus
+    db = get_db(server_config)
+    video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    
+    # Ingest a mock page first in fetched_pages
+    db["fetched_pages"].insert({
+        "url": video_url,
+        "title": "Old YouTube Title",
+        "html_content": "old html",
+        "md_content": "old md",
+        "links": "[]",
+        "html_content_hash": "hash1",
+        "md_content_hash": "hash2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "description": "old description",
+        "keywords": "[]",
+        "tags": "[]",
+    })
+    
+    # Insert a minimal/empty entry in youtube_videos
+    db["youtube_videos"].insert({
+        "url": video_url,
+        "video_id": "dQw4w9WgXcQ",
+        "creator": "Unknown Creator",
+        "updated_at": "2026-05-31T12:00:00",
+    })
+
+    # Mock YoutubeDL extract_info
+    class MockYoutubeDL:
+        def __init__(self, *args, **kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def extract_info(self, url, download=False):
+            return {
+                "title": "Never Gonna Give You Up",
+                "description": "Official Rick Astley video",
+                "uploader": "Rick Astley",
+                "channel_id": "UCuAXFkgvhwR8yT5gG975bJw",
+                "duration": 212,
+                "view_count": 1200000000,
+                "thumbnail": "https://img.youtube.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
+            }
+
+    monkeypatch.setattr("yt_dlp.YoutubeDL", MockYoutubeDL)
+
+    # Login to get admin cookie
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+
+    # Post request to regenerate metadata
+    resp = client.post(
+        f"/admin/regenerate/youtube-metadata?url={quote_plus(video_url)}",
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert "metadata+successfully+regenerated" in resp.headers["location"]
+
+    # Verify that the youtube_videos entry is populated with full attributes
+    video_row = db["youtube_videos"].get(video_url)
+    assert video_row["creator"] == "Rick Astley"
+    assert video_row["channel_id"] == "UCuAXFkgvhwR8yT5gG975bJw"
+    assert video_row["duration"] == 212
+    assert video_row["view_count"] == 1200000000
+    assert video_row["thumbnail_url"] == "https://img.youtube.com/vi/dQw4w9WgXcQ/mqdefault.jpg"
+
+

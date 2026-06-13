@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added specialized `youtube_wiki_prompt` system configuration for synthesizing structured chronological video breakdowns with timestamped quotes.
 - Implemented markdown list preprocessor to fix single asterisk formatting issues and insert preceding spacing.
 - Added `kb-web-mcp.service` configuration file and exposed sse host/port binding parameters in CLI `mcp` start commands.
+- Added video details/attributes block rendering (creator, duration, views, channel ID) on the video viewing page.
+- Added a "Regenerate Video Attrs" action button and `/admin/regenerate/youtube-metadata` POST endpoint to re-fetch/update video metadata from YouTube.
+- Added duration overlays and formatted view counts to the video listing card grid.
 
 ## [0.1.19] - 2026-06-07
 ### Changed
