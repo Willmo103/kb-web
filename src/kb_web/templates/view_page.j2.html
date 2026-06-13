@@ -73,9 +73,9 @@
             <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 flex flex-wrap items-center gap-6 shadow-sm text-xs text-gray-750">
                 <div class="flex items-center gap-1.5">
                     <span class="text-gray-450 font-bold uppercase tracking-wider text-[10px]">Creator:</span>
-                    <span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 font-semibold rounded border border-indigo-100">
+                    <a href="/?view=videos&creator={{ (video_metadata.creator if video_metadata and video_metadata.creator else 'Unknown Creator') | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-705 hover:bg-indigo-100 font-semibold rounded border border-indigo-100 transition">
                         {{ video_metadata.creator if video_metadata and video_metadata.creator else "Unknown Creator" }}
-                    </span>
+                    </a>
                 </div>
                 {% if video_metadata and video_metadata.duration %}
                 <div class="flex items-center gap-1.5">
@@ -111,7 +111,7 @@
                     <span class="text-xs font-bold text-gray-500 uppercase tracking-wider mr-2">Tags:</span>
                     {% if page.tags %}
                         {% for tag in page.tags %}
-                        <span class="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded border border-yellow-200 font-mono">{{ tag }}</span>
+                        <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-yellow-100 text-yellow-800 hover:bg-yellow-200 text-xs font-semibold rounded border border-yellow-200 font-mono transition">{{ tag }}</a>
                         {% endfor %}
                     {% else %}
                         <span class="text-xs text-gray-400 italic">No tags assigned.</span>
@@ -163,7 +163,7 @@
             <!-- YouTube video iframe if available -->
             {% if video_id %}
             <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-sm mb-6">
-                <div class="relative w-full aspect-video rounded-lg overflow-hidden border border-gray-200 shadow">
+                <div class="relative w-full rounded-lg overflow-hidden border border-gray-200 shadow" style="aspect-ratio: 16 / 9;">
                     <iframe class="absolute top-0 left-0 w-full h-full" src="https://www.youtube.com/embed/{{ video_id }}" frameborder="0" allowfullscreen></iframe>
                 </div>
             </div>

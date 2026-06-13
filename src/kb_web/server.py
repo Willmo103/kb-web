@@ -478,6 +478,44 @@ def fetch_url(url: str) -> HTMLPage:
         raise RuntimeError(f"Failed to cleanly convert webpage elements: {str(e)}")
 
 
+def chunk_text(text: str, max_chunk_size: int) -> list[str]:
+    """Splits a long text into logical chunks of at most max_chunk_size characters,
+    splitting safely along line boundaries if possible.
+    """
+    if not text:
+        return []
+    
+    lines = text.splitlines()
+    chunks = []
+    current_chunk = []
+    current_len = 0
+    
+    for line in lines:
+        if len(line) > max_chunk_size:
+            # Flush existing chunk
+            if current_chunk:
+                chunks.append("\n".join(current_chunk))
+                current_chunk = []
+                current_len = 0
+            # Split the long line into max_chunk_size character pieces
+            for i in range(0, len(line), max_chunk_size):
+                chunks.append(line[i : i + max_chunk_size])
+            continue
+            
+        if current_len + len(line) + 1 > max_chunk_size and current_chunk:
+            chunks.append("\n".join(current_chunk))
+            current_chunk = []
+            current_len = 0
+            
+        current_chunk.append(line)
+        current_len += len(line) + 1
+        
+    if current_chunk:
+        chunks.append("\n".join(current_chunk))
+        
+    return chunks
+
+
 def extract_wiki_content(html_page: HTMLPage) -> str:
     """Queries Ollama to clean, restructure, and digest raw markdown into wiki formats.
 
@@ -490,22 +528,83 @@ def extract_wiki_content(html_page: HTMLPage) -> str:
     try:
         client = _get_ollama_client()
         video_id = extract_youtube_video_id(html_page.url)
-        if video_id:
+        is_video = bool(video_id)
+        
+        if is_video:
             system_prompt = getattr(config, "youtube_wiki_prompt", config.wiki_prompt)
         else:
             system_prompt = config.wiki_prompt
 
-        response = client.chat(
-            model=config.ollama_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{html_page.md_content}",
-                },
-            ],
-        )
-        return response.message.content
+        raw_content = html_page.md_content or ""
+        max_len = getattr(config, "max_input_length", 20000)
+        
+        if len(raw_content) <= max_len:
+            response = client.chat(
+                model=config.ollama_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{raw_content}",
+                    },
+                ],
+            )
+            return response.message.content
+        else:
+            chunks = chunk_text(raw_content, max_len)
+            chunk_summaries = []
+            for idx, chunk in enumerate(chunks):
+                if is_video:
+                    system_message = (
+                        f"You are an AI assistant helping to process segment {idx+1} of {len(chunks)} of a long YouTube video transcript. "
+                        "Summarize this segment chronologically. Extract all key insights, arguments, and quotes. "
+                        "CRITICAL: You MUST preserve timestamps (e.g., [MM:SS] or [HH:MM:SS]) and exact quotes with their timestamps. "
+                        "Do not omit timing information."
+                    )
+                else:
+                    system_message = (
+                        f"You are an AI assistant helping to process segment {idx+1} of {len(chunks)} of a long article. "
+                        "Summarize this segment, extracting all key information, main topics, and technical details. "
+                        "Do not omit important details."
+                    )
+                
+                chunk_resp = client.chat(
+                    model=config.ollama_model,
+                    messages=[
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": chunk},
+                    ]
+                )
+                chunk_summaries.append(chunk_resp.message.content)
+            
+            compiled_summaries = "\n\n---\n\n".join(chunk_summaries)
+            
+            if is_video:
+                user_content = (
+                    f"URL: {html_page.url}\n\n"
+                    "This is a compiled summary of the video transcript because the transcript was too long to process at once. "
+                    "Use these section summaries to construct the final wiki article following the instructions.\n\n"
+                    f"COMPILED SECTION SUMMARIES:\n{compiled_summaries}"
+                )
+            else:
+                user_content = (
+                    f"URL: {html_page.url}\n\n"
+                    "This is a compiled summary of the article because the article was too long to process at once. "
+                    "Use these section summaries to construct the final wiki article following the instructions.\n\n"
+                    f"COMPILED SECTION SUMMARIES:\n{compiled_summaries}"
+                )
+                
+            response = client.chat(
+                model=config.ollama_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": user_content,
+                    },
+                ],
+            )
+            return response.message.content
     except Exception as e:
         print(f"Ollama extraction failed: {e}")
         return f"# Ingestion Backup \n\nAI Processing skipped or failed. Raw layout captured below.\n\n {html_page.md_content[:2000]}"
@@ -522,13 +621,22 @@ def extract_tags_content(html_page: HTMLPage) -> list[str]:
     """
     try:
         client = _get_ollama_client()
+        
+        raw_content = html_page.md_content or ""
+        max_len = getattr(config, "max_input_length", 20000)
+        
+        if len(raw_content) > max_len and html_page.description:
+            content_to_analyze = f"TITLE: {html_page.title}\n\nWIKI SUMMARY:\n{html_page.description}"
+        else:
+            content_to_analyze = raw_content[:max_len]
+            
         response = client.chat(
             model=config.ollama_model,
             messages=[
                 {"role": "system", "content": DEFAULT_TAGS_PROMPT},
                 {
                     "role": "user",
-                    "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{html_page.md_content}",
+                    "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{content_to_analyze}",
                 },
             ],
         )
@@ -665,6 +773,7 @@ def view_all_pages(
     request: Request,
     q: Optional[str] = Query(None),
     view: str = Query("articles"),
+    tag: Optional[str] = Query(None),
 ) -> HTMLResponse:
     """Lists historically captured records or grouped sites with a left-hand navigation menu.
 
@@ -709,23 +818,41 @@ def view_all_pages(
 
         for row in rows:
             try:
+                # Parse tags
+                tags_list = []
+                tags_json = row.get("tags")
+                if tags_json:
+                    try:
+                        tags_list = json.loads(tags_json)
+                        if not isinstance(tags_list, list):
+                            tags_list = []
+                    except Exception:
+                        pass
+                
+                # Check tag filter
+                if tag:
+                    tag_lower = tag.strip().lower()
+                    if not any(t.strip().lower() == tag_lower for t in tags_list):
+                        continue
+
                 video_id = row.get("video_id") or extract_youtube_video_id(row["url"])
                 if video_id:
                     creator = row.get("creator") or "Unknown Creator"
                     creators_counts[creator] = creators_counts.get(creator, 0) + 1
 
-                    if view == "videos":
+                    # If tag filter is active, list all matching videos.
+                    # Otherwise, filter by selected creator if view is videos.
+                    if tag or view == "videos":
                         if not selected_creator or creator == selected_creator:
                             page_obj = HTMLPage(**row)
                             page_obj.creator = creator
-                            # Temporarily attach custom attributes
                             page_obj.video_id = video_id
                             page_obj.duration = row.get("duration")
                             page_obj.view_count = row.get("view_count")
                             page_obj.thumbnail_url = row.get("thumbnail_url")
                             videos_list.append(page_obj)
                 else:
-                    if view != "videos":
+                    if tag or view != "videos":
                         pages_list.append(HTMLPage(**row))
             except Exception as e:
                 # Log issues but try to continue loading other rows
@@ -772,6 +899,7 @@ def view_all_pages(
             videos=videos_list,
             creators=sorted_creators,
             selected_creator=selected_creator or "",
+            selected_tag=tag or "",
             sites=sorted_sites,
             view=view,
             is_admin=is_admin,
@@ -1094,6 +1222,7 @@ def handle_config_update(
     gotify_token: str = Form(None),
     wiki_prompt: str = Form(...),
     youtube_wiki_prompt: str = Form(...),
+    max_input_length: int = Form(20000),
 ) -> RedirectResponse:
     """Saves updated server settings (Ollama and Gotify parameters) to config file.
 
@@ -1106,6 +1235,7 @@ def handle_config_update(
         gotify_token (str): Gotify application token.
         wiki_prompt (str): System prompt.
         youtube_wiki_prompt (str): YouTube Specific System prompt.
+        max_input_length (int): Maximum text chunk size.
 
     Returns:
         RedirectResponse: Redirection to admin panel with success feedback message.
@@ -1118,6 +1248,7 @@ def handle_config_update(
     config.gotify_token = gotify_token or None
     config.wiki_prompt = wiki_prompt
     config.youtube_wiki_prompt = youtube_wiki_prompt
+    config.max_input_length = max_input_length
     config.save()
 
     return RedirectResponse(
@@ -1928,62 +2059,6 @@ def trigger_bulk_embeddings(background_tasks: BackgroundTasks) -> RedirectRespon
         status_code=303,
     )
 
-
-@app.get("/tags", response_class=HTMLResponse)
-def view_tags(request: Request, tag: Optional[str] = Query(None)) -> HTMLResponse:
-    """Renders all tags with counts, and allows filtering articles by a selected tag."""
-    db = _get_db()
-
-    # Retrieve all tags and compute counts
-    tag_counts = {}
-    if "fetched_pages" in db.table_names():
-        rows = db.execute_returning_dicts("SELECT tags FROM fetched_pages")
-        for row in rows:
-            tags_json = row.get("tags")
-            if tags_json:
-                try:
-                    tags = json.loads(tags_json)
-                    for t in tags:
-                        t = t.strip().lower()
-                        if t:
-                            tag_counts[t] = tag_counts.get(t, 0) + 1
-                except Exception:
-                    continue
-
-    # Sort tags by count descending, then alphabetically
-    sorted_tags = dict(sorted(tag_counts.items(), key=lambda x: (-x[1], x[0])))
-
-    # Filter pages by selected tag
-    pages_list = []
-    if tag:
-        tag_lower = tag.strip().lower()
-        if "fetched_pages" in db.table_names():
-            rows = db.execute_returning_dicts(
-                "SELECT * FROM fetched_pages ORDER BY ROWID DESC"
-            )
-            for row in rows:
-                tags_json = row.get("tags")
-                if tags_json:
-                    try:
-                        tags = json.loads(tags_json)
-                        if any(t.strip().lower() == tag_lower for t in tags):
-                            pages_list.append(HTMLPage(**row))
-                    except Exception:
-                        continue
-
-    # Check if user is logged in as an administrator
-    token = request.cookies.get(COOKIE_NAME)
-    is_admin = bool(token and verify_session_token(token))
-
-    template = _jinja_env.get_template("tags.j2.html")
-    return HTMLResponse(
-        content=template.render(
-            tags_with_counts=sorted_tags,
-            selected_tag=tag,
-            pages=pages_list,
-            is_admin=is_admin,
-        )
-    )
 
 
 def get_url_basename(url: str) -> str:

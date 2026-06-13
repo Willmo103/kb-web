@@ -60,6 +60,7 @@ class Config(BaseConfig):
         self.wiki_prompt: str = os.getenv("KB_WIKI_PROMPT", DEFAULT_WIKI_PROMPT)
         self.youtube_wiki_prompt: str = os.getenv("KB_YOUTUBE_WIKI_PROMPT", DEFAULT_YOUTUBE_WIKI_PROMPT)
         self.similarity_threshold: float = float(os.getenv("KB_SIMILARITY_THRESHOLD", "0.8"))
+        self.max_input_length: int = int(os.getenv("KB_MAX_INPUT_LENGTH", "20000"))
         self.gotify_url: Optional[str] = os.getenv("GOTIFY_URL")
         self.gotify_token: Optional[str] = os.getenv("GOTIFY_TOKEN")
 
@@ -85,6 +86,8 @@ class Config(BaseConfig):
                         self.youtube_wiki_prompt = data["youtube_wiki_prompt"]
                     if "similarity_threshold" in data:
                         self.similarity_threshold = float(data["similarity_threshold"])
+                    if "max_input_length" in data:
+                        self.max_input_length = int(data["max_input_length"])
                     if "gotify_url" in data:
                         self.gotify_url = data["gotify_url"]
                     if "gotify_token" in data:
@@ -107,6 +110,7 @@ class Config(BaseConfig):
                 "wiki_prompt": self.wiki_prompt,
                 "youtube_wiki_prompt": self.youtube_wiki_prompt,
                 "similarity_threshold": self.similarity_threshold,
+                "max_input_length": self.max_input_length,
                 "gotify_url": self.gotify_url,
                 "gotify_token": self.gotify_token,
             }

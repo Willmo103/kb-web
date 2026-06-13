@@ -434,7 +434,7 @@ def test_dirty_url_extraction() -> None:
 
 
 def test_tags_view(client: TestClient) -> None:
-    """Verifies the /tags endpoint lists assigned tags and counts correctly."""
+    """Verifies that tag filtering on / and /pages works, and that the legacy /tags returns 404."""
     db = get_db(server_config)
 
     # Ingest a page with specific tags
@@ -467,18 +467,15 @@ def test_tags_view(client: TestClient) -> None:
     db["fetched_pages"].insert(page_data_1)
     db["fetched_pages"].insert(page_data_2)
 
-    # 1. Fetch tags index view
-    resp = client.get("/tags")
+    # 1. Fetch tags via filtered query on pages list
+    resp = client.get("/?tag=python")
     assert resp.status_code == 200
-    assert "coding" in resp.text
-    assert "python" in resp.text
-    assert "database" in resp.text
+    assert "Page A" in resp.text
+    assert "Page B" not in resp.text
 
-    # 2. Filter by tag
-    resp_tag = client.get("/tags?tag=python")
-    assert resp_tag.status_code == 200
-    assert "Page A" in resp_tag.text
-    assert "Page B" not in resp_tag.text
+    # 2. Legacy tags page returns 404
+    resp_legacy = client.get("/tags")
+    assert resp_legacy.status_code == 404
 
 
 def test_login_redirect_preservation(client: TestClient) -> None:
@@ -622,8 +619,8 @@ def test_get_requests_are_write_free(client: TestClient) -> None:
         response = client.get("/pages")
         assert response.status_code == 200
 
-        # 3. Hit tags listing
-        response = client.get("/tags")
+        # 3. Hit tag filtering list
+        response = client.get("/?tag=coding")
         assert response.status_code == 200
 
         # 4. View page details
@@ -656,7 +653,7 @@ def test_concurrent_reads_no_lock(client: TestClient) -> None:
     endpoints = [
         "/",
         "/pages",
-        "/tags",
+        "/?tag=coding",
         "/view/page?url=https%3A%2F%2Fexample.com%2Fconcurrent-test"
     ]
 
@@ -911,5 +908,71 @@ def test_regenerate_youtube_metadata(client: TestClient, monkeypatch) -> None:
     assert video_row["duration"] == 212
     assert video_row["view_count"] == 1200000000
     assert video_row["thumbnail_url"] == "https://img.youtube.com/vi/dQw4w9WgXcQ/mqdefault.jpg"
+
+
+def test_chunk_text() -> None:
+    """Verifies that chunk_text helper splits text on lines and respects max chunk size."""
+    from kb_web.server import chunk_text
+    
+    text = "Line 1\nLine 2\nLine 3\nLine 4"
+    chunks = chunk_text(text, 15)
+    assert len(chunks) == 2
+    assert chunks[0] == "Line 1\nLine 2"
+    assert chunks[1] == "Line 3\nLine 4"
+
+    # Extremely long line should be split strictly by characters
+    long_line = "A" * 50
+    chunks_long = chunk_text(long_line, 20)
+    assert len(chunks_long) == 3
+    assert chunks_long[0] == "A" * 20
+    assert chunks_long[1] == "A" * 20
+    assert chunks_long[2] == "A" * 10
+
+
+def test_chunked_extraction(monkeypatch) -> None:
+    """Verifies that extract_wiki_content chunks long text and makes multiple Ollama chat calls."""
+    from kb_web.server import extract_wiki_content
+    from kb_web.models import HTMLPage
+
+    # Configure a tiny max_input_length so chunking triggers immediately
+    server_config.max_input_length = 30
+    
+    call_count = 0
+    chat_messages = []
+
+    class DummyMessage:
+        content = "Summary result content."
+
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    def mock_chat(*args, **kwargs):
+        nonlocal call_count, chat_messages
+        call_count += 1
+        chat_messages.append(kwargs.get("messages", []))
+        return DummyChatResponse()
+
+    monkeypatch.setattr(ollama.Client, "chat", mock_chat)
+
+    page_data = HTMLPage(
+        url="https://example.com/long-page",
+        title="Long Page",
+        html_content="HTML",
+        md_content="This is a long line 1\nThis is a long line 2\nThis is a long line 3",
+        links=[],
+        html_content_hash="h1",
+        md_content_hash="h2",
+        fetched_at="2026-05-31T12:00:00",
+    )
+
+    wiki = extract_wiki_content(page_data)
+    assert wiki == "Summary result content."
+    # With max_input_length=30:
+    # Chunk 1: "This is a long line 1" (21 chars)
+    # Chunk 2: "This is a long line 2" (21 chars)
+    # Chunk 3: "This is a long line 3" (21 chars)
+    # So 3 chunk calls + 1 synthesis call = 4 calls total
+    assert call_count == 4
+
 
 

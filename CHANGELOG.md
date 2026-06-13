@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.21] - 2026-06-13
+### Added
+- Implemented layout fix for YouTube iframe container on Tailwind CSS v2 via explicit aspect-ratio style.
+- Implemented text chunking helper `chunk_text` and segmented ingestion/synthesis pipeline to handle long documents/transcripts safely (preventing Ollama context overload crashes).
+- Integrated `max_input_length` config property (default 20,000 chars) with environment/json loading/saving, and added form control in admin panel.
+- Eliminated standalone Tags page and replaced navbar "Tags" link with "Videos" (linking to `/?view=videos`).
+- Simplified Video creator filtering by removing sidebar count listings and showing a clear filter header on creator selections.
+- Implemented tag query param filter on main route to render a unified matching articles and videos grid.
+- Converted all tag displays and creator metadata labels to active clickable links.
+
 ## [0.1.20] - 2026-06-13
 ### Added
 - Created a separate `youtube_videos` database table referencing `fetched_pages` to decouple and represent YouTube uploader metadata.

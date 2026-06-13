@@ -78,7 +78,7 @@
                             {% if p.tags %}
                             <div class="flex flex-wrap gap-1 mt-2">
                                 {% for tag in p.tags %}
-                                <span class="px-2 py-0.5 bg-yellow-50 text-yellow-800 text-[10px] font-semibold rounded border border-yellow-200">{{ tag }}</span>
+                                <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-yellow-50 text-yellow-800 hover:bg-yellow-100 text-[10px] font-semibold rounded border border-yellow-200 transition">{{ tag }}</a>
                                 {% endfor %}
                             </div>
                             {% endif %}

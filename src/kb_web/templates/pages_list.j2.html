@@ -13,13 +13,13 @@
             <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm sticky top-4">
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 mb-3">Navigation</p>
                 <div class="space-y-1">
-                    <a href="/?view=articles" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition duration-150 {% if view != 'sites' and view != 'videos' %}bg-indigo-50 text-indigo-700 font-bold border-l-4 border-indigo-600 pl-2 rounded-l-none{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
+                    <a href="/?view=articles" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition duration-150 {% if view != 'sites' and view != 'videos' and not selected_tag %}bg-indigo-50 text-indigo-700 font-bold border-l-4 border-indigo-600 pl-2 rounded-l-none{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
                         <span class="text-base">📝</span> Articles
                     </a>
-                    <a href="/?view=videos" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition duration-150 {% if view == 'videos' %}bg-indigo-50 text-indigo-700 font-bold border-l-4 border-indigo-600 pl-2 rounded-l-none{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
+                    <a href="/?view=videos" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition duration-150 {% if view == 'videos' and not selected_tag %}bg-indigo-50 text-indigo-700 font-bold border-l-4 border-indigo-600 pl-2 rounded-l-none{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
                         <span class="text-base">📺</span> Videos
                     </a>
-                    <a href="/?view=sites" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition duration-150 {% if view == 'sites' %}bg-indigo-50 text-indigo-700 font-bold border-l-4 border-indigo-600 pl-2 rounded-l-none{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
+                    <a href="/?view=sites" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition duration-150 {% if view == 'sites' and not selected_tag %}bg-indigo-50 text-indigo-700 font-bold border-l-4 border-indigo-600 pl-2 rounded-l-none{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
                         <span class="text-base">🌐</span> Sites
                     </a>
                 </div>
@@ -28,7 +28,127 @@
 
         <!-- Center Content Portion -->
         <div class="flex-grow lg:flex-1 min-w-0">
-            {% if view == 'sites' %}
+            {% if selected_tag %}
+                <!-- Tag matching layout -->
+                <div class="flex justify-between items-center mb-8 border-b border-gray-200 pb-4">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900">🏷️ Tagged: <span class="text-indigo-600 font-extrabold">{{ selected_tag }}</span></h1>
+                        <p class="text-sm text-gray-500 font-medium">All articles and videos labeled with this tag.</p>
+                    </div>
+                    <a href="/?view=articles" class="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg transition duration-150 shadow-sm">
+                        Clear Tag Filter
+                    </a>
+                </div>
+
+                {% if not pages and not videos %}
+                <div class="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
+                    <p class="text-gray-500 text-sm">No items found bearing the tag "{{ selected_tag }}".</p>
+                </div>
+                {% else %}
+                    <!-- Videos section -->
+                    {% if videos %}
+                    <div class="mb-8">
+                        <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">📺 Videos matching tag ({{ videos | length }})</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            {% for vid in videos %}
+                            <div class="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm">
+                                <div class="relative w-full bg-gray-100 flex items-center justify-center" style="aspect-ratio: 16 / 9;">
+                                    {% if vid.video_id %}
+                                    <img src="{{ vid.thumbnail_url if vid.thumbnail_url else 'https://img.youtube.com/vi/' ~ vid.video_id ~ '/mqdefault.jpg' }}" class="w-full h-full object-cover" alt="{{ vid.title }}" />
+                                    <div class="absolute inset-0 bg-black bg-opacity-10 hover:bg-opacity-20 transition flex items-center justify-center">
+                                        <a href="/view/page?url={{ vid.safe_url }}" class="bg-white bg-opacity-90 hover:bg-opacity-100 text-indigo-700 rounded-full w-12 h-12 flex items-center justify-center shadow-md transition transform hover:scale-105">
+                                            <span class="text-xl pl-0.5">▶</span>
+                                        </a>
+                                    </div>
+                                    {% if vid.duration %}
+                                    <span class="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white text-[10px] font-bold px-1.5 py-0.5 rounded font-mono">
+                                        {{ vid.duration // 60 }}:{{ "%02d" | format(vid.duration % 60) }}
+                                    </span>
+                                    {% endif %}
+                                    {% endif %}
+                                </div>
+                                <div class="p-5 flex-grow">
+                                    <div class="flex items-center justify-between gap-2 mb-2">
+                                        <a href="/?view=videos&creator={{ vid.creator | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold rounded border border-indigo-100 transition">
+                                            {{ vid.creator or "YouTube" }}
+                                        </a>
+                                        {% if vid.view_count %}
+                                        <span class="text-xs text-gray-400 font-mono">{{ "{:,}".format(vid.view_count) }} views</span>
+                                        {% else %}
+                                        <span class="text-xs text-gray-400">{{ vid.fetched_at[:10] }}</span>
+                                        {% endif %}
+                                    </div>
+                                    <h2 class="text-base font-bold text-gray-900 leading-snug line-clamp-2">
+                                        <a href="/view/page?url={{ vid.safe_url }}" class="hover:text-indigo-650">
+                                            {{ vid.title or vid.url }}
+                                        </a>
+                                    </h2>
+                                    {% if vid.tags %}
+                                    <div class="flex flex-wrap gap-1 mt-3.5">
+                                        {% for tag in vid.tags[:3] %}
+                                        <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-gray-100 text-gray-655 hover:bg-indigo-50 hover:text-indigo-850 text-[10px] font-semibold rounded font-mono border border-gray-200 transition">
+                                            {{ tag }}
+                                        </a>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="px-5 pb-5 pt-0">
+                                    <a href="/view/page?url={{ vid.safe_url }}" class="w-full block bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-bold py-2 border border-gray-200 rounded-lg transition duration-150 text-center shadow-sm">
+                                        Open Video Transcript
+                                    </a>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Articles section -->
+                    {% if pages %}
+                    <div>
+                        <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">📝 Articles matching tag ({{ pages | length }})</h2>
+                        <div class="space-y-3">
+                            {% for page in pages %}
+                            <div class="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex justify-between items-center gap-4 shadow-sm">
+                                <div class="truncate">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-mono rounded border border-gray-200">
+                                            {{ page.parsed_url.hostname or "Source" }}
+                                        </span>
+                                        <span class="text-xs text-gray-400 font-medium">{{ page.fetched_at[:16].replace("T", " ") }}</span>
+                                    </div>
+                                    <h2 class="text-base font-bold text-gray-900 truncate">
+                                        <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600">
+                                            {{ page.title or page.url }}
+                                        </a>
+                                    </h2>
+                                    {% if page.title and page.title != page.url %}
+                                    <p class="text-xs text-gray-400 truncate mt-0.5">
+                                        <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600">{{ page.url }}</a>
+                                    </p>
+                                    {% endif %}
+                                    {% if page.tags %}
+                                    <div class="flex flex-wrap gap-1.5 mt-2">
+                                        {% for tag in page.tags %}
+                                        <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold rounded-full border border-indigo-100 transition">
+                                            {{ tag }}
+                                        </a>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <a href="/view/page?url={{ page.safe_url }}" class="bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold py-2 px-4 border border-gray-200 rounded-lg transition duration-150 whitespace-nowrap shadow-sm">
+                                    Open Entry
+                                </a>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endif %}
+
+            {% elif view == 'sites' %}
                 <div class="flex justify-between items-center mb-8 border-b border-gray-200 pb-4">
                     <div>
                         <h1 class="text-2xl font-bold text-gray-900">🌐 Virtual Sites Index</h1>
@@ -95,20 +215,13 @@
                     {% endif %}
                 </div>
 
-                <!-- Creator filter pills -->
-                {% if creators %}
-                <div class="mb-6 bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm">
-                    <span class="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2.5">Filter by Creator:</span>
-                    <div class="flex flex-wrap gap-2">
-                        <a href="/?view=videos" class="px-3 py-1.5 rounded-lg text-xs font-bold transition {% if not selected_creator %}bg-indigo-600 text-white shadow-sm{% else %}bg-white text-gray-700 border border-gray-200 hover:bg-gray-50{% endif %}">
-                            All Creators ({{ creators | map(attribute=1) | sum }})
-                        </a>
-                        {% for creator_name, count in creators %}
-                        <a href="/?view=videos&creator={{ creator_name | urlencode }}" class="px-3 py-1.5 rounded-lg text-xs font-bold transition {% if selected_creator == creator_name %}bg-indigo-600 text-white shadow-sm{% else %}bg-white text-gray-700 border border-gray-200 hover:bg-gray-50{% endif %}">
-                            {{ creator_name }} ({{ count }})
-                        </a>
-                        {% endfor %}
-                    </div>
+                <!-- Creator filter active header -->
+                {% if selected_creator %}
+                <div class="mb-6 flex items-center justify-between bg-indigo-50 border border-indigo-150 text-indigo-850 p-4 rounded-xl shadow-sm animate-fade-in">
+                    <span class="text-sm font-semibold">Showing videos by creator: <span class="font-bold underline">{{ selected_creator }}</span></span>
+                    <a href="/?view=videos" class="text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-white border border-indigo-200 px-3 py-1.5 rounded-lg shadow-sm transition">
+                        Clear Filter
+                    </a>
                 </div>
                 {% endif %}
 
@@ -120,7 +233,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                     {% for vid in videos %}
                     <div class="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm">
-                        <div class="relative aspect-video w-full bg-gray-100 flex items-center justify-center">
+                        <div class="relative w-full bg-gray-100 flex items-center justify-center" style="aspect-ratio: 16 / 9;">
                             {% if vid.video_id %}
                             <img src="{{ vid.thumbnail_url if vid.thumbnail_url else 'https://img.youtube.com/vi/' ~ vid.video_id ~ '/mqdefault.jpg' }}" class="w-full h-full object-cover" alt="{{ vid.title }}" />
                             <div class="absolute inset-0 bg-black bg-opacity-10 hover:bg-opacity-20 transition flex items-center justify-center">
@@ -137,9 +250,9 @@
                         </div>
                         <div class="p-5 flex-grow">
                             <div class="flex items-center justify-between gap-2 mb-2">
-                                <span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded border border-indigo-100">
+                                <a href="/?view=videos&creator={{ vid.creator | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-750 hover:bg-indigo-100 text-xs font-semibold rounded border border-indigo-100 transition">
                                     {{ vid.creator or "YouTube" }}
-                                </span>
+                                </a>
                                 {% if vid.view_count %}
                                 <span class="text-xs text-gray-400 font-mono">{{ "{:,}".format(vid.view_count) }} views</span>
                                 {% else %}
@@ -154,9 +267,9 @@
                             {% if vid.tags %}
                             <div class="flex flex-wrap gap-1 mt-3.5">
                                 {% for tag in vid.tags[:3] %}
-                                <span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-semibold rounded font-mono border border-gray-200">
+                                <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-gray-100 text-gray-655 hover:bg-indigo-50 hover:text-indigo-850 text-[10px] font-semibold rounded font-mono border border-gray-200 transition">
                                     {{ tag }}
-                                </span>
+                                </a>
                                 {% endfor %}
                             </div>
                             {% endif %}
@@ -234,9 +347,9 @@
                             {% if page.tags %}
                             <div class="flex flex-wrap gap-1.5 mt-2">
                                 {% for tag in page.tags %}
-                                <span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full border border-indigo-100">
+                                <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold rounded-full border border-indigo-100 transition">
                                     {{ tag }}
-                                </span>
+                                </a>
                                 {% endfor %}
                             </div>
                             {% endif %}
