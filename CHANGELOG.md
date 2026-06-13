@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added video details/attributes block rendering (creator, duration, views, channel ID) on the video viewing page.
 - Added a "Regenerate Video Attrs" action button and `/admin/regenerate/youtube-metadata` POST endpoint to re-fetch/update video metadata from YouTube.
 - Added duration overlays and formatted view counts to the video listing card grid.
+- Fixed video validation parsing skipping by declaring optional YouTube-specific fields on the HTMLPage Pydantic model.
 
 ## [0.1.19] - 2026-06-07
 ### Changed

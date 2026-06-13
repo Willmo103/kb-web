@@ -556,6 +556,22 @@ def post_to_gotify(page: HTMLPage, view_url: str) -> None:
         print(f"Failed to post to Gotify: {e}")
 
 
+def _serialize_page_for_db(page_data: HTMLPage) -> tuple[dict, Optional[str]]:
+    """Helper to convert HTMLPage object to a dict ready for fetched_pages insertion,
+    stripping out YouTube metadata attributes from the fetched_pages model to preserve decoupling.
+    """
+    serialized = page_data.model_dump()
+    creator = serialized.pop("creator", None)
+    serialized.pop("video_id", None)
+    serialized.pop("duration", None)
+    serialized.pop("view_count", None)
+    serialized.pop("thumbnail_url", None)
+    serialized["links"] = json.dumps(serialized["links"])
+    serialized["keywords"] = json.dumps(serialized["keywords"])
+    serialized["tags"] = json.dumps(serialized["tags"])
+    return serialized, creator
+
+
 # --- Background Tasks Routine ---
 
 
@@ -1029,12 +1045,7 @@ def handle_url_import(
     view_url = f"{base_url}/view/page?url={page_data.safe_url}"
 
     # Dump Pydantic details as JSON strings to fit sqlite schema
-    serialized = page_data.model_dump()
-    creator = serialized.pop("creator", None)
-    serialized["links"] = json.dumps(serialized["links"])
-    serialized["keywords"] = json.dumps(serialized["keywords"])
-    serialized["tags"] = json.dumps(serialized["tags"])
-
+    serialized, creator = _serialize_page_for_db(page_data)
     db["fetched_pages"].upsert(serialized, pk="url")
     save_youtube_metadata_helper(db, page_data.url, creator)
     update_article_embedding(db, page_data.url)
@@ -1387,12 +1398,7 @@ def handle_refetch_page(
     page_data.tags = tags
 
     # Write back the current latest details
-    serialized = page_data.model_dump()
-    creator = serialized.pop("creator", None)
-    serialized["links"] = json.dumps(serialized["links"])
-    serialized["keywords"] = json.dumps(serialized["keywords"])
-    serialized["tags"] = json.dumps(serialized["tags"])
-
+    serialized, creator = _serialize_page_for_db(page_data)
     db["fetched_pages"].upsert(serialized, pk="url")
     save_youtube_metadata_helper(db, decoded_url, creator)
     update_article_embedding(db, decoded_url)
@@ -1520,11 +1526,10 @@ async def websocket_import(websocket: WebSocket) -> None:
             try:
                 # Standardize structures using Pydantic validation
                 page_obj = HTMLPage(**record)
-                serialized = page_obj.model_dump()
-                serialized["links"] = json.dumps(serialized["links"])
-                serialized["keywords"] = json.dumps(serialized["keywords"])
-                serialized["tags"] = json.dumps(serialized["tags"])
+                serialized, creator = _serialize_page_for_db(page_obj)
                 db["fetched_pages"].upsert(serialized, pk="url")
+                if creator:
+                    save_youtube_metadata_helper(db, page_obj.url, creator)
                 success_count += 1
             except Exception as e:
                 print(
@@ -1623,12 +1628,7 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
     view_url = f"{base_url}/view/page?url={page_data.safe_url}"
 
     # Dump properties to database
-    serialized = page_data.model_dump()
-    creator = serialized.pop("creator", None)
-    serialized["links"] = json.dumps(serialized["links"])
-    serialized["keywords"] = json.dumps(serialized["keywords"])
-    serialized["tags"] = json.dumps(serialized["tags"])
-
+    serialized, creator = _serialize_page_for_db(page_data)
     db["fetched_pages"].upsert(serialized, pk="url")
     save_youtube_metadata_helper(db, page_data.url, creator)
     update_article_embedding(db, page_data.url)
@@ -1674,12 +1674,7 @@ def handle_page_import(payload: HTMLPage, request: Request) -> dict:
     view_url = f"{base_url}/view/page?url={payload.safe_url}"
 
     # Dump properties to database
-    serialized = payload.model_dump()
-    creator = serialized.pop("creator", None)
-    serialized["links"] = json.dumps(serialized["links"])
-    serialized["keywords"] = json.dumps(serialized["keywords"])
-    serialized["tags"] = json.dumps(serialized["tags"])
-
+    serialized, creator = _serialize_page_for_db(payload)
     db["fetched_pages"].upsert(serialized, pk="url")
     save_youtube_metadata_helper(db, payload.url, creator)
     update_article_embedding(db, payload.url)
