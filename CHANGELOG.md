@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.20] - 2026-06-13
+### Added
+- Created a separate `youtube_videos` database table referencing `fetched_pages` to decouple and represent YouTube uploader metadata.
+- Implemented dedicated YouTube videos section (`/?view=videos`) filterable by uploader/creator.
+- Added responsive embedded YouTube iframe display directly on the viewing page of video articles.
+- Added specialized `youtube_wiki_prompt` system configuration for synthesizing structured chronological video breakdowns with timestamped quotes.
+- Implemented markdown list preprocessor to fix single asterisk formatting issues and insert preceding spacing.
+- Added `kb-web-mcp.service` configuration file and exposed sse host/port binding parameters in CLI `mcp` start commands.
+
 ## [0.1.19] - 2026-06-07
 ### Changed
 - Simplified site profiles (`/view/site`) to only display the listing of scraped pages under that domain, removing legacy Ollama site-wide wiki generation and cached table references.

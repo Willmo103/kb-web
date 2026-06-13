@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import re
-import secrets
+import threading
 import time
 from datetime import datetime
 from typing import AsyncGenerator, Optional
@@ -40,8 +40,8 @@ from html2text import HTML2Text
 from pydantic import BaseModel
 
 from .config import Config
-from .db import get_db, init_db
-from .models import HTMLPage
+from .db import init_db
+from .models import HTMLPage, extract_youtube_video_id
 
 app = FastAPI(title="Knowledge Base Web Importer")
 
@@ -71,8 +71,6 @@ DEFAULT_TAGS_PROMPT = (
     "Do not reply with any filler headers, introductory remarks, or formatting."
 )
 
-
-import threading
 
 _local = threading.local()
 _init_lock = threading.Lock()
@@ -295,28 +293,14 @@ def extract_first_url(text: str) -> str:
     return text
 
 
-def extract_youtube_video_id(url: str) -> Optional[str]:
-    """Helper to parse out YouTube video ID from various link structures."""
-    try:
-        parsed = urlparse(url)
-        if parsed.hostname in ("youtu.be", "www.youtu.be"):
-            return parsed.path.lstrip("/")
-        if parsed.hostname in ("youtube.com", "www.youtube.com", "m.youtube.com"):
-            if parsed.path == "/watch":
-                from urllib.parse import parse_qs
 
-                return parse_qs(parsed.query).get("v", [None])[0]
-            if parsed.path.startswith(("/embed/", "/v/")):
-                return parsed.path.split("/")[2]
-    except Exception:
-        pass
-    return None
 
 
 def fetch_youtube_video_page(url: str, video_id: str) -> HTMLPage:
     """Retrieves YouTube video metadata and pulls subtitle transcripts to construct custom HTML/markdown documents."""
     title = f"YouTube Video {video_id}"
     description = ""
+    creator = "Unknown Creator"
 
     # 1. Fetch metadata using yt-dlp
     try:
@@ -342,6 +326,7 @@ def fetch_youtube_video_page(url: str, video_id: str) -> HTMLPage:
             info = ydl.extract_info(url, download=False)
             title = info.get("title", title)
             description = info.get("description", "")
+            creator = info.get("uploader") or info.get("channel") or "Unknown Creator"
     except Exception as e:
         print(f"yt-dlp metadata extraction failed: {e}")
         # fallback to basic BeautifulSoup title fetching
@@ -420,6 +405,7 @@ def fetch_youtube_video_page(url: str, video_id: str) -> HTMLPage:
         description="",
         keywords=[],
         tags=[],
+        creator=creator,
     )
 
 
@@ -503,10 +489,16 @@ def extract_wiki_content(html_page: HTMLPage) -> str:
     """
     try:
         client = _get_ollama_client()
+        video_id = extract_youtube_video_id(html_page.url)
+        if video_id:
+            system_prompt = getattr(config, "youtube_wiki_prompt", config.wiki_prompt)
+        else:
+            system_prompt = config.wiki_prompt
+
         response = client.chat(
             model=config.ollama_model,
             messages=[
-                {"role": "system", "content": config.wiki_prompt},
+                {"role": "system", "content": system_prompt},
                 {
                     "role": "user",
                     "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{html_page.md_content}",
@@ -665,19 +657,57 @@ def view_all_pages(
     """
     db = _get_db()
     pages_list = []
+    videos_list = []
+    creators_counts = {}
+    selected_creator = request.query_params.get("creator")
+
+    has_yt_table = "youtube_videos" in db.table_names()
+
     if "fetched_pages" in db.table_names():
         if q:
-            rows = db.execute_returning_dicts(
-                "SELECT * FROM fetched_pages WHERE title LIKE ? OR tags LIKE ? ORDER BY ROWID DESC",
-                [f"%{q}%", f"%{q}%"],
-            )
+            if has_yt_table:
+                query = """
+                    SELECT f.*, y.creator, y.video_id 
+                    FROM fetched_pages f 
+                    LEFT JOIN youtube_videos y ON f.url = y.url
+                    WHERE f.title LIKE ? OR f.tags LIKE ?
+                    ORDER BY f.ROWID DESC
+                """
+                rows = list(db.execute_returning_dicts(query, [f"%{q}%", f"%{q}%"]))
+            else:
+                rows = list(db.execute_returning_dicts(
+                    "SELECT * FROM fetched_pages WHERE title LIKE ? OR tags LIKE ? ORDER BY ROWID DESC",
+                    [f"%{q}%", f"%{q}%"],
+                ))
         else:
-            rows = db.execute_returning_dicts(
-                "SELECT * FROM fetched_pages ORDER BY ROWID DESC"
-            )
+            if has_yt_table:
+                query = """
+                    SELECT f.*, y.creator, y.video_id 
+                    FROM fetched_pages f 
+                    LEFT JOIN youtube_videos y ON f.url = y.url
+                    ORDER BY f.ROWID DESC
+                """
+                rows = list(db.execute_returning_dicts(query))
+            else:
+                rows = list(db.execute_returning_dicts("SELECT * FROM fetched_pages ORDER BY ROWID DESC"))
+
         for row in rows:
             try:
-                pages_list.append(HTMLPage(**row))
+                video_id = row.get("video_id") or extract_youtube_video_id(row["url"])
+                if video_id:
+                    creator = row.get("creator") or "Unknown Creator"
+                    creators_counts[creator] = creators_counts.get(creator, 0) + 1
+
+                    if view == "videos":
+                        if not selected_creator or creator == selected_creator:
+                            page_obj = HTMLPage(**row)
+                            page_obj.creator = creator
+                            # Temporarily attach video_id as custom attribute
+                            page_obj.video_id = video_id
+                            videos_list.append(page_obj)
+                else:
+                    if view != "videos":
+                        pages_list.append(HTMLPage(**row))
             except Exception as e:
                 # Log issues but try to continue loading other rows
                 print(f"Database row validation error: {e}")
@@ -691,6 +721,9 @@ def view_all_pages(
         )
         for row in rows_raw:
             url = row["url"]
+            # Exclude YouTube videos from site grouping
+            if extract_youtube_video_id(url):
+                continue
             basename = get_url_basename(url)
             if basename not in sites_dict:
                 sites_dict[basename] = {
@@ -706,6 +739,9 @@ def view_all_pages(
         sites_dict.values(), key=lambda x: (-x["pages_count"], x["name"])
     )
 
+    # Sort creators list
+    sorted_creators = sorted(creators_counts.items(), key=lambda x: (-x[1], x[0]))
+
     # Check if user is logged in as an administrator
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))
@@ -714,12 +750,69 @@ def view_all_pages(
     return HTMLResponse(
         content=template.render(
             pages=pages_list,
+            videos=videos_list,
+            creators=sorted_creators,
+            selected_creator=selected_creator or "",
             sites=sorted_sites,
             view=view,
             is_admin=is_admin,
             q=q or "",
         )
     )
+
+
+def preprocess_markdown(text: str) -> str:
+    """Preprocesses markdown to normalize bullet lists starting with a single asterisk
+
+    and ensures they are preceded by a blank line for standard markdown parsers.
+    """
+    if not text:
+        return ""
+
+    # 1. Normalize list items starting with '*' (ensure space after '*')
+    lines = text.split("\n")
+    processed_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("*") and not stripped.startswith("**"):
+            # It starts with a single '*'
+            indent = len(line) - len(line.lstrip())
+            content = line.lstrip()
+            remainder = content[1:]
+            if remainder and not remainder.startswith(" "):
+                line = " " * indent + "* " + remainder
+        processed_lines.append(line)
+
+    # 2. Ensure list blocks are preceded by a blank line
+    final_lines = []
+    for i, line in enumerate(processed_lines):
+        stripped = line.strip()
+        is_list_item = False
+
+        if stripped.startswith(("*", "-", "+")) and not stripped.startswith(("**", "***")):
+            if stripped.startswith("* ") or stripped.startswith("- ") or stripped.startswith("+ "):
+                is_list_item = True
+        elif re.match(r"^\d+\.\s", stripped):
+            is_list_item = True
+
+        if is_list_item and i > 0:
+            prev_line = final_lines[-1]
+            prev_stripped = prev_line.strip()
+
+            prev_is_list_item = False
+            if prev_stripped.startswith(("*", "-", "+")) and not prev_stripped.startswith(("**", "***")):
+                if prev_stripped.startswith("* ") or prev_stripped.startswith("- ") or prev_stripped.startswith("+ "):
+                    prev_is_list_item = True
+            elif re.match(r"^\d+\.\s", prev_stripped):
+                prev_is_list_item = True
+
+            if prev_stripped and not prev_is_list_item:
+                final_lines.append("")
+
+        final_lines.append(line)
+
+    return "\n".join(final_lines)
 
 
 @app.get("/view/page", response_class=HTMLResponse)
@@ -811,11 +904,12 @@ def view_saved_page(
     ]
 
     rendered_wiki_html = markdown.markdown(
-        page_obj.description or "", extensions=["fenced_code", "tables"]
+        preprocess_markdown(page_obj.description or ""), extensions=["fenced_code", "tables"]
     )
     rendered_md_html = markdown.markdown(
-        page_obj.md_content or "", extensions=["fenced_code", "tables"]
+        preprocess_markdown(page_obj.md_content or ""), extensions=["fenced_code", "tables"]
     )
+    video_id = extract_youtube_video_id(decoded_url)
     template = _jinja_env.get_template("view_page.j2.html")
     return HTMLResponse(
         content=template.render(
@@ -830,6 +924,7 @@ def view_saved_page(
             error=error,
             similar_pages=similar_pages,
             scraped_links=page_links_data,
+            video_id=video_id,
         )
     )
 
@@ -924,11 +1019,13 @@ def handle_url_import(
 
     # Dump Pydantic details as JSON strings to fit sqlite schema
     serialized = page_data.model_dump()
+    creator = serialized.pop("creator", None)
     serialized["links"] = json.dumps(serialized["links"])
     serialized["keywords"] = json.dumps(serialized["keywords"])
     serialized["tags"] = json.dumps(serialized["tags"])
 
     db["fetched_pages"].upsert(serialized, pk="url")
+    save_youtube_metadata_helper(db, page_data.url, creator)
     update_article_embedding(db, page_data.url)
     post_to_gotify(page_data, view_url)
     return RedirectResponse(url=view_url, status_code=303)
@@ -974,6 +1071,7 @@ def handle_config_update(
     gotify_url: str = Form(None),
     gotify_token: str = Form(None),
     wiki_prompt: str = Form(...),
+    youtube_wiki_prompt: str = Form(...),
 ) -> RedirectResponse:
     """Saves updated server settings (Ollama and Gotify parameters) to config file.
 
@@ -985,6 +1083,7 @@ def handle_config_update(
         gotify_url (str): Gotify url endpoint.
         gotify_token (str): Gotify application token.
         wiki_prompt (str): System prompt.
+        youtube_wiki_prompt (str): YouTube Specific System prompt.
 
     Returns:
         RedirectResponse: Redirection to admin panel with success feedback message.
@@ -996,6 +1095,7 @@ def handle_config_update(
     config.gotify_url = gotify_url or None
     config.gotify_token = gotify_token or None
     config.wiki_prompt = wiki_prompt
+    config.youtube_wiki_prompt = youtube_wiki_prompt
     config.save()
 
     return RedirectResponse(
@@ -1249,11 +1349,13 @@ def handle_refetch_page(
 
     # Write back the current latest details
     serialized = page_data.model_dump()
+    creator = serialized.pop("creator", None)
     serialized["links"] = json.dumps(serialized["links"])
     serialized["keywords"] = json.dumps(serialized["keywords"])
     serialized["tags"] = json.dumps(serialized["tags"])
 
     db["fetched_pages"].upsert(serialized, pk="url")
+    save_youtube_metadata_helper(db, decoded_url, creator)
     update_article_embedding(db, decoded_url)
 
     # Send notifier alerts
@@ -1483,11 +1585,13 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
 
     # Dump properties to database
     serialized = page_data.model_dump()
+    creator = serialized.pop("creator", None)
     serialized["links"] = json.dumps(serialized["links"])
     serialized["keywords"] = json.dumps(serialized["keywords"])
     serialized["tags"] = json.dumps(serialized["tags"])
 
     db["fetched_pages"].upsert(serialized, pk="url")
+    save_youtube_metadata_helper(db, page_data.url, creator)
     update_article_embedding(db, page_data.url)
 
     # Send dynamic Gotify push notification using the configured settings
@@ -1532,11 +1636,13 @@ def handle_page_import(payload: HTMLPage, request: Request) -> dict:
 
     # Dump properties to database
     serialized = payload.model_dump()
+    creator = serialized.pop("creator", None)
     serialized["links"] = json.dumps(serialized["links"])
     serialized["keywords"] = json.dumps(serialized["keywords"])
     serialized["tags"] = json.dumps(serialized["tags"])
 
     db["fetched_pages"].upsert(serialized, pk="url")
+    save_youtube_metadata_helper(db, payload.url, creator)
     update_article_embedding(db, payload.url)
 
     # Send dynamic Gotify push notification
@@ -1579,6 +1685,48 @@ def ensure_model_available(client: ollama.Client, model_name: str) -> None:
             print(f"Successfully pulled Ollama model '{model_name}'")
     except Exception as e:
         print(f"Failed to automatically pull Ollama model '{model_name}': {e}")
+
+
+def save_youtube_metadata_helper(db, url: str, creator: Optional[str] = None) -> None:
+    """Saves YouTube metadata to the youtube_videos table.
+
+    If creator is not provided and it's a YouTube video, attempts metadata fetch using yt-dlp.
+    """
+    video_id = extract_youtube_video_id(url)
+    if not video_id:
+        return
+
+    # Check if we already have it in the database and creator is valid
+    if "youtube_videos" in db.table_names():
+        try:
+            existing = db["youtube_videos"].get(url)
+            if existing and existing.get("creator") != "Unknown Creator" and not creator:
+                return  # already have uploader info
+        except sqlite_utils.db.NotFoundError:
+            pass
+
+    # If creator is not provided, fetch it using yt-dlp
+    if not creator or creator == "Unknown Creator":
+        try:
+            import yt_dlp
+            ydl_opts = {"skip_download": True, "quiet": True, "no_warnings": True}
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                creator = info.get("uploader") or info.get("channel") or "Unknown Creator"
+        except Exception as e:
+            print(f"Failed to fetch YouTube metadata in helper for {url}: {e}")
+            creator = creator or "Unknown Creator"
+
+    try:
+        db["youtube_videos"].upsert({
+            "url": url,
+            "video_id": video_id,
+            "creator": creator,
+            "updated_at": datetime.now().isoformat()
+        }, pk="url")
+        print(f"Successfully saved YouTube video metadata for: {url}")
+    except Exception as e:
+        print(f"Failed to save YouTube metadata to database: {e}")
 
 
 def update_article_embedding(db, url: str) -> None:
@@ -1674,14 +1822,15 @@ def get_similar_articles(db, current_url: str, limit: int = 5) -> list[dict]:
                 except Exception:
                     tags = []
 
-                similarities.append(
-                    {
-                        "url": other_url,
-                        "title": page_row.get("title") or other_url,
-                        "tags": tags,
-                        "similarity": round(similarity * 100, 1),
-                    }
-                )
+                if similarity >= getattr(config, "similarity_threshold", 0.8):
+                    similarities.append(
+                        {
+                            "url": other_url,
+                            "title": page_row.get("title") or other_url,
+                            "tags": tags,
+                            "similarity": round(similarity * 100, 1),
+                        }
+                    )
             except Exception:
                 continue
 

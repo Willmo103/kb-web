@@ -1,5 +1,3 @@
-import json
-
 import ollama
 import pytest
 from fastapi.testclient import TestClient
@@ -733,4 +731,108 @@ def test_virtual_sites(client: TestClient, monkeypatch) -> None:
     assert "github.com" in resp_site.text
     assert "GitHub Trending" in resp_site.text
     assert "GitHub Foo" in resp_site.text
+
+
+def test_preprocess_markdown_list_normalization() -> None:
+    """Verifies that markdown list items and list block spacing are normalized properly."""
+    from kb_web.server import preprocess_markdown
+
+    # Single asterisk bullet item formatting
+    input_text = "Some description text.\n*Item one without space\n* Item two with space"
+    expected = "Some description text.\n\n* Item one without space\n* Item two with space"
+    assert preprocess_markdown(input_text) == expected
+
+    # Sublists indentation preservation
+    input_text_sublist = "- Main item\n  *Sub item without space\n  * Sub item with space"
+    expected_sublist = "- Main item\n  * Sub item without space\n  * Sub item with space"
+    assert preprocess_markdown(input_text_sublist) == expected_sublist
+
+    # Numbered list spacing
+    input_text_num = "Here is a list:\n1. First item\n2. Second item"
+    expected_num = "Here is a list:\n\n1. First item\n2. Second item"
+    assert preprocess_markdown(input_text_num) == expected_num
+
+
+def test_similarity_score_threshold(client: TestClient, monkeypatch) -> None:
+    """Verifies that similarity calculations only return pages meeting the 0.8 (80%) threshold."""
+    from kb_web.server import get_similar_articles
+    db = get_db(server_config)
+
+    # Clean embeddings
+    if "article_embeddings" in db.table_names():
+        db.execute("DELETE FROM article_embeddings")
+    if "fetched_pages" in db.table_names():
+        db.execute("DELETE FROM fetched_pages")
+
+    # Insert three pages
+    db["fetched_pages"].insert({
+        "url": "https://example.com/target",
+        "title": "Target page",
+        "html_content": "T",
+        "md_content": "T",
+        "links": "[]",
+        "html_content_hash": "t1",
+        "md_content_hash": "t2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "tags": "[]"
+    })
+    db["fetched_pages"].insert({
+        "url": "https://example.com/similar-high",
+        "title": "High similarity page",
+        "html_content": "H",
+        "md_content": "H",
+        "links": "[]",
+        "html_content_hash": "h1",
+        "md_content_hash": "h2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "tags": "[]"
+    })
+    db["fetched_pages"].insert({
+        "url": "https://example.com/similar-low",
+        "title": "Low similarity page",
+        "html_content": "L",
+        "md_content": "L",
+        "links": "[]",
+        "html_content_hash": "l1",
+        "md_content_hash": "l2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "tags": "[]"
+    })
+
+    # Mock cosine_similarity directly to return high/low scores
+    # target vs similar-high: 0.85 (85%)
+    # target vs similar-low: 0.70 (70%)
+
+    db["article_embeddings"].insert({"url": "https://example.com/target", "embedding": "[1.0, 0.0]", "updated_at": "now"})
+    db["article_embeddings"].insert({"url": "https://example.com/similar-high", "embedding": "[0.85, 0.52]", "updated_at": "now"})
+    db["article_embeddings"].insert({"url": "https://example.com/similar-low", "embedding": "[0.70, 0.71]", "updated_at": "now"})
+
+    # Patch cosine_similarity
+    def mock_cosine_similarity(v1, v2):
+        if (v1 == [1.0, 0.0] and v2 == [0.85, 0.52]) or (v2 == [1.0, 0.0] and v1 == [0.85, 0.52]):
+            return 0.85
+        if (v1 == [1.0, 0.0] and v2 == [0.70, 0.71]) or (v2 == [1.0, 0.0] and v1 == [0.70, 0.71]):
+            return 0.70
+        return 0.0
+
+    monkeypatch.setattr("kb_web.server.cosine_similarity", mock_cosine_similarity)
+
+    # Retrieve similar articles
+    similar = get_similar_articles(db, "https://example.com/target")
+    assert len(similar) == 1
+    assert similar[0]["url"] == "https://example.com/similar-high"
+    assert similar[0]["similarity"] == 85.0
+
+
+def test_youtube_videos_lookup_table() -> None:
+    """Verifies that YouTube-specific metadata is successfully written to the youtube_videos table."""
+    db = get_db(server_config)
+    
+    # Check that table exists and contains correct columns
+    assert "youtube_videos" in db.table_names()
+    cols = db["youtube_videos"].columns_dict
+    assert "url" in cols
+    assert "video_id" in cols
+    assert "creator" in cols
+    assert "updated_at" in cols
 

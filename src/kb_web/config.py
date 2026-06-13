@@ -19,6 +19,19 @@ DEFAULT_WIKI_PROMPT = (
     "Output ONLY the final markdown text. Do not reply with conversational filler headers."
 )
 
+DEFAULT_YOUTUBE_WIKI_PROMPT = (
+    "You are an expert knowledge-base agent. Analyze the provided YouTube video transcript and metadata. "
+    "Rewrite it as a clean, highly structured, and objective wiki article. "
+    "The article MUST start with a markdown header level 1 (#) representing a descriptive and clear title for the video. "
+    "Create appropriate sections with headings, tags, and a summary. "
+    "CRITICAL: You MUST include a detailed 'Video Breakdown' section. Under this section, segment the video chronologically "
+    "into logical chapters or topics based on the transcript timestamps (e.g. '[03:15]'). "
+    "For EACH section, provide a brief description and at least two key quoted points or insights from the transcript, "
+    "including the exact timestamp of each quote. "
+    "Format the timestamps precisely as they appear in the transcript (e.g., [MM:SS] or [HH:MM:SS]). "
+    "Output ONLY the final markdown text. Do not reply with conversational filler."
+)
+
 
 class Config(BaseConfig):
     """Configuration class for the kb-web application.
@@ -45,6 +58,8 @@ class Config(BaseConfig):
         self.admin_password: str = os.getenv("KB_PASSWORD", "admin123")
         self.api_key: Optional[str] = os.getenv("KB_API_KEY", "kb-secret-key")
         self.wiki_prompt: str = os.getenv("KB_WIKI_PROMPT", DEFAULT_WIKI_PROMPT)
+        self.youtube_wiki_prompt: str = os.getenv("KB_YOUTUBE_WIKI_PROMPT", DEFAULT_YOUTUBE_WIKI_PROMPT)
+        self.similarity_threshold: float = float(os.getenv("KB_SIMILARITY_THRESHOLD", "0.8"))
         self.gotify_url: Optional[str] = os.getenv("GOTIFY_URL")
         self.gotify_token: Optional[str] = os.getenv("GOTIFY_TOKEN")
 
@@ -66,6 +81,10 @@ class Config(BaseConfig):
                         self.api_key = data["api_key"]
                     if "wiki_prompt" in data:
                         self.wiki_prompt = data["wiki_prompt"]
+                    if "youtube_wiki_prompt" in data:
+                        self.youtube_wiki_prompt = data["youtube_wiki_prompt"]
+                    if "similarity_threshold" in data:
+                        self.similarity_threshold = float(data["similarity_threshold"])
                     if "gotify_url" in data:
                         self.gotify_url = data["gotify_url"]
                     if "gotify_token" in data:
@@ -86,6 +105,8 @@ class Config(BaseConfig):
                 "admin_password": self.admin_password,
                 "api_key": self.api_key,
                 "wiki_prompt": self.wiki_prompt,
+                "youtube_wiki_prompt": self.youtube_wiki_prompt,
+                "similarity_threshold": self.similarity_threshold,
                 "gotify_url": self.gotify_url,
                 "gotify_token": self.gotify_token,
             }

@@ -126,6 +126,51 @@ def init_db(db: sqlite_utils.Database) -> None:
         except Exception as e:
             print(f"Error creating site_wikis table: {e}")
 
+    # Initialize youtube_videos table for youtube metadata
+    if "youtube_videos" not in db.table_names():
+        try:
+            db["youtube_videos"].create(
+                {
+                    "url": str,
+                    "video_id": str,
+                    "creator": str,
+                    "channel_id": str,
+                    "duration": int,
+                    "view_count": int,
+                    "thumbnail_url": str,
+                    "updated_at": str,
+                },
+                pk="url",
+                foreign_keys=[("url", "fetched_pages", "url")],
+            )
+            print("Initialized database table: youtube_videos")
+        except Exception as e:
+            print(f"Error creating youtube_videos table: {e}")
+
+    # Retrospective migration for youtube_videos table
+    if "youtube_videos" in db.table_names() and "fetched_pages" in db.table_names():
+        try:
+            if db["youtube_videos"].count == 0:
+                from datetime import datetime
+                from .models import extract_youtube_video_id
+                
+                rows_to_migrate = []
+                for row in db["fetched_pages"].rows:
+                    url = row["url"]
+                    video_id = extract_youtube_video_id(url)
+                    if video_id:
+                        rows_to_migrate.append({
+                            "url": url,
+                            "video_id": video_id,
+                            "creator": "Unknown Creator",
+                            "updated_at": datetime.now().isoformat(),
+                        })
+                if rows_to_migrate:
+                    db["youtube_videos"].insert_all(rows_to_migrate, pk="url")
+                    print(f"Retrospective migration complete: created {len(rows_to_migrate)} entries in youtube_videos table.")
+        except Exception as e:
+            print(f"Warning: Retrospective migration failed: {e}")
+
     # Drop legacy active_sessions table if it exists to clean up database schema
     if "active_sessions" in db.table_names():
         try:

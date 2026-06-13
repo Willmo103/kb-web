@@ -1,0 +1,22 @@
+[Unit]
+Description=Knowledge Base Web Model Context Protocol (MCP) Server
+After=network.target
+
+[Service]
+Type=simple
+# The user account under which the service runs.
+User=will
+WorkingDirectory=/srv/kb-web
+
+# Load environment configuration variables (such as KB_PASSWORD, KB_OLLAMA_HOST, etc.)
+EnvironmentFile=-/srv/kb-web/.env
+
+# Execute the entrypoint binary compiled inside the virtual environment
+ExecStart=/srv/kb-web/.venv/bin/kb-web mcp --transport sse --host 0.0.0.0 --port 8051
+
+# Restart settings on process death
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

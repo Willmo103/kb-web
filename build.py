@@ -4,13 +4,13 @@ from pathlib import Path
 
 
 def run_step(cmd: list[str], description: str):
-    print(f"\n=========================================")
+    print("\n=========================================")
     print(f"Step: {description}")
     print(f"Running: {' '.join(cmd)}")
-    print(f"=========================================")
+    print("=========================================")
     try:
         # Use shell=True on Windows to support running commands correctly in all shell contexts
-        result = subprocess.run(cmd, check=True, shell=sys.platform == "win32")
+        subprocess.run(cmd, check=True, shell=sys.platform == "win32")
     except subprocess.CalledProcessError as e:
         print(f"\n[ERROR] Step failed: {description}")
         print(f"Command returned non-zero exit code: {e.returncode}")
@@ -48,7 +48,6 @@ def clean_previous_builds():
 
 def main():
     clean_previous_builds()
-    project_dir = Path(__file__).resolve().parent
 
     # 1. Sync project environment
     run_step(["uv", "sync"], "Synchronizing environment & dependencies")

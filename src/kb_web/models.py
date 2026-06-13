@@ -4,9 +4,39 @@ Pydantic models for the Knowledge Base Web Importer application.
 
 import json
 from typing import Optional
-from urllib.parse import quote_plus, urljoin, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse, parse_qs
 
 from pydantic import BaseModel, field_validator
+
+
+def extract_youtube_video_id(url: str) -> Optional[str]:
+    """Helper to parse out YouTube video ID from various link structures."""
+    try:
+        parsed = urlparse(url)
+        if parsed.hostname in ("youtu.be", "www.youtu.be"):
+            return parsed.path.lstrip("/")
+        if parsed.hostname in ("youtube.com", "www.youtube.com", "m.youtube.com"):
+            if parsed.path == "/watch":
+                return parse_qs(parsed.query).get("v", [None])[0]
+            if parsed.path.startswith(("/embed/", "/v/")):
+                return parsed.path.split("/")[2]
+    except Exception:
+        pass
+    return None
+
+
+class YouTubeVideoMetadata(BaseModel):
+    """Pydantic model representing metadata for a YouTube video page."""
+
+    url: str
+    video_id: str
+    creator: str
+    channel_id: Optional[str] = None
+    duration: Optional[int] = None
+    view_count: Optional[int] = None
+    thumbnail_url: Optional[str] = None
+    updated_at: str
+
 
 
 class ParsedUrl(BaseModel):
