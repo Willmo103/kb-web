@@ -1,0 +1,165 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Cron Task Details | {{ job.title }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 max-w-5xl pb-12">
+    
+    {% if msg %}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-lg text-sm mb-6 shadow-sm">
+        {{ msg }}
+    </div>
+    {% endif %}
+
+    <div class="mb-6 flex justify-between items-center border-b border-gray-200 pb-4">
+        <div>
+            <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">⏰ Scheduled Task Info</span>
+            <h1 class="text-3xl font-extrabold text-gray-900 mt-0.5">{{ job.title }}</h1>
+            <p class="text-xs text-gray-500 font-medium">URL: <a href="{{ job.url }}" target="_blank" class="hover:underline font-mono text-indigo-650">{{ job.url }}</a></p>
+        </div>
+        <div class="flex gap-2">
+            <button onclick="toggleEditForm()" class="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg transition shadow-sm">
+                ✏️ Edit Task
+            </button>
+            <a href="/admin/cron" class="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg transition shadow-sm">
+                Back to Cron Manager
+            </a>
+        </div>
+    </div>
+
+    <!-- Edit Task Form container (hidden by default) -->
+    <div id="editTaskForm" class="hidden bg-white p-6 rounded-xl border border-gray-200 mb-8 shadow-sm max-w-2xl">
+        <h3 class="text-base font-bold text-gray-950 border-b pb-2 mb-4">Edit Scheduled Fetch Task</h3>
+        <form action="/admin/cron/edit/{{ job.id }}" method="post" class="space-y-4">
+            <div>
+                <label for="title" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Task Title</label>
+                <input type="text" name="title" id="title" value="{{ job.title }}" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white" required />
+            </div>
+            <div>
+                <label for="url" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Target URL</label>
+                <input type="url" name="url" id="url" value="{{ job.url }}" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white" required />
+            </div>
+            <div>
+                <label for="interval_minutes" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Run Interval (Minutes)</label>
+                <select name="interval_minutes" id="interval_minutes" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white">
+                    <option value="5" {% if job.interval_minutes == 5 %}selected{% endif %}>Every 5 minutes</option>
+                    <option value="15" {% if job.interval_minutes == 15 %}selected{% endif %}>Every 15 minutes</option>
+                    <option value="30" {% if job.interval_minutes == 30 %}selected{% endif %}>Every 30 minutes</option>
+                    <option value="60" {% if job.interval_minutes == 60 %}selected{% endif %}>Every hour</option>
+                    <option value="360" {% if job.interval_minutes == 360 %}selected{% endif %}>Every 6 hours</option>
+                    <option value="720" {% if job.interval_minutes == 720 %}selected{% endif %}>Every 12 hours</option>
+                    <option value="1440" {% if job.interval_minutes == 1440 %}selected{% endif %}>Every day</option>
+                </select>
+            </div>
+            <div>
+                <label for="output_type" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Output Media Type</label>
+                <select name="output_type" id="output_type" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white">
+                    <option value="article" {% if job.output_type == 'article' %}selected{% endif %}>Article summary/digest</option>
+                    <option value="video" {% if job.output_type == 'video' %}selected{% endif %}>Video details transcript</option>
+                    <option value="notification" {% if job.output_type == 'notification' %}selected{% endif %}>Notification / Actions only</option>
+                </select>
+            </div>
+            <div>
+                <label for="prompt_template" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">AI Curation Prompt Template</label>
+                <textarea name="prompt_template" id="prompt_template" rows="6" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white" required>{{ job.prompt_template }}</textarea>
+            </div>
+            
+            <div class="space-y-2 border-t pt-3">
+                <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider">Output Destinations</label>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" name="db_store" id="db_store" value="1" {% if job.db_store %}checked{% endif %} class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                    <label for="db_store" class="text-xs text-gray-650">Create Wiki Database page</label>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" name="file_store" id="file_store" value="1" {% if job.file_store %}checked{% endif %} class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                    <label for="file_store" class="text-xs text-gray-650">Write downloadable Markdown file</label>
+                </div>
+            </div>
+
+            <div class="space-y-1">
+                <label for="notify_on" class="block text-xs font-bold text-gray-700 uppercase tracking-wider">Gotify Alerts</label>
+                <select name="notify_on" id="notify_on" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white">
+                    <option value="none" {% if job.notify_on == 'none' %}selected{% endif %}>Never notify</option>
+                    <option value="success" {% if job.notify_on == 'success' %}selected{% endif %}>Only on success</option>
+                    <option value="failure" {% if job.notify_on == 'failure' %}selected{% endif %}>Only on failure</option>
+                    <option value="both" {% if job.notify_on == 'both' %}selected{% endif %}>Notify on both</option>
+                </select>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-2 border-t">
+                <button type="button" onclick="toggleEditForm()" class="text-xs bg-gray-150 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded transition font-semibold">Cancel</button>
+                <button type="submit" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded transition">Save Settings</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Execution log list -->
+    <div class="space-y-6">
+        <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 pb-1.5 border-b">Run Logs ({{ runs | length }})</h2>
+        
+        {% if not runs %}
+        <div class="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
+            <p class="text-gray-500 text-sm">No executions logged yet. Click "Run Now" to test immediately.</p>
+        </div>
+        {% else %}
+        <div class="space-y-4">
+            {% for run in runs %}
+            <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                
+                <!-- Header of run log card -->
+                <div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center {% if run.status == 'success' %}bg-emerald-50 bg-opacity-25{% else %}bg-rose-50 bg-opacity-25{% endif %}">
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs font-bold font-mono px-2 py-0.5 rounded {% if run.status == 'success' %}bg-emerald-100 text-emerald-800{% else %}bg-rose-100 text-rose-805{% endif %}">
+                            {{ run.status | upper }}
+                        </span>
+                        <span class="text-xs text-gray-500 font-medium">Ran: {{ run.fetched_at[:19] | replace('T', ' ') }}</span>
+                    </div>
+                    <span class="text-xs text-gray-400 font-mono">Elapsed: {{ "%.2f" | format(run.duration) }}s</span>
+                </div>
+
+                <!-- Body of run log card -->
+                <div class="p-5 space-y-4">
+                    {% if run.status == 'success' %}
+                        {% if run.prompt_output %}
+                        <div>
+                            <p class="text-[10px] font-bold text-gray-450 uppercase tracking-wider mb-1.5">AI Curation Result:</p>
+                            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 text-xs text-gray-800 leading-relaxed max-h-60 overflow-y-auto font-mono whitespace-pre-wrap">{{ run.prompt_output }}</div>
+                        </div>
+                        {% endif %}
+                        
+                        {% if run.files %}
+                        <div class="pt-2">
+                            <p class="text-[10px] font-bold text-gray-450 uppercase tracking-wider mb-1.5">Created Output Files:</p>
+                            <div class="flex flex-wrap gap-2">
+                                {% for filename in run.files %}
+                                <a href="/admin/cron/download/{{ filename }}" class="inline-flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                                    💾 Download: {{ filename }}
+                                </a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% else %}
+                        {% if run.error_message %}
+                        <div>
+                            <p class="text-[10px] font-bold text-rose-500 uppercase tracking-wider mb-1.5">Error Traceback:</p>
+                            <pre class="bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-lg text-xs leading-relaxed max-h-60 overflow-y-auto font-mono whitespace-pre-wrap">{{ run.error_message }}</pre>
+                        </div>
+                        {% endif %}
+                    {% endif %}
+                </div>
+
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    function toggleEditForm() {
+        const form = document.getElementById('editTaskForm');
+        form.classList.toggle('hidden');
+    }
+</script>
+{% endblock %}

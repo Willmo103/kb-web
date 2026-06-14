@@ -341,7 +341,7 @@ def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
             tags=[],
         )
 
-    monkeypatch.setattr("kb_web.server.fetch_url", mock_fetch_url)
+    monkeypatch.setattr("kb_web.routers.admin.fetch_url", mock_fetch_url)
 
     # Perform Refetch
     resp = client.post(
@@ -384,7 +384,7 @@ def test_page_refetch_and_versioning(client: TestClient, monkeypatch) -> None:
     def mock_fetch_fail(url: str):
         raise RuntimeError("Server offline")
 
-    monkeypatch.setattr("kb_web.server.fetch_url", mock_fetch_fail)
+    monkeypatch.setattr("kb_web.routers.admin.fetch_url", mock_fetch_fail)
 
     # Attempt refetch (should keep original)
     resp_fail = client.post(
@@ -812,7 +812,7 @@ def test_similarity_score_threshold(client: TestClient, monkeypatch) -> None:
             return 0.70
         return 0.0
 
-    monkeypatch.setattr("kb_web.server.cosine_similarity", mock_cosine_similarity)
+    monkeypatch.setattr("kb_web.utils.cosine_similarity", mock_cosine_similarity)
 
     # Retrieve similar articles
     similar = get_similar_articles(db, "https://example.com/target")
@@ -973,6 +973,184 @@ def test_chunked_extraction(monkeypatch) -> None:
     # Chunk 3: "This is a long line 3" (21 chars)
     # So 3 chunk calls + 1 synthesis call = 4 calls total
     assert call_count == 4
+
+
+def test_collections_crud(client: TestClient) -> None:
+    """Verifies collections creation, page assignment, page listing, and removal."""
+    db = get_db(server_config)
+    
+    # 1. Login as admin
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    assert session_cookie is not None
+
+    # 2. Ingest mock page
+    page_url = "https://example.com/collection-page"
+    db["fetched_pages"].insert({
+        "url": page_url,
+        "title": "Page for Collection",
+        "html_content": "A",
+        "md_content": "A",
+        "links": "[]",
+        "html_content_hash": "a1",
+        "md_content_hash": "a2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "tags": "[]",
+        "collection_id": None
+    }, replace=True)
+
+    # 3. Create a collection
+    create_resp = client.post(
+        "/collections/create",
+        data={"title": "ML Resources"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False,
+    )
+    assert create_resp.status_code == 303
+    
+    col_row = db["collections"].get(1)
+    assert col_row["title"] == "ML Resources"
+
+    # 4. Assign page to collection
+    assign_resp = client.post(
+        "/admin/pages/update-collection",
+        data={"url": page_url, "collection_id": 1},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False,
+    )
+    assert assign_resp.status_code == 303
+    
+    page_row = db["fetched_pages"].get(page_url)
+    assert page_row["collection_id"] == 1
+
+    # 5. List collection pages
+    list_resp = client.get("/collections/view/1")
+    assert list_resp.status_code == 200
+    assert "ML Resources" in list_resp.text
+    assert "Page for Collection" in list_resp.text
+
+    # 6. Remove page from collection
+    remove_resp = client.post(
+        "/admin/pages/remove-from-collection",
+        data={"url": page_url, "redirect_to": "/collections/view/1"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False,
+    )
+    assert remove_resp.status_code == 303
+    
+    page_row_after = db["fetched_pages"].get(page_url)
+    assert page_row_after["collection_id"] is None
+
+
+def test_cron_jobs(client: TestClient, monkeypatch) -> None:
+    """Verifies cron job creation, status toggle, and manual execution triggers."""
+    db = get_db(server_config)
+
+    # 1. Login as admin
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+
+    # 2. Create cron job
+    cron_payload = {
+        "title": "Fetch Dev Blog",
+        "url": "https://example.com/blog",
+        "interval_minutes": 30,
+        "prompt_template": "Summarize blog: {md_content}",
+        "output_type": "article",
+        "db_store": "1",
+        "notify_on": "none",
+    }
+    create_resp = client.post(
+        "/admin/cron/create",
+        data=cron_payload,
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False,
+    )
+    assert create_resp.status_code == 303
+
+    job_row = db["cron_jobs"].get(1)
+    assert job_row["title"] == "Fetch Dev Blog"
+    assert job_row["interval_minutes"] == 30
+
+    # 3. Toggle job state
+    toggle_resp = client.post(
+        "/admin/cron/toggle/1",
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False,
+    )
+    assert toggle_resp.status_code == 303
+    assert db["cron_jobs"].get(1)["is_active"] == 0
+
+    # Toggle back to active
+    client.post("/admin/cron/toggle/1", cookies={"kb_session": session_cookie})
+
+    # 4. Mock execution dependencies (fetching & Ollama chat)
+    def mock_fetch_url(url: str):
+        from kb_web.models import HTMLPage
+        return HTMLPage(
+            url=url,
+            title="Blog Site",
+            html_content="<html><body>Blog content</body></html>",
+            md_content="Blog content",
+            links=[],
+            html_content_hash="h1",
+            md_content_hash="m1",
+            fetched_at="2026-05-31T12:00:00",
+        )
+
+    class DummyMessage:
+        content = "AI summary: this is a tech blog post."
+
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    monkeypatch.setattr("kb_web.cron_scheduler.fetch_url", mock_fetch_url)
+    monkeypatch.setattr(ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse())
+
+    # 5. Manually execute single job
+    from kb_web.cron_scheduler import run_single_job
+    import asyncio
+    run_result = asyncio.run(run_single_job(db, 1, server_config))
+    assert run_result["status"] == "success"
+
+    # Verify run record in DB
+    runs = list(db["cron_job_runs"].rows)
+    assert len(runs) == 1
+    assert runs[0]["status"] == "success"
+    assert "AI summary" in runs[0]["prompt_output"]
+
+
+def test_logs_view(client: TestClient) -> None:
+    """Verifies that the server logs view loads correctly for admins."""
+    # Authenticate admin
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+
+    # Create dummy log file
+    log_dir = server_config.configs_dir.parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "kb-web.log"
+    with open(log_file, "w", encoding="utf-8") as f:
+        f.write("This is a dummy log line.\nAnother warning line.")
+
+    # Request logs view
+    resp = client.get("/admin/logs", cookies={"kb_session": session_cookie})
+    assert resp.status_code == 200
+    assert "dummy log line" in resp.text
+    assert "Another warning line" in resp.text
+
 
 
 

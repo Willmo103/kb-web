@@ -1,0 +1,66 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Collection | {{ collection.title }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 max-w-4xl pb-12">
+    <div class="mb-6 flex items-center justify-between border-b border-gray-200 pb-4">
+        <div>
+            <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">📁 Collection Group</span>
+            <h1 class="text-3xl font-extrabold text-gray-900 mt-0.5">{{ collection.title }}</h1>
+            <p class="text-xs text-gray-500 font-medium">Created: {{ collection.created_at[:16] | replace('T', ' ') }}</p>
+        </div>
+        <a href="/collections" class="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg transition duration-150 shadow-sm">
+            Back to Collections
+        </a>
+    </div>
+
+    <div class="space-y-4">
+        {% if not pages %}
+        <div class="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
+            <p class="text-gray-500 text-sm">No pages inside this collection. Add items to list them here.</p>
+        </div>
+        {% else %}
+        <div class="space-y-3">
+            {% for page in pages %}
+            <div class="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex justify-between items-center gap-4 shadow-sm">
+                <div class="truncate">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-mono rounded border border-gray-200">
+                            {{ page.parsed_url.hostname or "Source" }}
+                        </span>
+                        <span class="text-xs text-gray-400 font-medium">{{ page.fetched_at[:16] | replace('T', ' ') }}</span>
+                    </div>
+                    <h2 class="text-base font-bold text-gray-900 truncate">
+                        <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-650">
+                            {{ page.title or page.url }}
+                        </a>
+                    </h2>
+                    {% if page.title and page.title != page.url %}
+                    <p class="text-xs text-gray-400 truncate mt-0.5">
+                        <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600">{{ page.url }}</a>
+                    </p>
+                    {% endif %}
+                </div>
+                
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <a href="/view/page?url={{ page.safe_url }}" class="bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold py-2 px-4 border border-gray-200 rounded-lg transition duration-150 whitespace-nowrap shadow-sm">
+                        Open Entry
+                    </a>
+                    {% if is_admin %}
+                    <form action="/admin/pages/remove-from-collection" method="post" class="m-0" onsubmit="return confirm('Remove this page from the collection?');">
+                        <input type="hidden" name="url" value="{{ page.url }}" />
+                        <input type="hidden" name="redirect_to" value="/collections/view/{{ collection.id }}" />
+                        <button type="submit" class="bg-red-50 hover:bg-red-100 text-red-750 text-xs font-semibold py-2 px-3 border border-red-200 rounded-lg transition shadow-sm" title="Remove from this collection">
+                            ❌ Remove
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

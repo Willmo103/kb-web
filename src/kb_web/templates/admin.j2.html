@@ -122,32 +122,50 @@
             </div>
         </div>
 
-        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm md:col-span-2">
-            <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Database Management</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-
+        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Database Backup & Recovery</h3>
                 <div>
                     <h4 class="font-semibold text-sm mb-1">Export Knowledge Base</h4>
                     <p class="text-xs text-gray-500 mb-4">Download a full JSON backup of the `fetched_pages` table.</p>
-                    <a href="/admin/export" target="_blank" class="block text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-sm font-medium py-2 px-4 rounded transition">
+                    <a href="/admin/export" target="_blank" class="block text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2 px-4 rounded-lg transition mb-6 shadow-sm">
                         ⬇️ Download JSON Backup
                     </a>
                 </div>
-
-                <div class="border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-8">
+                <div class="border-t border-gray-200 pt-4">
                     <h4 class="font-semibold text-sm mb-1">Import JSON Archive</h4>
                     <p class="text-xs text-gray-500 mb-4">Upload a `.json` backup file. Bypasses Cloudflare limits via chunked WebSockets.</p>
-
                     <input type="file" id="backupFile" accept=".json" class="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 mb-3"/>
-
-                    <button onclick="uploadBackupViaWebSocket()" id="uploadBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-2 px-4 rounded transition shadow-sm">
-                        ⬆️ Stream Upload to DB
+                    <button onclick="uploadBackupViaWebSocket()" id="uploadBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
+                        Upload Backup File
                     </button>
                     <div id="uploadStatus" class="text-xs font-mono mt-3 hidden text-indigo-600">Uploading chunks...</div>
                 </div>
-
             </div>
         </div>
+
+        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Automation & Diagnostics</h3>
+                <div class="space-y-5">
+                    <div>
+                        <h4 class="font-semibold text-sm mb-1">⏰ Scheduled Fetch Tasks</h4>
+                        <p class="text-xs text-gray-500 mb-3">Configure automated background tasks to fetch URLs on a regular schedule and process content via Ollama.</p>
+                        <a href="/admin/cron" class="block text-center bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
+                            Open Cron Manager
+                        </a>
+                    </div>
+                    <div class="border-t border-gray-200 pt-5">
+                        <h4 class="font-semibold text-sm mb-1">📄 Server Application Logs</h4>
+                        <p class="text-xs text-gray-500 mb-3">Inspect active application trace, warnings, gotify posts, and request execution logs in real-time.</p>
+                        <a href="/admin/logs" class="block text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
+                            View Server Logs
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
 

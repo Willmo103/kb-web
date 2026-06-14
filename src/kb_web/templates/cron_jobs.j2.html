@@ -1,0 +1,161 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Cron Manager{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 max-w-5xl pb-12">
+    <div class="mb-6 flex justify-between items-center border-b border-gray-200 pb-4">
+        <div>
+            <h1 class="text-3xl font-extrabold text-gray-900">⏰ Scheduled Fetch Tasks</h1>
+            <p class="text-sm text-gray-500 font-medium">Configure and monitor automated web scraping and summarization tasks.</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        <!-- Left: Cron Jobs List -->
+        <div class="lg:col-span-2 space-y-4">
+            <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 pb-1.5 border-b">Active Schedules ({{ jobs | length }})</h2>
+            
+            {% if not jobs %}
+            <div class="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
+                <p class="text-gray-500 text-sm">No scheduled tasks configured yet. Create one to begin.</p>
+            </div>
+            {% else %}
+            <div class="space-y-4">
+                {% for job in jobs %}
+                <div class="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition duration-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm">
+                    <div class="truncate space-y-1">
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-base font-bold text-gray-900 truncate">
+                                <a href="/admin/cron/view/{{ job.id }}" class="hover:text-indigo-650">
+                                    {{ job.title }}
+                                </a>
+                            </h3>
+                            {% if job.is_active %}
+                            <span class="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-bold rounded-full border border-emerald-200">Active</span>
+                            {% else %}
+                            <span class="px-2 py-0.5 bg-gray-50 text-gray-400 text-[9px] font-bold rounded-full border border-gray-200">Paused</span>
+                            {% endif %}
+                        </div>
+                        <p class="text-xs text-gray-400 truncate">
+                            URL: <a href="{{ job.url }}" target="_blank" class="hover:underline font-mono text-indigo-600">{{ job.url }}</a>
+                        </p>
+                        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-[11px] text-gray-500 font-medium">
+                            <span class="flex items-center">⏱ Run Interval: every {{ job.interval_minutes }}m</span>
+                            <span class="flex items-center">📊 Run Count: {{ job.total_runs }}</span>
+                            {% if job.last_run_at %}
+                            <span>Last Run: {{ job.last_run_at[:16] | replace('T', ' ') }}</span>
+                            {% else %}
+                            <span class="text-gray-450 italic">Never run</span>
+                            {% endif %}
+                            
+                            {% if job.last_status == 'success' %}
+                            <span class="text-emerald-700 font-bold">✔ Success</span>
+                            {% elif job.last_status == 'failure' %}
+                            <span class="text-rose-700 font-bold">✘ Failed</span>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto pt-4 sm:pt-0 border-t sm:border-t-0 border-gray-100">
+                        <a href="/admin/cron/view/{{ job.id }}" class="bg-gray-50 hover:bg-gray-100 text-gray-750 text-xs font-semibold py-2 px-3 border border-gray-200 rounded-lg transition shadow-sm" title="View details and runs log">
+                            Logs
+                        </a>
+                        <form action="/admin/cron/toggle/{{ job.id }}" method="post" class="m-0">
+                            <button type="submit" class="text-xs font-semibold py-2 px-3 border rounded-lg transition shadow-sm {% if job.is_active %}bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200{% else %}bg-emerald-50 hover:bg-emerald-100 text-emerald-750 border-emerald-200{% endif %}">
+                                {% if job.is_active %}Pause{% else %}Resume{% endif %}
+                            </button>
+                        </form>
+                        <form action="/admin/cron/run/{{ job.id }}" method="post" class="m-0">
+                            <button type="submit" class="bg-indigo-650 hover:bg-indigo-705 text-white text-xs font-bold py-2 px-3 border border-indigo-700 rounded-lg transition shadow-sm">
+                                Run Now
+                            </button>
+                        </form>
+                        <form action="/admin/cron/delete/{{ job.id }}" method="post" onsubmit="return confirm('Delete this job? This will erase all its run logs.');" class="m-0">
+                            <button type="submit" class="bg-red-50 hover:bg-red-100 text-red-750 text-xs font-bold py-2 px-3 border border-red-200 rounded-lg transition shadow-sm">
+                                🗑
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Right: Create Cron Job Form -->
+        <div class="space-y-6">
+            <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <h3 class="text-sm font-bold text-gray-950 uppercase tracking-wider mb-4 border-b pb-2">➕ New Fetch Task</h3>
+                <form action="/admin/cron/create" method="post" class="space-y-4">
+                    <div>
+                        <label for="title" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Task Title</label>
+                        <input type="text" name="title" id="title" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white" placeholder="e.g. Check Google AI Blog" required />
+                    </div>
+                    <div>
+                        <label for="url" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Target URL</label>
+                        <input type="url" name="url" id="url" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white" placeholder="e.g. https://blog.google/technology/ai/" required />
+                    </div>
+                    <div>
+                        <label for="interval_minutes" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Run Interval (Minutes)</label>
+                        <select name="interval_minutes" id="interval_minutes" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white">
+                            <option value="5">Every 5 minutes</option>
+                            <option value="15">Every 15 minutes</option>
+                            <option value="30">Every 30 minutes</option>
+                            <option value="60" selected>Every hour</option>
+                            <option value="360">Every 6 hours</option>
+                            <option value="720">Every 12 hours</option>
+                            <option value="1440">Every day</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="output_type" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Output Media Type</label>
+                        <select name="output_type" id="output_type" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white">
+                            <option value="article">Article summary/digest</option>
+                            <option value="video">Video details transcript</option>
+                            <option value="notification">Notification / Actions only</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="prompt_template" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">AI Curation Prompt Template</label>
+                        <textarea name="prompt_template" id="prompt_template" rows="6" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white" required placeholder="You are an AI news agent. Analyze the current content: {md_content} and last run's output: {last_run.prompt_output}. If there are new entries, summarize them in markdown with titles.">Analyze the fetched markdown content: {md_content}
+
+Compare it with the last run's content: {last_run.prompt_output}
+
+Generate a concise markdown summary detailing all changes, new updates, or headlines found. Keep the layout highly structured.</textarea>
+                        <p class="text-[10px] text-gray-400 mt-1">Placeholders: <code class="font-mono">{md_content}</code>, <code class="font-mono">{html_content}</code>, <code class="font-mono">{last_run.prompt_output}</code>, <code class="font-mono">{last_run.md_content}</code></p>
+                    </div>
+                    
+                    <div class="space-y-2 border-t pt-3">
+                        <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider">Output Destinations</label>
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" name="db_store" id="db_store" value="1" checked class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                            <label for="db_store" class="text-xs text-gray-650">Create Wiki Database page</label>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" name="file_store" id="file_store" value="1" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                            <label for="file_store" class="text-xs text-gray-650">Write downloadable Markdown file</label>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1">
+                        <label for="notify_on" class="block text-xs font-bold text-gray-700 uppercase tracking-wider">Gotify Alerts</label>
+                        <select name="notify_on" id="notify_on" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white">
+                            <option value="none">Never notify</option>
+                            <option value="success">Only on success</option>
+                            <option value="failure">Only on failure</option>
+                            <option value="both">Notify on both</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
+                        Schedule Cron Job
+                    </button>
+                </form>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

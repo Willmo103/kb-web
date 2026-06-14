@@ -104,6 +104,49 @@
                 {% endif %}
             </div>
             {% endif %}
+            <!-- Collection display -->
+            {% if page.collection_title %}
+            <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-200 mb-6 flex items-center justify-between shadow-sm text-xs">
+                <div class="flex items-center gap-2">
+                    <span class="font-bold text-indigo-850 uppercase tracking-wider text-[10px]">Collection:</span>
+                    <a href="/collections/view/{{ page.collection_id }}" class="font-bold text-indigo-700 hover:text-indigo-900 underline">
+                        📁 {{ page.collection_title }}
+                    </a>
+                </div>
+                {% if is_admin %}
+                <button onclick="toggleCollectionForm()" class="text-xs font-bold text-indigo-750 hover:text-indigo-900">Change Collection</button>
+                {% endif %}
+            </div>
+            {% else %}
+                {% if is_admin %}
+                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 flex items-center justify-between shadow-sm text-xs">
+                    <span class="text-gray-400 italic">Not in any collection.</span>
+                    <button onclick="toggleCollectionForm()" class="text-xs font-bold text-indigo-700 hover:text-indigo-900 font-semibold">+ Add to Collection</button>
+                </div>
+                {% endif %}
+            {% endif %}
+
+            <!-- Collection update form -->
+            {% if is_admin %}
+            <div id="changeCollectionForm" class="hidden bg-white p-5 rounded-lg border border-gray-200 mb-6 shadow-inner">
+                <form action="/admin/pages/update-collection" method="post" class="flex flex-col gap-3">
+                    <input type="hidden" name="url" value="{{ page.url }}" />
+                    <div>
+                        <label for="collection_id" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">Assign to Collection</label>
+                        <select name="collection_id" id="collection_id" class="block w-full text-xs border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white">
+                            <option value="">-- None (Remove from Collection) --</option>
+                            {% for col in collections %}
+                            <option value="{{ col.id }}" {% if page.collection_id == col.id %}selected{% endif %}>{{ col.title }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button type="button" onclick="toggleCollectionForm()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded transition">Cancel</button>
+                        <button type="submit" class="text-xs bg-indigo-650 hover:bg-indigo-750 text-white font-bold px-3 py-1.5 rounded transition">Assign Collection</button>
+                    </div>
+                </form>
+            </div>
+            {% endif %}
 
             <!-- Tags display and manual editing trigger -->
             <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-sm">
@@ -293,6 +336,11 @@
 </form>
 
 <script>
+    function toggleCollectionForm() {
+        const form = document.getElementById('changeCollectionForm');
+        form.classList.toggle('hidden');
+    }
+
     function toggleEditTagsForm() {
         const form = document.getElementById('editTagsForm');
         form.classList.toggle('hidden');

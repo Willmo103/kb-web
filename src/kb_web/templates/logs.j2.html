@@ -1,0 +1,21 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Server Logs{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 max-w-5xl pb-12">
+    <div class="flex justify-between items-center mb-6">
+        <div>
+            <h1 class="text-3xl font-extrabold text-gray-900">📄 Server Application Logs</h1>
+            <p class="text-sm text-gray-500 font-medium">Trace output of warning, error, scheduler events, and requests.</p>
+        </div>
+        <button onclick="window.location.reload()" class="bg-indigo-650 hover:bg-indigo-705 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-sm transition">
+            🔄 Refresh Logs
+        </button>
+    </div>
+
+    <div class="bg-gray-900 text-green-400 p-6 rounded-xl font-mono text-xs overflow-x-auto shadow-2xl border border-gray-800 leading-relaxed max-h-192 overflow-y-auto">
+        <pre class="whitespace-pre-wrap">{{ log_content }}</pre>
+    </div>
+</div>
+{% endblock %}

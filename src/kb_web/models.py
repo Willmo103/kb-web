@@ -99,6 +99,8 @@ class HTMLPage(BaseModel):
     duration: Optional[int] = None
     view_count: Optional[int] = None
     thumbnail_url: Optional[str] = None
+    collection_id: Optional[int] = None
+    collection_title: Optional[str] = None
 
     @field_validator("links", mode="before")
     @classmethod
@@ -205,3 +207,12 @@ class HTMLPage(BaseModel):
             ParsedUrl: Structured components.
         """
         return ParsedUrl.from_url(self.url)
+
+
+class HTMLImportPayload(BaseModel):
+    """Pydantic model representing incoming HTML sync payloads from browser extensions."""
+
+    url: str
+    html_content: str
+    title: Optional[str] = None
+

@@ -6,6 +6,20 @@
     <title>{% block title %}Knowledge Base Engine{% endblock %}</title>
 
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: #F4EFEA;
+        }
+        .nav-link:hover {
+            color: #cb4b16;
+            transform: translateY(-1px);
+        }
+        .nav-link {
+            transition: all 0.2s ease;
+        }
+    </style>
     {% block extra_head %}{% endblock %}
 
     <link rel="manifest" href="/manifest.json">
@@ -15,35 +29,38 @@
         }
     </script>
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen antialiased flex flex-col">
+<body class="text-gray-850 min-h-screen antialiased flex flex-col">
 
     <div class="w-full px-4 pt-4">
-        <div class="mb-6 flex justify-between items-center bg-white p-4 rounded-lg border border-gray-200 shadow-sm max-w-4xl mx-auto">
-            <div class="flex gap-4 font-semibold text-sm">
-                <a href="/" class="text-indigo-600 hover:text-indigo-800 flex items-center">
-                    <span class="mr-1">🏠</span> Home
+        <div class="mb-6 flex justify-between items-center bg-white p-4 rounded-xl border border-gray-200 shadow-sm max-w-5xl mx-auto">
+            <div class="flex gap-5 font-semibold text-sm">
+                <a href="/" class="text-indigo-650 nav-link flex items-center">
+                    <span class="mr-1.5">🏠</span> Home
                 </a>
-                <a href="/sites" class="text-indigo-600 hover:text-indigo-800 flex items-center">
-                    <span class="mr-1">🌐</span> Sites
+                <a href="/sites" class="text-indigo-650 nav-link flex items-center">
+                    <span class="mr-1.5">🌐</span> Sites
                 </a>
-                <a href="/?view=videos" class="text-indigo-600 hover:text-indigo-800 flex items-center">
-                    <span class="mr-1">📺</span> Videos
+                <a href="/?view=videos" class="text-indigo-650 nav-link flex items-center">
+                    <span class="mr-1.5">📺</span> Videos
+                </a>
+                <a href="/collections" class="text-indigo-650 nav-link flex items-center">
+                    <span class="mr-1.5">📁</span> Collections
                 </a>
             </div>
             {% if is_admin %}
             <div class="flex gap-3 items-center">
-                <a href="/import" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 border border-indigo-200 py-1 px-2 rounded bg-indigo-50 transition">
+                <a href="/import" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 border border-indigo-200 py-1.5 px-3 rounded-lg bg-indigo-50 transition">
                     + Ingest URL
                 </a>
-                <a href="/admin" class="text-xs font-semibold text-gray-600 hover:text-gray-800 border border-gray-200 py-1 px-2 rounded transition">
+                <a href="/admin" class="text-xs font-semibold text-gray-600 hover:text-gray-800 border border-gray-200 py-1.5 px-3 rounded-lg bg-gray-50 transition">
                     Admin Dashboard
                 </a>
-                <a href="/logout" class="text-xs font-semibold text-red-500 hover:text-red-850 border border-red-250 py-1 px-2 rounded bg-red-50 transition">
+                <a href="/logout" class="text-xs font-semibold text-red-500 hover:text-red-805 border border-red-200 py-1.5 px-3 rounded-lg bg-red-50 transition">
                     Logout
                 </a>
             </div>
             {% else %}
-            <a href="/login" class="text-xs font-semibold text-gray-500 hover:text-gray-800 border border-gray-200 py-1 px-2 rounded transition">
+            <a href="/login" class="text-xs font-semibold text-gray-500 hover:text-gray-850 border border-gray-250 py-1.5 px-3 rounded-lg bg-white shadow-sm transition">
                 🔑 Admin Login
             </a>
             {% endif %}
@@ -53,6 +70,7 @@
     <main class="flex-grow">
         {% block content %}{% endblock %}
     </main>
+
 
 </body>
 </html>
