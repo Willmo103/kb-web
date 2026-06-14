@@ -1,3 +1,4 @@
+import json
 import ollama
 import pytest
 from fastapi.testclient import TestClient
@@ -1044,6 +1045,27 @@ def test_collections_crud(client: TestClient) -> None:
     
     page_row_after = db["fetched_pages"].get(page_url)
     assert page_row_after["collection_id"] is None
+
+    # 7. Test accept AI suggestion
+    accept_resp = client.post(
+        "/admin/collections/accept-suggestion",
+        data={
+            "title": "AI Suggested Collection",
+            "urls_json": json.dumps([page_url])
+        },
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False,
+    )
+    assert accept_resp.status_code == 303
+    
+    # Verify collection created
+    col_row_2 = list(db["collections"].rows_where("title = ?", ["AI Suggested Collection"]))
+    assert len(col_row_2) == 1
+    new_col_id = col_row_2[0]["id"]
+    
+    # Verify page associated
+    page_row_2 = db["fetched_pages"].get(page_url)
+    assert page_row_2["collection_id"] == new_col_id
 
 
 def test_cron_jobs(client: TestClient, monkeypatch) -> None:

@@ -124,6 +124,16 @@
 </div>
 
 <script>
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
     function requestAISuggestions() {
         const btn = document.getElementById('suggestBtn');
         const panel = document.getElementById('aiSuggestionsPanel');
@@ -167,13 +177,13 @@
                 
                 card.innerHTML = `
                     <div>
-                        <h4 class="font-bold text-sm text-gray-900">📁 ${sug.title}</h4>
+                        <h4 class="font-bold text-sm text-gray-900">📁 ${escapeHtml(sug.title)}</h4>
                         <p class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-1">${sug.pages.length} items suggested:</p>
                         ${pagesHtml}
                     </div>
                     <form action="/admin/collections/accept-suggestion" method="post" class="m-0 pt-2 border-t">
-                        <input type="hidden" name="title" value="${sug.title}" />
-                        <input type="hidden" name="urls_json" value='${urlsJson}' />
+                        <input type="hidden" name="title" value="${escapeHtml(sug.title)}" />
+                        <input type="hidden" name="urls_json" value="${escapeHtml(urlsJson)}" />
                         <button type="submit" class="w-full bg-indigo-650 hover:bg-indigo-705 text-white text-[10px] font-bold py-1.5 px-2 rounded-md transition shadow-sm">
                             ✔ Accept & Create Collection
                         </button>
