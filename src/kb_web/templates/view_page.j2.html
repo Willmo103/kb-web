@@ -108,13 +108,13 @@
             {% if page.collection_title %}
             <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-200 mb-6 flex items-center justify-between shadow-sm text-xs">
                 <div class="flex items-center gap-2">
-                    <span class="font-bold text-indigo-850 uppercase tracking-wider text-[10px]">Collection:</span>
+                    <span class="font-bold text-indigo-800 uppercase tracking-wider text-[10px]">Collection:</span>
                     <a href="/collections/view/{{ page.collection_id }}" class="font-bold text-indigo-700 hover:text-indigo-900 underline">
                         📁 {{ page.collection_title }}
                     </a>
                 </div>
                 {% if is_admin %}
-                <button onclick="toggleCollectionForm()" class="text-xs font-bold text-indigo-750 hover:text-indigo-900">Change Collection</button>
+                <button onclick="toggleCollectionForm()" class="text-xs font-bold text-indigo-700 hover:text-indigo-900">Change Collection</button>
                 {% endif %}
             </div>
             {% else %}
@@ -142,7 +142,7 @@
                     </div>
                     <div class="flex justify-end gap-2">
                         <button type="button" onclick="toggleCollectionForm()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded transition">Cancel</button>
-                        <button type="submit" class="text-xs bg-indigo-650 hover:bg-indigo-750 text-white font-bold px-3 py-1.5 rounded transition">Assign Collection</button>
+                        <button type="submit" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded transition">Assign Collection</button>
                     </div>
                 </form>
             </div>

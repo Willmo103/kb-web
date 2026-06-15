@@ -58,7 +58,7 @@
                             </span>
                         </div>
                         <h3 class="text-base font-bold text-gray-900 mt-2 truncate">
-                            <a href="/collections/view/{{ col.id }}" class="hover:text-indigo-650">
+                            <a href="/collections/view/{{ col.id }}" class="hover:text-indigo-700">
                                 {{ col.title }}
                             </a>
                         </h3>
@@ -86,7 +86,7 @@
                     <div class="bg-white border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition duration-150 flex justify-between items-center gap-4 shadow-sm">
                         <div class="truncate">
                             <h3 class="text-sm font-bold text-gray-900 truncate">
-                                <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-650">
+                                <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-700">
                                     {{ page.title or page.url }}
                                 </a>
                             </h3>
@@ -110,7 +110,7 @@
                 <form action="/collections/create" method="post" class="space-y-4">
                     <div>
                         <label for="title" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Collection Title</label>
-                        <input type="text" name="title" id="title" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white" placeholder="e.g. Machine Learning, Homelab" required />
+                        <input type="text" name="title" id="title" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-200 focus:border-indigo-500 bg-white" placeholder="e.g. Machine Learning, Homelab" required />
                     </div>
                     <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
                         Create Collection
@@ -181,10 +181,10 @@
                         <p class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-1">${sug.pages.length} items suggested:</p>
                         ${pagesHtml}
                     </div>
-                    <form action="/admin/collections/accept-suggestion" method="post" class="m-0 pt-2 border-t">
+                    <form onsubmit="acceptSuggestion(event, this)" class="m-0 pt-2 border-t">
                         <input type="hidden" name="title" value="${escapeHtml(sug.title)}" />
                         <input type="hidden" name="urls_json" value="${escapeHtml(urlsJson)}" />
-                        <button type="submit" class="w-full bg-indigo-650 hover:bg-indigo-705 text-white text-[10px] font-bold py-1.5 px-2 rounded-md transition shadow-sm">
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold py-1.5 px-2 rounded-md transition shadow-sm">
                             ✔ Accept & Create Collection
                         </button>
                     </form>
@@ -200,6 +200,132 @@
             btn.innerText = "💡 AI Suggest Groupings";
             btn.classList.remove('opacity-50', 'cursor-not-allowed');
             alert("Error requesting AI suggestions: " + err.message);
+        });
+    }
+
+    function acceptSuggestion(event, form) {
+        event.preventDefault();
+        const btn = form.querySelector('button');
+        const originalText = btn.innerText;
+        btn.disabled = true;
+        btn.innerText = "Creating...";
+        
+        const formData = new FormData(form);
+        
+        fetch('/admin/collections/accept-suggestion', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => {
+            if (response.ok) {
+                // Remove suggestion card
+                const card = form.closest('.bg-white');
+                if (card) {
+                    card.remove();
+                }
+                
+                // Check suggestions list
+                const list = document.getElementById('suggestionsList');
+                if (list && list.children.length === 0) {
+                    document.getElementById('aiSuggestionsPanel').classList.add('hidden');
+                }
+                
+                // Add new collection card to grid
+                let collectionsGrid = document.querySelector('.grid.grid-cols-1.sm\\:grid-cols-2');
+                if (!collectionsGrid) {
+                    const noColsDiv = Array.from(document.querySelectorAll('div')).find(el => el.textContent.includes('No collections created yet') && el.classList.contains('bg-white'));
+                    if (noColsDiv) {
+                        const newGrid = document.createElement('div');
+                        newGrid.className = "grid grid-cols-1 sm:grid-cols-2 gap-4";
+                        noColsDiv.parentNode.replaceChild(newGrid, noColsDiv);
+                        collectionsGrid = newGrid;
+                    }
+                }
+                
+                const titleVal = form.querySelector('input[name="title"]').value;
+                const urlsStr = form.querySelector('input[name="urls_json"]').value;
+                let itemsCount = 0;
+                try {
+                    itemsCount = JSON.parse(urlsStr).length;
+                } catch(e) {}
+                
+                if (collectionsGrid) {
+                    const colCard = document.createElement('div');
+                    colCard.className = "bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between gap-4 shadow-sm";
+                    colCard.innerHTML = `
+                        <div>
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-xs text-indigo-700 font-bold bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
+                                    Collection
+                                </span>
+                                <span class="text-xs text-gray-500 font-mono bg-gray-100 border border-gray-200 px-2 py-0.5 rounded">
+                                    📂 ${itemsCount} item${itemsCount !== 1 ? 's' : ''}
+                                </span>
+                            </div>
+                            <h3 class="text-base font-bold text-gray-900 mt-2 truncate">
+                                <span class="text-gray-900">${escapeHtml(titleVal)}</span>
+                            </h3>
+                            <p class="text-[10px] text-gray-400 font-mono mt-1">Created: Just now (reload to view link)</p>
+                        </div>
+                        <button onclick="window.location.reload()" class="block w-full text-center bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold py-2 border border-gray-200 rounded-lg transition shadow-sm">
+                            Reload to View Collection
+                        </button>
+                    `;
+                    collectionsGrid.appendChild(colCard);
+                    
+                    const collectionsHeader = Array.from(document.querySelectorAll('h2')).find(el => el.textContent.includes('All Collections'));
+                    if (collectionsHeader) {
+                        const currentCount = collectionsGrid.children.length;
+                        collectionsHeader.textContent = `All Collections (${currentCount})`;
+                    }
+                }
+                
+                // Remove pages from ungrouped list
+                try {
+                    const urls = JSON.parse(urlsStr);
+                    const ungroupedHeader = Array.from(document.querySelectorAll('h2')).find(el => el.textContent.includes('Ungrouped Pages'));
+                    const scrollableDiv = document.querySelector('.max-h-128');
+                    if (scrollableDiv) {
+                        const pageCards = scrollableDiv.querySelectorAll('.bg-white');
+                        pageCards.forEach(cardEl => {
+                            const monoSpan = cardEl.querySelector('span.font-mono');
+                            if (monoSpan) {
+                                const pageUrl = monoSpan.textContent.trim();
+                                if (urls.includes(pageUrl)) {
+                                    cardEl.remove();
+                                }
+                            }
+                        });
+                        
+                        const remainingCount = scrollableDiv.querySelectorAll('.bg-white').length;
+                        if (ungroupedHeader) {
+                            ungroupedHeader.textContent = `Ungrouped Pages (${remainingCount})`;
+                        }
+                        if (remainingCount === 0) {
+                            scrollableDiv.innerHTML = `
+                                <div class="bg-white border border-gray-200 rounded-xl p-8 text-center shadow-sm">
+                                    <p class="text-gray-500 text-sm">All pages have been assigned to collections.</p>
+                                </div>
+                            `;
+                            const suggestBtn = document.getElementById('suggestBtn');
+                            if (suggestBtn) {
+                                suggestBtn.remove();
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error updating ungrouped list:", e);
+                }
+            } else {
+                alert("Failed to accept suggestion.");
+                btn.disabled = false;
+                btn.innerText = originalText;
+            }
+        })
+        .catch(err => {
+            alert("Error: " + err.message);
+            btn.disabled = false;
+            btn.innerText = originalText;
         });
     }
 

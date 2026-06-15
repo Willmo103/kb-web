@@ -90,7 +90,8 @@ async def run_single_job(db: sqlite_utils.Database, job_id: int, config) -> Dict
             messages=[
                 {"role": "system", "content": "You are a helpful knowledge curation assistant."},
                 {"role": "user", "content": formatted_prompt}
-            ]
+            ],
+            think=False,
         )
         prompt_output = response.message.content
 

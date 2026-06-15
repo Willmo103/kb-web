@@ -191,7 +191,8 @@ def suggest_collections() -> JSONResponse:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
             ],
-            format="json"
+            format="json",
+            think=False,
         )
         raw_text = response.message.content.strip()
         

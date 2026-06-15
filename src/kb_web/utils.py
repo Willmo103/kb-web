@@ -93,8 +93,14 @@ def preprocess_markdown(text: str) -> str:
         stripped = line.strip()
         is_list_item = False
 
-        if stripped.startswith(("*", "-", "+")) and not stripped.startswith(("**", "***")):
-            if stripped.startswith("* ") or stripped.startswith("- ") or stripped.startswith("+ "):
+        if stripped.startswith(("*", "-", "+")) and not stripped.startswith(
+            ("**", "***")
+        ):
+            if (
+                stripped.startswith("* ")
+                or stripped.startswith("- ")
+                or stripped.startswith("+ ")
+            ):
                 is_list_item = True
         elif re.match(r"^\d+\.\s", stripped):
             is_list_item = True
@@ -104,8 +110,14 @@ def preprocess_markdown(text: str) -> str:
             prev_stripped = prev_line.strip()
 
             prev_is_list_item = False
-            if prev_stripped.startswith(("*", "-", "+")) and not prev_stripped.startswith(("**", "***")):
-                if prev_stripped.startswith("* ") or prev_stripped.startswith("- ") or prev_stripped.startswith("+ "):
+            if prev_stripped.startswith(
+                ("*", "-", "+")
+            ) and not prev_stripped.startswith(("**", "***")):
+                if (
+                    prev_stripped.startswith("* ")
+                    or prev_stripped.startswith("- ")
+                    or prev_stripped.startswith("+ ")
+                ):
                     prev_is_list_item = True
             elif re.match(r"^\d+\.\s", prev_stripped):
                 prev_is_list_item = True
@@ -125,12 +137,12 @@ def chunk_text(text: str, max_chunk_size: int) -> list[str]:
     """
     if not text:
         return []
-    
+
     lines = text.splitlines()
     chunks = []
     current_chunk = []
     current_len = 0
-    
+
     for line in lines:
         if len(line) > max_chunk_size:
             if current_chunk:
@@ -140,18 +152,18 @@ def chunk_text(text: str, max_chunk_size: int) -> list[str]:
             for i in range(0, len(line), max_chunk_size):
                 chunks.append(line[i : i + max_chunk_size])
             continue
-            
+
         if current_len + len(line) + 1 > max_chunk_size and current_chunk:
             chunks.append("\n".join(current_chunk))
             current_chunk = []
             current_len = 0
-            
+
         current_chunk.append(line)
         current_len += len(line) + 1
-        
+
     if current_chunk:
         chunks.append("\n".join(current_chunk))
-        
+
     return chunks
 
 
@@ -165,9 +177,14 @@ def fetch_youtube_video_page(url: str, video_id: str) -> HTMLPage:
         import yt_dlp
 
         class QuietLogger:
-            def debug(self, msg): pass
-            def warning(self, msg): pass
-            def error(self, msg): pass
+            def debug(self, msg):
+                pass
+
+            def warning(self, msg):
+                pass
+
+            def error(self, msg):
+                pass
 
         ydl_opts = {
             "skip_download": True,
@@ -347,7 +364,9 @@ def ensure_model_available(client: ollama.Client, model_name: str) -> None:
         print(f"Failed to automatically pull Ollama model '{model_name}': {e}")
 
 
-def extract_wiki_content(html_page: HTMLPage, config=None, client: Optional[ollama.Client] = None) -> str:
+def extract_wiki_content(
+    html_page: HTMLPage, config=None, client: Optional[ollama.Client] = None
+) -> str:
     """Queries Ollama to clean, restructure, and digest raw markdown into wiki formats."""
     if config is None:
         config = default_config
@@ -356,7 +375,7 @@ def extract_wiki_content(html_page: HTMLPage, config=None, client: Optional[olla
     try:
         video_id = extract_youtube_video_id(html_page.url)
         is_video = bool(video_id)
-        
+
         if is_video:
             system_prompt = getattr(config, "youtube_wiki_prompt", config.wiki_prompt)
         else:
@@ -364,7 +383,7 @@ def extract_wiki_content(html_page: HTMLPage, config=None, client: Optional[olla
 
         raw_content = html_page.md_content or ""
         max_len = getattr(config, "max_input_length", 20000)
-        
+
         if len(raw_content) <= max_len:
             response = client.chat(
                 model=config.ollama_model,
@@ -375,6 +394,7 @@ def extract_wiki_content(html_page: HTMLPage, config=None, client: Optional[olla
                         "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{raw_content}",
                     },
                 ],
+                think=False,
             )
             return response.message.content
         else:
@@ -394,18 +414,19 @@ def extract_wiki_content(html_page: HTMLPage, config=None, client: Optional[olla
                         "Summarize this segment, extracting all key information, main topics, and technical details. "
                         "Do not omit important details."
                     )
-                
+
                 chunk_resp = client.chat(
                     model=config.ollama_model,
                     messages=[
                         {"role": "system", "content": system_message},
                         {"role": "user", "content": chunk},
-                    ]
+                    ],
+                    think=False,
                 )
                 chunk_summaries.append(chunk_resp.message.content)
-            
+
             compiled_summaries = "\n\n---\n\n".join(chunk_summaries)
-            
+
             if is_video:
                 user_content = (
                     f"URL: {html_page.url}\n\n"
@@ -420,7 +441,7 @@ def extract_wiki_content(html_page: HTMLPage, config=None, client: Optional[olla
                     "Use these section summaries to construct the final wiki article following the instructions.\n\n"
                     f"COMPILED SECTION SUMMARIES:\n{compiled_summaries}"
                 )
-                
+
             response = client.chat(
                 model=config.ollama_model,
                 messages=[
@@ -430,6 +451,7 @@ def extract_wiki_content(html_page: HTMLPage, config=None, client: Optional[olla
                         "content": user_content,
                     },
                 ],
+                think=False,
             )
             return response.message.content
     except Exception as e:
@@ -437,7 +459,9 @@ def extract_wiki_content(html_page: HTMLPage, config=None, client: Optional[olla
         return f"# Ingestion Backup \n\nAI Processing skipped or failed. Raw layout captured below.\n\n {html_page.md_content[:2000]}"
 
 
-def extract_tags_content(html_page: HTMLPage, config=None, client: Optional[ollama.Client] = None) -> list[str]:
+def extract_tags_content(
+    html_page: HTMLPage, config=None, client: Optional[ollama.Client] = None
+) -> list[str]:
     """Queries Ollama to extract descriptive tags from markdown content."""
     if config is None:
         config = default_config
@@ -446,12 +470,14 @@ def extract_tags_content(html_page: HTMLPage, config=None, client: Optional[olla
     try:
         raw_content = html_page.md_content or ""
         max_len = getattr(config, "max_input_length", 20000)
-        
+
         if len(raw_content) > max_len and html_page.description:
-            content_to_analyze = f"TITLE: {html_page.title}\n\nWIKI SUMMARY:\n{html_page.description}"
+            content_to_analyze = (
+                f"TITLE: {html_page.title}\n\nWIKI SUMMARY:\n{html_page.description}"
+            )
         else:
             content_to_analyze = raw_content[:max_len]
-            
+
         response = client.chat(
             model=config.ollama_model,
             messages=[
@@ -461,6 +487,7 @@ def extract_tags_content(html_page: HTMLPage, config=None, client: Optional[olla
                     "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{content_to_analyze}",
                 },
             ],
+            think=False,
         )
         tags_str = response.message.content
         tags = [t.strip().lower() for t in tags_str.split(",") if t.strip()]
@@ -470,7 +497,9 @@ def extract_tags_content(html_page: HTMLPage, config=None, client: Optional[olla
         return []
 
 
-def save_youtube_metadata_helper(db, url: str, creator: Optional[str] = None, force_fetch: bool = False) -> None:
+def save_youtube_metadata_helper(
+    db, url: str, creator: Optional[str] = None, force_fetch: bool = False
+) -> None:
     """Saves YouTube metadata to the youtube_videos table."""
     video_id = extract_youtube_video_id(url)
     if not video_id:
@@ -491,10 +520,16 @@ def save_youtube_metadata_helper(db, url: str, creator: Optional[str] = None, fo
 
     try:
         import yt_dlp
+
         class QuietLogger:
-            def debug(self, msg): pass
-            def warning(self, msg): pass
-            def error(self, msg): pass
+            def debug(self, msg):
+                pass
+
+            def warning(self, msg):
+                pass
+
+            def error(self, msg):
+                pass
 
         ydl_opts = {
             "skip_download": True,
@@ -504,7 +539,12 @@ def save_youtube_metadata_helper(db, url: str, creator: Optional[str] = None, fo
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            creator = info.get("uploader") or info.get("channel") or creator or "Unknown Creator"
+            creator = (
+                info.get("uploader")
+                or info.get("channel")
+                or creator
+                or "Unknown Creator"
+            )
             channel_id = info.get("channel_id")
             duration = info.get("duration")
             view_count = info.get("view_count")
@@ -514,22 +554,27 @@ def save_youtube_metadata_helper(db, url: str, creator: Optional[str] = None, fo
         creator = creator or "Unknown Creator"
 
     try:
-        db["youtube_videos"].upsert({
-            "url": url,
-            "video_id": video_id,
-            "creator": creator,
-            "channel_id": channel_id,
-            "duration": duration,
-            "view_count": view_count,
-            "thumbnail_url": thumbnail_url,
-            "updated_at": datetime.now().isoformat()
-        }, pk="url")
+        db["youtube_videos"].upsert(
+            {
+                "url": url,
+                "video_id": video_id,
+                "creator": creator,
+                "channel_id": channel_id,
+                "duration": duration,
+                "view_count": view_count,
+                "thumbnail_url": thumbnail_url,
+                "updated_at": datetime.now().isoformat(),
+            },
+            pk="url",
+        )
         print(f"Successfully saved YouTube video metadata for: {url}")
     except Exception as e:
         print(f"Failed to save YouTube metadata to database: {e}")
 
 
-def update_article_embedding(db, url: str, config=None, client: Optional[ollama.Client] = None) -> None:
+def update_article_embedding(
+    db, url: str, config=None, client: Optional[ollama.Client] = None
+) -> None:
     """Generates embedding for the article and saves/updates it in the database."""
     if config is None:
         config = default_config
@@ -589,7 +634,9 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
     return dot_product / (magnitude_v1 * magnitude_v2)
 
 
-def get_similar_articles(db, current_url: str, config=None, limit: int = 5) -> list[dict]:
+def get_similar_articles(
+    db, current_url: str, config=None, limit: int = 5
+) -> list[dict]:
     """Calculates cosine similarity between current_url and all other articles."""
     if config is None:
         config = default_config
@@ -657,4 +704,3 @@ def serialize_page_for_db(page_data: HTMLPage) -> tuple[dict, Optional[str]]:
     serialized["keywords"] = json.dumps(serialized["keywords"])
     serialized["tags"] = json.dumps(serialized["tags"])
     return serialized, creator
-

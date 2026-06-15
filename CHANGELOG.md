@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.23] - 2026-06-14
+### Changed
+- Fixed invisible collections action buttons.
+- Allowed accepting multiple AI suggestion groupings consecutively without page reload using AJAX updates.
+- Added think=False argument to all remaining Ollama chat sessions to disable reasoning latency.
+
 ## [0.1.22] - 2026-06-14
 ### Added
 - Refactored and modularized `server.py` into FastAPI APIRouters under `src/kb_web/routers/` (auth, pages, sites, admin, api, collections, cron, graph) and helper libraries (`utils.py`, `gotify.py`, `cron_scheduler.py`).
