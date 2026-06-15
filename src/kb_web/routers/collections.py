@@ -190,7 +190,8 @@ def suggest_collections() -> JSONResponse:
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
-            ]
+            ],
+            format="json"
         )
         raw_text = response.message.content.strip()
         
@@ -203,6 +204,12 @@ def suggest_collections() -> JSONResponse:
                 lines = lines[:-1]
             raw_text = "\n".join(lines).strip()
             
+        # Extract only the JSON object if there's any surrounding text
+        import re
+        json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+        if json_match:
+            raw_text = json_match.group(0)
+
         suggestions_data = json.loads(raw_text)
         
         # Convert matches back to URLs for the frontend
