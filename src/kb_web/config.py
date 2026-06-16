@@ -63,6 +63,8 @@ class Config(BaseConfig):
         self.max_input_length: int = int(os.getenv("KB_MAX_INPUT_LENGTH", "20000"))
         self.gotify_url: Optional[str] = os.getenv("GOTIFY_URL")
         self.gotify_token: Optional[str] = os.getenv("GOTIFY_TOKEN")
+        self.qdrant_host_url: Optional[str] = os.getenv("QDRANT_HOST_URL")
+        self.qdrant_api_key: Optional[str] = os.getenv("QDRANT_API_KEY")
 
         # 2. Overlay values from JSON configuration file if it exists
         try:
@@ -92,6 +94,10 @@ class Config(BaseConfig):
                         self.gotify_url = data["gotify_url"]
                     if "gotify_token" in data:
                         self.gotify_token = data["gotify_token"]
+                    if "qdrant_host_url" in data:
+                        self.qdrant_host_url = data["qdrant_host_url"]
+                    if "qdrant_api_key" in data:
+                        self.qdrant_api_key = data["qdrant_api_key"]
         except Exception as e:
             # Suppress logs or print warning during startup if reading fails
             print(f"Warning: Failed to load config file 'kb-web.json': {e}")
@@ -113,6 +119,8 @@ class Config(BaseConfig):
                 "max_input_length": self.max_input_length,
                 "gotify_url": self.gotify_url,
                 "gotify_token": self.gotify_token,
+                "qdrant_host_url": self.qdrant_host_url,
+                "qdrant_api_key": self.qdrant_api_key,
             }
             with open(config_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)

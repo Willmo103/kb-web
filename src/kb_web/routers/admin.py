@@ -17,7 +17,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
 from ..base import (
     config,
@@ -38,6 +38,7 @@ from ..utils import (
     update_article_embedding,
     serialize_page_for_db,
     extract_youtube_video_id,
+    generate_gemma_embeddings_for_page,
 )
 from ..gotify import post_to_gotify
 
@@ -120,47 +121,143 @@ def handle_incoming_mobile_share(
 @router.post("/import/url", dependencies=[Depends(verify_auth)], response_model=None)
 def handle_url_import(
     request: Request, url: str = Form(...)
-) -> HTMLResponse | RedirectResponse:
+) -> StreamingResponse:
     """Processes URL ingestion, downloads content, rewrites with LLM, and logs to database."""
-    db = _get_db()
-    url = extract_first_url(url)
-    try:
-        page_data = fetch_url(url)
-    except RuntimeError as e:
-        return HTMLResponse(
-            content=_jinja_env.get_template("url_import.j2.html").render(
-                error_message=str(e), prefilled_url=url, is_admin=True
-            )
-        )
+    cleaned_url = extract_first_url(url)
 
-    client = _get_ollama_client()
-    wiki_entry = extract_wiki_content(page_data, config, client)
-    page_data.description = wiki_entry
+    async def stream_ingestion():
+        # Yield the initial HTML layout of the progress page
+        yield """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ingestion Pipeline Progress</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Outfit', sans-serif; background-color: #F4EFEA; }
+    </style>
+</head>
+<body class="text-gray-850 min-h-screen antialiased flex flex-col justify-center items-center">
+    <div class="w-full max-w-xl bg-white p-8 rounded-xl border border-gray-200 shadow-lg mx-4">
+        <div class="flex items-center gap-3 mb-4">
+            <span class="text-2xl animate-spin">🔄</span>
+            <h1 class="text-xl font-bold text-gray-900">Ingestion Pipeline In Progress</h1>
+        </div>
+        <p class="text-sm text-gray-500 mb-6" id="status-text">Initializing pipeline...</p>
+        
+        <div class="w-full bg-gray-200 rounded-full h-3.5 mb-6 overflow-hidden">
+            <div id="progress-bar" class="bg-indigo-650 h-3.5 rounded-full transition-all duration-300" style="width: 5%"></div>
+        </div>
+        
+        <div class="bg-gray-950 text-gray-200 font-mono text-xs p-4 rounded-lg h-48 overflow-y-auto space-y-1 border border-gray-800" id="terminal-logs">
+            <div class="text-gray-500">[SYSTEM] Initializing pipeline...</div>
+        </div>
+    </div>
+    
+    <script>
+        const progressBar = document.getElementById('progress-bar');
+        const statusText = document.getElementById('status-text');
+        const terminalLogs = document.getElementById('terminal-logs');
+        
+        function updateProgress(message, percentage) {
+            statusText.innerText = message;
+            progressBar.style.width = percentage + '%';
+            addLog(message);
+        }
+        
+        function addLog(text) {
+            const div = document.createElement('div');
+            div.innerText = "[" + new Date().toLocaleTimeString() + "] " + text;
+            terminalLogs.appendChild(div);
+            terminalLogs.scrollTop = terminalLogs.scrollHeight;
+        }
+        
+        function showError(message) {
+            statusText.innerText = "Error: " + message;
+            statusText.className = "text-sm text-red-600 font-bold mb-6";
+            progressBar.className = "bg-red-500 h-3.5 rounded-full";
+            const btn = document.createElement('button');
+            btn.className = "mt-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold py-2.5 px-4 rounded transition shadow-sm";
+            btn.innerText = "Back to Importer";
+            btn.onclick = () => window.location.href = "/import";
+            document.querySelector('.w-full.max-w-xl').appendChild(btn);
+            addLog("ERROR: " + message);
+        }
+    </script>
+"""
 
-    title = url
-    soup = BeautifulSoup(page_data.html_content, "html5lib")
-    if soup.title:
-        title = soup.title.string
-    if not title:
-        title = urlparse(url).netloc or url
+        db = _get_db()
+        client = _get_ollama_client()
 
-    if wiki_entry.strip().startswith("#"):
-        first_line = wiki_entry.strip().split("\n")[0]
-        title = first_line.replace("#", "").strip()
+        # Step 1: Fetch
+        yield f"<script>updateProgress('Fetching content from URL: {cleaned_url}...', 20);</script>\n"
+        try:
+            page_data = fetch_url(cleaned_url)
+            yield "<script>addLog('Successfully fetched target URL content.');</script>\n"
+        except Exception as e:
+            yield f"<script>showError('Fetch failed: {str(e)}');</script>\n"
+            return
 
-    page_data.title = title
-    tags = extract_tags_content(page_data, config, client)
-    page_data.tags = tags
+        # Step 2: Rewrite Wiki
+        yield "<script>updateProgress('Running Ollama prompt extraction pipeline...', 55);</script>\n"
+        try:
+            wiki_entry = extract_wiki_content(page_data, config, client)
+            page_data.description = wiki_entry
+            yield "<script>addLog('Ollama wiki entry generated successfully.');</script>\n"
+        except Exception as e:
+            yield f"<script>showError('Ollama wiki generation failed: {str(e)}');</script>\n"
+            return
 
-    base_url = str(request.base_url).rstrip("/")
-    view_url = f"{base_url}/view/page?url={page_data.safe_url}"
+        # Step 3: Extract Title
+        title = cleaned_url
+        soup = BeautifulSoup(page_data.html_content, "html5lib")
+        if soup.title:
+            title = soup.title.string
+        if not title:
+            title = urlparse(cleaned_url).netloc or cleaned_url
 
-    serialized, creator = serialize_page_for_db(page_data)
-    db["fetched_pages"].upsert(serialized, pk="url")
-    save_youtube_metadata_helper(db, page_data.url, creator)
-    update_article_embedding(db, page_data.url, config, client)
-    post_to_gotify(config, _jinja_env, page_data, view_url)
-    return RedirectResponse(url=view_url, status_code=303)
+        if wiki_entry.strip().startswith("#"):
+            first_line = wiki_entry.strip().split("\n")[0]
+            title = first_line.replace("#", "").strip()
+        page_data.title = title
+
+        # Step 4: Extract Tags
+        yield "<script>updateProgress('Extracting category tags via Ollama...', 75);</script>\n"
+        try:
+            tags = extract_tags_content(page_data, config, client)
+            page_data.tags = tags
+            yield f"<script>addLog('Tags extracted: {tags}');</script>\n"
+        except Exception as e:
+            yield f"<script>addLog('Failed to extract tags: {str(e)}');</script>\n"
+
+        # Step 5: Embeddings & Database Ops
+        yield "<script>updateProgress('Generating embeddings and committing database changes...', 90);</script>\n"
+        try:
+            base_url = str(request.base_url).rstrip("/")
+            view_url = f"{base_url}/view/page?url={page_data.safe_url}"
+
+            serialized, creator = serialize_page_for_db(page_data)
+            db["fetched_pages"].upsert(serialized, pk="url")
+            save_youtube_metadata_helper(db, page_data.url, creator)
+            
+            # Generate default description embedding
+            update_article_embedding(db, page_data.url, config, client)
+            
+            # Generate new embeddinggemma chunk embeddings and description embedding
+            generate_gemma_embeddings_for_page(db, page_data.url, config, client)
+            
+            # Post to Gotify
+            post_to_gotify(config, _jinja_env, page_data, view_url)
+            
+            yield "<script>addLog('Successfully updated database records and embeddings.');</script>\n"
+            yield f"<script>updateProgress('Done!', 100); setTimeout(() => {{ window.location.href = '{view_url}'; }}, 1000);</script>\n"
+        except Exception as e:
+            yield f"<script>showError('Database sync/embedding failed: {str(e)}');</script>\n"
+            return
+            
+    return StreamingResponse(stream_ingestion(), media_type="text/html")
 
 
 @router.get("/admin", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
@@ -195,17 +292,21 @@ def handle_config_update(
     api_key: str = Form(None),
     gotify_url: str = Form(None),
     gotify_token: str = Form(None),
+    qdrant_host_url: str = Form(None),
+    qdrant_api_key: str = Form(None),
     wiki_prompt: str = Form(...),
     youtube_wiki_prompt: str = Form(...),
     max_input_length: int = Form(20000),
 ) -> RedirectResponse:
-    """Saves updated server settings (Ollama and Gotify parameters) to config file."""
+    """Saves updated server settings (Ollama, Gotify, and Qdrant parameters) to config file."""
     config.ollama_host = ollama_host
     config.ollama_model = ollama_model
     config.ollama_embedding_model = ollama_embedding_model
     config.api_key = api_key
     config.gotify_url = gotify_url or None
     config.gotify_token = gotify_token or None
+    config.qdrant_host_url = qdrant_host_url or None
+    config.qdrant_api_key = qdrant_api_key or None
     config.wiki_prompt = wiki_prompt
     config.youtube_wiki_prompt = youtube_wiki_prompt
     config.max_input_length = max_input_length
@@ -500,21 +601,26 @@ def trigger_bulk_embeddings(background_tasks: BackgroundTasks) -> RedirectRespon
 
 
 @router.get("/admin/export", dependencies=[Depends(verify_auth)], response_model=None)
-async def export_database() -> JSONResponse | StreamingResponse:
+async def export_database() -> StreamingResponse:
     """Generates and streams out database contents as a downloadable JSON file."""
     db = _get_db()
-    if "fetched_pages" not in db.table_names():
-        return JSONResponse(content=[], status_code=200)
 
     async def generate_json() -> AsyncGenerator[str, None]:
-        yield "[\n"
-        first = True
-        for row in db.execute_returning_dicts("SELECT * FROM fetched_pages"):
-            if not first:
+        yield "{\n"
+        tables = db.table_names()
+        for idx, table_name in enumerate(tables):
+            yield f"  {json.dumps(table_name)}: [\n"
+            rows = list(db[table_name].rows)
+            first_row = True
+            for row in rows:
+                if not first_row:
+                    yield ",\n"
+                yield "    " + json.dumps(row)
+                first_row = False
+            yield "\n  ]"
+            if idx < len(tables) - 1:
                 yield ",\n"
-            yield json.dumps(row)
-            first = False
-        yield "\n]"
+        yield "\n}"
 
     return StreamingResponse(
         generate_json(),
@@ -547,24 +653,53 @@ async def websocket_import(websocket: WebSocket) -> None:
             data_chunks.append(chunk)
 
         full_json = "".join(data_chunks)
-        records = json.loads(full_json)
+        data = json.loads(full_json)
 
         db = _get_db()
         success_count = 0
-        for record in records:
-            try:
-                page_obj = HTMLPage(**record)
-                serialized, creator = serialize_page_for_db(page_obj)
-                db["fetched_pages"].upsert(serialized, pk="url")
-                if creator:
-                    save_youtube_metadata_helper(db, page_obj.url, creator)
-                success_count += 1
-            except Exception as e:
-                print(f"Skipping record {record.get('url')} due to validation error: {e}")
 
-        await websocket.send_text(
-            f"SUCCESS: Imported {success_count} records into the Knowledge Base."
-        )
+        # Initialize schema tables to be safe
+        from ..db import init_db
+        init_db(db)
+
+        if isinstance(data, dict):
+            # Full database multi-table backup
+            for table_name, rows in data.items():
+                if rows:
+                    try:
+                        pk = db[table_name].pks
+                        if not pk:
+                            db[table_name].insert_all(rows)
+                        else:
+                            db[table_name].insert_all(rows, pk=pk, replace=True)
+                        success_count += len(rows)
+                    except Exception as e:
+                        print(f"WS Import: Failed to restore table {table_name}: {e}")
+                        # Fallback row-by-row
+                        for r in rows:
+                            try:
+                                db[table_name].insert(r, replace=True)
+                                success_count += 1
+                            except Exception as err:
+                                print(f"WS Import Row Error in {table_name}: {err}")
+            msg = f"SUCCESS: Restored database. Imported {success_count} total records across tables."
+        elif isinstance(data, list):
+            # Legacy fetched_pages list format
+            for record in data:
+                try:
+                    page_obj = HTMLPage(**record)
+                    serialized, creator = serialize_page_for_db(page_obj)
+                    db["fetched_pages"].upsert(serialized, pk="url")
+                    if creator:
+                        save_youtube_metadata_helper(db, page_obj.url, creator)
+                    success_count += 1
+                except Exception as e:
+                    print(f"Skipping record {record.get('url')} due to validation error: {e}")
+            msg = f"SUCCESS: Imported {success_count} legacy records into fetched_pages."
+        else:
+            msg = "ERROR: Unsupported import file format."
+
+        await websocket.send_text(msg)
         await websocket.close()
 
     except WebSocketDisconnect:
@@ -578,7 +713,7 @@ async def websocket_import(websocket: WebSocket) -> None:
 
 
 @router.get("/admin/logs", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
-def get_logs_view() -> HTMLResponse:
+def get_logs_view(limit: int = Query(1000, ge=1, le=10000)) -> HTMLResponse:
     """Renders the tail end of the application server log file."""
     log_file = config.configs_dir.parent / "logs" / "kb-web.log"
     log_content = ""
@@ -586,12 +721,39 @@ def get_logs_view() -> HTMLResponse:
         try:
             with open(log_file, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-                log_content = "".join(lines[-200:])
+                log_content = "".join(lines[-limit:])
         except Exception as e:
             log_content = f"Error reading logs: {e}"
     else:
         log_content = "Log file does not exist yet."
 
     template = _jinja_env.get_template("logs.j2.html")
-    return HTMLResponse(content=template.render(log_content=log_content, is_admin=True))
+    return HTMLResponse(content=template.render(log_content=log_content, is_admin=True, limit=limit))
+
+
+@router.get("/admin/logs/download", dependencies=[Depends(verify_auth)])
+def download_logs(limit: int = Query(1000, ge=1, le=10000)) -> StreamingResponse:
+    """Streams the log file contents as a downloadable text file."""
+    log_file = config.configs_dir.parent / "logs" / "kb-web.log"
+    
+    def generate_logs():
+        if log_file.exists():
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                    selected_lines = lines[-limit:]
+                    for line in selected_lines:
+                        yield line
+            except Exception as e:
+                yield f"Error reading logs: {e}"
+        else:
+            yield "Log file does not exist yet."
+
+    return StreamingResponse(
+        generate_logs(),
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f"attachment; filename=kb_web_logs_{limit}.txt"
+        },
+    )
 

@@ -1013,23 +1013,24 @@ def test_collections_crud(client: TestClient) -> None:
     )
     assert create_resp.status_code == 303
     
-    col_row = db["collections"].get(1)
-    assert col_row["title"] == "ML Resources"
+    col_rows = list(db["collections"].rows_where("title = ?", ["ML Resources"]))
+    assert len(col_rows) == 1
+    col_id = col_rows[0]["id"]
 
     # 4. Assign page to collection
     assign_resp = client.post(
         "/admin/pages/update-collection",
-        data={"url": page_url, "collection_id": 1},
+        data={"url": page_url, "collection_ids": [str(col_id)]},
         cookies={"kb_session": session_cookie},
         follow_redirects=False,
     )
     assert assign_resp.status_code == 303
     
-    page_row = db["fetched_pages"].get(page_url)
-    assert page_row["collection_id"] == 1
+    items = list(db["collection_items"].rows_where("source_id = ? AND collection_id = ?", [page_url, col_id]))
+    assert len(items) == 1
 
     # 5. List collection pages
-    list_resp = client.get("/collections/view/1")
+    list_resp = client.get(f"/collections/view/{col_id}")
     assert list_resp.status_code == 200
     assert "ML Resources" in list_resp.text
     assert "Page for Collection" in list_resp.text
@@ -1037,14 +1038,15 @@ def test_collections_crud(client: TestClient) -> None:
     # 6. Remove page from collection
     remove_resp = client.post(
         "/admin/pages/remove-from-collection",
-        data={"url": page_url, "redirect_to": "/collections/view/1"},
+        data={"url": page_url, "redirect_to": f"/collections/view/{col_id}"},
         cookies={"kb_session": session_cookie},
         follow_redirects=False,
     )
     assert remove_resp.status_code == 303
     
-    page_row_after = db["fetched_pages"].get(page_url)
-    assert page_row_after["collection_id"] is None
+    db.conn.commit()
+    items_after = list(db["collection_items"].rows_where("source_id = ? AND collection_id = ?", [page_url, col_id]))
+    assert len(items_after) == 0
 
     # 7. Test accept AI suggestion
     accept_resp = client.post(
@@ -1064,8 +1066,8 @@ def test_collections_crud(client: TestClient) -> None:
     new_col_id = col_row_2[0]["id"]
     
     # Verify page associated
-    page_row_2 = db["fetched_pages"].get(page_url)
-    assert page_row_2["collection_id"] == new_col_id
+    items_suggest = list(db["collection_items"].rows_where("source_id = ? AND collection_id = ?", [page_url, new_col_id]))
+    assert len(items_suggest) == 1
 
 
 def test_cron_jobs(client: TestClient, monkeypatch) -> None:

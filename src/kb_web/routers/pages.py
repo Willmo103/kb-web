@@ -185,16 +185,28 @@ def view_saved_page(
                 content="<h1>Wiki Article Profile Missing</h1>", status_code=404
             )
 
-    # Fetch collection details if present
+    # Fetch collection details if present (using many-to-many relationship)
     collection_title = None
-    if getattr(page_obj, "collection_id", None):
+    assigned_collection_ids = []
+    if "collection_items" in db.table_names():
         try:
-            col = db["collections"].get(page_obj.collection_id)
-            collection_title = col.get("title")
-        except Exception:
-            pass
+            rows = db.execute_returning_dicts(
+                """
+                SELECT c.id, c.title FROM collections c
+                JOIN collection_items ci ON c.id = ci.collection_id
+                WHERE ci.source_id = ?
+                """,
+                [decoded_url]
+            )
+            if rows:
+                # Exclude General Collection from label for cleaner display
+                collection_title = ", ".join([r["title"] for r in rows if r["id"] != 1])
+                assigned_collection_ids = [r["id"] for r in rows]
+        except Exception as e:
+            print(f"Failed to fetch assigned collections: {e}")
+            
     # Set attributes dynamically
-    page_obj.collection_title = collection_title
+    page_obj.collection_title = collection_title or None
 
     # Retrieve all collections for management dropdown
     collections_list = []
@@ -280,5 +292,6 @@ def view_saved_page(
             video_id=video_id,
             video_metadata=video_metadata,
             collections=collections_list,
+            assigned_collection_ids=assigned_collection_ids,
         )
     )
