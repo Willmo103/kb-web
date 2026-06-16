@@ -1176,5 +1176,155 @@ def test_logs_view(client: TestClient) -> None:
     assert "Another warning line" in resp.text
 
 
+def test_collection_notes_and_workspace(client: TestClient, monkeypatch) -> None:
+    """Verifies custom notes CRUD, agent chat, workspace view, and general collection exclusions."""
+    db = get_db(server_config)
+
+    # 1. Login as admin
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    assert session_cookie is not None
+
+    # 2. Ingest mock page
+    page_url = "https://example.com/workspace-test-page"
+    db["fetched_pages"].insert({
+        "url": page_url,
+        "title": "Workspace Test Page",
+        "html_content": "B",
+        "md_content": "B",
+        "links": "[]",
+        "html_content_hash": "b1",
+        "md_content_hash": "b2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "tags": "[]",
+        "collection_id": None
+    }, replace=True)
+
+    # 3. Create a collection
+    db["collections"].insert({
+        "title": "Dev Workspace",
+        "visibility": "public",
+        "rag_system_prompt": "Prompt text",
+        "taxonomy_system_prompt": "Taxonomy text",
+        "general_system_context": "{}",
+        "created_at": "2026-05-31T12:00:00"
+    })
+    col_rows = list(db["collections"].rows_where("title = ?", ["Dev Workspace"]))
+    assert len(col_rows) == 1
+    col_id = col_rows[0]["id"]
+
+    # 4. Associate page with collection
+    db["collection_items"].insert({
+        "collection_id": col_id,
+        "source_type": "articles",
+        "source_id": page_url,
+        "item_note": "Initial annotation note",
+        "taxonomy_path": "/Dev/Workspace_Page.md",
+        "item_order": 0,
+        "added_at": "2026-05-31T12:00:00"
+    })
+
+    # 5. Get workspace editor view
+    editor_resp = client.get(
+        f"/collections/view/{col_id}/editor",
+        cookies={"kb_session": session_cookie}
+    )
+    assert editor_resp.status_code == 200
+    assert "Workspace Note Editor" in editor_resp.text
+    assert "Dev Workspace" in editor_resp.text
+
+    # 6. Create a custom note
+    create_note_resp = client.post(
+        f"/collections/view/{col_id}/notes/create",
+        data={"title": "custom_note.md", "taxonomy_path": "/Notes/custom_note.md"},
+        cookies={"kb_session": session_cookie}
+    )
+    assert create_note_resp.status_code == 200
+    res_data = create_note_resp.json()
+    assert res_data["status"] == "success"
+    note_id = res_data["note_id"]
+
+    # 7. Update custom note
+    update_note_resp = client.post(
+        f"/collections/view/{col_id}/notes/update",
+        data={
+            "note_id": note_id,
+            "title": "updated_custom_note.md",
+            "content": "# Updated Custom Note content",
+            "taxonomy_path": "/Notes/updated_custom_note.md"
+        },
+        cookies={"kb_session": session_cookie}
+    )
+    assert update_note_resp.status_code == 200
+    assert update_note_resp.json()["status"] == "success"
+    assert db["collection_notes"].get(note_id)["title"] == "updated_custom_note.md"
+
+    # 8. Update collection item note
+    update_item_note_resp = client.post(
+        f"/collections/view/{col_id}/items/update-note",
+        data={
+            "url": page_url,
+            "item_note": "Updated annotation note contents",
+            "taxonomy_path": "/Dev/Workspace_Page_Updated.md"
+        },
+        cookies={"kb_session": session_cookie}
+    )
+    assert update_item_note_resp.status_code == 200
+    assert update_item_note_resp.json()["status"] == "success"
+    
+    item_row = list(db["collection_items"].rows_where("collection_id = ? AND source_id = ?", [col_id, page_url]))[0]
+    assert item_row["item_note"] == "Updated annotation note contents"
+    assert item_row["taxonomy_path"] == "/Dev/Workspace_Page_Updated.md"
+
+    # 9. Toggle General Collection exclusion
+    toggle_excl_resp = client.post(
+        "/admin/pages/toggle-exclude",
+        data={"url": page_url, "exclude": "1"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert toggle_excl_resp.status_code == 303
+    assert db["fetched_pages"].get(page_url)["exclude_from_general"] == 1
+
+    # 10. Test collections agent chat endpoint
+    class DummyMessage:
+        content = "Agent response message"
+
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    import ollama
+    monkeypatch.setattr(ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse())
+
+    chat_resp = client.post(
+        f"/collections/view/{col_id}/agent-chat",
+        data={
+            "message": "Hello Agent",
+            "active_file_id": str(note_id),
+            "active_file_type": "note",
+            "history_json": "[]"
+        },
+        cookies={"kb_session": session_cookie}
+    )
+    assert chat_resp.status_code == 200
+    assert chat_resp.json()["status"] == "success"
+    assert "Agent response message" in chat_resp.json()["reply"]
+
+    # 11. Delete custom note
+    delete_note_resp = client.post(
+        f"/collections/view/{col_id}/notes/delete",
+        data={"note_id": note_id},
+        cookies={"kb_session": session_cookie}
+    )
+    assert delete_note_resp.status_code == 200
+    assert delete_note_resp.json()["status"] == "success"
+    assert len(list(db["collection_notes"].rows_where("id = ?", [note_id]))) == 0
+
+
+
 
 

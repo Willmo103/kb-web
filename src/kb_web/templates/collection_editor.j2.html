@@ -1,0 +1,717 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Collection Editor | {{ collection.title }}{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+    .workspace-container {
+        display: grid;
+        grid-template-columns: 280px 1fr 340px;
+        height: calc(100vh - 120px);
+        min-height: 550px;
+        gap: 16px;
+    }
+    @media (max-width: 1120px) {
+        .workspace-container {
+            grid-template-columns: 240px 1fr;
+        }
+        .right-pane {
+            display: none;
+        }
+    }
+    @media (max-width: 768px) {
+        .workspace-container {
+            display: flex;
+            flex-direction: column;
+            height: auto;
+        }
+    }
+    .pane-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .file-tree-node {
+        cursor: pointer;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        justify-content: justify-start;
+        gap: 8px;
+        transition: all 0.15s ease;
+        user-select: none;
+    }
+    .file-tree-node:hover {
+        background-color: #f3f4f6;
+    }
+    .file-tree-node.active {
+        background-color: #e0e7ff;
+        color: #4f46e5;
+        font-weight: 600;
+    }
+    .folder-node {
+        font-weight: 600;
+        color: #374151;
+    }
+    .markdown-preview-pane {
+        background-color: #fdf6e3; /* Solarized light creamy preview background */
+        color: #586e75;
+        font-size: 14px;
+        line-height: 1.6;
+    }
+    .tab-btn-active {
+        border-bottom-color: #cb4b16;
+        color: #cb4b16;
+    }
+    
+    /* Custom Retro scrollbars */
+    .custom-scroll::-webkit-scrollbar {
+        width: 5px;
+        height: 5px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+        background: #f4efea;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+        background: #cb4b16;
+        border-radius: 3px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+        background: #b53f10;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 max-w-7xl pb-4">
+    <div class="workspace-container">
+        
+        <!-- Left Pane: Virtual File Tree -->
+        <div class="pane-card flex flex-col h-full">
+            <div class="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+                <h3 class="text-xs font-bold text-gray-700 uppercase tracking-wider">📁 File Tree Navigation</h3>
+                <div class="flex items-center gap-1">
+                    <button onclick="promptCreateNote()" title="Create New Custom Note" class="p-1 hover:bg-gray-250 text-gray-655 hover:text-indigo-600 rounded transition font-bold text-sm">
+                        ➕
+                    </button>
+                    <button onclick="deleteActiveNote()" id="delete-note-btn" title="Delete Note" class="p-1 hover:bg-gray-250 text-gray-655 hover:text-red-650 rounded transition font-bold text-sm hidden">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+            
+            <div id="file-tree-container" class="flex-grow overflow-y-auto p-3 space-y-1 custom-scroll bg-white">
+                <!-- Virtual tree layout populated by JS -->
+            </div>
+        </div>
+
+        <!-- Middle Pane: Split Editor & Reference -->
+        <div class="pane-card flex flex-col h-full relative" id="middle-pane-workspace">
+            <!-- Header Tabs (populated dynamically by active selection) -->
+            <div class="border-b border-gray-200 bg-gray-50 px-4 py-2 flex items-center justify-between min-h-12">
+                <div class="flex gap-4" id="editor-tabs-container">
+                    <span class="text-xs text-gray-400 font-semibold italic py-1">No file selected. Select an item in the tree to begin.</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="saveActiveFile()" id="save-file-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 px-3.5 rounded-lg shadow-sm transition hidden">
+                        💾 Save Changes
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main Panel Body -->
+            <div class="flex-grow overflow-hidden flex flex-col bg-white" id="editor-workspace-content">
+                <!-- Empty state initial display -->
+                <div class="flex-grow flex flex-col justify-center items-center text-gray-400 p-8 text-center space-y-3">
+                    <span class="text-4xl">🗒️</span>
+                    <h4 class="text-sm font-bold text-gray-800">Workspace Note Editor</h4>
+                    <p class="text-xs max-w-xs leading-relaxed">Select a custom markdown note or page transcript from the virtual navigation tree to write annotations and manage tags.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Pane: Ollama Agent Terminal -->
+        <div class="right-pane pane-card flex flex-col h-full">
+            <div class="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+                <div>
+                    <h3 class="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>🤖</span> Agent Chat Terminal
+                    </h3>
+                    <span class="text-[9px] text-indigo-700 font-semibold">Model: {{ ollama_model }}</span>
+                </div>
+                <button onclick="clearChatHistory()" class="text-[10px] font-bold text-gray-400 hover:text-red-650 transition">Clear Chat</button>
+            </div>
+
+            <!-- Messages display box -->
+            <div id="chat-messages-container" class="flex-grow overflow-y-auto p-4 space-y-4 bg-gray-50 custom-scroll">
+                <div class="flex gap-2.5 items-start">
+                    <div class="bg-indigo-100 text-indigo-800 font-bold p-1 px-2 text-[10px] rounded">AI</div>
+                    <div class="bg-white p-3 border border-gray-200 rounded-lg text-xs leading-relaxed shadow-sm text-gray-700 max-w-[85%]">
+                        Hello! I am the taste agent helper for this collection. 
+                        {% if collection.rag_system_prompt %}
+                        Custom collection system prompts are loaded. 
+                        {% endif %}
+                        Select a file or note and ask me to help rewrite it, generate outlines, or organize taxonomy elements.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input area -->
+            <div class="p-3 border-t border-gray-200 bg-white">
+                <div class="relative flex items-end gap-2">
+                    <textarea 
+                        id="chat-input" 
+                        rows="2" 
+                        onkeydown="handleChatKeyDown(event)"
+                        placeholder="Ask the collection agent..." 
+                        class="flex-grow text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white resize-none"
+                    ></textarea>
+                    <button onclick="sendChatMessage()" id="chat-send-btn" class="bg-indigo-650 hover:bg-indigo-705 text-white font-bold p-2 px-3 rounded-lg text-xs transition flex-shrink-0">
+                        Send
+                    </button>
+                </div>
+                <div class="mt-2 text-[9px] text-gray-400 font-semibold flex justify-between items-center">
+                    <span>Press Enter to send</span>
+                    <span id="active-context-badge" class="italic text-indigo-600 hidden">Context: Active File Connected</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    const collectionId = {{ collection.id }};
+    let rawItems = {{ items | tojson }};
+    let rawNotes = {{ notes | tojson }};
+    
+    let activeFile = null;  // { type: 'note'|'item', id: '...', title: '...', content: '...', taxonomy_path: '...' }
+    let activeTab = 'editor'; // 'editor' or 'reference'
+    let chatHistory = [];
+    
+    document.addEventListener("DOMContentLoaded", function() {
+        buildAndRenderTree();
+    });
+
+    function buildAndRenderTree() {
+        const treeContainer = document.getElementById('file-tree-container');
+        treeContainer.innerHTML = '';
+        
+        const treeRoot = buildTreeStructure(rawItems, rawNotes);
+        renderTreeNodes(treeRoot, treeContainer);
+        
+        // Update delete note button visibility
+        const deleteBtn = document.getElementById('delete-note-btn');
+        if (activeFile && activeFile.type === 'note') {
+            deleteBtn.classList.remove('hidden');
+        } else {
+            deleteBtn.classList.add('hidden');
+        }
+    }
+
+    function buildTreeStructure(items, notes) {
+        const root = { name: "Root", files: [], dirs: {} };
+        
+        // Process items (articles / videos)
+        items.forEach(item => {
+            const path = item.taxonomy_path || "/uncategorized/" + (item.title || item.url).replace(/[^a-zA-Z0-9]/g, '_') + ".md";
+            const parts = path.split('/').filter(p => p);
+            let curr = root;
+            
+            for (let i = 0; i < parts.length - 1; i++) {
+                const dirName = parts[i];
+                if (!curr.dirs[dirName]) {
+                    curr.dirs[dirName] = { name: dirName, files: [], dirs: {} };
+                }
+                curr = curr.dirs[dirName];
+            }
+            
+            curr.files.push({
+                type: "item",
+                id: item.url,
+                title: parts[parts.length - 1] || item.title || item.url,
+                original: item
+            });
+        });
+        
+        // Process custom notes
+        notes.forEach(note => {
+            const path = note.taxonomy_path || "/" + note.title;
+            const parts = path.split('/').filter(p => p);
+            let curr = root;
+            
+            for (let i = 0; i < parts.length - 1; i++) {
+                const dirName = parts[i];
+                if (!curr.dirs[dirName]) {
+                    curr.dirs[dirName] = { name: dirName, files: [], dirs: {} };
+                }
+                curr = curr.dirs[dirName];
+            }
+            
+            curr.files.push({
+                type: "note",
+                id: note.id,
+                title: parts[parts.length - 1] || note.title,
+                original: note
+            });
+        });
+        
+        return root;
+    }
+
+    function renderTreeNodes(node, element) {
+        // Render subdirectories
+        Object.keys(node.dirs).sort().forEach(dirName => {
+            const dir = node.dirs[dirName];
+            const dirEl = document.createElement('div');
+            dirEl.className = "pl-1 select-none";
+            
+            const folderHeader = document.createElement('div');
+            folderHeader.className = "file-tree-node folder-node flex justify-between items-center";
+            folderHeader.innerHTML = `<span>📁 ${dirName}</span>`;
+            
+            const childContainer = document.createElement('div');
+            childContainer.className = "pl-3 border-l border-gray-200 mt-1 hidden";
+            
+            folderHeader.onclick = (e) => {
+                e.stopPropagation();
+                childContainer.classList.toggle('hidden');
+                folderHeader.querySelector('span').innerText = childContainer.classList.contains('hidden') ? `📁 ${dirName}` : `📂 ${dirName}`;
+            };
+            
+            dirEl.appendChild(folderHeader);
+            dirEl.appendChild(childContainer);
+            element.appendChild(dirEl);
+            
+            renderTreeNodes(dir, childContainer);
+        });
+        
+        // Render files
+        node.files.sort((a,b) => a.title.localeCompare(b.title)).forEach(file => {
+            const fileEl = document.createElement('div');
+            const isActive = activeFile && activeFile.type === file.type && activeFile.id === file.id;
+            fileEl.className = `file-tree-node ${isActive ? 'active' : 'text-gray-700'}`;
+            fileEl.innerHTML = `<span>${file.type === 'note' ? '📝' : '📄'} ${file.title}</span>`;
+            
+            fileEl.onclick = (e) => {
+                e.stopPropagation();
+                selectFile(file);
+            };
+            
+            element.appendChild(fileEl);
+        });
+    }
+
+    function selectFile(file) {
+        if (file.type === 'note') {
+            activeFile = {
+                type: 'note',
+                id: file.id,
+                title: file.original.title,
+                content: file.original.content || '',
+                taxonomy_path: file.original.taxonomy_path || ('/' + file.original.title)
+            };
+            activeTab = 'editor';
+        } else {
+            activeFile = {
+                type: 'item',
+                id: file.original.url,
+                title: file.original.title || file.original.url,
+                content: file.original.item_note || '',
+                taxonomy_path: file.original.taxonomy_path || '',
+                original: file.original
+            };
+            // Default to editor view for collection items too
+            activeTab = 'editor';
+        }
+        
+        document.getElementById('active-context-badge').classList.remove('hidden');
+        buildAndRenderTree();
+        renderWorkspace();
+    }
+
+    function renderWorkspace() {
+        const tabsContainer = document.getElementById('editor-tabs-container');
+        const contentContainer = document.getElementById('editor-workspace-content');
+        const saveBtn = document.getElementById('save-file-btn');
+        
+        if (!activeFile) {
+            tabsContainer.innerHTML = `<span class="text-xs text-gray-400 font-semibold italic py-1">No file selected. Select an item in the tree to begin.</span>`;
+            contentContainer.innerHTML = `
+                <div class="flex-grow flex flex-col justify-center items-center text-gray-400 p-8 text-center space-y-3">
+                    <span class="text-4xl">🗒️</span>
+                    <h4 class="text-sm font-bold text-gray-800">Workspace Note Editor</h4>
+                    <p class="text-xs max-w-xs leading-relaxed">Select a custom markdown note or page transcript from the virtual navigation tree to write annotations and manage tags.</p>
+                </div>
+            `;
+            saveBtn.classList.add('hidden');
+            return;
+        }
+
+        saveBtn.classList.remove('hidden');
+
+        // Render Tabs
+        if (activeFile.type === 'note') {
+            tabsContainer.innerHTML = `
+                <button class="py-1 px-3 text-xs font-bold tab-btn-active focus:outline-none">
+                    📝 Note Editor: ${activeFile.title}
+                </button>
+            `;
+        } else {
+            tabsContainer.innerHTML = `
+                <button onclick="switchWorkspaceTab('editor')" class="py-1 px-3 text-xs font-bold focus:outline-none ${activeTab === 'editor' ? 'tab-btn-active border-b-2' : 'text-gray-500'}">
+                    📝 Annotation Note
+                </button>
+                <button onclick="switchWorkspaceTab('reference')" class="py-1 px-3 text-xs font-bold focus:outline-none ${activeTab === 'reference' ? 'tab-btn-active border-b-2' : 'text-gray-500'}">
+                    📖 Wiki Reference File
+                </button>
+            `;
+        }
+
+        // Render Workspace Content
+        if (activeTab === 'editor') {
+            contentContainer.className = "flex-grow flex flex-col md:flex-row overflow-hidden";
+            contentContainer.innerHTML = `
+                <!-- Editor input half -->
+                <div class="flex-1 border-r border-gray-200 flex flex-col h-full p-4 space-y-3">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Taxonomy Path</label>
+                            <input type="text" id="edit-taxonomy-path" value="${escapeHtml(activeFile.taxonomy_path)}" class="w-full text-xs border border-gray-300 rounded p-1.5 focus:ring focus:ring-indigo-150 font-mono bg-white" />
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Title / Filename</label>
+                            <input type="text" id="edit-title" value="${escapeHtml(activeFile.title)}" ${activeFile.type === 'item' ? 'disabled' : ''} class="w-full text-xs border border-gray-300 rounded p-1.5 focus:ring focus:ring-indigo-150 font-mono bg-white disabled:opacity-50" />
+                        </div>
+                    </div>
+                    
+                    <div class="flex-grow flex flex-col">
+                        <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Markdown Body</label>
+                        <textarea id="edit-content" oninput="updateLivePreview()" class="flex-grow w-full text-xs font-mono border border-gray-300 rounded-lg p-3 focus:ring focus:ring-indigo-150 bg-white resize-none outline-none">${escapeHtml(activeFile.content)}</textarea>
+                    </div>
+                </div>
+                <!-- Preview half -->
+                <div class="flex-1 flex flex-col h-full bg-gray-50 overflow-hidden">
+                    <div class="p-2 border-b border-gray-200 bg-gray-100 flex items-center justify-between">
+                        <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-2">📖 Live Render Markdown Preview</span>
+                    </div>
+                    <div id="live-markdown-preview" class="flex-grow overflow-y-auto p-5 prose max-w-none markdown-preview-pane custom-scroll">
+                        <!-- Marked output loaded here -->
+                    </div>
+                </div>
+            `;
+            updateLivePreview();
+        } else {
+            // Reference Tab (Item wiki details)
+            contentContainer.className = "flex-grow overflow-y-auto p-6 space-y-6 custom-scroll";
+            const orig = activeFile.original;
+            contentContainer.innerHTML = `
+                <div class="border-b pb-3 mb-4">
+                    <span class="px-2 py-0.5 bg-gray-100 text-gray-650 text-[10px] font-mono rounded border border-gray-200">
+                        ${escapeHtml(orig.source_type || 'article')}
+                    </span>
+                    <h2 class="text-xl font-bold text-gray-900 mt-2">${escapeHtml(orig.title || orig.url)}</h2>
+                    <p class="text-xs text-gray-400 mt-1">
+                        Original Link: <a href="${orig.url}" target="_blank" class="text-indigo-600 hover:underline font-mono">${orig.url}</a>
+                    </p>
+                </div>
+                <div>
+                    <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 border-b pb-1">🧠 Extracted Wiki Summary</h3>
+                    <div class="prose max-w-none text-xs text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-200 leading-relaxed max-h-96 overflow-y-auto custom-scroll" style="white-space: pre-wrap;">${escapeHtml(orig.description || 'No summary available.')}</div>
+                </div>
+            `;
+        }
+    }
+
+    function switchWorkspaceTab(tab) {
+        activeTab = tab;
+        renderWorkspace();
+    }
+
+    function updateLivePreview() {
+        const text = document.getElementById('edit-content').value;
+        const preview = document.getElementById('live-markdown-preview');
+        if (preview && window.marked) {
+            preview.innerHTML = window.marked.parse(text || '*No markdown entered yet.*');
+        }
+    }
+
+    function promptCreateNote() {
+        const name = prompt("Enter new note name (e.g. custom_workflow.md):");
+        if (!name) return;
+        
+        let title = name.trim();
+        if (!title.toLowerCase().endsWith(".md")) {
+            title += ".md";
+        }
+        
+        const path = prompt("Enter virtual taxonomy directory folder (e.g. /Workflows):", "/");
+        if (path === null) return;
+        
+        const formData = new FormData();
+        formData.append('title', title);
+        formData.append('taxonomy_path', path);
+        
+        fetch(`/collections/view/${collectionId}/notes/create`, {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                rawNotes.push({
+                    id: data.note_id,
+                    collection_id: collectionId,
+                    title: data.title,
+                    content: "# " + data.title.replace(".md", "").replace("_", " ").toUpperCase() + "\n\nStart writing here...",
+                    taxonomy_path: data.taxonomy_path
+                });
+                activeFile = {
+                    type: 'note',
+                    id: data.note_id,
+                    title: data.title,
+                    content: "# " + data.title.replace(".md", "").replace("_", " ").toUpperCase() + "\n\nStart writing here...",
+                    taxonomy_path: data.taxonomy_path
+                };
+                buildAndRenderTree();
+                renderWorkspace();
+            } else {
+                alert("Error: " + data.message);
+            }
+        })
+        .catch(err => alert("Request failed: " + err.message));
+    }
+
+    function deleteActiveNote() {
+        if (!activeFile || activeFile.type !== 'note') return;
+        if (!confirm(`Permanently delete custom note "${activeFile.title}"?`)) return;
+        
+        const formData = new FormData();
+        formData.append('note_id', activeFile.id);
+        
+        fetch(`/collections/view/${collectionId}/notes/delete`, {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                rawNotes = rawNotes.filter(n => n.id !== activeFile.id);
+                activeFile = null;
+                buildAndRenderTree();
+                renderWorkspace();
+            } else {
+                alert("Error: " + data.message);
+            }
+        })
+        .catch(err => alert("Request failed: " + err.message));
+    }
+
+    function saveActiveFile() {
+        if (!activeFile) return;
+        
+        const saveBtn = document.getElementById('save-file-btn');
+        saveBtn.disabled = true;
+        saveBtn.innerText = "Saving...";
+        
+        const taxPath = document.getElementById('edit-taxonomy-path').value.trim();
+        const titleVal = document.getElementById('edit-title').value.trim();
+        const contentVal = document.getElementById('edit-content').value;
+        
+        const formData = new FormData();
+        
+        if (activeFile.type === 'note') {
+            formData.append('note_id', activeFile.id);
+            formData.append('title', titleVal);
+            formData.append('content', contentVal);
+            formData.append('taxonomy_path', taxPath);
+            
+            fetch(`/collections/view/${collectionId}/notes/update`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                saveBtn.disabled = false;
+                saveBtn.innerText = "💾 Save Changes";
+                if (data.status === 'success') {
+                    // Update cache
+                    const note = rawNotes.find(n => n.id === activeFile.id);
+                    if (note) {
+                        note.title = titleVal;
+                        note.content = contentVal;
+                        note.taxonomy_path = taxPath;
+                    }
+                    activeFile.title = titleVal;
+                    activeFile.content = contentVal;
+                    activeFile.taxonomy_path = taxPath;
+                    
+                    buildAndRenderTree();
+                    renderWorkspace();
+                    alert("Note successfully saved.");
+                } else {
+                    alert("Error: " + data.message);
+                }
+            })
+            .catch(err => {
+                saveBtn.disabled = false;
+                saveBtn.innerText = "💾 Save Changes";
+                alert("Request failed: " + err.message);
+            });
+        } else {
+            // Item
+            formData.append('url', activeFile.id);
+            formData.append('item_note', contentVal);
+            formData.append('taxonomy_path', taxPath);
+            
+            fetch(`/collections/view/${collectionId}/items/update-note`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                saveBtn.disabled = false;
+                saveBtn.innerText = "💾 Save Changes";
+                if (data.status === 'success') {
+                    const item = rawItems.find(i => i.url === activeFile.id);
+                    if (item) {
+                        item.item_note = contentVal;
+                        item.taxonomy_path = taxPath;
+                    }
+                    activeFile.content = contentVal;
+                    activeFile.taxonomy_path = taxPath;
+                    
+                    buildAndRenderTree();
+                    renderWorkspace();
+                    alert("Annotation note saved.");
+                } else {
+                    alert("Error: " + data.message);
+                }
+            })
+            .catch(err => {
+                saveBtn.disabled = false;
+                saveBtn.innerText = "💾 Save Changes";
+                alert("Request failed: " + err.message);
+            });
+        }
+    }
+
+    // Agent Chat Terminal functions
+    function handleChatKeyDown(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendChatMessage();
+        }
+    }
+
+    function sendChatMessage() {
+        const input = document.getElementById('chat-input');
+        const query = input.value.trim();
+        if (!query) return;
+
+        input.value = '';
+        appendMessage('user', query);
+
+        const container = document.getElementById('chat-messages-container');
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = "flex gap-2.5 items-start text-xs text-gray-500 animate-pulse";
+        loadingDiv.id = "chat-loading";
+        loadingDiv.innerHTML = `
+            <div class="bg-gray-300 font-bold p-1 px-2 text-[10px] rounded text-white">AI</div>
+            <div class="bg-white p-3 border border-gray-200 rounded-lg shadow-sm">Typing...</div>
+        `;
+        container.appendChild(loadingDiv);
+        container.scrollTop = container.scrollHeight;
+
+        const formData = new FormData();
+        formData.append('message', query);
+        formData.append('history_json', JSON.stringify(chatHistory));
+        if (activeFile) {
+            formData.append('active_file_id', activeFile.id);
+            formData.append('active_file_type', activeFile.type);
+        }
+
+        fetch(`/collections/view/${collectionId}/agent-chat`, {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            const loading = document.getElementById('chat-loading');
+            if (loading) loading.remove();
+
+            if (data.status === 'success') {
+                appendMessage('assistant', data.reply);
+                chatHistory.push({ role: 'user', content: query });
+                chatHistory.push({ role: 'assistant', content: data.reply });
+            } else {
+                appendMessage('assistant', "Error: " + data.message);
+            }
+        })
+        .catch(err => {
+            const loading = document.getElementById('chat-loading');
+            if (loading) loading.remove();
+            appendMessage('assistant', "Request failed: " + err.message);
+        });
+    }
+
+    function appendMessage(role, text) {
+        const container = document.getElementById('chat-messages-container');
+        const msgDiv = document.createElement('div');
+        msgDiv.className = "flex gap-2.5 items-start text-xs";
+        
+        if (role === 'user') {
+            msgDiv.innerHTML = `
+                <div class="bg-gray-700 text-white font-bold p-1 px-2 text-[10px] rounded ml-auto order-2">Me</div>
+                <div class="bg-indigo-50 border border-indigo-150 p-3 rounded-lg leading-relaxed shadow-sm text-gray-805 ml-auto order-1 max-w-[85%]">${escapeHtml(text)}</div>
+            `;
+        } else {
+            // Suppress reasoning block display if model output it anyway
+            let cleanedText = text;
+            if (text.includes("</think>")) {
+                cleanedText = text.split("</think>")[1].trim();
+            } else if (text.includes("<think>")) {
+                cleanedText = text.replace(/<think>[\s\S]*$/, "").trim();
+            }
+
+            msgDiv.innerHTML = `
+                <div class="bg-indigo-100 text-indigo-800 font-bold p-1 px-2 text-[10px] rounded">AI</div>
+                <div class="bg-white p-3 border border-gray-200 rounded-lg leading-relaxed shadow-sm text-gray-700 max-w-[85%]">${window.marked ? window.marked.parse(cleanedText) : escapeHtml(cleanedText)}</div>
+            `;
+        }
+        
+        container.appendChild(msgDiv);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function clearChatHistory() {
+        chatHistory = [];
+        const container = document.getElementById('chat-messages-container');
+        container.innerHTML = `
+            <div class="flex gap-2.5 items-start">
+                <div class="bg-indigo-100 text-indigo-800 font-bold p-1 px-2 text-[10px] rounded">AI</div>
+                <div class="bg-white p-3 border border-gray-200 rounded-lg text-xs leading-relaxed shadow-sm text-gray-700 max-w-[85%]">
+                    Chat history cleared. How can I help you compile your notes?
+                </div>
+            </div>
+        `;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+</script>
+{% endblock %}

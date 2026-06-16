@@ -40,6 +40,9 @@
             <p class="text-xs text-gray-500 font-medium">Created: {{ collection.created_at[:16] | replace('T', ' ') }}</p>
         </div>
         <div class="flex items-center gap-3">
+            <a href="/collections/view/{{ collection.id }}/editor" class="bg-indigo-650 hover:bg-indigo-705 text-white text-xs font-bold py-2.5 px-4 rounded-lg shadow-sm transition">
+                📝 Open Notes Workspace
+            </a>
             <a href="/collections" class="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold py-2.5 px-4 rounded-lg shadow-sm transition">
                 Back to Dashboard
             </a>
@@ -201,6 +204,7 @@
             hostname: {{ (p.parsed_url.hostname or "Source") | tojson }},
             fetched_at: {{ p.fetched_at[:16] | replace('T', ' ') | tojson }},
             safe_url: {{ p.safe_url | tojson }},
+            collection_title: {{ p.collection_title | tojson }},
             isNew: false
         },
         {% endfor %}
@@ -213,7 +217,8 @@
             title: {{ (p.title or p.url) | tojson }},
             hostname: {{ (p.parsed_url.hostname or "Source") | tojson }},
             fetched_at: {{ p.fetched_at[:16] | replace('T', ' ') | tojson }},
-            safe_url: {{ p.safe_url | tojson }}
+            safe_url: {{ p.safe_url | tojson }},
+            collection_title: {{ p.collection_title | tojson }}
         },
         {% endfor %}
     ];
@@ -338,6 +343,18 @@
                             </span>
                             <span class="text-[10px] text-gray-400 font-semibold">${item.fetched_at}</span>
                             ${item.isNew ? '<span class="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[9px] font-bold rounded">Staged</span>' : ''}
+                            ${item.collection_title ? `
+                                <span class="px-2 py-0.5 bg-indigo-50 text-indigo-705 text-[10px] font-bold rounded border border-indigo-150">
+                                    📁 ${escapeHtml(item.collection_title)}
+                                </span>
+                            ` : `
+                                <span class="px-2 py-0.5 bg-gray-50 text-gray-405 text-[10px] font-medium rounded border border-gray-200 italic">
+                                    None
+                                </span>
+                                <a href="/view/page?url=${item.safe_url}" class="text-indigo-650 hover:text-indigo-850 text-[10px] font-bold hover:underline select-text ml-1" target="_blank">
+                                    + Add to Collection
+                                </a>
+                            `}
                         </div>
                         <h3 class="text-sm font-bold text-gray-900 truncate">
                             <a href="/view/page?url=${item.safe_url}" class="hover:text-indigo-650 select-text" target="_blank">${escapeHtml(item.title)}</a>
@@ -395,7 +412,18 @@
                     <input type="checkbox" class="avail-select w-3.5 h-3.5 text-indigo-600 border-gray-300 rounded cursor-pointer" data-url="${page.url}" />
                     <div class="truncate">
                         <h4 class="text-xs font-bold text-gray-800 truncate" title="${page.title}">${escapeHtml(page.title)}</h4>
-                        <p class="text-[9px] text-gray-400 font-semibold truncate">${escapeHtml(page.hostname)}</p>
+                        <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <span class="text-[9px] text-gray-405 font-semibold truncate">${escapeHtml(page.hostname)}</span>
+                            ${page.collection_title ? `
+                                <span class="px-1.5 py-0.2 bg-indigo-50 text-indigo-700 text-[9px] rounded font-bold">
+                                    📁 ${escapeHtml(page.collection_title)}
+                                </span>
+                            ` : `
+                                <span class="px-1.5 py-0.2 bg-gray-100 text-gray-400 text-[9px] rounded font-medium italic">
+                                    None
+                                </span>
+                            `}
+                        </div>
                     </div>
                 </div>
                 <span class="text-gray-300 text-xs select-none">☰</span>

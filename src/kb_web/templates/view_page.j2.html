@@ -105,16 +105,19 @@
             </div>
             {% endif %}
             <!-- Collection display -->
-            {% if page.collection_title %}
-            <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-200 mb-6 flex items-center justify-between shadow-sm text-xs">
-                <div class="flex items-center gap-2">
-                    <span class="font-bold text-indigo-800 uppercase tracking-wider text-[10px]">Collection:</span>
-                    <a href="/collections/view/{{ page.collection_id }}" class="font-bold text-indigo-700 hover:text-indigo-900 underline">
-                        📁 {{ page.collection_title }}
+            {% if assigned_collections %}
+            <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-200 mb-6 flex flex-wrap items-center justify-between shadow-sm text-xs gap-3">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-bold text-indigo-800 uppercase tracking-wider text-[10px]">Collections:</span>
+                    {% for c in assigned_collections %}
+                    <a href="/collections/view/{{ c.id }}" class="font-bold text-indigo-700 hover:text-indigo-900 underline whitespace-nowrap">
+                        📁 {{ c.title }}
                     </a>
+                    {% if not loop.last %}<span class="text-gray-300">|</span>{% endif %}
+                    {% endfor %}
                 </div>
                 {% if is_admin %}
-                <button onclick="toggleCollectionForm()" class="text-xs font-bold text-indigo-700 hover:text-indigo-900">Change Collection</button>
+                <button onclick="toggleCollectionForm()" class="text-xs font-bold text-indigo-700 hover:text-indigo-900">Change Collections</button>
                 {% endif %}
             </div>
             {% else %}
@@ -124,6 +127,23 @@
                     <button onclick="toggleCollectionForm()" class="text-xs font-bold text-indigo-700 hover:text-indigo-900 font-semibold">+ Add to Collection</button>
                 </div>
                 {% endif %}
+            {% endif %}
+
+            <!-- Exclude from General Collection option (admin only) -->
+            {% if is_admin %}
+            <div class="bg-amber-50 p-4 rounded-lg border border-amber-200 mb-6 flex items-center justify-between shadow-sm text-xs">
+                <div class="flex items-center gap-2">
+                    <span class="font-bold text-amber-800 uppercase tracking-wider text-[10px]">General Collection Exclusion:</span>
+                    <span class="text-gray-700 font-medium">{% if page.exclude_from_general == 1 %}Excluded from general library index{% else %}Included in general library index{% endif %}</span>
+                </div>
+                <form action="/admin/pages/toggle-exclude" method="post" class="m-0 flex items-center">
+                    <input type="hidden" name="url" value="{{ page.url }}" />
+                    <input type="hidden" name="exclude" value="{% if page.exclude_from_general == 1 %}0{% else %}1{% endif %}" />
+                    <button type="submit" class="bg-white border border-amber-300 hover:bg-amber-100 text-amber-850 text-[10px] font-bold py-1 px-3 rounded-lg shadow-sm transition">
+                        {% if page.exclude_from_general == 1 %}⚙️ Include{% else %}⚙️ Exclude{% endif %}
+                    </button>
+                </form>
+            </div>
             {% endif %}
 
             <!-- Collection update form -->
