@@ -81,9 +81,25 @@
                                 </div>
                                 <div class="p-5 flex-grow">
                                     <div class="flex items-center justify-between gap-2 mb-2">
-                                        <a href="/?view=videos&creator={{ vid.creator | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold rounded border border-indigo-100 transition">
-                                            {{ vid.creator or "YouTube" }}
-                                        </a>
+                                        <div class="flex items-center gap-1.5 flex-wrap">
+                                            <a href="/?view=videos&creator={{ vid.creator | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold rounded border border-indigo-100 transition">
+                                                {{ vid.creator or "YouTube" }}
+                                            </a>
+                                            {% if vid.collection_title %}
+                                            <span class="px-2 py-0.5 bg-indigo-50 text-indigo-705 text-[10px] font-bold rounded border border-indigo-150 animate-fade-in">
+                                                📁 {{ vid.collection_title }}
+                                            </span>
+                                            {% else %}
+                                            <span class="px-2 py-0.5 bg-gray-50 text-gray-400 text-[10px] font-medium rounded border border-gray-200 italic">
+                                                None
+                                            </span>
+                                            {% if is_admin %}
+                                            <a href="/view/page?url={{ vid.safe_url }}" class="text-indigo-650 hover:text-indigo-850 text-[10px] font-bold hover:underline ml-1 relative z-10">
+                                                + Add to Collection
+                                            </a>
+                                            {% endif %}
+                                            {% endif %}
+                                        </div>
                                         {% if vid.view_count %}
                                         <span class="text-xs text-gray-400 font-mono">{{ "{:,}".format(vid.view_count) }} views</span>
                                         {% else %}
@@ -125,11 +141,25 @@
                             <div class="relative bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex justify-between items-center gap-4 shadow-sm">
                                 <a href="/view/page?url={{ page.safe_url }}" class="absolute inset-0 z-0"></a>
                                 <div class="truncate">
-                                    <div class="flex items-center gap-2 mb-1">
+                                    <div class="flex items-center gap-2 mb-1 flex-wrap">
                                         <span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-mono rounded border border-gray-200">
                                             {{ page.parsed_url.hostname or "Source" }}
                                         </span>
                                         <span class="text-xs text-gray-400 font-medium">{{ page.fetched_at[:16].replace("T", " ") }}</span>
+                                        {% if page.collection_title %}
+                                        <span class="px-2 py-0.5 bg-indigo-50 text-indigo-755 text-[10px] font-bold rounded border border-indigo-150 animate-fade-in">
+                                            📁 {{ page.collection_title }}
+                                        </span>
+                                        {% else %}
+                                        <span class="px-2 py-0.5 bg-gray-50 text-gray-400 text-[10px] font-medium rounded border border-gray-200 italic">
+                                            None
+                                        </span>
+                                        {% if is_admin %}
+                                        <a href="/view/page?url={{ page.safe_url }}" class="text-indigo-650 hover:text-indigo-850 text-[10px] font-bold hover:underline ml-1 relative z-10">
+                                            + Add to Collection
+                                        </a>
+                                        {% endif %}
+                                        {% endif %}
                                     </div>
                                     <h2 class="text-base font-bold text-gray-900 truncate">
                                         <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600 relative z-10">
@@ -336,11 +366,25 @@
                     <div class="relative bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex justify-between items-center gap-4 shadow-sm">
                         <a href="/view/page?url={{ page.safe_url }}" class="absolute inset-0 z-0"></a>
                         <div class="truncate">
-                            <div class="flex items-center gap-2 mb-1">
+                            <div class="flex items-center gap-2 mb-1 flex-wrap">
                                 <span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-mono rounded border border-gray-200">
                                     {{ page.parsed_url.hostname or "Source" }}
                                 </span>
                                 <span class="text-xs text-gray-400 font-medium">{{ page.fetched_at[:16].replace("T", " ") }}</span>
+                                {% if page.collection_title %}
+                                <span class="px-2 py-0.5 bg-indigo-50 text-indigo-755 text-[10px] font-bold rounded border border-indigo-150 animate-fade-in">
+                                    📁 {{ page.collection_title }}
+                                </span>
+                                {% else %}
+                                <span class="px-2 py-0.5 bg-gray-50 text-gray-400 text-[10px] font-medium rounded border border-gray-200 italic">
+                                    None
+                                </span>
+                                {% if is_admin %}
+                                <a href="/view/page?url={{ page.safe_url }}" class="text-indigo-650 hover:text-indigo-850 text-[10px] font-bold hover:underline ml-1 relative z-10">
+                                    + Add to Collection
+                                </a>
+                                {% endif %}
+                                {% endif %}
                             </div>
                             <h2 class="text-base font-bold text-gray-900 truncate">
                                 <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600 relative z-10">

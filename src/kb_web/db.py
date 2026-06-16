@@ -273,6 +273,27 @@ def init_db(db: sqlite_utils.Database) -> None:
             except Exception as e:
                 print(f"Error migrating database (adding item_order column): {e}")
 
+    # Initialize collection_notes table
+    if "collection_notes" not in db.table_names():
+        try:
+            db["collection_notes"].create(
+                {
+                    "id": int,
+                    "collection_id": int,
+                    "title": str,
+                    "content": str,
+                    "taxonomy_path": str,
+                    "created_at": str,
+                    "updated_at": str,
+                },
+                pk="id",
+                foreign_keys=[("collection_id", "collections", "id")],
+            )
+            db["collection_notes"].create_index(["collection_id"])
+            print("Initialized database table: collection_notes")
+        except Exception as e:
+            print(f"Error creating collection_notes table: {e}")
+
     # Initialize chunk_embeddings table
     if "chunk_embeddings" not in db.table_names():
         try:

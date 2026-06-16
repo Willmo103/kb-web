@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.24] - 2026-06-16
 ### Added
+- Implemented Obsidian-style split **Collection Editor Workspace** (three-pane dashboard: filetree navigation, split preview markdown editor, Ollama agent chat).
+- Added collection-specific custom notes database storage and CRUD actions (`collection_notes` table).
 - Implemented many-to-many collections schema with custom drag-and-drop ordering, visibility settings, and multi-select page assignment.
 - Integrated character-level overlap text chunking (1500 limit, 150 overlap) with Google Gemma embeddings prefixing (`search_document: ` / `search_query: `) via Ollama.
 - Implemented Qdrant client REST synchronization endpoints with Cosine distance and a 768-dimensional default vector space, including offline fallback JSON queuing.
@@ -16,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated database backups/restores JSON formats to support all database tables.
 
 ### Fixed
+- Fixed collections displays in general index views and collection views to correctly fetch assigned collections, showing specific collections as badges or "None" tags with an inline "+ Add to Collection" link.
 - Fixed process-level DB initialization locks and Gotify notification AttributeError bug.
 - Aligned similarity graph legend badges to render correctly as inline-block elements.
 - Cleaned up page listings by removing play buttons and making video/article cards fully clickable links.
