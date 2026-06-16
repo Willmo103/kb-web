@@ -132,17 +132,21 @@
                 <form action="/admin/pages/update-collection" method="post" class="flex flex-col gap-3">
                     <input type="hidden" name="url" value="{{ page.url }}" />
                     <div>
-                        <label for="collection_id" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">Assign to Collection</label>
-                        <select name="collection_id" id="collection_id" class="block w-full text-xs border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white">
-                            <option value="">-- None (Remove from Collection) --</option>
+                        <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Assign to Collections</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-gray-200 rounded p-3 bg-gray-50">
                             {% for col in collections %}
-                            <option value="{{ col.id }}" {% if page.collection_id == col.id %}selected{% endif %}>{{ col.title }}</option>
+                            {% if col.id != 1 %}
+                            <label class="flex items-center gap-2 text-xs font-medium text-gray-800 cursor-pointer">
+                                <input type="checkbox" name="collection_ids" value="{{ col.id }}" {% if col.id in assigned_collection_ids %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500" />
+                                {{ col.title }}
+                            </label>
+                            {% endif %}
                             {% endfor %}
-                        </select>
+                        </div>
                     </div>
                     <div class="flex justify-end gap-2">
                         <button type="button" onclick="toggleCollectionForm()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded transition">Cancel</button>
-                        <button type="submit" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded transition">Assign Collection</button>
+                        <button type="submit" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded transition">Assign Collections</button>
                     </div>
                 </form>
             </div>

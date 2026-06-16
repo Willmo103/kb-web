@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.24] - 2026-06-16
+### Added
+- Implemented many-to-many collections schema with custom drag-and-drop ordering, visibility settings, and multi-select page assignment.
+- Integrated character-level overlap text chunking (1500 limit, 150 overlap) with Google Gemma embeddings prefixing (`search_document: ` / `search_query: `) via Ollama.
+- Implemented Qdrant client REST synchronization endpoints with Cosine distance and a 768-dimensional default vector space, including offline fallback JSON queuing.
+- Added admin General Collection populator streaming route.
+- Added line tail limits selection and text downloads to admin logs panel.
+- Refactored URL import route to support synchronous HTML progress streaming.
+- Updated database backups/restores JSON formats to support all database tables.
+
+### Fixed
+- Fixed process-level DB initialization locks and Gotify notification AttributeError bug.
+- Aligned similarity graph legend badges to render correctly as inline-block elements.
+- Cleaned up page listings by removing play buttons and making video/article cards fully clickable links.
+
 ## [0.1.23] - 2026-06-14
 ### Changed
 - Fixed invisible collections action buttons.

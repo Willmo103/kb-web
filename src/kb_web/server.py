@@ -168,4 +168,5 @@ from .utils import (  # noqa: E402
     extract_youtube_video_id as extract_youtube_video_id,
     extract_wiki_content as extract_wiki_content,
     extract_tags_content as extract_tags_content,
+    generate_gemma_embeddings_for_page as generate_gemma_embeddings_for_page,
 )

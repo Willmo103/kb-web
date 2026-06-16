@@ -69,14 +69,11 @@
                             <div class="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm">
                                 <div class="relative w-full bg-gray-100 flex items-center justify-center" style="aspect-ratio: 16 / 9;">
                                     {% if vid.video_id %}
-                                    <img src="{{ vid.thumbnail_url if vid.thumbnail_url else 'https://img.youtube.com/vi/' ~ vid.video_id ~ '/mqdefault.jpg' }}" class="w-full h-full object-cover" alt="{{ vid.title }}" />
-                                    <div class="absolute inset-0 bg-black bg-opacity-10 hover:bg-opacity-20 transition flex items-center justify-center">
-                                        <a href="/view/page?url={{ vid.safe_url }}" class="bg-white bg-opacity-90 hover:bg-opacity-100 text-indigo-700 rounded-full w-12 h-12 flex items-center justify-center shadow-md transition transform hover:scale-105">
-                                            <span class="text-xl pl-0.5">▶</span>
-                                        </a>
-                                    </div>
+                                    <a href="/view/page?url={{ vid.safe_url }}" class="block w-full h-full">
+                                        <img src="{{ vid.thumbnail_url if vid.thumbnail_url else 'https://img.youtube.com/vi/' ~ vid.video_id ~ '/mqdefault.jpg' }}" class="w-full h-full object-cover hover:opacity-90 transition" alt="{{ vid.title }}" />
+                                    </a>
                                     {% if vid.duration %}
-                                    <span class="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white text-[10px] font-bold px-1.5 py-0.5 rounded font-mono">
+                                    <span class="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white text-[10px] font-bold px-1.5 py-0.5 rounded font-mono pointer-events-none">
                                         {{ vid.duration // 60 }}:{{ "%02d" | format(vid.duration % 60) }}
                                     </span>
                                     {% endif %}
@@ -125,7 +122,8 @@
                         <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">📝 Articles matching tag ({{ pages | length }})</h2>
                         <div class="space-y-3">
                             {% for page in pages %}
-                            <div class="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex justify-between items-center gap-4 shadow-sm">
+                            <div class="relative bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex justify-between items-center gap-4 shadow-sm">
+                                <a href="/view/page?url={{ page.safe_url }}" class="absolute inset-0 z-0"></a>
                                 <div class="truncate">
                                     <div class="flex items-center gap-2 mb-1">
                                         <span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-mono rounded border border-gray-200">
@@ -134,28 +132,25 @@
                                         <span class="text-xs text-gray-400 font-medium">{{ page.fetched_at[:16].replace("T", " ") }}</span>
                                     </div>
                                     <h2 class="text-base font-bold text-gray-900 truncate">
-                                        <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600">
+                                        <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600 relative z-10">
                                             {{ page.title or page.url }}
                                         </a>
                                     </h2>
                                     {% if page.title and page.title != page.url %}
                                     <p class="text-xs text-gray-400 truncate mt-0.5">
-                                        <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600">{{ page.url }}</a>
+                                        <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600 relative z-10">{{ page.url }}</a>
                                     </p>
                                     {% endif %}
                                     {% if page.tags %}
                                     <div class="flex flex-wrap gap-1.5 mt-2">
                                         {% for tag in page.tags %}
-                                        <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold rounded-full border border-indigo-100 transition">
+                                        <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold rounded-full border border-indigo-100 transition relative z-10">
                                             {{ tag }}
                                         </a>
                                         {% endfor %}
                                     </div>
                                     {% endif %}
                                 </div>
-                                <a href="/view/page?url={{ page.safe_url }}" class="bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold py-2 px-4 border border-gray-200 rounded-lg transition duration-150 whitespace-nowrap shadow-sm">
-                                    Open Entry
-                                </a>
                             </div>
                             {% endfor %}
                         </div>
@@ -250,14 +245,11 @@
                     <div class="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm">
                         <div class="relative w-full bg-gray-100 flex items-center justify-center" style="aspect-ratio: 16 / 9;">
                             {% if vid.video_id %}
-                            <img src="{{ vid.thumbnail_url if vid.thumbnail_url else 'https://img.youtube.com/vi/' ~ vid.video_id ~ '/mqdefault.jpg' }}" class="w-full h-full object-cover" alt="{{ vid.title }}" />
-                            <div class="absolute inset-0 bg-black bg-opacity-10 hover:bg-opacity-20 transition flex items-center justify-center">
-                                <a href="/view/page?url={{ vid.safe_url }}" class="bg-white bg-opacity-90 hover:bg-opacity-100 text-indigo-700 rounded-full w-12 h-12 flex items-center justify-center shadow-md transition transform hover:scale-105">
-                                    <span class="text-xl pl-0.5">▶</span>
-                                </a>
-                            </div>
+                            <a href="/view/page?url={{ vid.safe_url }}" class="block w-full h-full">
+                                <img src="{{ vid.thumbnail_url if vid.thumbnail_url else 'https://img.youtube.com/vi/' ~ vid.video_id ~ '/mqdefault.jpg' }}" class="w-full h-full object-cover hover:opacity-90 transition" alt="{{ vid.title }}" />
+                            </a>
                             {% if vid.duration %}
-                            <span class="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white text-[10px] font-bold px-1.5 py-0.5 rounded font-mono">
+                            <span class="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white text-[10px] font-bold px-1.5 py-0.5 rounded font-mono pointer-events-none">
                                 {{ vid.duration // 60 }}:{{ "%02d" | format(vid.duration % 60) }}
                             </span>
                             {% endif %}
@@ -341,7 +333,8 @@
                 {% else %}
                 <div class="space-y-3">
                     {% for page in pages %}
-                    <div class="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex justify-between items-center gap-4 shadow-sm">
+                    <div class="relative bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex justify-between items-center gap-4 shadow-sm">
+                        <a href="/view/page?url={{ page.safe_url }}" class="absolute inset-0 z-0"></a>
                         <div class="truncate">
                             <div class="flex items-center gap-2 mb-1">
                                 <span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-mono rounded border border-gray-200">
@@ -350,28 +343,25 @@
                                 <span class="text-xs text-gray-400 font-medium">{{ page.fetched_at[:16].replace("T", " ") }}</span>
                             </div>
                             <h2 class="text-base font-bold text-gray-900 truncate">
-                                <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600">
+                                <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600 relative z-10">
                                     {{ page.title or page.url }}
                                 </a>
                             </h2>
                             {% if page.title and page.title != page.url %}
                             <p class="text-xs text-gray-400 truncate mt-0.5">
-                                <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600">{{ page.url }}</a>
+                                <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600 relative z-10">{{ page.url }}</a>
                             </p>
                             {% endif %}
                             {% if page.tags %}
                             <div class="flex flex-wrap gap-1.5 mt-2">
                                 {% for tag in page.tags %}
-                                <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold rounded-full border border-indigo-100 transition">
+                                <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold rounded-full border border-indigo-100 transition relative z-10">
                                     {{ tag }}
                                 </a>
                                 {% endfor %}
                             </div>
                             {% endif %}
                         </div>
-                        <a href="/view/page?url={{ page.safe_url }}" class="bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold py-2 px-4 border border-gray-200 rounded-lg transition duration-150 whitespace-nowrap shadow-sm">
-                            Open Entry
-                        </a>
                     </div>
                     {% endfor %}
                 </div>

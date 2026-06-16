@@ -167,6 +167,47 @@ def chunk_text(text: str, max_chunk_size: int) -> list[str]:
     return chunks
 
 
+def chunk_text_with_overlap(text: str, max_chunk_size: int = 1500, overlap: int = 150) -> list[str]:
+    """Splits text into chunks of at most max_chunk_size characters with overlap.
+    
+    Tries to split along paragraph/line boundaries if possible.
+    """
+    if not text:
+        return []
+    
+    chunks = []
+    start = 0
+    text_len = len(text)
+    
+    while start < text_len:
+        end = start + max_chunk_size
+        if end >= text_len:
+            chunks.append(text[start:])
+            break
+            
+        # Try to find a line break within the overlap window to split cleanly
+        split_pos = end
+        search_start = max(start, end - overlap)
+        last_newline = text.rfind('\n', search_start, end)
+        if last_newline != -1:
+            split_pos = last_newline + 1
+        else:
+            last_space = text.rfind(' ', search_start, end)
+            if last_space != -1:
+                split_pos = last_space + 1
+                
+        chunk = text[start:split_pos]
+        chunks.append(chunk)
+        
+        # Next chunk starts at split_pos minus overlap (or start + max_chunk_size - overlap)
+        actual_chunk_len = len(chunk)
+        start = start + actual_chunk_len - overlap
+        if start >= text_len or actual_chunk_len <= overlap:
+            break
+            
+    return [c.strip() for c in chunks if c.strip()]
+
+
 def fetch_youtube_video_page(url: str, video_id: str) -> HTMLPage:
     """Retrieves YouTube video metadata and pulls subtitle transcripts to construct custom HTML/markdown documents."""
     title = f"YouTube Video {video_id}"
@@ -704,3 +745,82 @@ def serialize_page_for_db(page_data: HTMLPage) -> tuple[dict, Optional[str]]:
     serialized["keywords"] = json.dumps(serialized["keywords"])
     serialized["tags"] = json.dumps(serialized["tags"])
     return serialized, creator
+
+
+def generate_gemma_embeddings_for_page(
+    db, url: str, config=None, client: Optional[ollama.Client] = None
+) -> None:
+    """Generates embeddinggemma chunk embeddings and description embedding for a page/video."""
+    if config is None:
+        config = default_config
+    if client is None:
+        client = _get_ollama_client()
+        
+    try:
+        row = db["fetched_pages"].get(url)
+    except Exception:
+        print(f"Page {url} not found for gemma embedding generation.")
+        return
+        
+    title = row.get("title") or url
+    md_content = row.get("md_content") or ""
+    description = row.get("description") or ""
+    
+    # Determine source type (articles or videos)
+    is_video = False
+    if "youtube_videos" in db.table_names():
+        try:
+            if db["youtube_videos"].get(url):
+                is_video = True
+        except Exception:
+            pass
+            
+    source_type = "videos" if is_video else "articles"
+    
+    # Check model availability for embeddinggemma
+    emb_model = "embeddinggemma"
+    try:
+        ensure_model_available(client, emb_model)
+    except Exception as e:
+        print(f"Warning: failed to verify/pull '{emb_model}': {e}. Using configured model.")
+        emb_model = getattr(config, "ollama_embedding_model", "nomic-embed-text")
+        
+    # 1. Chunk and embed md_content
+    chunks = chunk_text_with_overlap(md_content, 1500, 150)
+    
+    # Delete existing chunks for this url to avoid stale ones
+    db.execute("DELETE FROM chunk_embeddings WHERE source_type = ? AND source_id = ?", [source_type, url])
+    
+    for idx, chunk in enumerate(chunks):
+        prompt = f"search_document: {chunk}"
+        try:
+            resp = client.embeddings(model=emb_model, prompt=prompt)
+            vector = resp["embedding"]
+            db["chunk_embeddings"].insert({
+                "source_type": source_type,
+                "source_id": url,
+                "source_title": title,
+                "chunk_number": idx,
+                "chunk_content": chunk,
+                "chunk_vector": json.dumps(vector),
+                "created_at": datetime.now().isoformat()
+            })
+        except Exception as e:
+            print(f"Failed to generate chunk embedding for {url} chunk {idx}: {e}")
+            
+    # 2. Embed description and save to article_embeddings or video_embeddings
+    if description.strip():
+        prompt_desc = f"search_document: {description}"
+        try:
+            resp = client.embeddings(model=emb_model, prompt=prompt_desc)
+            vector_desc = resp["embedding"]
+            target_table = "video_embeddings" if is_video else "article_embeddings"
+            db[target_table].upsert({
+                "url": url,
+                "embedding": json.dumps(vector_desc),
+                "updated_at": datetime.now().isoformat()
+            }, pk="url")
+            print(f"Successfully stored gemma embedding of description for {url} in {target_table}")
+        except Exception as e:
+            print(f"Failed to generate description embedding for {url}: {e}")
+

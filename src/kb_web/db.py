@@ -178,6 +178,10 @@ def init_db(db: sqlite_utils.Database) -> None:
                 {
                     "id": int,
                     "title": str,
+                    "visibility": str,  # "public" or "private"
+                    "rag_system_prompt": str,
+                    "taxonomy_system_prompt": str,
+                    "general_system_context": str,  # JSON string
                     "created_at": str,
                 },
                 pk="id",
@@ -185,8 +189,41 @@ def init_db(db: sqlite_utils.Database) -> None:
             print("Initialized database table: collections")
         except Exception as e:
             print(f"Error creating collections table: {e}")
+    else:
+        # Migrate collections columns
+        col_cols = db["collections"].columns_dict
+        for col_name, col_type in [
+            ("visibility", str),
+            ("rag_system_prompt", str),
+            ("taxonomy_system_prompt", str),
+            ("general_system_context", str),
+        ]:
+            if col_name not in col_cols:
+                try:
+                    db["collections"].add_column(col_name, col_type)
+                    print(f"Schema Migration: Added '{col_name}' column to collections table.")
+                except Exception as e:
+                    print(f"Error migrating collections (adding {col_name} column): {e}")
 
-    # Add collection_id to fetched_pages if missing
+    # Ensure "General Collection" exists (id=1)
+    try:
+        from datetime import datetime
+        # Check if id=1 exists
+        if not list(db["collections"].rows_where("id = 1")):
+            db["collections"].insert({
+                "id": 1,
+                "title": "General Collection",
+                "visibility": "private",
+                "rag_system_prompt": "",
+                "taxonomy_system_prompt": "",
+                "general_system_context": "{}",
+                "created_at": datetime.now().isoformat()
+            })
+            print("Seeded database: General Collection (id=1)")
+    except Exception as e:
+        print(f"Error seeding General Collection: {e}")
+
+    # Add collection_id and exclude_from_general to fetched_pages if missing
     if "fetched_pages" in db.table_names():
         columns = db["fetched_pages"].columns_dict
         if "collection_id" not in columns:
@@ -195,6 +232,83 @@ def init_db(db: sqlite_utils.Database) -> None:
                 print("Schema Migration: Added 'collection_id' column to fetched_pages table.")
             except Exception as e:
                 print(f"Error migrating database (adding collection_id column): {e}")
+        if "exclude_from_general" not in columns:
+            try:
+                db["fetched_pages"].add_column("exclude_from_general", int)
+                # default existing records to 0
+                db.execute("UPDATE fetched_pages SET exclude_from_general = 0 WHERE exclude_from_general IS NULL")
+                print("Schema Migration: Added 'exclude_from_general' column to fetched_pages table.")
+            except Exception as e:
+                print(f"Error migrating database (adding exclude_from_general column): {e}")
+
+    # Initialize collection_items table
+    if "collection_items" not in db.table_names():
+        try:
+            db["collection_items"].create(
+                {
+                    "id": int,
+                    "collection_id": int,
+                    "source_type": str,  # "articles" or "videos"
+                    "source_id": str,    # URL
+                    "item_note": str,
+                    "taxonomy_path": str,
+                    "item_order": int,   # Order index for custom sorting
+                    "added_at": str,
+                },
+                pk="id",
+                foreign_keys=[("collection_id", "collections", "id")],
+            )
+            # Create unique index to avoid duplicates
+            db["collection_items"].create_index(["collection_id", "source_type", "source_id"], unique=True)
+            print("Initialized database table: collection_items")
+        except Exception as e:
+            print(f"Error creating collection_items table: {e}")
+    else:
+        # Schema migration helper for existing databases
+        columns = db["collection_items"].columns_dict
+        if "item_order" not in columns:
+            try:
+                db["collection_items"].add_column("item_order", int)
+                print("Schema Migration: Added 'item_order' column to collection_items table.")
+            except Exception as e:
+                print(f"Error migrating database (adding item_order column): {e}")
+
+    # Initialize chunk_embeddings table
+    if "chunk_embeddings" not in db.table_names():
+        try:
+            db["chunk_embeddings"].create(
+                {
+                    "id": int,
+                    "source_type": str,
+                    "source_id": str,
+                    "source_title": str,
+                    "chunk_number": int,
+                    "chunk_content": str,
+                    "chunk_vector": str,  # JSON list of floats
+                    "created_at": str,
+                },
+                pk="id",
+            )
+            db["chunk_embeddings"].create_index(["source_type", "source_id", "chunk_number"])
+            print("Initialized database table: chunk_embeddings")
+        except Exception as e:
+            print(f"Error creating chunk_embeddings table: {e}")
+
+    # Initialize video_embeddings table
+    if "video_embeddings" not in db.table_names():
+        try:
+            db["video_embeddings"].create(
+                {
+                    "url": str,
+                    "embedding": str,  # JSON-encoded list[float]
+                    "updated_at": str,
+                },
+                pk="url",
+                foreign_keys=[("url", "fetched_pages", "url")],
+            )
+            print("Initialized database table: video_embeddings")
+        except Exception as e:
+            print(f"Error creating video_embeddings table: {e}")
 
     # Initialize cron_jobs table
     if "cron_jobs" not in db.table_names():

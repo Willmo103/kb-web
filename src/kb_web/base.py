@@ -25,10 +25,12 @@ SESSION_EXPIRATION_SECONDS = 3600 * 24  # 24 hours
 
 _local = threading.local()
 _init_lock = threading.Lock()
+_db_initialized = False
 
 
 def _get_db() -> sqlite_utils.Database:
     """Helper dependency to retrieve a clean database handle."""
+    global _db_initialized
     db_path = config.db_path
     db = getattr(_local, "db", None)
     db_path_cached = getattr(_local, "db_path", None)
@@ -37,8 +39,11 @@ def _get_db() -> sqlite_utils.Database:
 
         conn = sqlite3.connect(db_path, timeout=30.0, check_same_thread=False)
         db = sqlite_utils.Database(conn)
-        with _init_lock:
-            init_db(db)
+        if not _db_initialized:
+            with _init_lock:
+                if not _db_initialized:
+                    init_db(db)
+                    _db_initialized = True
         _local.db = db
         _local.db_path = db_path
     return db

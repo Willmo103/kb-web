@@ -1,13 +1,18 @@
 """
-FastAPI Router for Collections CRUD and AI-suggested groupings in kb-web.
+FastAPI Router for Collections CRUD, AI-suggested groupings, and Qdrant sync in kb-web.
 """
 
 import json
+import time
+import os
+import re
+import uuid
+import httpx
 from datetime import datetime
 from typing import Optional
 from urllib.parse import quote_plus
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 
 from ..base import (
     config,
@@ -19,9 +24,167 @@ from ..base import (
     verify_auth,
 )
 from ..models import HTMLPage
+from ..utils import generate_gemma_embeddings_for_page
 
 router = APIRouter()
 
+
+# --- Qdrant Sync & Offline Queue Utilities ---
+
+def save_sync_locally(col_name: str, points: list[dict]) -> None:
+    offline_dir = config.configs_dir.parent / "qdrant_offline"
+    offline_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{col_name}_{int(time.time())}.json"
+    filepath = offline_dir / filename
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump({"collection_name": col_name, "points": points}, f, indent=4)
+    print(f"Saved Qdrant sync locally: {filepath}")
+
+
+def flush_local_syncs(qdrant_url: str, headers: dict) -> None:
+    offline_dir = config.configs_dir.parent / "qdrant_offline"
+    if not offline_dir.exists():
+        return
+    import glob
+    files = glob.glob(str(offline_dir / "*.json"))
+    if not files:
+        return
+        
+    with httpx.Client(timeout=15.0) as client:
+        for filepath in files:
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                col_name = data["collection_name"]
+                points = data["points"]
+                vector_size = len(points[0]["vector"]) if points else 768
+                
+                # Check/create collection
+                res = client.get(f"{qdrant_url}/collections/{col_name}", headers=headers)
+                if res.status_code == 404:
+                    client.put(f"{qdrant_url}/collections/{col_name}", headers=headers, json={
+                        "vectors": {
+                            "size": vector_size,
+                            "distance": "Cosine"
+                        }
+                    }).raise_for_status()
+                    
+                # Upload points
+                batch_size = 100
+                for i in range(0, len(points), batch_size):
+                    batch = points[i:i+batch_size]
+                    client.put(f"{qdrant_url}/collections/{col_name}/points", headers=headers, json={
+                        "points": batch
+                    }).raise_for_status()
+                    
+                # Delete successfully flushed file
+                os.remove(filepath)
+                print(f"Successfully flushed offline sync file: {filepath}")
+            except Exception as e:
+                print(f"Failed to flush offline sync file {filepath}: {e}")
+
+
+def sync_collection_to_qdrant(db, collection_id: int) -> tuple[bool, str]:
+    qdrant_url = config.qdrant_host_url
+    qdrant_key = config.qdrant_api_key
+    
+    if not qdrant_url:
+        return False, "Qdrant Host URL is not configured."
+        
+    try:
+        collection = db["collections"].get(collection_id)
+    except Exception:
+        return False, "Collection not found."
+        
+    col_name = re.sub(r'[^a-zA-Z0-9_-]', '_', collection["title"]).lower()
+    
+    # Gather points
+    items = list(db["collection_items"].rows_where("collection_id = ?", [collection_id]))
+    
+    points = []
+    for item in items:
+        source_type = item["source_type"]
+        source_id = item["source_id"]
+        
+        # Get chunk embeddings
+        chunks = list(db["chunk_embeddings"].rows_where("source_type = ? AND source_id = ?", [source_type, source_id]))
+        item_note = item.get("item_note") or ""
+        taxonomy_path = item.get("taxonomy_path") or ""
+        
+        for chunk in chunks:
+            chunk_num = chunk["chunk_number"]
+            try:
+                vector = json.loads(chunk["chunk_vector"])
+            except Exception:
+                continue
+                
+            pt_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source_type}:{source_id}:{chunk_num}"))
+            
+            payload = {
+                "source_type": source_type,
+                "source_id": source_id,
+                "source_title": chunk.get("source_title") or source_id,
+                "chunk_number": chunk_num,
+                "chunk_content": chunk.get("chunk_content") or "",
+                "created_at": chunk.get("created_at") or datetime.now().isoformat(),
+                "item_note": item_note,
+                "taxonomy_path": taxonomy_path
+            }
+            
+            points.append({
+                "id": pt_id,
+                "vector": vector,
+                "payload": payload
+            })
+            
+    if not points:
+        return True, "Collection is empty. Nothing to sync."
+        
+    vector_size = len(points[0]["vector"])
+        
+    headers = {}
+    if qdrant_key:
+        headers["api-key"] = qdrant_key
+        
+    client_timeout = httpx.Timeout(15.0)
+    with httpx.Client(timeout=client_timeout) as client:
+        try:
+            res = client.get(f"{qdrant_url}/collections/{col_name}", headers=headers)
+            if res.status_code == 404:
+                create_res = client.put(f"{qdrant_url}/collections/{col_name}", headers=headers, json={
+                    "vectors": {
+                        "size": vector_size,
+                        "distance": "Cosine"
+                    }
+                })
+                create_res.raise_for_status()
+            elif res.status_code != 200:
+                res.raise_for_status()
+        except Exception as conn_err:
+            save_sync_locally(col_name, points)
+            return False, f"Qdrant connection error. Saved sync locally. Details: {conn_err}"
+            
+        try:
+            batch_size = 100
+            for i in range(0, len(points), batch_size):
+                batch = points[i:i+batch_size]
+                upsert_res = client.put(f"{qdrant_url}/collections/{col_name}/points", headers=headers, json={
+                    "points": batch
+                })
+                upsert_res.raise_for_status()
+        except Exception as upsert_err:
+            save_sync_locally(col_name, points)
+            return False, f"Qdrant point upload failed. Saved sync locally. Details: {upsert_err}"
+            
+    try:
+        flush_local_syncs(qdrant_url, headers)
+    except Exception as flush_err:
+        print(f"Warning: Failed to flush local syncs: {flush_err}")
+        
+    return True, f"Successfully synced {len(points)} points to Qdrant collection '{col_name}'."
+
+
+# --- Endpoints ---
 
 @router.get("/collections", response_class=HTMLResponse)
 def list_collections(request: Request) -> HTMLResponse:
@@ -30,46 +193,68 @@ def list_collections(request: Request) -> HTMLResponse:
     collections_list = []
     ungrouped_pages = []
 
+    token = request.cookies.get(COOKIE_NAME)
+    is_admin = bool(token and verify_session_token(token))
+
     if "collections" in db.table_names():
         try:
-            # Get all collections with page count
+            # Get all collections with page count from many-to-many table
             collections_list = list(db.execute_returning_dicts(
                 """
-                SELECT c.*, COUNT(f.url) as pages_count
+                SELECT c.*, COUNT(ci.id) as pages_count
                 FROM collections c
-                LEFT JOIN fetched_pages f ON c.id = f.collection_id
+                LEFT JOIN collection_items ci ON c.id = ci.collection_id
                 GROUP BY c.id
                 ORDER BY c.title ASC
                 """
             ))
+            
+            # Filter out private collections for non-admin users
+            if not is_admin:
+                collections_list = [c for c in collections_list if c.get("visibility") != "private"]
         except Exception as e:
             print(f"Error fetching collections: {e}")
 
     if "fetched_pages" in db.table_names():
         try:
-            # Get all pages without a collection
+            # Get pages not assigned to any collection except possibly General Collection (id=1)
             rows = db.execute_returning_dicts(
-                "SELECT * FROM fetched_pages WHERE collection_id IS NULL ORDER BY ROWID DESC"
+                """
+                SELECT * FROM fetched_pages 
+                WHERE url NOT IN (
+                    SELECT source_id FROM collection_items WHERE collection_id != 1
+                )
+                ORDER BY ROWID DESC
+                """
             )
             ungrouped_pages = [HTMLPage(**r) for r in rows]
         except Exception as e:
             print(f"Error fetching ungrouped pages: {e}")
 
-    token = request.cookies.get(COOKIE_NAME)
-    is_admin = bool(token and verify_session_token(token))
+    # Fetch all pages to populate dropdowns in collections management panel
+    all_pages_list = []
+    if is_admin and "fetched_pages" in db.table_names():
+        try:
+            all_pages_list = [HTMLPage(**r) for r in db["fetched_pages"].rows]
+        except Exception:
+            pass
 
     template = _jinja_env.get_template("collections.j2.html")
     return HTMLResponse(
         content=template.render(
             collections=collections_list,
             ungrouped_pages=ungrouped_pages,
+            all_pages=all_pages_list,
             is_admin=is_admin,
         )
     )
 
 
 @router.post("/collections/create", dependencies=[Depends(verify_auth)])
-def create_collection(title: str = Form(...)) -> RedirectResponse:
+def create_collection(
+    title: str = Form(...),
+    visibility: str = Form("public")
+) -> RedirectResponse:
     """Creates a new collection in the database."""
     db = _get_db()
     title_clean = title.strip()
@@ -79,6 +264,10 @@ def create_collection(title: str = Form(...)) -> RedirectResponse:
     try:
         db["collections"].insert({
             "title": title_clean,
+            "visibility": visibility,
+            "rag_system_prompt": "",
+            "taxonomy_system_prompt": "",
+            "general_system_context": "{}",
             "created_at": datetime.now().isoformat()
         })
     except Exception as e:
@@ -96,41 +285,169 @@ def view_collection(request: Request, collection_id: int) -> HTMLResponse:
     except Exception:
         raise HTTPException(status_code=404, detail="Collection not found.")
 
+    token = request.cookies.get(COOKIE_NAME)
+    is_admin = bool(token and verify_session_token(token))
+
+    if not is_admin and collection.get("visibility") == "private":
+        raise HTTPException(status_code=403, detail="Unauthorized: This is a private collection.")
+
     pages = []
-    if "fetched_pages" in db.table_names():
+    if "fetched_pages" in db.table_names() and "collection_items" in db.table_names():
         try:
+            # Query pages joined with collection_items order
             rows = db.execute_returning_dicts(
-                "SELECT * FROM fetched_pages WHERE collection_id = ? ORDER BY ROWID DESC",
+                """
+                SELECT f.*, ci.item_note, ci.taxonomy_path, ci.item_order
+                FROM fetched_pages f
+                JOIN collection_items ci ON f.url = ci.source_id
+                WHERE ci.collection_id = ?
+                ORDER BY ci.item_order ASC, ci.id DESC
+                """,
                 [collection_id]
             )
             pages = [HTMLPage(**r) for r in rows]
         except Exception as e:
             print(f"Failed to fetch collection pages: {e}")
 
-    token = request.cookies.get(COOKIE_NAME)
-    is_admin = bool(token and verify_session_token(token))
+    # Fetch all pages list for additions dropdown
+    all_pages_list = []
+    if is_admin and "fetched_pages" in db.table_names():
+        try:
+            all_pages_list = [HTMLPage(**r) for r in db["fetched_pages"].rows]
+        except Exception:
+            pass
 
     template = _jinja_env.get_template("view_collection.j2.html")
     return HTMLResponse(
         content=template.render(
             collection=collection,
             pages=pages,
+            all_pages=all_pages_list,
             is_admin=is_admin,
         )
     )
 
 
-@router.post("/admin/pages/update-collection", dependencies=[Depends(verify_auth)])
-def update_page_collection(
-    url: str = Form(...),
-    collection_id: Optional[int] = Form(None)
-) -> RedirectResponse:
-    """Assigns or updates the collection classification for an ingested page."""
+@router.post("/collections/view/{collection_id}/save-items", dependencies=[Depends(verify_auth)])
+def save_collection_items(
+    collection_id: int,
+    urls_json: str = Form(...)
+) -> JSONResponse:
+    """Saves the exact set and ordered sequence of items inside a collection."""
     db = _get_db()
     try:
-        # If collection_id is empty, it means "none" (remove from collection)
-        val = int(collection_id) if collection_id else None
-        db["fetched_pages"].update(url, {"collection_id": val})
+        urls = json.loads(urls_json)
+        
+        # Clear existing items
+        db["collection_items"].delete_where("collection_id = ?", [collection_id])
+        db.conn.commit()
+        
+        # Insert items with reordered position
+        for idx, url in enumerate(urls):
+            # Check page type
+            is_video = False
+            if "youtube_videos" in db.table_names():
+                try:
+                    if db["youtube_videos"].get(url):
+                        is_video = True
+                except Exception:
+                    pass
+            source_type = "videos" if is_video else "articles"
+            
+            db["collection_items"].insert({
+                "collection_id": collection_id,
+                "source_type": source_type,
+                "source_id": url,
+                "item_note": "",
+                "taxonomy_path": "",
+                "item_order": idx,
+                "added_at": datetime.now().isoformat()
+            })
+            
+        return JSONResponse(content={"status": "success", "message": f"Successfully updated {len(urls)} collection items."})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
+@router.post("/collections/view/{collection_id}/save-settings", dependencies=[Depends(verify_auth)])
+def save_collection_settings(
+    collection_id: int,
+    visibility: str = Form("public"),
+    rag_system_prompt: str = Form(""),
+    taxonomy_system_prompt: str = Form(""),
+    general_system_context: str = Form("{}"),
+) -> RedirectResponse:
+    """Updates visibility and agent configuration settings for a collection."""
+    db = _get_db()
+    try:
+        db["collections"].update(collection_id, {
+            "visibility": visibility,
+            "rag_system_prompt": rag_system_prompt,
+            "taxonomy_system_prompt": taxonomy_system_prompt,
+            "general_system_context": general_system_context,
+        })
+    except Exception as e:
+        print(f"Failed to save collection settings: {e}")
+    return RedirectResponse(url=f"/collections/view/{collection_id}", status_code=303)
+
+
+@router.post("/collections/view/{collection_id}/sync", dependencies=[Depends(verify_auth)])
+def sync_collection_endpoint(collection_id: int) -> JSONResponse:
+    """Endpoint to trigger collection point synchronization to Qdrant."""
+    db = _get_db()
+    success, msg = sync_collection_to_qdrant(db, collection_id)
+    if success:
+        return JSONResponse(content={"status": "success", "message": msg})
+    return JSONResponse(status_code=500, content={"status": "error", "message": msg})
+
+
+@router.post("/admin/pages/update-collection", dependencies=[Depends(verify_auth)])
+async def update_page_collection(
+    request: Request,
+    url: str = Form(...),
+    collection_id: Optional[str] = Form(None)
+) -> RedirectResponse:
+    """Assigns or updates the collection classification for an ingested page (supports multi-select)."""
+    db = _get_db()
+    try:
+        form_data = await request.form()
+        collection_ids = form_data.getlist("collection_ids")
+        
+        # Fallback to single collection_id if collection_ids is empty
+        if not collection_ids and collection_id:
+            collection_ids = [collection_id]
+            
+        # Delete existing items for this source ID except General Collection (id=1)
+        db["collection_items"].delete_where("source_id = ? AND collection_id != 1", [url])
+        db.conn.commit()
+        
+        # Check type
+        is_video = False
+        if "youtube_videos" in db.table_names():
+            try:
+                if db["youtube_videos"].get(url):
+                    is_video = True
+            except Exception:
+                pass
+        source_type = "videos" if is_video else "articles"
+        
+        for cid in collection_ids:
+            if not cid:
+                continue
+            val = int(cid)
+            try:
+                db["collection_items"].insert({
+                    "collection_id": val,
+                    "source_type": source_type,
+                    "source_id": url,
+                    "item_note": "",
+                    "taxonomy_path": "",
+                    "item_order": 9999,
+                    "added_at": datetime.now().isoformat()
+                })
+            except Exception:
+                pass # Already exists
+            
     except Exception as e:
         print(f"Failed to update page collection: {e}")
 
@@ -142,14 +459,186 @@ def remove_page_from_collection(
     url: str = Form(...),
     redirect_to: str = Form("/collections")
 ) -> RedirectResponse:
-    """Removes a page from its collection classification (sets collection_id to null)."""
+    """Removes a page from its collection classification in the many-to-many relationship."""
     db = _get_db()
     try:
-        db["fetched_pages"].update(url, {"collection_id": None})
+        # If redirected to a view_collection, we parse the ID and remove it specifically
+        collection_id = None
+        match = re.search(r"/collections/view/(\d+)", redirect_to)
+        if match:
+            collection_id = int(match.group(1))
+            
+        if collection_id:
+            db["collection_items"].delete_where("collection_id = ? AND source_id = ?", [collection_id, url])
+        else:
+            db["collection_items"].delete_where("source_id = ? AND collection_id != 1", [url])
+        db.conn.commit()
     except Exception as e:
         print(f"Failed to remove page from collection: {e}")
 
     return RedirectResponse(url=redirect_to, status_code=303)
+
+
+@router.get("/admin/collections/populate-general", dependencies=[Depends(verify_auth)])
+def populate_general_collection_stream() -> StreamingResponse:
+    """Streams the bulk migration populator that seeds each document into the General Collection."""
+    async def populate_stream():
+        yield """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>General Collection Seed Process</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Outfit', sans-serif; background-color: #F4EFEA; }
+    </style>
+</head>
+<body class="text-gray-850 min-h-screen antialiased flex flex-col justify-center items-center">
+    <div class="w-full max-w-xl bg-white p-8 rounded-xl border border-gray-200 shadow-lg mx-4">
+        <h1 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <span>⚙️</span> Seed General Collection (id=1)
+        </h1>
+        <p class="text-sm text-gray-500 mb-6" id="status-text">Scanning database pages...</p>
+        
+        <div class="w-full bg-gray-200 rounded-full h-3 mb-6 overflow-hidden">
+            <div id="progress-bar" class="bg-indigo-600 h-3 rounded-full transition-all duration-200" style="width: 0%"></div>
+        </div>
+        
+        <div class="bg-gray-950 text-gray-200 font-mono text-xs p-4 rounded-lg h-64 overflow-y-auto space-y-1" id="terminal-logs">
+            <div class="text-gray-500">[SYSTEM] Initialization...</div>
+        </div>
+    </div>
+    <script>
+        const progressBar = document.getElementById('progress-bar');
+        const statusText = document.getElementById('status-text');
+        const terminalLogs = document.getElementById('terminal-logs');
+        
+        function updateProgress(message, percentage) {
+            statusText.innerText = message;
+            progressBar.style.width = percentage + '%';
+            addLog(message);
+        }
+        
+        function addLog(text) {
+            const div = document.createElement('div');
+            div.innerText = "[" + new Date().toLocaleTimeString() + "] " + text;
+            terminalLogs.appendChild(div);
+            terminalLogs.scrollTop = terminalLogs.scrollHeight;
+        }
+    </script>
+"""
+        db = _get_db()
+        client = _get_ollama_client()
+        
+        if "fetched_pages" not in db.table_names():
+            yield "<script>updateProgress('Error: fetched_pages table not found!', 100);</script>\n"
+            return
+            
+        pages = list(db["fetched_pages"].rows)
+        total_pages = len(pages)
+        yield f"<script>addLog('Found {total_pages} total pages to process.');</script>\n"
+        
+        for idx, page in enumerate(pages):
+            url = page["url"]
+            title = page.get("title") or url
+            desc = page.get("description") or ""
+            tags_json = page.get("tags") or "[]"
+            
+            # Check if it should be excluded from General Collection
+            exclude = bool(page.get("exclude_from_general"))
+            if exclude:
+                yield f"<script>addLog('Excluding: {title} (exclude_from_general is set)');</script>\n"
+                continue
+                
+            # Check if it already exists in general_collection
+            is_present = False
+            try:
+                if list(db["collection_items"].rows_where("collection_id = 1 AND source_id = ?", [url])):
+                    is_present = True
+            except Exception:
+                pass
+                
+            if is_present:
+                percentage = int(((idx + 1) / total_pages) * 100)
+                yield f"<script>updateProgress('Skipping {title[:35]}... (Already in General Collection)', {percentage});</script>\n"
+                continue
+                
+            # Ask agent for parameters: <taxonomical/path/in/general/collection> <collection_action_note>
+            # Prompt instructions for Ollama format
+            system_instructions = (
+                "You are an expert taxonomist. Categorize the document into a virtual filetree system "
+                "representing the General Collection of all knowledge. "
+                "Output ONLY a valid JSON object matching the format: "
+                '{"taxonomy_path": "/Folder/Subfolder/Filename.md", "action_note": "A short, 1-sentence description of what this note contains."}'
+            )
+            
+            user_msg = f"URL: {url}\nTitle: {title}\nDescription: {desc}\nTags: {tags_json}"
+            
+            taxonomy_path = f"/uncategorized/{title[:20].replace(' ', '_')}.md"
+            action_note = "Imported to General Collection."
+            
+            try:
+                resp = client.chat(
+                    model=config.ollama_model,
+                    messages=[
+                        {"role": "system", "content": system_instructions},
+                        {"role": "user", "content": user_msg}
+                    ],
+                    format="json",
+                    think=False
+                )
+                args = json.loads(resp.message.content)
+                taxonomy_path = args.get("taxonomy_path", taxonomy_path)
+                action_note = args.get("action_note", action_note)
+            except Exception as llm_err:
+                # Fallback on failure
+                yield f"<script>addLog('Warning: Ollama prompt failed, using default paths: {llm_err}');</script>\n"
+            
+            # Create collection_items row
+            is_video = False
+            if "youtube_videos" in db.table_names():
+                try:
+                    if db["youtube_videos"].get(url):
+                        is_video = True
+                except Exception:
+                    pass
+            source_type = "videos" if is_video else "articles"
+            
+            try:
+                db["collection_items"].insert({
+                    "collection_id": 1,
+                    "source_type": source_type,
+                    "source_id": url,
+                    "item_note": f"# {title}\n\n{action_note}",
+                    "taxonomy_path": taxonomy_path,
+                    "item_order": idx,
+                    "added_at": datetime.now().isoformat()
+                })
+                
+                # Create collection_actions row
+                db["collection_actions"].insert({
+                    "collection_id": 1,
+                    "action_type": "add_item",
+                    "source_type": source_type,
+                    "source_id": url,
+                    "note": action_note,
+                    "created_at": datetime.now().isoformat()
+                })
+                
+                # Make sure Gemma embeddings exist for this url
+                generate_gemma_embeddings_for_page(db, url, config, client)
+                
+            except Exception as db_err:
+                yield f"<script>addLog('DB Error writing {title[:35]}: {db_err}');</script>\n"
+                
+            percentage = int(((idx + 1) / total_pages) * 100)
+            yield f"<script>updateProgress('Processed: {title[:30]} -> {taxonomy_path}', {percentage});</script>\n"
+            
+        yield "<script>updateProgress('General Collection Seed Complete!', 100); setTimeout(() => { window.location.href = '/collections'; }, 1500);</script>\n"
+
+    return StreamingResponse(populate_stream(), media_type="text/html")
 
 
 @router.post("/admin/collections/suggest", dependencies=[Depends(verify_auth)])
@@ -159,15 +648,20 @@ def suggest_collections() -> JSONResponse:
     if "fetched_pages" not in db.table_names():
         return JSONResponse(content={"suggestions": []})
 
-    # Fetch all ungrouped pages
+    # Fetch all pages not in any collection except General
     rows = list(db.execute_returning_dicts(
-        "SELECT url, title FROM fetched_pages WHERE collection_id IS NULL AND title IS NOT NULL"
+        """
+        SELECT url, title FROM fetched_pages 
+        WHERE url NOT IN (
+            SELECT source_id FROM collection_items WHERE collection_id != 1
+        )
+        AND title IS NOT NULL
+        """
     ))
     
     if not rows:
         return JSONResponse(content={"suggestions": [], "message": "No ungrouped pages available."})
 
-    # Map titles to URLs
     title_to_url = {r["title"]: r["url"] for r in rows}
     titles = list(title_to_url.keys())
 
@@ -196,7 +690,6 @@ def suggest_collections() -> JSONResponse:
         )
         raw_text = response.message.content.strip()
         
-        # Clean potential markdown wrapping
         if raw_text.startswith("```"):
             lines = raw_text.splitlines()
             if lines[0].startswith("```"):
@@ -205,15 +698,12 @@ def suggest_collections() -> JSONResponse:
                 lines = lines[:-1]
             raw_text = "\n".join(lines).strip()
             
-        # Extract only the JSON object if there's any surrounding text
-        import re
         json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
         if json_match:
             raw_text = json_match.group(0)
 
         suggestions_data = json.loads(raw_text)
         
-        # Convert matches back to URLs for the frontend
         formatted_suggestions = []
         for sug in suggestions_data.get("suggestions", []):
             sug_title = sug.get("title", "Unnamed Suggestion")
@@ -256,15 +746,36 @@ def accept_suggestion(
     try:
         collection_id = db["collections"].insert({
             "title": title_clean,
+            "visibility": "public",
+            "rag_system_prompt": "",
+            "taxonomy_system_prompt": "",
+            "general_system_context": "{}",
             "created_at": datetime.now().isoformat()
         }).last_rowid
 
         urls = json.loads(urls_json)
         for url in urls:
-            db["fetched_pages"].update(url, {"collection_id": collection_id})
+            is_video = False
+            if "youtube_videos" in db.table_names():
+                try:
+                    if db["youtube_videos"].get(url):
+                        is_video = True
+                except Exception:
+                    pass
+            source_type = "videos" if is_video else "articles"
+            
+            db["collection_items"].insert({
+                "collection_id": collection_id,
+                "source_type": source_type,
+                "source_id": url,
+                "item_note": "",
+                "taxonomy_path": "",
+                "item_order": 9999,
+                "added_at": datetime.now().isoformat()
+            })
+            
         print(f"AI Suggestion: Created collection '{title_clean}' and assigned {len(urls)} pages.")
     except Exception as e:
         print(f"Failed to create collection from AI suggestion: {e}")
 
     return RedirectResponse(url="/collections", status_code=303)
-
