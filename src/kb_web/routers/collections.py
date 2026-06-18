@@ -692,7 +692,16 @@ def populate_general_collection_stream() -> StreamingResponse:
             
         yield "<script>updateProgress('General Collection Seed Complete!', 100); setTimeout(() => { window.location.href = '/collections'; }, 1500);</script>\n"
 
-    return StreamingResponse(populate_stream(), media_type="text/html")
+    return StreamingResponse(
+        populate_stream(),
+        media_type="text/html",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 
 @router.post("/admin/collections/suggest", dependencies=[Depends(verify_auth)])

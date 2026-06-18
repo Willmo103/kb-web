@@ -192,12 +192,14 @@ def handle_url_import(
         client = _get_ollama_client()
 
         # Step 1: Fetch
-        yield f"<script>updateProgress('Fetching content from URL: {cleaned_url}...', 20);</script>\n"
+        msg = f"Fetching content from URL: {cleaned_url}..."
+        yield f"<script>updateProgress({json.dumps(msg)}, 20);</script>\n"
         try:
             page_data = fetch_url(cleaned_url)
             yield "<script>addLog('Successfully fetched target URL content.');</script>\n"
         except Exception as e:
-            yield f"<script>showError('Fetch failed: {str(e)}');</script>\n"
+            err_msg = f"Fetch failed: {str(e)}"
+            yield f"<script>showError({json.dumps(err_msg)});</script>\n"
             return
 
         # Step 2: Rewrite Wiki
@@ -207,7 +209,8 @@ def handle_url_import(
             page_data.description = wiki_entry
             yield "<script>addLog('Ollama wiki entry generated successfully.');</script>\n"
         except Exception as e:
-            yield f"<script>showError('Ollama wiki generation failed: {str(e)}');</script>\n"
+            err_msg = f"Ollama wiki generation failed: {str(e)}"
+            yield f"<script>showError({json.dumps(err_msg)});</script>\n"
             return
 
         # Step 3: Extract Title
@@ -228,9 +231,11 @@ def handle_url_import(
         try:
             tags = extract_tags_content(page_data, config, client)
             page_data.tags = tags
-            yield f"<script>addLog('Tags extracted: {tags}');</script>\n"
+            log_msg = f"Tags extracted: {tags}"
+            yield f"<script>addLog({json.dumps(log_msg)});</script>\n"
         except Exception as e:
-            yield f"<script>addLog('Failed to extract tags: {str(e)}');</script>\n"
+            err_msg = f"Failed to extract tags: {str(e)}"
+            yield f"<script>addLog({json.dumps(err_msg)});</script>\n"
 
         # Step 5: Embeddings & Database Ops
         yield "<script>updateProgress('Generating embeddings and committing database changes...', 90);</script>\n"
@@ -247,6 +252,7 @@ def handle_url_import(
             
             # Generate new embeddinggemma chunk embeddings and description embedding
             generate_gemma_embeddings_for_page(db, page_data.url, config, client)
+            db.conn.commit()
             
             # Post to Gotify
             post_to_gotify(config, _jinja_env, page_data, view_url)
@@ -254,10 +260,20 @@ def handle_url_import(
             yield "<script>addLog('Successfully updated database records and embeddings.');</script>\n"
             yield f"<script>updateProgress('Done!', 100); setTimeout(() => {{ window.location.href = '{view_url}'; }}, 1000);</script>\n"
         except Exception as e:
-            yield f"<script>showError('Database sync/embedding failed: {str(e)}');</script>\n"
+            err_msg = f"Database sync/embedding failed: {str(e)}"
+            yield f"<script>showError({json.dumps(err_msg)});</script>\n"
             return
             
-    return StreamingResponse(stream_ingestion(), media_type="text/html")
+    return StreamingResponse(
+        stream_ingestion(),
+        media_type="text/html",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )
 
 
 @router.get("/admin", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
