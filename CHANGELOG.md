@@ -18,10 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated collections creation and suggestion accept endpoints to define fallback defaults for RAG and Taxonomy system prompts.
 - Compiled and passed the existing virtual taxonomy tree to the taxonomist agent.
 - Forced all Ollama chat/completions calls to use `think=False` to prevent thinking latency.
+- Removed the background Cron tasks scheduler execution and cron manager endpoints and pages.
 
 ### Fixed
 - Committed transactions in `init_db` migrations and collections seeding to prevent SQLite database locked errors.
 - Resolved Unicode encoding failures when printing warnings/symbols on Windows platforms.
+- Escaped title and taxonomy variables in populator stream script yields via `json.dumps` to prevent JS SyntaxError crashes.
 
 ## [0.1.24] - 2026-06-16
 ### Added

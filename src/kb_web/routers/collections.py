@@ -590,11 +590,11 @@ def populate_general_collection_stream() -> StreamingResponse:
             title = page.get("title") or url
             desc = page.get("description") or ""
             tags_json = page.get("tags") or "[]"
-            
-            # Check if it should be excluded from General Collection
+                      # Check if it should be excluded from General Collection
             exclude = bool(page.get("exclude_from_general"))
             if exclude:
-                yield f"<script>addLog('Excluding: {title} (exclude_from_general is set)');</script>\n"
+                log_msg = f"Excluding: {title} (exclude_from_general is set)"
+                yield f"<script>addLog({json.dumps(log_msg)});</script>\n"
                 continue
                 
             # Check if it already exists in general_collection
@@ -607,7 +607,8 @@ def populate_general_collection_stream() -> StreamingResponse:
                 
             if is_present:
                 percentage = int(((idx + 1) / total_pages) * 100)
-                yield f"<script>updateProgress('Skipping {title[:35]}... (Already in General Collection)', {percentage});</script>\n"
+                skip_msg = f"Skipping {title[:35]}... (Already in General Collection)"
+                yield f"<script>updateProgress({json.dumps(skip_msg)}, {percentage});</script>\n"
                 continue
                 
             # Ask agent for parameters: <taxonomical/path/in/general/collection> <collection_action_note>
@@ -643,7 +644,8 @@ def populate_general_collection_stream() -> StreamingResponse:
                 action_note = args.get("action_note", action_note)
             except Exception as llm_err:
                 # Fallback on failure
-                yield f"<script>addLog('Warning: Ollama prompt failed, using default paths: {llm_err}');</script>\n"
+                warn_msg = f"Warning: Ollama prompt failed, using default paths: {llm_err}"
+                yield f"<script>addLog({json.dumps(warn_msg)});</script>\n"
             
             # Create collection_items row
             is_video = False
@@ -681,10 +683,12 @@ def populate_general_collection_stream() -> StreamingResponse:
                 db.conn.commit()
                 
             except Exception as db_err:
-                yield f"<script>addLog('DB Error writing {title[:35]}: {db_err}');</script>\n"
+                err_msg = f"DB Error writing {title[:35]}: {db_err}"
+                yield f"<script>addLog({json.dumps(err_msg)});</script>\n"
                 
             percentage = int(((idx + 1) / total_pages) * 100)
-            yield f"<script>updateProgress('Processed: {title[:30]} -> {taxonomy_path}', {percentage});</script>\n"
+            proc_msg = f"Processed: {title[:30]} -> {taxonomy_path}"
+            yield f"<script>updateProgress({json.dumps(proc_msg)}, {percentage});</script>\n"
             
         yield "<script>updateProgress('General Collection Seed Complete!', 100); setTimeout(() => { window.location.href = '/collections'; }, 1500);</script>\n"
 
