@@ -49,9 +49,143 @@ def _get_db() -> sqlite_utils.Database:
     return db
 
 
-def _get_ollama_client() -> ollama.Client:
+class LoggedOllamaClient:
+    """A wrapper for ollama.Client that logs call details, duration, and responses/errors
+    to the SQLite database table `ollama_logs` and enforces a connection timeout.
+    """
+    def __init__(self, host: str, timeout: float = 90.0) -> None:
+        self._client = ollama.Client(host=host, timeout=timeout)
+        self.host = host
+
+    def pull(self, *args, **kwargs):
+        return self._client.pull(*args, **kwargs)
+
+    def push(self, *args, **kwargs):
+        return self._client.push(*args, **kwargs)
+
+    def list(self, *args, **kwargs):
+        return self._client.list(*args, **kwargs)
+
+    def chat(self, *args, **kwargs):
+        import traceback
+
+        # Determine prompt type
+        prompt_type = "chat"
+        messages = kwargs.get("messages", [])
+        for m in messages:
+            if isinstance(m, dict) and m.get("role") == "system":
+                content = str(m.get("content", "")).lower()
+                if "taxonomist" in content or "categorize" in content:
+                    prompt_type = "taxonomy"
+                elif "wiki" in content:
+                    prompt_type = "wiki"
+                elif "taste" in content:
+                    prompt_type = "taste"
+                elif "rag" in content or "context" in content:
+                    prompt_type = "rag"
+
+        model = kwargs.get("model", "")
+        options = {k: v for k, v in kwargs.items() if k not in ("model", "messages")}
+        
+        start_time = time.time()
+        try:
+            resp = self._client.chat(*args, **kwargs)
+            duration = time.time() - start_time
+            
+            # Retrieve content response safely
+            response_content = ""
+            if hasattr(resp, "message") and hasattr(resp.message, "content"):
+                response_content = resp.message.content
+            elif isinstance(resp, dict) and "message" in resp and "content" in resp["message"]:
+                response_content = resp["message"]["content"]
+            else:
+                response_content = str(resp)
+
+            self._log_call(
+                prompt_type=prompt_type,
+                model=model,
+                messages=messages,
+                options=options,
+                response=response_content,
+                duration=duration,
+                status="success"
+            )
+            return resp
+        except Exception as e:
+            duration = time.time() - start_time
+            self._log_call(
+                prompt_type=prompt_type,
+                model=model,
+                messages=messages,
+                options=options,
+                response=f"Error: {e}\n{traceback.format_exc()}",
+                duration=duration,
+                status="failed"
+            )
+            raise e
+
+    def embeddings(self, *args, **kwargs):
+        import traceback
+
+        prompt_type = "embeddings"
+        model = kwargs.get("model", "")
+        prompt = kwargs.get("prompt", "")
+        options = {k: v for k, v in kwargs.items() if k not in ("model", "prompt")}
+        
+        start_time = time.time()
+        try:
+            resp = self._client.embeddings(*args, **kwargs)
+            duration = time.time() - start_time
+            
+            emb_vector = resp.get("embedding", []) if isinstance(resp, dict) else getattr(resp, "embedding", [])
+            response_content = f"Success (vector dim: {len(emb_vector)})"
+            
+            self._log_call(
+                prompt_type=prompt_type,
+                model=model,
+                messages=[{"role": "user", "content": prompt[:200] + "..." if len(prompt) > 200 else prompt}],
+                options=options,
+                response=response_content,
+                duration=duration,
+                status="success"
+            )
+            return resp
+        except Exception as e:
+            duration = time.time() - start_time
+            self._log_call(
+                prompt_type=prompt_type,
+                model=model,
+                messages=[{"role": "user", "content": prompt[:200] + "..." if len(prompt) > 200 else prompt}],
+                options=options,
+                response=f"Error: {e}\n{traceback.format_exc()}",
+                duration=duration,
+                status="failed"
+            )
+            raise e
+
+    def _log_call(self, prompt_type, model, messages, options, response, duration, status) -> None:
+        import json
+        from datetime import datetime
+        try:
+            db = _get_db()
+            db["ollama_logs"].insert({
+                "timestamp": datetime.now().isoformat(),
+                "model": model,
+                "prompt_type": prompt_type,
+                "messages": json.dumps(messages),
+                "options": json.dumps(options),
+                "response": response,
+                "duration": duration,
+                "status": status
+            })
+            db.conn.commit()
+        except Exception as err:
+            print(f"Failed to log Ollama call to database: {err}")
+
+
+def _get_ollama_client() -> LoggedOllamaClient:
     """Helper to dynamically instantiate the Ollama client based on configured host."""
-    return ollama.Client(host=config.ollama_host)
+    return LoggedOllamaClient(host=config.ollama_host)
 
 
 def _get_session_secret() -> bytes:
