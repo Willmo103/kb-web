@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Created `get_general_collection_id` to dynamically resolve or seed the "General Collection" by title instead of hardcoding ID `1`, allowing user-created collections to coexist cleanly.
 - Implemented new unit tests `test_youtube_interception_and_embeddings` and `test_bytes_backup_export_and_import` to verify the ingestion of YouTube videos and robust database backups/restores for BLOB columns.
+- Implemented `LoggedOllamaClient` wrapper for the Ollama client that captures inputs, options, responses, duration, and status (success/failed) and logs them to the new `ollama_logs` database table.
+- Added a 90-second connection/read timeout to all Ollama clients to prevent indefinite pipeline hangs when the local Ollama service stalls in production.
+- Appended `test_ollama_logging_and_observability` unit test to verify successful/failed call logging.
 
 ### Changed
 - Intercept YouTube URL ingestion to scrap transcripts, metadata, and generate Gemma embeddings for programmatic API page/HTML imports.

@@ -1454,6 +1454,86 @@ def test_bytes_backup_export_and_import(client: TestClient) -> None:
     assert imported_row["embedding"] == b"\x80\x81\x82\x83"
 
 
+def test_ollama_logging_and_observability(monkeypatch) -> None:
+    """Verifies that LoggedOllamaClient correctly logs success/failure of calls in the database."""
+    from kb_web.base import _get_ollama_client
+    db = get_db(server_config)
+
+    # Clean existing logs
+    db["ollama_logs"].delete_where()
+    db.conn.commit()
+
+    # 1. Mock underlying ollama.Client.chat
+    class DummyMessage:
+        content = "Wiki summary content"
+
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    called_underlying_chat = []
+    def mock_chat(*args, **kwargs):
+        called_underlying_chat.append(kwargs)
+        return DummyChatResponse()
+
+    # Mock underlying ollama.Client.embeddings
+    called_underlying_embeddings = []
+    def mock_embeddings(*args, **kwargs):
+        called_underlying_embeddings.append(kwargs)
+        return {"embedding": [0.1, 0.2]}
+
+    # Instantiating client uses LoggedOllamaClient
+    logged_client = _get_ollama_client()
+    monkeypatch.setattr(logged_client._client, "chat", mock_chat)
+    monkeypatch.setattr(logged_client._client, "embeddings", mock_embeddings)
+
+    # 2. Trigger chat
+    resp = logged_client.chat(
+        model="gemma",
+        messages=[
+            {"role": "system", "content": "You are a taxonomist expert."},
+            {"role": "user", "content": "categorize this"}
+        ],
+        think=False
+    )
+    assert resp.message.content == "Wiki summary content"
+    assert len(called_underlying_chat) == 1
+
+    # Check DB logs for chat
+    chat_logs = list(db["ollama_logs"].rows_where("prompt_type = 'taxonomy'"))
+    assert len(chat_logs) == 1
+    assert chat_logs[0]["model"] == "gemma"
+    assert "You are a taxonomist expert" in chat_logs[0]["messages"]
+    assert "think" in chat_logs[0]["options"]
+    assert chat_logs[0]["response"] == "Wiki summary content"
+    assert chat_logs[0]["duration"] >= 0.0
+    assert chat_logs[0]["status"] == "success"
+
+    # 3. Trigger embeddings
+    emb_resp = logged_client.embeddings(model="nomic", prompt="Hello World")
+    assert emb_resp["embedding"] == [0.1, 0.2]
+
+    # Check DB logs for embeddings
+    emb_logs = list(db["ollama_logs"].rows_where("prompt_type = 'embeddings'"))
+    assert len(emb_logs) == 1
+    assert emb_logs[0]["model"] == "nomic"
+    assert "Hello World" in emb_logs[0]["messages"]
+    assert emb_logs[0]["response"] == "Success (vector dim: 2)"
+    assert emb_logs[0]["status"] == "success"
+
+    # 4. Trigger failure logging
+    def mock_chat_fail(*args, **kwargs):
+        raise ValueError("Ollama server down")
+    monkeypatch.setattr(logged_client._client, "chat", mock_chat_fail)
+
+    with pytest.raises(ValueError, match="Ollama server down"):
+        logged_client.chat(model="gemma", messages=[{"role": "user", "content": "fail test"}])
+
+    fail_logs = list(db["ollama_logs"].rows_where("status = 'failed'"))
+    assert len(fail_logs) == 1
+    assert "ValueError: Ollama server down" in fail_logs[0]["response"]
+
+
+
 
 
 

@@ -412,6 +412,27 @@ def init_db(db: sqlite_utils.Database) -> None:
         except Exception as e:
             print(f"Error creating cron_job_runs table: {e}")
 
+    # Initialize ollama_logs table
+    if "ollama_logs" not in db.table_names():
+        try:
+            db["ollama_logs"].create(
+                {
+                    "id": int,
+                    "timestamp": str,
+                    "model": str,
+                    "prompt_type": str,
+                    "messages": str,
+                    "options": str,
+                    "response": str,
+                    "duration": float,
+                    "status": str,
+                },
+                pk="id",
+            )
+            print("Initialized database table: ollama_logs")
+        except Exception as e:
+            print(f"Error creating ollama_logs table: {e}")
+
     # Drop legacy active_sessions table if it exists to clean up database schema
     if "active_sessions" in db.table_names():
         try:
