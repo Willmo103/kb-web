@@ -5,14 +5,13 @@ Server entry point for the Knowledge Base Web Importer application.
 import os
 import logging
 import traceback
-import asyncio
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 
-from .base import config, _get_db
-from .cron_scheduler import run_cron_scheduler
+from .base import config
+# from .cron_scheduler import run_cron_scheduler
 from .gotify import post_error_to_gotify
 
 # Setup logging targeting ~/.kb/logs/kb-web.log
@@ -49,17 +48,7 @@ logger = logging.getLogger("kb_web")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start the cron scheduler background task
-    cron_task = asyncio.create_task(run_cron_scheduler(config, _get_db))
-    logger.info("Cron scheduler background task started.")
     yield
-    # Cancel background task on shutdown
-    cron_task.cancel()
-    try:
-        await cron_task
-    except asyncio.CancelledError:
-        pass
-    logger.info("Cron scheduler background task stopped.")
 
 
 # Instantiate core application
@@ -143,7 +132,7 @@ def get_service_worker() -> HTMLResponse:
 
 
 # Import and register routers
-from .routers import auth, pages, sites, admin, api, collections, cron, graph  # noqa: E402
+from .routers import auth, pages, sites, admin, api, collections, graph  # noqa: E402
 
 app.include_router(auth.router)
 app.include_router(pages.router)
@@ -151,7 +140,6 @@ app.include_router(sites.router)
 app.include_router(admin.router)
 app.include_router(api.router)
 app.include_router(collections.router)
-app.include_router(cron.router)
 app.include_router(graph.router)
 
 
