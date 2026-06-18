@@ -196,18 +196,18 @@ def handle_url_import(
         yield f"<script>updateProgress({json.dumps(msg)}, 20);</script>\n"
         try:
             page_data = fetch_url(cleaned_url)
-            yield "<script>addLog('Successfully fetched target URL content.');</script>\n"
+            yield f"<script>addLog({json.dumps('Successfully fetched target URL content.')});</script>\n"
         except Exception as e:
             err_msg = f"Fetch failed: {str(e)}"
             yield f"<script>showError({json.dumps(err_msg)});</script>\n"
             return
 
         # Step 2: Rewrite Wiki
-        yield "<script>updateProgress('Running Ollama prompt extraction pipeline...', 55);</script>\n"
+        yield f"<script>updateProgress({json.dumps('Running Ollama prompt extraction pipeline...')}, 55);</script>\n"
         try:
             wiki_entry = extract_wiki_content(page_data, config, client)
             page_data.description = wiki_entry
-            yield "<script>addLog('Ollama wiki entry generated successfully.');</script>\n"
+            yield f"<script>addLog({json.dumps('Ollama wiki entry generated successfully.')});</script>\n"
         except Exception as e:
             err_msg = f"Ollama wiki generation failed: {str(e)}"
             yield f"<script>showError({json.dumps(err_msg)});</script>\n"
@@ -227,7 +227,7 @@ def handle_url_import(
         page_data.title = title
 
         # Step 4: Extract Tags
-        yield "<script>updateProgress('Extracting category tags via Ollama...', 75);</script>\n"
+        yield f"<script>updateProgress({json.dumps('Extracting category tags via Ollama...')}, 75);</script>\n"
         try:
             tags = extract_tags_content(page_data, config, client)
             page_data.tags = tags
@@ -238,29 +238,41 @@ def handle_url_import(
             yield f"<script>addLog({json.dumps(err_msg)});</script>\n"
 
         # Step 5: Embeddings & Database Ops
-        yield "<script>updateProgress('Generating embeddings and committing database changes...', 90);</script>\n"
+        yield "<script>updateProgress('Saving database records...', 90);</script>\n"
         try:
             base_url = str(request.base_url).rstrip("/")
             view_url = f"{base_url}/view/page?url={page_data.safe_url}"
 
+            yield f"<script>addLog({json.dumps('Serializing page content...')});</script>\n"
             serialized, creator = serialize_page_for_db(page_data)
+            
+            yield f"<script>addLog({json.dumps('Upserting fetched_pages record...')});</script>\n"
             db["fetched_pages"].upsert(serialized, pk="url")
+            db.conn.commit()
+            yield f"<script>addLog({json.dumps('Committed fetched_pages record.')});</script>\n"
+            
+            if creator:
+                yield f"<script>addLog({json.dumps(f'Saving YouTube metadata (creator: {creator})...')});</script>\n"
             save_youtube_metadata_helper(db, page_data.url, creator)
+            db.conn.commit()
             
-            # Generate default description embedding
+            yield f"<script>addLog({json.dumps('Generating default description embedding...')});</script>\n"
             update_article_embedding(db, page_data.url, config, client)
+            db.conn.commit()
             
-            # Generate new embeddinggemma chunk embeddings and description embedding
+            yield f"<script>addLog({json.dumps('Generating chunk embeddings using embeddinggemma...')});</script>\n"
             generate_gemma_embeddings_for_page(db, page_data.url, config, client)
             db.conn.commit()
             
-            # Post to Gotify
+            yield f"<script>addLog({json.dumps('Sending Gotify notification...')});</script>\n"
             post_to_gotify(config, _jinja_env, page_data, view_url)
             
-            yield "<script>addLog('Successfully updated database records and embeddings.');</script>\n"
+            yield f"<script>addLog({json.dumps('Successfully completed all database operations.')});</script>\n"
             yield f"<script>updateProgress('Done!', 100); setTimeout(() => {{ window.location.href = '{view_url}'; }}, 1000);</script>\n"
         except Exception as e:
             err_msg = f"Database sync/embedding failed: {str(e)}"
+            import traceback
+            print(f"Ingestion database sync failed: {e}\n{traceback.format_exc()}")
             yield f"<script>showError({json.dumps(err_msg)});</script>\n"
             return
             

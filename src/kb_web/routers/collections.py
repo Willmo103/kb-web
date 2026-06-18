@@ -576,21 +576,20 @@ def populate_general_collection_stream() -> StreamingResponse:
     </script>
 """.replace("{general_id}", str(general_id))
         client = _get_ollama_client()
-        
         if "fetched_pages" not in db.table_names():
-            yield "<script>updateProgress('Error: fetched_pages table not found!', 100);</script>\n"
+            yield f"<script>updateProgress({json.dumps('Error: fetched_pages table not found!')}, 100);</script>\n"
             return
             
         pages = list(db["fetched_pages"].rows)
         total_pages = len(pages)
-        yield f"<script>addLog('Found {total_pages} total pages to process.');</script>\n"
+        yield f"<script>addLog({json.dumps(f'Found {total_pages} total pages to process.')});</script>\n"
         
         for idx, page in enumerate(pages):
             url = page["url"]
             title = page.get("title") or url
             desc = page.get("description") or ""
             tags_json = page.get("tags") or "[]"
-                      # Check if it should be excluded from General Collection
+            # Check if it should be excluded from General Collection
             exclude = bool(page.get("exclude_from_general"))
             if exclude:
                 log_msg = f"Excluding: {title} (exclude_from_general is set)"
@@ -611,6 +610,9 @@ def populate_general_collection_stream() -> StreamingResponse:
                 yield f"<script>updateProgress({json.dumps(skip_msg)}, {percentage});</script>\n"
                 continue
                 
+            # Log starting item
+            yield f"<script>addLog({json.dumps(f'Processing {idx+1}/{total_pages}: {title[:35]}...')});</script>\n"
+
             # Ask agent for parameters: <taxonomical/path/in/general/collection> <collection_action_note>
             # Compile taxonomy system instructions utilizing DB configurations and taxonomy tree context
             try:
@@ -629,12 +631,13 @@ def populate_general_collection_stream() -> StreamingResponse:
             taxonomy_path = f"/uncategorized/{title[:20].replace(' ', '_')}.md"
             action_note = "Imported to General Collection."
             
+            yield f"<script>addLog({json.dumps('Querying Ollama taxonomy agent...')});</script>\n"
             try:
                 resp = client.chat(
                      model=config.ollama_model,
                      messages=[
-                         {"role": "system", "content": system_instructions},
-                         {"role": "user", "content": user_msg}
+                          {"role": "system", "content": system_instructions},
+                          {"role": "user", "content": user_msg}
                      ],
                      format="json",
                      think=False
@@ -642,6 +645,7 @@ def populate_general_collection_stream() -> StreamingResponse:
                 args = json.loads(resp.message.content)
                 taxonomy_path = args.get("taxonomy_path", taxonomy_path)
                 action_note = args.get("action_note", action_note)
+                yield f"<script>addLog({json.dumps(f'Taxonomy classification complete: {taxonomy_path}')});</script>\n"
             except Exception as llm_err:
                 # Fallback on failure
                 warn_msg = f"Warning: Ollama prompt failed, using default paths: {llm_err}"
@@ -658,6 +662,7 @@ def populate_general_collection_stream() -> StreamingResponse:
             source_type = "videos" if is_video else "articles"
             
             try:
+                yield f"<script>addLog({json.dumps('Saving collection item record to database...')});</script>\n"
                 db["collection_items"].insert({
                     "collection_id": general_id,
                     "source_type": source_type,
@@ -677,10 +682,14 @@ def populate_general_collection_stream() -> StreamingResponse:
                     "note": action_note,
                     "created_at": datetime.now().isoformat()
                 })
+                db.conn.commit()
+                yield f"<script>addLog({json.dumps('Committed collection item records.')});</script>\n"
                 
                 # Make sure Gemma embeddings exist for this url
+                yield f"<script>addLog({json.dumps('Generating Gemma chunk embeddings...')});</script>\n"
                 generate_gemma_embeddings_for_page(db, url, config, client)
                 db.conn.commit()
+                yield f"<script>addLog({json.dumps('Committed Gemma chunk embeddings.')});</script>\n"
                 
             except Exception as db_err:
                 err_msg = f"DB Error writing {title[:35]}: {db_err}"
@@ -690,7 +699,7 @@ def populate_general_collection_stream() -> StreamingResponse:
             proc_msg = f"Processed: {title[:30]} -> {taxonomy_path}"
             yield f"<script>updateProgress({json.dumps(proc_msg)}, {percentage});</script>\n"
             
-        yield "<script>updateProgress('General Collection Seed Complete!', 100); setTimeout(() => { window.location.href = '/collections'; }, 1500);</script>\n"
+        yield f"<script>updateProgress({json.dumps('General Collection Seed Complete!')}, 100); setTimeout(() => {{ window.location.href = '/collections'; }}, 1500);</script>\n"
 
     return StreamingResponse(
         populate_stream(),

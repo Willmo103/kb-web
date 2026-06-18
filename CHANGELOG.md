@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented `LoggedOllamaClient` wrapper for the Ollama client that captures inputs, options, responses, duration, and status (success/failed) and logs them to the new `ollama_logs` database table.
 - Added a 90-second connection/read timeout to all Ollama clients to prevent indefinite pipeline hangs when the local Ollama service stalls in production.
 - Appended `test_ollama_logging_and_observability` unit test to verify successful/failed call logging.
+- Added granular progress logging statements yielding real-time status details before/after every DB transaction and Ollama request in the ingestion and seeding streams.
 
 ### Changed
 - Intercept YouTube URL ingestion to scrap transcripts, metadata, and generate Gemma embeddings for programmatic API page/HTML imports.
@@ -19,11 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compiled and passed the existing virtual taxonomy tree to the taxonomist agent.
 - Forced all Ollama chat/completions calls to use `think=False` to prevent thinking latency.
 - Removed the background Cron tasks scheduler execution and cron manager endpoints and pages.
+- Modified the UI URL Ingestion stream (`/import/url`) to commit database transactions incrementally, ensuring page text and metadata persist even if downstream embedding steps fail.
 
 ### Fixed
 - Committed transactions in `init_db` migrations and collections seeding to prevent SQLite database locked errors.
 - Resolved Unicode encoding failures when printing warnings/symbols on Windows platforms.
 - Escaped title and taxonomy variables in populator stream script yields via `json.dumps` to prevent JS SyntaxError crashes.
+- Fixed database writes rollback by adding missing `db.conn.commit()` calls in programmatic API import handlers (`/api/import/html` and `/api/import/page`).
 
 ## [0.1.24] - 2026-06-16
 ### Added
