@@ -615,7 +615,21 @@ async def export_database() -> StreamingResponse:
             for row in rows:
                 if not first_row:
                     yield ",\n"
-                yield "    " + json.dumps(row)
+                
+                # Preprocess row values to serialize raw bytes to hex strings
+                clean_row = {}
+                for k, v in row.items():
+                    if isinstance(v, bytes):
+                        try:
+                            # Try to decode as UTF-8 string first (text columns)
+                            clean_row[k] = v.decode("utf-8")
+                        except UnicodeDecodeError:
+                            # Fallback to hex string representation with prefix
+                            clean_row[k] = f"hex:{v.hex()}"
+                    else:
+                        clean_row[k] = v
+                
+                yield "    " + json.dumps(clean_row)
                 first_row = False
             yield "\n  ]"
             if idx < len(tables) - 1:
@@ -664,21 +678,35 @@ async def websocket_import(websocket: WebSocket) -> None:
 
         if isinstance(data, dict):
             # Full database multi-table backup
-            for table_name, rows in data.items():
-                if rows:
+            for table_name, raw_rows in data.items():
+                if raw_rows:
+                    # Clean rows to convert hex strings back to bytes
+                    cleaned_rows = []
+                    for r in raw_rows:
+                        clean_r = {}
+                        for k, v in r.items():
+                            if isinstance(v, str) and v.startswith("hex:"):
+                                try:
+                                    clean_r[k] = bytes.fromhex(v[4:])
+                                except ValueError:
+                                    clean_r[k] = v
+                            else:
+                                clean_r[k] = v
+                        cleaned_rows.append(clean_r)
+                        
                     try:
                         pk = db[table_name].pks
                         if not pk:
-                            db[table_name].insert_all(rows)
+                            db[table_name].insert_all(cleaned_rows)
                         else:
-                            db[table_name].insert_all(rows, pk=pk, replace=True)
-                        success_count += len(rows)
+                            db[table_name].insert_all(cleaned_rows, pk=pk, replace=True)
+                        success_count += len(cleaned_rows)
                     except Exception as e:
                         print(f"WS Import: Failed to restore table {table_name}: {e}")
                         # Fallback row-by-row
-                        for r in rows:
+                        for cr in cleaned_rows:
                             try:
-                                db[table_name].insert(r, replace=True)
+                                db[table_name].insert(cr, replace=True)
                                 success_count += 1
                             except Exception as err:
                                 print(f"WS Import Row Error in {table_name}: {err}")

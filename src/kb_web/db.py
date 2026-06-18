@@ -4,7 +4,7 @@ Database initialization and utilities for the Knowledge Base Web Importer applic
 
 import sqlite_utils
 
-from .config import Config
+from .config import Config, DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
 
 
 def get_db(config: Config) -> sqlite_utils.Database:
@@ -205,23 +205,58 @@ def init_db(db: sqlite_utils.Database) -> None:
                 except Exception as e:
                     print(f"Error migrating collections (adding {col_name} column): {e}")
 
-    # Ensure "General Collection" exists (id=1)
+    # Ensure "General Collection" exists
     try:
         from datetime import datetime
-        # Check if id=1 exists
-        if not list(db["collections"].rows_where("id = 1")):
-            db["collections"].insert({
-                "id": 1,
-                "title": "General Collection",
-                "visibility": "private",
-                "rag_system_prompt": "",
-                "taxonomy_system_prompt": "",
-                "general_system_context": "{}",
-                "created_at": datetime.now().isoformat()
-            })
-            print("Seeded database: General Collection (id=1)")
+        general_row = list(db["collections"].rows_where("title = 'General Collection'"))
+        if not general_row:
+            # Check if id=1 is available to preserve it on clean installs
+            if not list(db["collections"].rows_where("id = 1")):
+                db["collections"].insert({
+                    "id": 1,
+                    "title": "General Collection",
+                    "visibility": "private",
+                    "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                    "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                    "general_system_context": "{}",
+                    "created_at": datetime.now().isoformat()
+                })
+                print("Seeded database: General Collection (id=1)")
+            else:
+                db["collections"].insert({
+                    "title": "General Collection",
+                    "visibility": "private",
+                    "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                    "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                    "general_system_context": "{}",
+                    "created_at": datetime.now().isoformat()
+                })
+                print("Seeded database: General Collection (auto-incremented ID)")
+        else:
+            # Migration to set default prompts if they are empty on existing General Collection
+            row = general_row[0]
+            updates = {}
+            if not row.get("rag_system_prompt"):
+                updates["rag_system_prompt"] = DEFAULT_RAG_SYSTEM_PROMPT
+            if not row.get("taxonomy_system_prompt"):
+                updates["taxonomy_system_prompt"] = DEFAULT_TAXONOMY_SYSTEM_PROMPT
+            if updates:
+                db["collections"].update(row["id"], updates)
+                db.conn.commit()
+                print("Migrated General Collection prompts to default values.")
+                
+        # Migration for other collections
+        db.execute(
+            "UPDATE collections SET rag_system_prompt = ? WHERE rag_system_prompt IS NULL OR rag_system_prompt = ''",
+            [DEFAULT_RAG_SYSTEM_PROMPT]
+        )
+        db.execute(
+            "UPDATE collections SET taxonomy_system_prompt = ? WHERE taxonomy_system_prompt IS NULL OR taxonomy_system_prompt = ''",
+            [DEFAULT_TAXONOMY_SYSTEM_PROMPT]
+        )
+        db.conn.commit()
     except Exception as e:
-        print(f"Error seeding General Collection: {e}")
+        print(f"Error seeding/migrating General Collection: {e}")
 
     # Add collection_id and exclude_from_general to fetched_pages if missing
     if "fetched_pages" in db.table_names():
@@ -384,4 +419,42 @@ def init_db(db: sqlite_utils.Database) -> None:
             print("Dropped legacy database table: active_sessions")
         except Exception as e:
             print(f"Warning: Failed to drop active_sessions table: {e}")
+
+
+def get_general_collection_id(db: sqlite_utils.Database) -> int:
+    """Finds the General Collection ID from the database, seeding it if missing."""
+    rows = list(db["collections"].rows_where("title = 'General Collection'"))
+    if rows:
+        return rows[0]["id"]
+    
+    # If not found, try to insert it (handling ID 1 availability)
+    try:
+        from datetime import datetime
+        if not list(db["collections"].rows_where("id = 1")):
+            db["collections"].insert({
+                "id": 1,
+                "title": "General Collection",
+                "visibility": "private",
+                "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                "general_system_context": "{}",
+                "created_at": datetime.now().isoformat()
+            })
+            db.conn.commit()
+            return 1
+        else:
+            res = db["collections"].insert({
+                "title": "General Collection",
+                "visibility": "private",
+                "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                "general_system_context": "{}",
+                "created_at": datetime.now().isoformat()
+            })
+            db.conn.commit()
+            return res.last_pk
+    except Exception as e:
+        print(f"Error seeding General Collection in helper: {e}")
+        return 1
+
 

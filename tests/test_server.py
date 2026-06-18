@@ -1325,6 +1325,136 @@ def test_collection_notes_and_workspace(client: TestClient, monkeypatch) -> None
     assert len(list(db["collection_notes"].rows_where("id = ?", [note_id]))) == 0
 
 
+def test_youtube_interception_and_embeddings(client: TestClient, monkeypatch) -> None:
+    """Verifies that YouTube links imported via /api/import/html are intercepted correctly and gemma embeddings are generated."""
+    db = get_db(server_config)
+
+    # 1. Mock fetch_youtube_video_page, generate_gemma_embeddings_for_page
+    from kb_web.models import HTMLPage
+
+    called_youtube = []
+    called_embeddings = []
+
+    def mock_fetch_youtube(url: str, video_id: str):
+        called_youtube.append((url, video_id))
+        return HTMLPage(
+            url=url,
+            title="Mock Video Title",
+            html_content="<html><body>Transcript here</body></html>",
+            md_content="Transcript content",
+            links=[],
+            html_content_hash="yt1",
+            md_content_hash="yt2",
+            fetched_at="2026-06-18T12:00:00",
+            description="Mock Video Description",
+            tags='["youtube", "test"]'
+        )
+
+    def mock_generate_embeddings(db_conn, url, cfg, ollama_client):
+        called_embeddings.append(url)
+        # Mock actual entry in database to avoid real ollama API calls
+        db_conn["article_embeddings"].insert({
+            "url": url,
+            "embedding": b"\x80\x81\x82\x83",
+            "updated_at": "2026-06-18"
+        }, replace=True)
+
+    # Mocks for LLM generation
+    class DummyMessage:
+        content = "Wiki content summary of YouTube video."
+        
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    monkeypatch.setattr("kb_web.routers.api.fetch_youtube_video_page", mock_fetch_youtube)
+    monkeypatch.setattr("kb_web.routers.api.generate_gemma_embeddings_for_page", mock_generate_embeddings)
+    monkeypatch.setattr(ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse())
+
+    # 2. Post to /api/import/html
+    import_payload = {
+        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "html_content": "<html><body>Fallback</body></html>",
+        "title": "Fallback title",
+        "description": "Fallback description",
+        "tags": '["fallback"]'
+    }
+    
+    resp = client.post(
+        "/api/import/html",
+        json=import_payload,
+        headers={"X-API-Key": server_config.api_key}
+    )
+    assert resp.status_code == 200
+    res_json = resp.json()
+    assert res_json["status"] == "success"
+
+    # Verify that mock_fetch_youtube and mock_generate_embeddings were called
+    assert len(called_youtube) == 1
+    assert called_youtube[0][1] == "dQw4w9WgXcQ"
+    assert len(called_embeddings) == 1
+    assert called_embeddings[0] == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    # Verify database state
+    saved_page = db["fetched_pages"].get("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert saved_page["title"] == "Mock Video Title"
+    assert saved_page["md_content"] == "Transcript content"
+
+
+def test_bytes_backup_export_and_import(client: TestClient) -> None:
+    """Verifies that bytes columns in the database are exported to hex strings and imported back successfully."""
+    db = get_db(server_config)
+
+    # 1. Insert a row with bytes into article_embeddings
+    db["article_embeddings"].insert({
+        "url": "https://example.com/bytes-test",
+        "embedding": b"\x80\x81\x82\x83",
+        "updated_at": "2026-06-18"
+    }, replace=True)
+    
+    # Authenticate admin for export/import
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+
+    # 2. Export database
+    export_resp = client.get(
+        "/admin/export",
+        cookies={"kb_session": session_cookie}
+    )
+    assert export_resp.status_code == 200
+    backup_data = export_resp.json()
+    
+    # Verify hex prefix formatting for bytes
+    assert "article_embeddings" in backup_data
+    rows = backup_data["article_embeddings"]
+    matching_row = [r for r in rows if r["url"] == "https://example.com/bytes-test"][0]
+    assert matching_row["embedding"] == "hex:80818283"
+
+    # 3. Modify value in database to verify import restores it
+    db["article_embeddings"].delete("https://example.com/bytes-test")
+    assert not list(db["article_embeddings"].rows_where("url = ?", ["https://example.com/bytes-test"]))
+
+    # 4. Import database via WebSocket
+    import_json = json.dumps(backup_data)
+    with client.websocket_connect("/admin/ws/import", cookies={"kb_session": session_cookie}) as websocket:
+        # Send in chunks
+        chunk_size = 100
+        for i in range(0, len(import_json), chunk_size):
+            websocket.send_text(import_json[i:i+chunk_size])
+        websocket.send_text("EOF")
+        
+        response_msg = websocket.receive_text()
+        assert "SUCCESS" in response_msg
+
+    # Verify imported row contains correct original bytes
+    imported_row = db["article_embeddings"].get("https://example.com/bytes-test")
+    assert imported_row["embedding"] == b"\x80\x81\x82\x83"
+
+
+
 
 
 
