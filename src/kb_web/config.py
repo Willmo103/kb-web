@@ -32,6 +32,23 @@ DEFAULT_YOUTUBE_WIKI_PROMPT = (
     "Output ONLY the final markdown text. Do not reply with conversational filler."
 )
 
+DEFAULT_RAG_SYSTEM_PROMPT = (
+    "You are a helpful knowledge assistant for this collection. "
+    "Use the provided context to answer the user's questions accurately, structured, and objectively. "
+    "If the answer cannot be found in the context, clearly state that."
+)
+
+DEFAULT_TAXONOMY_SYSTEM_PROMPT = (
+    "You are an expert taxonomist. Analyze the incoming document details (URL, title, description, tags) "
+    "and categorize it into a virtual filetree system representing the General Collection of all knowledge. "
+    "To avoid duplicate folder structures and keep the tree organized, here is the current taxonomy tree:\n"
+    "{{taxonomy_tree_str}}\n\n"
+    "Output ONLY a valid JSON object matching the format:\n"
+    '{"taxonomy_path": "/Folder/Subfolder/Filename.md", "action_note": "A short, 1-sentence description of what this note contains."}'
+)
+
+
+
 
 class Config(BaseConfig):
     """Configuration class for the kb-web application.

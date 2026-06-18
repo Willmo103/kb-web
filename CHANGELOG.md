@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.25] - 2026-06-18
+### Added
+- Created `get_general_collection_id` to dynamically resolve or seed the "General Collection" by title instead of hardcoding ID `1`, allowing user-created collections to coexist cleanly.
+- Implemented new unit tests `test_youtube_interception_and_embeddings` and `test_bytes_backup_export_and_import` to verify the ingestion of YouTube videos and robust database backups/restores for BLOB columns.
+
+### Changed
+- Intercept YouTube URL ingestion to scrap transcripts, metadata, and generate Gemma embeddings for programmatic API page/HTML imports.
+- Updated collections creation and suggestion accept endpoints to define fallback defaults for RAG and Taxonomy system prompts.
+- Compiled and passed the existing virtual taxonomy tree to the taxonomist agent.
+- Forced all Ollama chat/completions calls to use `think=False` to prevent thinking latency.
+
+### Fixed
+- Committed transactions in `init_db` migrations and collections seeding to prevent SQLite database locked errors.
+- Resolved Unicode encoding failures when printing warnings/symbols on Windows platforms.
+
 ## [0.1.24] - 2026-06-16
 ### Added
 - Implemented Obsidian-style split **Collection Editor Workspace** (three-pane dashboard: filetree navigation, split preview markdown editor, Ollama agent chat).

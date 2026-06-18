@@ -25,6 +25,8 @@ from ..base import (
 )
 from ..models import HTMLPage
 from ..utils import generate_gemma_embeddings_for_page
+from ..config import DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
+from ..db import get_general_collection_id
 
 router = APIRouter()
 
@@ -217,15 +219,17 @@ def list_collections(request: Request) -> HTMLResponse:
 
     if "fetched_pages" in db.table_names():
         try:
-            # Get pages not assigned to any collection except possibly General Collection (id=1)
+            # Get pages not assigned to any collection except possibly General Collection
+            general_id = get_general_collection_id(db)
             rows = db.execute_returning_dicts(
                 """
                 SELECT * FROM fetched_pages 
                 WHERE url NOT IN (
-                    SELECT source_id FROM collection_items WHERE collection_id != 1
+                    SELECT source_id FROM collection_items WHERE collection_id != ?
                 )
                 ORDER BY ROWID DESC
-                """
+                """,
+                [general_id]
             )
             ungrouped_pages = [HTMLPage(**r) for r in rows]
         except Exception as e:
@@ -265,8 +269,8 @@ def create_collection(
         db["collections"].insert({
             "title": title_clean,
             "visibility": visibility,
-            "rag_system_prompt": "",
-            "taxonomy_system_prompt": "",
+            "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+            "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
             "general_system_context": "{}",
             "created_at": datetime.now().isoformat()
         })
@@ -456,8 +460,9 @@ async def update_page_collection(
         if not collection_ids and collection_id:
             collection_ids = [collection_id]
             
-        # Delete existing items for this source ID except General Collection (id=1)
-        db["collection_items"].delete_where("source_id = ? AND collection_id != 1", [url])
+        # Delete existing items for this source ID except General Collection
+        general_id = get_general_collection_id(db)
+        db["collection_items"].delete_where("source_id = ? AND collection_id != ?", [url, general_id])
         db.conn.commit()
         
         # Check type
@@ -521,6 +526,8 @@ def remove_page_from_collection(
 @router.get("/admin/collections/populate-general", dependencies=[Depends(verify_auth)])
 def populate_general_collection_stream() -> StreamingResponse:
     """Streams the bulk migration populator that seeds each document into the General Collection."""
+    db = _get_db()
+    general_id = get_general_collection_id(db)
     async def populate_stream():
         yield """<!DOCTYPE html>
 <html lang="en">
@@ -537,7 +544,7 @@ def populate_general_collection_stream() -> StreamingResponse:
 <body class="text-gray-850 min-h-screen antialiased flex flex-col justify-center items-center">
     <div class="w-full max-w-xl bg-white p-8 rounded-xl border border-gray-200 shadow-lg mx-4">
         <h1 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <span>⚙️</span> Seed General Collection (id=1)
+            <span>⚙️</span> Seed General Collection (id={general_id})
         </h1>
         <p class="text-sm text-gray-500 mb-6" id="status-text">Scanning database pages...</p>
         
@@ -567,8 +574,7 @@ def populate_general_collection_stream() -> StreamingResponse:
             terminalLogs.scrollTop = terminalLogs.scrollHeight;
         }
     </script>
-"""
-        db = _get_db()
+""".replace("{general_id}", str(general_id))
         client = _get_ollama_client()
         
         if "fetched_pages" not in db.table_names():
@@ -594,7 +600,7 @@ def populate_general_collection_stream() -> StreamingResponse:
             # Check if it already exists in general_collection
             is_present = False
             try:
-                if list(db["collection_items"].rows_where("collection_id = 1 AND source_id = ?", [url])):
+                if list(db["collection_items"].rows_where("collection_id = ? AND source_id = ?", [general_id, url])):
                     is_present = True
             except Exception:
                 pass
@@ -605,13 +611,17 @@ def populate_general_collection_stream() -> StreamingResponse:
                 continue
                 
             # Ask agent for parameters: <taxonomical/path/in/general/collection> <collection_action_note>
-            # Prompt instructions for Ollama format
-            system_instructions = (
-                "You are an expert taxonomist. Categorize the document into a virtual filetree system "
-                "representing the General Collection of all knowledge. "
-                "Output ONLY a valid JSON object matching the format: "
-                '{"taxonomy_path": "/Folder/Subfolder/Filename.md", "action_note": "A short, 1-sentence description of what this note contains."}'
-            )
+            # Compile taxonomy system instructions utilizing DB configurations and taxonomy tree context
+            try:
+                collection_general = db["collections"].get(general_id)
+                system_instructions = compile_taxonomy_system_prompt(collection_general, db)
+            except Exception:
+                system_instructions = (
+                    "You are an expert taxonomist. Categorize the document into a virtual filetree system "
+                    "representing the General Collection of all knowledge. "
+                    "Output ONLY a valid JSON object matching the format: "
+                    '{"taxonomy_path": "/Folder/Subfolder/Filename.md", "action_note": "A short, 1-sentence description of what this note contains."}'
+                )
             
             user_msg = f"URL: {url}\nTitle: {title}\nDescription: {desc}\nTags: {tags_json}"
             
@@ -620,13 +630,13 @@ def populate_general_collection_stream() -> StreamingResponse:
             
             try:
                 resp = client.chat(
-                    model=config.ollama_model,
-                    messages=[
-                        {"role": "system", "content": system_instructions},
-                        {"role": "user", "content": user_msg}
-                    ],
-                    format="json",
-                    think=False
+                     model=config.ollama_model,
+                     messages=[
+                         {"role": "system", "content": system_instructions},
+                         {"role": "user", "content": user_msg}
+                     ],
+                     format="json",
+                     think=False
                 )
                 args = json.loads(resp.message.content)
                 taxonomy_path = args.get("taxonomy_path", taxonomy_path)
@@ -647,7 +657,7 @@ def populate_general_collection_stream() -> StreamingResponse:
             
             try:
                 db["collection_items"].insert({
-                    "collection_id": 1,
+                    "collection_id": general_id,
                     "source_type": source_type,
                     "source_id": url,
                     "item_note": f"# {title}\n\n{action_note}",
@@ -658,7 +668,7 @@ def populate_general_collection_stream() -> StreamingResponse:
                 
                 # Create collection_actions row
                 db["collection_actions"].insert({
-                    "collection_id": 1,
+                    "collection_id": general_id,
                     "action_type": "add_item",
                     "source_type": source_type,
                     "source_id": url,
@@ -668,6 +678,7 @@ def populate_general_collection_stream() -> StreamingResponse:
                 
                 # Make sure Gemma embeddings exist for this url
                 generate_gemma_embeddings_for_page(db, url, config, client)
+                db.conn.commit()
                 
             except Exception as db_err:
                 yield f"<script>addLog('DB Error writing {title[:35]}: {db_err}');</script>\n"
@@ -688,14 +699,16 @@ def suggest_collections() -> JSONResponse:
         return JSONResponse(content={"suggestions": []})
 
     # Fetch all pages not in any collection except General
+    general_id = get_general_collection_id(db)
     rows = list(db.execute_returning_dicts(
         """
         SELECT url, title FROM fetched_pages 
         WHERE url NOT IN (
-            SELECT source_id FROM collection_items WHERE collection_id != 1
+            SELECT source_id FROM collection_items WHERE collection_id != ?
         )
         AND title IS NOT NULL
-        """
+        """,
+        [general_id]
     ))
     
     if not rows:
@@ -786,8 +799,8 @@ def accept_suggestion(
         collection_id = db["collections"].insert({
             "title": title_clean,
             "visibility": "public",
-            "rag_system_prompt": "",
-            "taxonomy_system_prompt": "",
+            "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+            "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
             "general_system_context": "{}",
             "created_at": datetime.now().isoformat()
         }).last_rowid
@@ -821,6 +834,49 @@ def accept_suggestion(
 
 
 # --- Notes CRUD & Agent Chat Endpoints ---
+
+def compile_taxonomy_system_prompt(collection, db) -> str:
+    prompt = collection.get("taxonomy_system_prompt") or DEFAULT_TAXONOMY_SYSTEM_PROMPT
+    
+    # 1. Compute taxonomy tree string
+    taxonomy_lines = []
+    col_id = collection["id"]
+    
+    # Add collection items
+    if "collection_items" in db.table_names():
+        items = list(db["collection_items"].rows_where("collection_id = ?", [col_id]))
+        for item in items:
+            path = item.get("taxonomy_path") or f"/uncategorized/{item['source_id'][-20:]}"
+            taxonomy_lines.append(f"- [Item] {path} ({item['source_id']})")
+        
+    # Add collection notes
+    if "collection_notes" in db.table_names():
+        notes = list(db["collection_notes"].rows_where("collection_id = ?", [col_id]))
+        for note in notes:
+            path = note.get("taxonomy_path") or f"/{note['title']}"
+            taxonomy_lines.append(f"- [Note] {path}")
+        
+    taxonomy_tree_str = "\n".join(sorted(taxonomy_lines)) if taxonomy_lines else "No items in this collection."
+    
+    # 2. Extract general context variables
+    context_vars = {}
+    try:
+        context_vars = json.loads(collection.get("general_system_context") or "{}")
+    except Exception:
+        pass
+        
+    # 3. Add default context variables
+    context_vars["datetime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    context_vars["taxonomy_tree_str"] = taxonomy_tree_str
+    
+    # 4. Replace double curly braces variables e.g. {{datetime}}
+    for k, v in context_vars.items():
+        placeholder_2 = "{{" + k + "}}"
+        val_str = str(v)
+        prompt = prompt.replace(placeholder_2, val_str)
+        
+    return prompt
+
 
 def compile_system_prompt(collection, db) -> str:
     prompt = collection.get("rag_system_prompt") or "You are a helpful knowledge assistant for this collection."
@@ -1115,9 +1171,10 @@ def toggle_page_exclusion(
         db["fetched_pages"].update(url, {"exclude_from_general": exclude})
         db.conn.commit()
         
-        # If set to exclude (1), delete from General Collection (id=1) collection_items
+        # If set to exclude (1), delete from General Collection collection_items
         if exclude == 1:
-            db["collection_items"].delete_where("collection_id = 1 AND source_id = ?", [url])
+            general_id = get_general_collection_id(db)
+            db["collection_items"].delete_where("collection_id = ? AND source_id = ?", [general_id, url])
             db.conn.commit()
             print(f"Exclusion: Excluded {url} from General Collection and removed its collection item entry.")
     except Exception as e:
