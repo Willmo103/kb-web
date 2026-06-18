@@ -100,8 +100,12 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
     serialized, creator = serialize_page_for_db(page_data)
     db["fetched_pages"].upsert(serialized, pk="url")
     save_youtube_metadata_helper(db, page_data.url, creator)
+    db.conn.commit()
+    
     update_article_embedding(db, page_data.url, config, client)
     generate_gemma_embeddings_for_page(db, page_data.url, config, client)
+    db.conn.commit()
+    
     post_to_gotify(config, _jinja_env, page_data, view_url)
 
     return {"status": "success", "url": url, "view_url": view_url}
@@ -152,8 +156,12 @@ def handle_page_import(payload: HTMLPage, request: Request) -> dict:
     serialized, creator = serialize_page_for_db(payload)
     db["fetched_pages"].upsert(serialized, pk="url")
     save_youtube_metadata_helper(db, payload.url, creator)
+    db.conn.commit()
+    
     update_article_embedding(db, payload.url, config, client)
     generate_gemma_embeddings_for_page(db, payload.url, config, client)
+    db.conn.commit()
+    
     post_to_gotify(config, _jinja_env, payload, view_url)
 
     return {"status": "success", "url": payload.url, "view_url": view_url}
