@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>kb-web - User Acceptance Testing (UAT) Feedback Form</title>
+  <style>
+    :root {
+      --bg: #fdf6e3;
+      --card-bg: #eee8d5;
+      --text: #586e75;
+      --heading: #073642;
+      --accent-orange: #cb4b16;
+      --accent-teal: #2aa198;
+      --accent-blue: #268bd2;
+      --border: #d33682;
+      --card-border: #b58900;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #002b36;
+        --card-bg: #073642;
+        --text: #93a1a1;
+        --heading: #fdf6e3;
+        --border: #b58900;
+      }
+    }
+    body {
+      font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 24px;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+      background: var(--bg);
+      border: 2px solid var(--accent-teal);
+      border-radius: 8px;
+      padding: 32px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    h1 {
+      color: var(--heading);
+      margin-top: 0;
+      border-bottom: 2px solid var(--accent-orange);
+      padding-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .badge {
+      background: var(--accent-orange);
+      color: #fff;
+      font-size: 14px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 6px;
+      color: var(--heading);
+    }
+    input[type="text"], select, textarea {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 15px;
+      box-sizing: border-box;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+    .issue-card {
+      background: var(--card-bg);
+      border-left: 4px solid var(--accent-orange);
+      border-radius: 6px;
+      padding: 18px;
+      margin-bottom: 16px;
+      position: relative;
+    }
+    .issue-card .remove-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: #dc322f;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .btn {
+      background: var(--accent-teal);
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    .btn:hover {
+      background: var(--accent-blue);
+    }
+    .btn-secondary {
+      background: var(--accent-orange);
+      margin-right: 12px;
+    }
+    .actions {
+      margin-top: 30px;
+      display: flex;
+      gap: 12px;
+    }
+    .status-alert {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 6px;
+      display: none;
+      font-weight: bold;
+    }
+    .status-alert.success {
+      background: #859900;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>kb-web UAT Feedback <span class="badge">Agent Issue Collector</span></h1>
+  <p>Use this form to evaluate UI components, report visual/functional bugs, and submit specific feedback. Form submissions generate actionable issue tasks for AI agents.</p>
+
+  <form id="uatForm">
+    <div class="form-group">
+      <label for="taskName">Task / Feature Target:</label>
+      <input type="text" id="taskName" value="kb-web UI Verification" required>
+    </div>
+
+    <div class="form-group">
+      <label for="testerName">Tester Name:</label>
+      <input type="text" id="testerName" value="User" required>
+    </div>
+
+    <div class="form-group">
+      <label for="overallVerdict">Overall UAT Verdict:</label>
+      <select id="overallVerdict">
+        <option value="PASS">PASS - Ready for commit</option>
+        <option value="PASS_WITH_ISSUES" selected>PASS WITH ISSUES - Fix reported bugs</option>
+        <option value="FAIL">FAIL - Blocker issues found</option>
+      </select>
+    </div>
+
+    <h2>Itemized Issues & Agent Action Items</h2>
+    <div id="issuesContainer"></div>
+
+    <button type="button" class="btn btn-secondary" onclick="addIssueCard()">+ Add Issue Item</button>
+
+    <div class="actions">
+      <button type="button" class="btn" onclick="saveJSON()">Save JSON to Workspace</button>
+      <button type="button" class="btn btn-secondary" onclick="downloadJSON()">Download JSON</button>
+    </div>
+
+    <div id="statusAlert" class="status-alert"></div>
+  </form>
+</div>
+
+<script>
+  let issueCount = 0;
+
+  function addIssueCard(title = '', category = 'Visual/Styling', severity = 'Major', desc = '', action = '') {
+    issueCount++;
+    const container = document.getElementById('issuesContainer');
+    const card = document.createElement('div');
+    card.className = 'issue-card';
+    card.id = `issue_${issueCount}`;
+    card.innerHTML = `
+      <button type="button" class="remove-btn" onclick="removeIssueCard('issue_${issueCount}')">X</button>
+      <div class="form-group">
+        <label>Issue Title:</label>
+        <input type="text" class="issue-title" value="${title}" placeholder="e.g. Header alignment broken at 70% zoom" required>
+      </div>
+      <div style="display: flex; gap: 16px;">
+        <div class="form-group" style="flex: 1;">
+          <label>Category:</label>
+          <select class="issue-category">
+            <option value="Visual/Styling" ${category === 'Visual/Styling' ? 'selected' : ''}>Visual / Styling</option>
+            <option value="Logic/Bug" ${category === 'Logic/Bug' ? 'selected' : ''}>Logic / Bug</option>
+            <option value="Performance" ${category === 'Performance' ? 'selected' : ''}>Performance</option>
+            <option value="Feature Request" ${category === 'Feature Request' ? 'selected' : ''}>Feature Request</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label>Severity:</label>
+          <select class="issue-severity">
+            <option value="Blocker" ${severity === 'Blocker' ? 'selected' : ''}>Blocker</option>
+            <option value="Major" ${severity === 'Major' ? 'selected' : ''}>Major</option>
+            <option value="Minor" ${severity === 'Minor' ? 'selected' : ''}>Minor</option>
+            <option value="Polish" ${severity === 'Polish' ? 'selected' : ''}>Polish</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Description & Steps to Reproduce:</label>
+        <textarea class="issue-desc" placeholder="Details...">${desc}</textarea>
+      </div>
+      <div class="form-group">
+        <label>Requested Agent Fix:</label>
+        <input type="text" class="issue-action" value="${action}" placeholder="e.g. Update CSS flexbox container padding in layout.html">
+      </div>
+    `;
+    container.appendChild(card);
+  }
+
+  function removeIssueCard(id) {
+    const card = document.getElementById(id);
+    if (card) card.remove();
+  }
+
+  function getFormData() {
+    const issues = [];
+    document.querySelectorAll('.issue-card').forEach(card => {
+      issues.push({
+        title: card.querySelector('.issue-title').value,
+        category: card.querySelector('.issue-category').value,
+        severity: card.querySelector('.issue-severity').value,
+        description: card.querySelector('.issue-desc').value,
+        requested_fix: card.querySelector('.issue-action').value
+      });
+    });
+
+    return {
+      task_name: document.getElementById('taskName').value,
+      tester: document.getElementById('testerName').value,
+      verdict: document.getElementById('overallVerdict').value,
+      timestamp: new Date().toISOString(),
+      issues: issues
+    };
+  }
+
+  async function saveJSON() {
+    const data = getFormData();
+    const jsonStr = JSON.stringify(data, null, 2);
+    try {
+      if ('showSaveFilePicker' in window) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: 'uat_feedback_data.json',
+          types: [{ description: 'JSON File', accept: { 'application/json': ['.json'] } }]
+        });
+        const writable = await handle.createWritable();
+        await writable.write(jsonStr);
+        await writable.close();
+        showAlert('JSON saved successfully to local workspace!');
+        return;
+      }
+    } catch (e) { console.log(e); }
+    downloadJSON();
+  }
+
+  function downloadJSON() {
+    const data = getFormData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'uat_feedback_data.json';
+    a.click();
+    showAlert('Downloaded uat_feedback_data.json! Place file into scratch/ directory.');
+  }
+
+  function showAlert(msg) {
+    const alert = document.getElementById('statusAlert');
+    alert.innerText = msg;
+    alert.className = 'status-alert success';
+    alert.style.display = 'block';
+  }
+
+  // Pre-fill initial card
+  addIssueCard();
+</script>
+</body>
+</html>
