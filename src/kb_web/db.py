@@ -111,6 +111,22 @@ def init_db(db: sqlite_utils.Database) -> None:
         except Exception as e:
             print(f"Error creating article_embeddings table: {e}")
 
+    # Initialize title_embeddings table for similarity comparisons
+    if "title_embeddings" not in db.table_names():
+        try:
+            db["title_embeddings"].create(
+                {
+                    "url": str,
+                    "embedding": str,  # JSON-encoded list[float]
+                    "updated_at": str,
+                },
+                pk="url",
+                foreign_keys=[("url", "fetched_pages", "url")],
+            )
+            print("Initialized database table: title_embeddings")
+        except Exception as e:
+            print(f"Error creating title_embeddings table: {e}")
+
     # Initialize site_wikis table for caching virtual site profiles' wiki descriptions
     if "site_wikis" not in db.table_names():
         try:
@@ -138,6 +154,7 @@ def init_db(db: sqlite_utils.Database) -> None:
                     "duration": int,
                     "view_count": int,
                     "thumbnail_url": str,
+                    "local_path": str,
                     "updated_at": str,
                 },
                 pk="url",
@@ -146,6 +163,15 @@ def init_db(db: sqlite_utils.Database) -> None:
             print("Initialized database table: youtube_videos")
         except Exception as e:
             print(f"Error creating youtube_videos table: {e}")
+    else:
+        # Schema migration check for local_path
+        columns = db["youtube_videos"].columns_dict
+        if "local_path" not in columns:
+            try:
+                db["youtube_videos"].add_column("local_path", str)
+                print("Schema Migration: Added 'local_path' column to youtube_videos table.")
+            except Exception as e:
+                print(f"Error migrating database (adding local_path column to youtube_videos): {e}")
 
     # Retrospective migration for youtube_videos table
     if "youtube_videos" in db.table_names() and "fetched_pages" in db.table_names():

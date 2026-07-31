@@ -76,15 +76,22 @@ def run_bulk_embedding_maintenance() -> None:
         client = _get_ollama_client()
         for row in rows:
             url = row["url"]
-            exists = False
+            article_exists = False
+            title_exists = False
             if "article_embeddings" in db.table_names():
                 try:
                     db["article_embeddings"].get(url)
-                    exists = True
+                    article_exists = True
+                except Exception:
+                    pass
+            if "title_embeddings" in db.table_names():
+                try:
+                    db["title_embeddings"].get(url)
+                    title_exists = True
                 except Exception:
                     pass
 
-            if not exists:
+            if not article_exists or not title_exists:
                 update_article_embedding(db, url, config, client)
 
 
@@ -198,6 +205,7 @@ def handle_config_update(
     wiki_prompt: str = Form(...),
     youtube_wiki_prompt: str = Form(...),
     max_input_length: int = Form(20000),
+    ollama_think: bool = Form(False),
 ) -> RedirectResponse:
     """Saves updated server settings (Ollama and Gotify parameters) to config file."""
     config.ollama_host = ollama_host
@@ -209,6 +217,7 @@ def handle_config_update(
     config.wiki_prompt = wiki_prompt
     config.youtube_wiki_prompt = youtube_wiki_prompt
     config.max_input_length = max_input_length
+    config.ollama_think = ollama_think
     config.save()
 
     return RedirectResponse(

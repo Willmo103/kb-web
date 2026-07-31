@@ -91,7 +91,7 @@ async def run_single_job(db: sqlite_utils.Database, job_id: int, config) -> Dict
                 {"role": "system", "content": "You are a helpful knowledge curation assistant."},
                 {"role": "user", "content": formatted_prompt}
             ],
-            think=False,
+            think=config.ollama_think,
         )
         prompt_output = response.message.content
 
