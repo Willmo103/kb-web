@@ -394,7 +394,7 @@ def extract_wiki_content(
                         "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{raw_content}",
                     },
                 ],
-                think=False,
+                think=config.ollama_think,
             )
             return response.message.content
         else:
@@ -421,7 +421,7 @@ def extract_wiki_content(
                         {"role": "system", "content": system_message},
                         {"role": "user", "content": chunk},
                     ],
-                    think=False,
+                    think=config.ollama_think,
                 )
                 chunk_summaries.append(chunk_resp.message.content)
 
@@ -451,7 +451,7 @@ def extract_wiki_content(
                         "content": user_content,
                     },
                 ],
-                think=False,
+                think=config.ollama_think,
             )
             return response.message.content
     except Exception as e:
@@ -487,7 +487,7 @@ def extract_tags_content(
                     "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{content_to_analyze}",
                 },
             ],
-            think=False,
+            think=config.ollama_think,
         )
         tags_str = response.message.content
         tags = [t.strip().lower() for t in tags_str.split(",") if t.strip()]
@@ -618,6 +618,33 @@ def update_article_embedding(
             pk="url",
         )
         print(f"Successfully generated and stored embedding for: {url}")
+
+        # Generate and store title embedding
+        title = row.get("title") or ""
+        if title.strip():
+            try:
+                try:
+                    title_resp = client.embeddings(model=emb_model, prompt=title[:4000])
+                    title_embedding = title_resp["embedding"]
+                except Exception as e2:
+                    print(f"Ollama title embedding with model '{emb_model}' failed: {e2}. Trying main model '{config.ollama_model}'...")
+                    ensure_model_available(client, config.ollama_model)
+                    title_resp = client.embeddings(
+                        model=config.ollama_model, prompt=title[:4000]
+                    )
+                    title_embedding = title_resp["embedding"]
+
+                db["title_embeddings"].upsert(
+                    {
+                        "url": url,
+                        "embedding": json.dumps(title_embedding),
+                        "updated_at": datetime.now().isoformat(),
+                    },
+                    pk="url",
+                )
+                print(f"Successfully generated and stored title embedding for: {url}")
+            except Exception as te:
+                print(f"Failed to generate title embedding for {url}: {te}")
     except Exception as e:
         print(f"Failed to generate embedding for {url}: {e}")
 
