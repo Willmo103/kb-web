@@ -4,7 +4,7 @@ Database initialization and utilities for the Knowledge Base Web Importer applic
 
 import sqlite_utils
 
-from .config import Config
+from .config import Config, DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
 
 
 def get_db(config: Config) -> sqlite_utils.Database:
@@ -204,6 +204,10 @@ def init_db(db: sqlite_utils.Database) -> None:
                 {
                     "id": int,
                     "title": str,
+                    "visibility": str,  # "public" or "private"
+                    "rag_system_prompt": str,
+                    "taxonomy_system_prompt": str,
+                    "general_system_context": str,  # JSON string
                     "created_at": str,
                 },
                 pk="id",
@@ -211,8 +215,76 @@ def init_db(db: sqlite_utils.Database) -> None:
             print("Initialized database table: collections")
         except Exception as e:
             print(f"Error creating collections table: {e}")
+    else:
+        # Migrate collections columns
+        col_cols = db["collections"].columns_dict
+        for col_name, col_type in [
+            ("visibility", str),
+            ("rag_system_prompt", str),
+            ("taxonomy_system_prompt", str),
+            ("general_system_context", str),
+        ]:
+            if col_name not in col_cols:
+                try:
+                    db["collections"].add_column(col_name, col_type)
+                    print(f"Schema Migration: Added '{col_name}' column to collections table.")
+                except Exception as e:
+                    print(f"Error migrating collections (adding {col_name} column): {e}")
 
-    # Add collection_id to fetched_pages if missing
+    # Ensure "General Collection" exists
+    try:
+        from datetime import datetime
+        general_row = list(db["collections"].rows_where("title = 'General Collection'"))
+        if not general_row:
+            # Check if id=1 is available to preserve it on clean installs
+            if not list(db["collections"].rows_where("id = 1")):
+                db["collections"].insert({
+                    "id": 1,
+                    "title": "General Collection",
+                    "visibility": "private",
+                    "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                    "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                    "general_system_context": "{}",
+                    "created_at": datetime.now().isoformat()
+                })
+                print("Seeded database: General Collection (id=1)")
+            else:
+                db["collections"].insert({
+                    "title": "General Collection",
+                    "visibility": "private",
+                    "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                    "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                    "general_system_context": "{}",
+                    "created_at": datetime.now().isoformat()
+                })
+                print("Seeded database: General Collection (auto-incremented ID)")
+        else:
+            # Migration to set default prompts if they are empty on existing General Collection
+            row = general_row[0]
+            updates = {}
+            if not row.get("rag_system_prompt"):
+                updates["rag_system_prompt"] = DEFAULT_RAG_SYSTEM_PROMPT
+            if not row.get("taxonomy_system_prompt"):
+                updates["taxonomy_system_prompt"] = DEFAULT_TAXONOMY_SYSTEM_PROMPT
+            if updates:
+                db["collections"].update(row["id"], updates)
+                db.conn.commit()
+                print("Migrated General Collection prompts to default values.")
+                
+        # Migration for other collections
+        db.execute(
+            "UPDATE collections SET rag_system_prompt = ? WHERE rag_system_prompt IS NULL OR rag_system_prompt = ''",
+            [DEFAULT_RAG_SYSTEM_PROMPT]
+        )
+        db.execute(
+            "UPDATE collections SET taxonomy_system_prompt = ? WHERE taxonomy_system_prompt IS NULL OR taxonomy_system_prompt = ''",
+            [DEFAULT_TAXONOMY_SYSTEM_PROMPT]
+        )
+        db.conn.commit()
+    except Exception as e:
+        print(f"Error seeding/migrating General Collection: {e}")
+
+    # Add collection_id and exclude_from_general to fetched_pages if missing
     if "fetched_pages" in db.table_names():
         columns = db["fetched_pages"].columns_dict
         if "collection_id" not in columns:
@@ -221,6 +293,104 @@ def init_db(db: sqlite_utils.Database) -> None:
                 print("Schema Migration: Added 'collection_id' column to fetched_pages table.")
             except Exception as e:
                 print(f"Error migrating database (adding collection_id column): {e}")
+        if "exclude_from_general" not in columns:
+            try:
+                db["fetched_pages"].add_column("exclude_from_general", int)
+                # default existing records to 0
+                db.execute("UPDATE fetched_pages SET exclude_from_general = 0 WHERE exclude_from_general IS NULL")
+                print("Schema Migration: Added 'exclude_from_general' column to fetched_pages table.")
+            except Exception as e:
+                print(f"Error migrating database (adding exclude_from_general column): {e}")
+
+    # Initialize collection_items table
+    if "collection_items" not in db.table_names():
+        try:
+            db["collection_items"].create(
+                {
+                    "id": int,
+                    "collection_id": int,
+                    "source_type": str,  # "articles" or "videos"
+                    "source_id": str,    # URL
+                    "item_note": str,
+                    "taxonomy_path": str,
+                    "item_order": int,   # Order index for custom sorting
+                    "added_at": str,
+                },
+                pk="id",
+                foreign_keys=[("collection_id", "collections", "id")],
+            )
+            # Create unique index to avoid duplicates
+            db["collection_items"].create_index(["collection_id", "source_type", "source_id"], unique=True)
+            print("Initialized database table: collection_items")
+        except Exception as e:
+            print(f"Error creating collection_items table: {e}")
+    else:
+        # Schema migration helper for existing databases
+        columns = db["collection_items"].columns_dict
+        if "item_order" not in columns:
+            try:
+                db["collection_items"].add_column("item_order", int)
+                print("Schema Migration: Added 'item_order' column to collection_items table.")
+            except Exception as e:
+                print(f"Error migrating database (adding item_order column): {e}")
+
+    # Initialize collection_notes table
+    if "collection_notes" not in db.table_names():
+        try:
+            db["collection_notes"].create(
+                {
+                    "id": int,
+                    "collection_id": int,
+                    "title": str,
+                    "content": str,
+                    "taxonomy_path": str,
+                    "created_at": str,
+                    "updated_at": str,
+                },
+                pk="id",
+                foreign_keys=[("collection_id", "collections", "id")],
+            )
+            db["collection_notes"].create_index(["collection_id"])
+            print("Initialized database table: collection_notes")
+        except Exception as e:
+            print(f"Error creating collection_notes table: {e}")
+
+    # Initialize chunk_embeddings table
+    if "chunk_embeddings" not in db.table_names():
+        try:
+            db["chunk_embeddings"].create(
+                {
+                    "id": int,
+                    "source_type": str,
+                    "source_id": str,
+                    "source_title": str,
+                    "chunk_number": int,
+                    "chunk_content": str,
+                    "chunk_vector": str,  # JSON list of floats
+                    "created_at": str,
+                },
+                pk="id",
+            )
+            db["chunk_embeddings"].create_index(["source_type", "source_id", "chunk_number"])
+            print("Initialized database table: chunk_embeddings")
+        except Exception as e:
+            print(f"Error creating chunk_embeddings table: {e}")
+
+    # Initialize video_embeddings table
+    if "video_embeddings" not in db.table_names():
+        try:
+            db["video_embeddings"].create(
+                {
+                    "url": str,
+                    "embedding": str,  # JSON-encoded list[float]
+                    "updated_at": str,
+                },
+                pk="url",
+                foreign_keys=[("url", "fetched_pages", "url")],
+            )
+            print("Initialized database table: video_embeddings")
+        except Exception as e:
+            print(f"Error creating video_embeddings table: {e}")
 
     # Initialize cron_jobs table
     if "cron_jobs" not in db.table_names():
@@ -268,6 +438,27 @@ def init_db(db: sqlite_utils.Database) -> None:
         except Exception as e:
             print(f"Error creating cron_job_runs table: {e}")
 
+    # Initialize ollama_logs table
+    if "ollama_logs" not in db.table_names():
+        try:
+            db["ollama_logs"].create(
+                {
+                    "id": int,
+                    "timestamp": str,
+                    "model": str,
+                    "prompt_type": str,
+                    "messages": str,
+                    "options": str,
+                    "response": str,
+                    "duration": float,
+                    "status": str,
+                },
+                pk="id",
+            )
+            print("Initialized database table: ollama_logs")
+        except Exception as e:
+            print(f"Error creating ollama_logs table: {e}")
+
     # Drop legacy active_sessions table if it exists to clean up database schema
     if "active_sessions" in db.table_names():
         try:
@@ -275,4 +466,42 @@ def init_db(db: sqlite_utils.Database) -> None:
             print("Dropped legacy database table: active_sessions")
         except Exception as e:
             print(f"Warning: Failed to drop active_sessions table: {e}")
+
+
+def get_general_collection_id(db: sqlite_utils.Database) -> int:
+    """Finds the General Collection ID from the database, seeding it if missing."""
+    rows = list(db["collections"].rows_where("title = 'General Collection'"))
+    if rows:
+        return rows[0]["id"]
+    
+    # If not found, try to insert it (handling ID 1 availability)
+    try:
+        from datetime import datetime
+        if not list(db["collections"].rows_where("id = 1")):
+            db["collections"].insert({
+                "id": 1,
+                "title": "General Collection",
+                "visibility": "private",
+                "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                "general_system_context": "{}",
+                "created_at": datetime.now().isoformat()
+            })
+            db.conn.commit()
+            return 1
+        else:
+            res = db["collections"].insert({
+                "title": "General Collection",
+                "visibility": "private",
+                "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                "general_system_context": "{}",
+                "created_at": datetime.now().isoformat()
+            })
+            db.conn.commit()
+            return res.last_pk
+    except Exception as e:
+        print(f"Error seeding General Collection in helper: {e}")
+        return 1
+
 

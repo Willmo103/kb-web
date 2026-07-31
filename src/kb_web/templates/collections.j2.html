@@ -9,29 +9,6 @@
             <h1 class="text-3xl font-extrabold text-gray-900">📁 Knowledge Collections</h1>
             <p class="text-sm text-gray-500 font-medium">Isolate, group, and query vertical segments of your ingested web database.</p>
         </div>
-        {% if is_admin and ungrouped_pages %}
-        <button onclick="requestAISuggestions()" id="suggestBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg shadow-sm transition">
-            💡 AI Suggest Groupings
-        </button>
-        {% endif %}
-    </div>
-
-    <!-- AI suggestions result modal/container (hidden by default) -->
-    <div id="aiSuggestionsPanel" class="hidden bg-indigo-50 border border-indigo-200 p-6 rounded-xl mb-8 shadow-sm">
-        <h3 class="text-lg font-bold text-indigo-900 mb-2 flex items-center">
-            <span class="mr-2">💡</span> AI Suggested Groupings
-        </h3>
-        <p class="text-xs text-indigo-700 mb-4">Ollama parsed titles of ungrouped items and recommends creating the following collections:</p>
-        
-        <div id="suggestionsList" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Populated via Javascript -->
-        </div>
-        
-        <div class="mt-4 flex justify-end">
-            <button onclick="closeSuggestions()" class="text-xs bg-white text-gray-600 border border-gray-300 py-1.5 px-3 rounded-lg hover:bg-gray-50 transition">
-                Close Panel
-            </button>
-        </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -50,7 +27,7 @@
                 <div class="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between gap-4 shadow-sm">
                     <div>
                         <div class="flex justify-between items-center mb-2">
-                            <span class="text-xs text-indigo-700 font-bold bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
+                            <span class="text-xs text-indigo-750 font-bold bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
                                 Collection
                             </span>
                             <span class="text-xs text-gray-500 font-mono bg-gray-100 border border-gray-200 px-2 py-0.5 rounded">
@@ -106,7 +83,7 @@
         {% if is_admin %}
         <div class="space-y-6">
             <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-                <h3 class="text-sm font-bold text-gray-950 uppercase tracking-wider mb-4 border-b pb-2">➕ New Collection</h3>
+                <h3 class="text-sm font-bold text-gray-955 uppercase tracking-wider mb-4 border-b pb-2">➕ New Collection</h3>
                 <form action="/collections/create" method="post" class="space-y-4">
                     <div>
                         <label for="title" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Collection Title</label>
@@ -122,215 +99,4 @@
 
     </div>
 </div>
-
-<script>
-    function escapeHtml(str) {
-        if (!str) return '';
-        return str
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
-    }
-
-    function requestAISuggestions() {
-        const btn = document.getElementById('suggestBtn');
-        const panel = document.getElementById('aiSuggestionsPanel');
-        const list = document.getElementById('suggestionsList');
-        
-        btn.disabled = true;
-        btn.innerText = "Analyzing titles...";
-        btn.classList.add('opacity-50', 'cursor-not-allowed');
-        
-        fetch('/admin/collections/suggest', {
-            method: 'POST'
-        })
-        .then(response => response.json())
-        .then(data => {
-            btn.disabled = false;
-            btn.innerText = "💡 AI Suggest Groupings";
-            btn.classList.remove('opacity-50', 'cursor-not-allowed');
-            
-            if (data.error) {
-                alert("AI Suggestion failed: " + data.error);
-                return;
-            }
-            
-            if (!data.suggestions || data.suggestions.length === 0) {
-                alert("Ollama was unable to identify grouping criteria. Try adding more items.");
-                return;
-            }
-            
-            list.innerHTML = '';
-            data.suggestions.forEach((sug, idx) => {
-                const urlsJson = JSON.stringify(sug.pages.map(p => p.url));
-                
-                const card = document.createElement('div');
-                card.className = "bg-white p-4 rounded-lg border border-indigo-100 flex flex-col justify-between gap-3 shadow-sm";
-                
-                let pagesHtml = '<ul class="text-[11px] text-gray-500 space-y-0.5 list-disc pl-4 mt-2">';
-                sug.pages.forEach(p => {
-                    pagesHtml += `<li class="truncate" title="${p.title}">${p.title}</li>`;
-                });
-                pagesHtml += '</ul>';
-                
-                card.innerHTML = `
-                    <div>
-                        <h4 class="font-bold text-sm text-gray-900">📁 ${escapeHtml(sug.title)}</h4>
-                        <p class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mt-1">${sug.pages.length} items suggested:</p>
-                        ${pagesHtml}
-                    </div>
-                    <form onsubmit="acceptSuggestion(event, this)" class="m-0 pt-2 border-t">
-                        <input type="hidden" name="title" value="${escapeHtml(sug.title)}" />
-                        <input type="hidden" name="urls_json" value="${escapeHtml(urlsJson)}" />
-                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold py-1.5 px-2 rounded-md transition shadow-sm">
-                            ✔ Accept & Create Collection
-                        </button>
-                    </form>
-                `;
-                list.appendChild(card);
-            });
-            
-            panel.classList.remove('hidden');
-            window.scrollTo({ top: panel.offsetTop - 20, behavior: 'smooth' });
-        })
-        .catch(err => {
-            btn.disabled = false;
-            btn.innerText = "💡 AI Suggest Groupings";
-            btn.classList.remove('opacity-50', 'cursor-not-allowed');
-            alert("Error requesting AI suggestions: " + err.message);
-        });
-    }
-
-    function acceptSuggestion(event, form) {
-        event.preventDefault();
-        const btn = form.querySelector('button');
-        const originalText = btn.innerText;
-        btn.disabled = true;
-        btn.innerText = "Creating...";
-        
-        const formData = new FormData(form);
-        
-        fetch('/admin/collections/accept-suggestion', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => {
-            if (response.ok) {
-                // Remove suggestion card
-                const card = form.closest('.bg-white');
-                if (card) {
-                    card.remove();
-                }
-                
-                // Check suggestions list
-                const list = document.getElementById('suggestionsList');
-                if (list && list.children.length === 0) {
-                    document.getElementById('aiSuggestionsPanel').classList.add('hidden');
-                }
-                
-                // Add new collection card to grid
-                let collectionsGrid = document.querySelector('.grid.grid-cols-1.sm\\:grid-cols-2');
-                if (!collectionsGrid) {
-                    const noColsDiv = Array.from(document.querySelectorAll('div')).find(el => el.textContent.includes('No collections created yet') && el.classList.contains('bg-white'));
-                    if (noColsDiv) {
-                        const newGrid = document.createElement('div');
-                        newGrid.className = "grid grid-cols-1 sm:grid-cols-2 gap-4";
-                        noColsDiv.parentNode.replaceChild(newGrid, noColsDiv);
-                        collectionsGrid = newGrid;
-                    }
-                }
-                
-                const titleVal = form.querySelector('input[name="title"]').value;
-                const urlsStr = form.querySelector('input[name="urls_json"]').value;
-                let itemsCount = 0;
-                try {
-                    itemsCount = JSON.parse(urlsStr).length;
-                } catch(e) {}
-                
-                if (collectionsGrid) {
-                    const colCard = document.createElement('div');
-                    colCard.className = "bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between gap-4 shadow-sm";
-                    colCard.innerHTML = `
-                        <div>
-                            <div class="flex justify-between items-center mb-2">
-                                <span class="text-xs text-indigo-700 font-bold bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded">
-                                    Collection
-                                </span>
-                                <span class="text-xs text-gray-500 font-mono bg-gray-100 border border-gray-200 px-2 py-0.5 rounded">
-                                    📂 ${itemsCount} item${itemsCount !== 1 ? 's' : ''}
-                                </span>
-                            </div>
-                            <h3 class="text-base font-bold text-gray-900 mt-2 truncate">
-                                <span class="text-gray-900">${escapeHtml(titleVal)}</span>
-                            </h3>
-                            <p class="text-[10px] text-gray-400 font-mono mt-1">Created: Just now (reload to view link)</p>
-                        </div>
-                        <button onclick="window.location.reload()" class="block w-full text-center bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold py-2 border border-gray-200 rounded-lg transition shadow-sm">
-                            Reload to View Collection
-                        </button>
-                    `;
-                    collectionsGrid.appendChild(colCard);
-                    
-                    const collectionsHeader = Array.from(document.querySelectorAll('h2')).find(el => el.textContent.includes('All Collections'));
-                    if (collectionsHeader) {
-                        const currentCount = collectionsGrid.children.length;
-                        collectionsHeader.textContent = `All Collections (${currentCount})`;
-                    }
-                }
-                
-                // Remove pages from ungrouped list
-                try {
-                    const urls = JSON.parse(urlsStr);
-                    const ungroupedHeader = Array.from(document.querySelectorAll('h2')).find(el => el.textContent.includes('Ungrouped Pages'));
-                    const scrollableDiv = document.querySelector('.max-h-128');
-                    if (scrollableDiv) {
-                        const pageCards = scrollableDiv.querySelectorAll('.bg-white');
-                        pageCards.forEach(cardEl => {
-                            const monoSpan = cardEl.querySelector('span.font-mono');
-                            if (monoSpan) {
-                                const pageUrl = monoSpan.textContent.trim();
-                                if (urls.includes(pageUrl)) {
-                                    cardEl.remove();
-                                }
-                            }
-                        });
-                        
-                        const remainingCount = scrollableDiv.querySelectorAll('.bg-white').length;
-                        if (ungroupedHeader) {
-                            ungroupedHeader.textContent = `Ungrouped Pages (${remainingCount})`;
-                        }
-                        if (remainingCount === 0) {
-                            scrollableDiv.innerHTML = `
-                                <div class="bg-white border border-gray-200 rounded-xl p-8 text-center shadow-sm">
-                                    <p class="text-gray-500 text-sm">All pages have been assigned to collections.</p>
-                                </div>
-                            `;
-                            const suggestBtn = document.getElementById('suggestBtn');
-                            if (suggestBtn) {
-                                suggestBtn.remove();
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.error("Error updating ungrouped list:", e);
-                }
-            } else {
-                alert("Failed to accept suggestion.");
-                btn.disabled = false;
-                btn.innerText = originalText;
-            }
-        })
-        .catch(err => {
-            alert("Error: " + err.message);
-            btn.disabled = false;
-            btn.innerText = originalText;
-        });
-    }
-
-    function closeSuggestions() {
-        document.getElementById('aiSuggestionsPanel').classList.add('hidden');
-    }
-</script>
 {% endblock %}

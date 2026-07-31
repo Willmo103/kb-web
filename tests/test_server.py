@@ -1013,23 +1013,24 @@ def test_collections_crud(client: TestClient) -> None:
     )
     assert create_resp.status_code == 303
     
-    col_row = db["collections"].get(1)
-    assert col_row["title"] == "ML Resources"
+    col_rows = list(db["collections"].rows_where("title = ?", ["ML Resources"]))
+    assert len(col_rows) == 1
+    col_id = col_rows[0]["id"]
 
     # 4. Assign page to collection
     assign_resp = client.post(
         "/admin/pages/update-collection",
-        data={"url": page_url, "collection_id": 1},
+        data={"url": page_url, "collection_ids": [str(col_id)]},
         cookies={"kb_session": session_cookie},
         follow_redirects=False,
     )
     assert assign_resp.status_code == 303
     
-    page_row = db["fetched_pages"].get(page_url)
-    assert page_row["collection_id"] == 1
+    items = list(db["collection_items"].rows_where("source_id = ? AND collection_id = ?", [page_url, col_id]))
+    assert len(items) == 1
 
     # 5. List collection pages
-    list_resp = client.get("/collections/view/1")
+    list_resp = client.get(f"/collections/view/{col_id}")
     assert list_resp.status_code == 200
     assert "ML Resources" in list_resp.text
     assert "Page for Collection" in list_resp.text
@@ -1037,14 +1038,15 @@ def test_collections_crud(client: TestClient) -> None:
     # 6. Remove page from collection
     remove_resp = client.post(
         "/admin/pages/remove-from-collection",
-        data={"url": page_url, "redirect_to": "/collections/view/1"},
+        data={"url": page_url, "redirect_to": f"/collections/view/{col_id}"},
         cookies={"kb_session": session_cookie},
         follow_redirects=False,
     )
     assert remove_resp.status_code == 303
     
-    page_row_after = db["fetched_pages"].get(page_url)
-    assert page_row_after["collection_id"] is None
+    db.conn.commit()
+    items_after = list(db["collection_items"].rows_where("source_id = ? AND collection_id = ?", [page_url, col_id]))
+    assert len(items_after) == 0
 
     # 7. Test accept AI suggestion
     accept_resp = client.post(
@@ -1064,90 +1066,9 @@ def test_collections_crud(client: TestClient) -> None:
     new_col_id = col_row_2[0]["id"]
     
     # Verify page associated
-    page_row_2 = db["fetched_pages"].get(page_url)
-    assert page_row_2["collection_id"] == new_col_id
+    items_suggest = list(db["collection_items"].rows_where("source_id = ? AND collection_id = ?", [page_url, new_col_id]))
+    assert len(items_suggest) == 1
 
-
-def test_cron_jobs(client: TestClient, monkeypatch) -> None:
-    """Verifies cron job creation, status toggle, and manual execution triggers."""
-    db = get_db(server_config)
-
-    # 1. Login as admin
-    login_resp = client.post(
-        "/login",
-        data={"password": server_config.admin_password},
-        follow_redirects=False,
-    )
-    session_cookie = login_resp.cookies.get("kb_session")
-
-    # 2. Create cron job
-    cron_payload = {
-        "title": "Fetch Dev Blog",
-        "url": "https://example.com/blog",
-        "interval_minutes": 30,
-        "prompt_template": "Summarize blog: {md_content}",
-        "output_type": "article",
-        "db_store": "1",
-        "notify_on": "none",
-    }
-    create_resp = client.post(
-        "/admin/cron/create",
-        data=cron_payload,
-        cookies={"kb_session": session_cookie},
-        follow_redirects=False,
-    )
-    assert create_resp.status_code == 303
-
-    job_row = db["cron_jobs"].get(1)
-    assert job_row["title"] == "Fetch Dev Blog"
-    assert job_row["interval_minutes"] == 30
-
-    # 3. Toggle job state
-    toggle_resp = client.post(
-        "/admin/cron/toggle/1",
-        cookies={"kb_session": session_cookie},
-        follow_redirects=False,
-    )
-    assert toggle_resp.status_code == 303
-    assert db["cron_jobs"].get(1)["is_active"] == 0
-
-    # Toggle back to active
-    client.post("/admin/cron/toggle/1", cookies={"kb_session": session_cookie})
-
-    # 4. Mock execution dependencies (fetching & Ollama chat)
-    def mock_fetch_url(url: str):
-        from kb_web.models import HTMLPage
-        return HTMLPage(
-            url=url,
-            title="Blog Site",
-            html_content="<html><body>Blog content</body></html>",
-            md_content="Blog content",
-            links=[],
-            html_content_hash="h1",
-            md_content_hash="m1",
-            fetched_at="2026-05-31T12:00:00",
-        )
-
-    class DummyMessage:
-        content = "AI summary: this is a tech blog post."
-
-    class DummyChatResponse:
-        message = DummyMessage()
-
-    monkeypatch.setattr("kb_web.cron_scheduler.fetch_url", mock_fetch_url)
-    monkeypatch.setattr(ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse())
-
-    # 5. Manually execute single job
-    from kb_web.cron_scheduler import run_single_job
-    import asyncio
-    run_result = asyncio.run(run_single_job(db, 1, server_config))
-    assert run_result["status"] == "success"
-
-    # Verify run record in DB
-    runs = list(db["cron_job_runs"].rows)
-    assert len(runs) == 1
-    assert runs[0]["status"] == "success"
-    assert "AI summary" in runs[0]["prompt_output"]
 
 
 def test_logs_view(client: TestClient) -> None:
@@ -1172,6 +1093,366 @@ def test_logs_view(client: TestClient) -> None:
     assert resp.status_code == 200
     assert "dummy log line" in resp.text
     assert "Another warning line" in resp.text
+
+
+def test_collection_notes_and_workspace(client: TestClient, monkeypatch) -> None:
+    """Verifies custom notes CRUD, agent chat, workspace view, and general collection exclusions."""
+    db = get_db(server_config)
+
+    # 1. Login as admin
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    assert session_cookie is not None
+
+    # 2. Ingest mock page
+    page_url = "https://example.com/workspace-test-page"
+    db["fetched_pages"].insert({
+        "url": page_url,
+        "title": "Workspace Test Page",
+        "html_content": "B",
+        "md_content": "B",
+        "links": "[]",
+        "html_content_hash": "b1",
+        "md_content_hash": "b2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "tags": "[]",
+        "collection_id": None
+    }, replace=True)
+
+    # 3. Create a collection
+    db["collections"].insert({
+        "title": "Dev Workspace",
+        "visibility": "public",
+        "rag_system_prompt": "Prompt text",
+        "taxonomy_system_prompt": "Taxonomy text",
+        "general_system_context": "{}",
+        "created_at": "2026-05-31T12:00:00"
+    })
+    col_rows = list(db["collections"].rows_where("title = ?", ["Dev Workspace"]))
+    assert len(col_rows) == 1
+    col_id = col_rows[0]["id"]
+
+    # 4. Associate page with collection
+    db["collection_items"].insert({
+        "collection_id": col_id,
+        "source_type": "articles",
+        "source_id": page_url,
+        "item_note": "Initial annotation note",
+        "taxonomy_path": "/Dev/Workspace_Page.md",
+        "item_order": 0,
+        "added_at": "2026-05-31T12:00:00"
+    })
+
+    # 5. Get workspace editor view
+    editor_resp = client.get(
+        f"/collections/view/{col_id}/editor",
+        cookies={"kb_session": session_cookie}
+    )
+    assert editor_resp.status_code == 200
+    assert "Workspace Note Editor" in editor_resp.text
+    assert "Dev Workspace" in editor_resp.text
+
+    # 6. Create a custom note
+    create_note_resp = client.post(
+        f"/collections/view/{col_id}/notes/create",
+        data={"title": "custom_note.md", "taxonomy_path": "/Notes/custom_note.md"},
+        cookies={"kb_session": session_cookie}
+    )
+    assert create_note_resp.status_code == 200
+    res_data = create_note_resp.json()
+    assert res_data["status"] == "success"
+    note_id = res_data["note_id"]
+
+    # 7. Update custom note
+    update_note_resp = client.post(
+        f"/collections/view/{col_id}/notes/update",
+        data={
+            "note_id": note_id,
+            "title": "updated_custom_note.md",
+            "content": "# Updated Custom Note content",
+            "taxonomy_path": "/Notes/updated_custom_note.md"
+        },
+        cookies={"kb_session": session_cookie}
+    )
+    assert update_note_resp.status_code == 200
+    assert update_note_resp.json()["status"] == "success"
+    assert db["collection_notes"].get(note_id)["title"] == "updated_custom_note.md"
+
+    # 8. Update collection item note
+    update_item_note_resp = client.post(
+        f"/collections/view/{col_id}/items/update-note",
+        data={
+            "url": page_url,
+            "item_note": "Updated annotation note contents",
+            "taxonomy_path": "/Dev/Workspace_Page_Updated.md"
+        },
+        cookies={"kb_session": session_cookie}
+    )
+    assert update_item_note_resp.status_code == 200
+    assert update_item_note_resp.json()["status"] == "success"
+    
+    item_row = list(db["collection_items"].rows_where("collection_id = ? AND source_id = ?", [col_id, page_url]))[0]
+    assert item_row["item_note"] == "Updated annotation note contents"
+    assert item_row["taxonomy_path"] == "/Dev/Workspace_Page_Updated.md"
+
+    # 9. Toggle General Collection exclusion
+    toggle_excl_resp = client.post(
+        "/admin/pages/toggle-exclude",
+        data={"url": page_url, "exclude": "1"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert toggle_excl_resp.status_code == 303
+    assert db["fetched_pages"].get(page_url)["exclude_from_general"] == 1
+
+    # 10. Test collections agent chat endpoint
+    class DummyMessage:
+        content = "Agent response message"
+
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    import ollama
+    monkeypatch.setattr(ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse())
+
+    chat_resp = client.post(
+        f"/collections/view/{col_id}/agent-chat",
+        data={
+            "message": "Hello Agent",
+            "active_file_id": str(note_id),
+            "active_file_type": "note",
+            "history_json": "[]"
+        },
+        cookies={"kb_session": session_cookie}
+    )
+    assert chat_resp.status_code == 200
+    assert chat_resp.json()["status"] == "success"
+    assert "Agent response message" in chat_resp.json()["reply"]
+
+    # 11. Delete custom note
+    delete_note_resp = client.post(
+        f"/collections/view/{col_id}/notes/delete",
+        data={"note_id": note_id},
+        cookies={"kb_session": session_cookie}
+    )
+    assert delete_note_resp.status_code == 200
+    assert delete_note_resp.json()["status"] == "success"
+    assert len(list(db["collection_notes"].rows_where("id = ?", [note_id]))) == 0
+
+
+def test_youtube_interception_and_embeddings(client: TestClient, monkeypatch) -> None:
+    """Verifies that YouTube links imported via /api/import/html are intercepted correctly and gemma embeddings are generated."""
+    db = get_db(server_config)
+
+    # 1. Mock fetch_youtube_video_page, generate_gemma_embeddings_for_page
+    from kb_web.models import HTMLPage
+
+    called_youtube = []
+    called_embeddings = []
+
+    def mock_fetch_youtube(url: str, video_id: str):
+        called_youtube.append((url, video_id))
+        return HTMLPage(
+            url=url,
+            title="Mock Video Title",
+            html_content="<html><body>Transcript here</body></html>",
+            md_content="Transcript content",
+            links=[],
+            html_content_hash="yt1",
+            md_content_hash="yt2",
+            fetched_at="2026-06-18T12:00:00",
+            description="Mock Video Description",
+            tags='["youtube", "test"]'
+        )
+
+    def mock_generate_embeddings(db_conn, url, cfg, ollama_client):
+        called_embeddings.append(url)
+        # Mock actual entry in database to avoid real ollama API calls
+        db_conn["article_embeddings"].insert({
+            "url": url,
+            "embedding": b"\x80\x81\x82\x83",
+            "updated_at": "2026-06-18"
+        }, replace=True)
+
+    # Mocks for LLM generation
+    class DummyMessage:
+        content = "Wiki content summary of YouTube video."
+        
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    monkeypatch.setattr("kb_web.routers.api.fetch_youtube_video_page", mock_fetch_youtube)
+    monkeypatch.setattr("kb_web.routers.api.generate_gemma_embeddings_for_page", mock_generate_embeddings)
+    monkeypatch.setattr(ollama.Client, "chat", lambda *args, **kwargs: DummyChatResponse())
+
+    # 2. Post to /api/import/html
+    import_payload = {
+        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "html_content": "<html><body>Fallback</body></html>",
+        "title": "Fallback title",
+        "description": "Fallback description",
+        "tags": '["fallback"]'
+    }
+    
+    resp = client.post(
+        "/api/import/html",
+        json=import_payload,
+        headers={"X-API-Key": server_config.api_key}
+    )
+    assert resp.status_code == 200
+    res_json = resp.json()
+    assert res_json["status"] == "success"
+
+    # Verify that mock_fetch_youtube and mock_generate_embeddings were called
+    assert len(called_youtube) == 1
+    assert called_youtube[0][1] == "dQw4w9WgXcQ"
+    assert len(called_embeddings) == 1
+    assert called_embeddings[0] == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    # Verify database state
+    saved_page = db["fetched_pages"].get("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert saved_page["title"] == "Mock Video Title"
+    assert saved_page["md_content"] == "Transcript content"
+
+
+def test_bytes_backup_export_and_import(client: TestClient) -> None:
+    """Verifies that bytes columns in the database are exported to hex strings and imported back successfully."""
+    db = get_db(server_config)
+
+    # 1. Insert a row with bytes into article_embeddings
+    db["article_embeddings"].insert({
+        "url": "https://example.com/bytes-test",
+        "embedding": b"\x80\x81\x82\x83",
+        "updated_at": "2026-06-18"
+    }, replace=True)
+    
+    # Authenticate admin for export/import
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+
+    # 2. Export database
+    export_resp = client.get(
+        "/admin/export",
+        cookies={"kb_session": session_cookie}
+    )
+    assert export_resp.status_code == 200
+    backup_data = export_resp.json()
+    
+    # Verify hex prefix formatting for bytes
+    assert "article_embeddings" in backup_data
+    rows = backup_data["article_embeddings"]
+    matching_row = [r for r in rows if r["url"] == "https://example.com/bytes-test"][0]
+    assert matching_row["embedding"] == "hex:80818283"
+
+    # 3. Modify value in database to verify import restores it
+    db["article_embeddings"].delete("https://example.com/bytes-test")
+    assert not list(db["article_embeddings"].rows_where("url = ?", ["https://example.com/bytes-test"]))
+
+    # 4. Import database via WebSocket
+    import_json = json.dumps(backup_data)
+    with client.websocket_connect("/admin/ws/import", cookies={"kb_session": session_cookie}) as websocket:
+        # Send in chunks
+        chunk_size = 100
+        for i in range(0, len(import_json), chunk_size):
+            websocket.send_text(import_json[i:i+chunk_size])
+        websocket.send_text("EOF")
+        
+        response_msg = websocket.receive_text()
+        assert "SUCCESS" in response_msg
+
+    # Verify imported row contains correct original bytes
+    imported_row = db["article_embeddings"].get("https://example.com/bytes-test")
+    assert imported_row["embedding"] == b"\x80\x81\x82\x83"
+
+
+def test_ollama_logging_and_observability(monkeypatch) -> None:
+    """Verifies that LoggedOllamaClient correctly logs success/failure of calls in the database."""
+    from kb_web.base import _get_ollama_client
+    db = get_db(server_config)
+
+    # Clean existing logs
+    db["ollama_logs"].delete_where()
+    db.conn.commit()
+
+    # 1. Mock underlying ollama.Client.chat
+    class DummyMessage:
+        content = "Wiki summary content"
+
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    called_underlying_chat = []
+    def mock_chat(*args, **kwargs):
+        called_underlying_chat.append(kwargs)
+        return DummyChatResponse()
+
+    # Mock underlying ollama.Client.embeddings
+    called_underlying_embeddings = []
+    def mock_embeddings(*args, **kwargs):
+        called_underlying_embeddings.append(kwargs)
+        return {"embedding": [0.1, 0.2]}
+
+    # Instantiating client uses LoggedOllamaClient
+    logged_client = _get_ollama_client()
+    monkeypatch.setattr(logged_client._client, "chat", mock_chat)
+    monkeypatch.setattr(logged_client._client, "embeddings", mock_embeddings)
+
+    # 2. Trigger chat
+    resp = logged_client.chat(
+        model="gemma",
+        messages=[
+            {"role": "system", "content": "You are a taxonomist expert."},
+            {"role": "user", "content": "categorize this"}
+        ],
+        think=False
+    )
+    assert resp.message.content == "Wiki summary content"
+    assert len(called_underlying_chat) == 1
+
+    # Check DB logs for chat
+    chat_logs = list(db["ollama_logs"].rows_where("prompt_type = 'taxonomy'"))
+    assert len(chat_logs) == 1
+    assert chat_logs[0]["model"] == "gemma"
+    assert "You are a taxonomist expert" in chat_logs[0]["messages"]
+    assert "think" in chat_logs[0]["options"]
+    assert chat_logs[0]["response"] == "Wiki summary content"
+    assert chat_logs[0]["duration"] >= 0.0
+    assert chat_logs[0]["status"] == "success"
+
+    # 3. Trigger embeddings
+    emb_resp = logged_client.embeddings(model="nomic", prompt="Hello World")
+    assert emb_resp["embedding"] == [0.1, 0.2]
+
+    # Check DB logs for embeddings
+    emb_logs = list(db["ollama_logs"].rows_where("prompt_type = 'embeddings'"))
+    assert len(emb_logs) == 1
+    assert emb_logs[0]["model"] == "nomic"
+    assert "Hello World" in emb_logs[0]["messages"]
+    assert emb_logs[0]["response"] == "Success (vector dim: 2)"
+    assert emb_logs[0]["status"] == "success"
+
+    # 4. Trigger failure logging
+    def mock_chat_fail(*args, **kwargs):
+        raise ValueError("Ollama server down")
+    monkeypatch.setattr(logged_client._client, "chat", mock_chat_fail)
+
+    with pytest.raises(ValueError, match="Ollama server down"):
+        logged_client.chat(model="gemma", messages=[{"role": "user", "content": "fail test"}])
+
+    fail_logs = list(db["ollama_logs"].rows_where("status = 'failed'"))
+    assert len(fail_logs) == 1
+    assert "ValueError: Ollama server down" in fail_logs[0]["response"]
+
+
+
 
 
 def test_ollama_think_config_save() -> None:

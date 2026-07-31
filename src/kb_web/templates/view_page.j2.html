@@ -105,16 +105,19 @@
             </div>
             {% endif %}
             <!-- Collection display -->
-            {% if page.collection_title %}
-            <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-200 mb-6 flex items-center justify-between shadow-sm text-xs">
-                <div class="flex items-center gap-2">
-                    <span class="font-bold text-indigo-800 uppercase tracking-wider text-[10px]">Collection:</span>
-                    <a href="/collections/view/{{ page.collection_id }}" class="font-bold text-indigo-700 hover:text-indigo-900 underline">
-                        📁 {{ page.collection_title }}
+            {% if assigned_collections %}
+            <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-200 mb-6 flex flex-wrap items-center justify-between shadow-sm text-xs gap-3">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-bold text-indigo-800 uppercase tracking-wider text-[10px]">Collections:</span>
+                    {% for c in assigned_collections %}
+                    <a href="/collections/view/{{ c.id }}" class="font-bold text-indigo-700 hover:text-indigo-900 underline whitespace-nowrap">
+                        📁 {{ c.title }}
                     </a>
+                    {% if not loop.last %}<span class="text-gray-300">|</span>{% endif %}
+                    {% endfor %}
                 </div>
                 {% if is_admin %}
-                <button onclick="toggleCollectionForm()" class="text-xs font-bold text-indigo-700 hover:text-indigo-900">Change Collection</button>
+                <button onclick="toggleCollectionForm()" class="text-xs font-bold text-indigo-700 hover:text-indigo-900">Change Collections</button>
                 {% endif %}
             </div>
             {% else %}
@@ -126,23 +129,44 @@
                 {% endif %}
             {% endif %}
 
+            <!-- Exclude from General Collection option (admin only) -->
+            {% if is_admin %}
+            <div class="bg-amber-50 p-4 rounded-lg border border-amber-200 mb-6 flex items-center justify-between shadow-sm text-xs">
+                <div class="flex items-center gap-2">
+                    <span class="font-bold text-amber-800 uppercase tracking-wider text-[10px]">General Collection Exclusion:</span>
+                    <span class="text-gray-700 font-medium">{% if page.exclude_from_general == 1 %}Excluded from general library index{% else %}Included in general library index{% endif %}</span>
+                </div>
+                <form action="/admin/pages/toggle-exclude" method="post" class="m-0 flex items-center">
+                    <input type="hidden" name="url" value="{{ page.url }}" />
+                    <input type="hidden" name="exclude" value="{% if page.exclude_from_general == 1 %}0{% else %}1{% endif %}" />
+                    <button type="submit" class="bg-white border border-amber-300 hover:bg-amber-100 text-amber-850 text-[10px] font-bold py-1 px-3 rounded-lg shadow-sm transition">
+                        {% if page.exclude_from_general == 1 %}⚙️ Include{% else %}⚙️ Exclude{% endif %}
+                    </button>
+                </form>
+            </div>
+            {% endif %}
+
             <!-- Collection update form -->
             {% if is_admin %}
             <div id="changeCollectionForm" class="hidden bg-white p-5 rounded-lg border border-gray-200 mb-6 shadow-inner">
                 <form action="/admin/pages/update-collection" method="post" class="flex flex-col gap-3">
                     <input type="hidden" name="url" value="{{ page.url }}" />
                     <div>
-                        <label for="collection_id" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">Assign to Collection</label>
-                        <select name="collection_id" id="collection_id" class="block w-full text-xs border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white">
-                            <option value="">-- None (Remove from Collection) --</option>
+                        <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Assign to Collections</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-gray-200 rounded p-3 bg-gray-50">
                             {% for col in collections %}
-                            <option value="{{ col.id }}" {% if page.collection_id == col.id %}selected{% endif %}>{{ col.title }}</option>
+                            {% if col.id != 1 %}
+                            <label class="flex items-center gap-2 text-xs font-medium text-gray-800 cursor-pointer">
+                                <input type="checkbox" name="collection_ids" value="{{ col.id }}" {% if col.id in assigned_collection_ids %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500" />
+                                {{ col.title }}
+                            </label>
+                            {% endif %}
                             {% endfor %}
-                        </select>
+                        </div>
                     </div>
                     <div class="flex justify-end gap-2">
                         <button type="button" onclick="toggleCollectionForm()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded transition">Cancel</button>
-                        <button type="submit" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded transition">Assign Collection</button>
+                        <button type="submit" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded transition">Assign Collections</button>
                     </div>
                 </form>
             </div>

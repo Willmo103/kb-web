@@ -32,6 +32,23 @@ DEFAULT_YOUTUBE_WIKI_PROMPT = (
     "Output ONLY the final markdown text. Do not reply with conversational filler."
 )
 
+DEFAULT_RAG_SYSTEM_PROMPT = (
+    "You are a helpful knowledge assistant for this collection. "
+    "Use the provided context to answer the user's questions accurately, structured, and objectively. "
+    "If the answer cannot be found in the context, clearly state that."
+)
+
+DEFAULT_TAXONOMY_SYSTEM_PROMPT = (
+    "You are an expert taxonomist. Analyze the incoming document details (URL, title, description, tags) "
+    "and categorize it into a virtual filetree system representing the General Collection of all knowledge. "
+    "To avoid duplicate folder structures and keep the tree organized, here is the current taxonomy tree:\n"
+    "{{taxonomy_tree_str}}\n\n"
+    "Output ONLY a valid JSON object matching the format:\n"
+    '{"taxonomy_path": "/Folder/Subfolder/Filename.md", "action_note": "A short, 1-sentence description of what this note contains."}'
+)
+
+
+
 
 class Config(BaseConfig):
     """Configuration class for the kb-web application.
@@ -64,6 +81,8 @@ class Config(BaseConfig):
         self.ollama_think: bool = os.getenv("KB_OLLAMA_THINK", "false").lower() in ("true", "1")
         self.gotify_url: Optional[str] = os.getenv("GOTIFY_URL")
         self.gotify_token: Optional[str] = os.getenv("GOTIFY_TOKEN")
+        self.qdrant_host_url: Optional[str] = os.getenv("QDRANT_HOST_URL")
+        self.qdrant_api_key: Optional[str] = os.getenv("QDRANT_API_KEY")
 
         # 2. Overlay values from JSON configuration file if it exists
         try:
@@ -95,6 +114,10 @@ class Config(BaseConfig):
                         self.gotify_url = data["gotify_url"]
                     if "gotify_token" in data:
                         self.gotify_token = data["gotify_token"]
+                    if "qdrant_host_url" in data:
+                        self.qdrant_host_url = data["qdrant_host_url"]
+                    if "qdrant_api_key" in data:
+                        self.qdrant_api_key = data["qdrant_api_key"]
         except Exception as e:
             # Suppress logs or print warning during startup if reading fails
             print(f"Warning: Failed to load config file 'kb-web.json': {e}")
@@ -117,6 +140,8 @@ class Config(BaseConfig):
                 "ollama_think": self.ollama_think,
                 "gotify_url": self.gotify_url,
                 "gotify_token": self.gotify_token,
+                "qdrant_host_url": self.qdrant_host_url,
+                "qdrant_api_key": self.qdrant_api_key,
             }
             with open(config_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
