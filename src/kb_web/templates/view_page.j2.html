@@ -203,11 +203,27 @@
             </div>
             {% endif %}
 
-            <!-- YouTube video iframe if available -->
+            <!-- YouTube video player/iframe if available -->
             {% if video_id %}
             <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-sm mb-6">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-bold uppercase tracking-wider text-gray-505">Video Player</span>
+                    {% if is_offline %}
+                    <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded border border-emerald-200 flex items-center gap-1">
+                        <span>💾</span> Saved Offline
+                    </span>
+                    {% else %}
+                    <span class="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded border border-amber-200 flex items-center gap-1">
+                        <span>☁️</span> Cloud Stream
+                    </span>
+                    {% endif %}
+                </div>
                 <div class="relative w-full rounded-lg overflow-hidden border border-gray-200 shadow" style="aspect-ratio: 16 / 9;">
+                    {% if is_offline and local_video_url %}
+                    <video class="absolute top-0 left-0 w-full h-full object-cover" controls src="{{ local_video_url }}"></video>
+                    {% else %}
                     <iframe class="absolute top-0 left-0 w-full h-full" src="https://www.youtube.com/embed/{{ video_id }}" frameborder="0" allowfullscreen></iframe>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
@@ -225,19 +241,19 @@
                 <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 border-b pb-2">🔗 Page Links</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-2">
                     {% for item in scraped_links %}
-                    <div class="flex items-center justify-between gap-3 p-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded transition">
+                    <div class="flex items-center justify-between gap-3 p-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded transition" title="{{ item.url }}">
                         <div class="truncate">
                             {% if item.ingested %}
-                            <a href="/view/page?url={{ item.url | urlencode }}" class="text-emerald-700 hover:text-emerald-950 font-medium text-xs break-all flex items-center gap-1">
-                                📁 {{ item.url }}
+                            <a href="/view/page?url={{ item.url | urlencode }}" class="text-emerald-700 hover:text-emerald-950 font-medium text-xs break-all flex items-center gap-1" title="{{ item.url }}">
+                                📁 {{ item.url | urlpath }}
                             </a>
                             {% else %}
                                 {% if is_admin %}
-                                <a href="#" onclick="openIngestModal('{{ item.url }}'); return false;" class="text-indigo-650 hover:text-indigo-850 hover:underline text-xs font-mono break-all flex items-center gap-1">
-                                    📥 {{ item.url }}
+                                <a href="#" onclick="openIngestModal('{{ item.url }}'); return false;" class="text-indigo-650 hover:text-indigo-850 hover:underline text-xs font-mono break-all flex items-center gap-1" title="{{ item.url }}">
+                                    📥 {{ item.url | urlpath }}
                                 </a>
                                 {% else %}
-                                <span class="text-gray-500 text-xs font-mono break-all">{{ item.url }}</span>
+                                <span class="text-gray-500 text-xs font-mono break-all" title="{{ item.url }}">{{ item.url | urlpath }}</span>
                                 {% endif %}
                             {% endif %}
                         </div>
@@ -245,7 +261,7 @@
                             {% if item.ingested %}
                             <span class="px-1.5 py-0.5 bg-emerald-105 text-emerald-800 text-[9px] font-semibold rounded border border-emerald-200 whitespace-nowrap">Ingested</span>
                             {% endif %}
-                            <a href="{{ item.url }}" target="_blank" class="text-[10px] text-gray-550 hover:text-gray-800 hover:underline font-bold" title="Visit original external page">
+                            <a href="{{ item.url }}" target="_blank" class="text-[10px] text-gray-550 hover:text-gray-800 hover:underline font-bold" title="Visit original external page: {{ item.url }}">
                                 ↗️ Visit
                             </a>
                         </div>
@@ -289,12 +305,23 @@
                             <span>📺</span> Regenerate Video Attrs
                         </button>
                     </form>
+                        {% if not is_offline %}
+                        <form id="download-video-form" onsubmit="submitVideoDownload(event)" class="m-0">
+                            <input type="hidden" name="url" value="{{ page.url }}" />
+                            <button type="submit" class="w-full text-left text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold py-2 px-3 border border-emerald-200 rounded transition shadow-sm flex items-center gap-2">
+                                <span>📥</span> Download Video Offline
+                            </button>
+                        </form>
+                        {% endif %}
                     {% endif %}
                     <form action="/admin/refetch/page?url={{ page.safe_url }}" method="post" class="m-0">
                         <button type="submit" class="w-full text-left text-xs bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold py-2 px-3 border border-sky-200 rounded transition shadow-sm flex items-center gap-2">
                             <span>🔄</span> Re-fetch Page
                         </button>
                     </form>
+                    <button type="button" onclick="openCrawlModal()" class="w-full text-left text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold py-2 px-3 border border-purple-200 rounded transition shadow-sm flex items-center gap-2">
+                        <span>🕷️</span> Crawl From Here
+                    </button>
                     <form action="/admin/delete/page" method="post" onsubmit="return confirm('Are you sure you want to permanently delete this entry?');" class="m-0">
                         <input type="hidden" name="url" value="{{ page.url }}" />
                         <button type="submit" class="w-full text-left text-xs bg-red-50 hover:bg-red-100 text-red-700 font-bold py-2 px-3 border border-red-200 rounded transition shadow-sm flex items-center gap-2">
@@ -318,7 +345,7 @@
             <span class="mr-2">📥</span> Ingest Link
         </h3>
         <p class="text-sm text-gray-600 mb-4">Are you sure you want to ingest this page into the Knowledge Base? This will fetch its contents and generate a wiki summary with Ollama.</p>
-        <p id="modal-url-text" class="text-xs font-mono bg-gray-100 p-3 rounded break-all text-gray-805 mb-6 border border-gray-200"></p>
+        <p id="modal-url-text" class="text-xs font-mono bg-gray-100 p-3 rounded break-all text-gray-855 mb-6 border border-gray-200"></p>
         <div class="flex justify-end gap-3">
             <button onclick="closeIngestModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded transition">
                 Cancel
@@ -327,6 +354,37 @@
                 Confirm Ingestion
             </button>
         </div>
+    </div>
+</div>
+
+<!-- Crawl Confirmation Modal -->
+<div id="crawl-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4">
+    <div class="bg-white rounded-lg p-6 max-w-md w-full shadow-2xl border border-gray-200 animate-fade-in">
+        <h3 class="text-lg font-bold text-gray-950 mb-2 flex items-center">
+            <span class="mr-2">🕷️</span> Recursive Web Crawl
+        </h3>
+        <p class="text-sm text-gray-600 mb-4">Set recursive crawler settings to fetch and catalog same-domain links starting from this page.</p>
+        <form id="crawl-form" onsubmit="submitCrawl(event)" class="space-y-4">
+            <input type="hidden" name="url" id="crawl-form-url" value="{{ page.url }}" />
+            <div>
+                <label for="crawl-depth" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Crawl Depth</label>
+                <input type="number" id="crawl-depth" name="depth" min="1" max="5" value="3" class="block w-full text-xs border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required />
+                <span class="text-[10px] text-gray-400">Maximum depth of same-domain links to follow recursively.</span>
+            </div>
+            <div>
+                <label for="crawl-interval" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Request Interval (seconds)</label>
+                <input type="number" id="crawl-interval" name="interval" min="1" max="60" value="5" class="block w-full text-xs border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required />
+                <span class="text-[10px] text-gray-400">Delay between recursive ingestion requests.</span>
+            </div>
+            <div class="flex justify-end gap-3 pt-2">
+                <button type="button" onclick="closeCrawlModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded transition">
+                    Cancel
+                </button>
+                <button type="submit" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded transition shadow-sm">
+                    Start Crawl
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -376,6 +434,61 @@
         if (!urlToIngest) return;
         document.getElementById('ingest-form-url').value = urlToIngest;
         document.getElementById('ingest-form').submit();
+    }
+
+    function openCrawlModal() {
+        document.getElementById('crawl-modal').classList.remove('hidden');
+    }
+
+    function closeCrawlModal() {
+        document.getElementById('crawl-modal').classList.add('hidden');
+    }
+
+    function submitCrawl(event) {
+        event.preventDefault();
+        const form = document.getElementById('crawl-form');
+        const formData = new FormData(form);
+
+        fetch('/api/crawl/start', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert("Crawler successfully started in background!");
+                closeCrawlModal();
+            } else {
+                alert("Failed to start crawler: " + (data.message || 'unknown error'));
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert("An error occurred starting crawl: " + err);
+        });
+    }
+
+    function submitVideoDownload(event) {
+        event.preventDefault();
+        const form = document.getElementById('download-video-form');
+        const formData = new FormData(form);
+
+        fetch('/api/youtube/download', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert("YouTube video download successfully started in the background! Refresh the page in a few moments to stream locally.");
+            } else {
+                alert("Failed to start download: " + (data.message || 'unknown error'));
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert("An error occurred starting download: " + err);
+        });
     }
 </script>
 {% endblock %}

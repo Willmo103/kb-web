@@ -142,6 +142,13 @@ def get_service_worker() -> HTMLResponse:
     )
 
 
+# Serve media files (e.g. downloaded YouTube videos)
+from fastapi.staticfiles import StaticFiles
+media_dir = config.configs_dir.parent / "media"
+media_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=str(media_dir)), name="media")
+
+
 # Import and register routers
 from .routers import auth, pages, sites, admin, api, collections, cron, graph  # noqa: E402
 

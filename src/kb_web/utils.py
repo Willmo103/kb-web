@@ -731,3 +731,79 @@ def serialize_page_for_db(page_data: HTMLPage) -> tuple[dict, Optional[str]]:
     serialized["keywords"] = json.dumps(serialized["keywords"])
     serialized["tags"] = json.dumps(serialized["tags"])
     return serialized, creator
+
+
+def ingest_url_sync(db, url: str, config=None, client=None) -> dict:
+    """Ingests a URL, processes it with Ollama, saves to DB, and updates embeddings."""
+    if config is None:
+        config = default_config
+    if client is None:
+        client = _get_ollama_client()
+        
+    url = extract_first_url(url)
+    page_data = fetch_url(url)
+    
+    wiki_entry = extract_wiki_content(page_data, config, client)
+    page_data.description = wiki_entry
+    
+    title = url
+    soup = BeautifulSoup(page_data.html_content, "html5lib")
+    if soup.title:
+        title = soup.title.string
+    if not title:
+        title = urlparse(url).netloc or url
+
+    if wiki_entry.strip().startswith("#"):
+        first_line = wiki_entry.strip().split("\n")[0]
+        title = first_line.replace("#", "").strip()
+
+    page_data.title = title
+    tags = extract_tags_content(page_data, config, client)
+    page_data.tags = tags
+
+    serialized, creator = serialize_page_for_db(page_data)
+    db["fetched_pages"].upsert(serialized, pk="url")
+    save_youtube_metadata_helper(db, page_data.url, creator)
+    update_article_embedding(db, page_data.url, config, client)
+    return {"status": "success", "url": url}
+
+
+def download_youtube_video(video_id: str, config_obj=None) -> str:
+    """Downloads a YouTube video to ~/.kb/media/videos/<video_id>.mp4 using yt-dlp.
+    
+    Returns the absolute local path to the downloaded video.
+    """
+    import yt_dlp
+    from pathlib import Path
+    
+    if config_obj is None:
+        config_obj = default_config
+        
+    media_dir = config_obj.configs_dir.parent / "media" / "videos"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    
+    output_path = media_dir / f"{video_id}.mp4"
+    if output_path.exists():
+        return str(output_path)
+        
+    ydl_opts = {
+        'format': 'mp4/best',
+        'outtmpl': str(media_dir / f"{video_id}.%(ext)s"),
+        'quiet': True,
+        'no_warnings': True,
+    }
+    
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([video_url])
+        
+    downloaded_files = list(media_dir.glob(f"{video_id}.*"))
+    if downloaded_files:
+        first_file = downloaded_files[0]
+        if first_file.suffix != ".mp4":
+            new_path = first_file.with_suffix(".mp4")
+            first_file.rename(new_path)
+            return str(new_path)
+        return str(first_file)
+        
+    raise RuntimeError(f"Failed to download video {video_id} with yt-dlp.")

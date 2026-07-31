@@ -17,8 +17,21 @@ from .db import init_db
 # Instantiate global configuration
 config = Config()
 
+from urllib.parse import urlparse
+
+def extract_url_path(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        path = parsed.path
+        if not path or path == "/":
+            return parsed.netloc or url
+        return path
+    except Exception:
+        return url
+
 # Set up Jinja2 environment utilizing PackageLoader for clean packaging
 _jinja_env = jinja2.Environment(loader=jinja2.PackageLoader("kb_web", "templates"))
+_jinja_env.filters["urlpath"] = extract_url_path
 
 COOKIE_NAME = "kb_session"
 SESSION_EXPIRATION_SECONDS = 3600 * 24  # 24 hours

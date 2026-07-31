@@ -1174,5 +1174,91 @@ def test_logs_view(client: TestClient) -> None:
     assert "Another warning line" in resp.text
 
 
+def test_ollama_think_config_save() -> None:
+    """Verifies that ollama_think is correctly saved and loaded in the Config class."""
+    from kb_web.config import Config
+    cfg = Config()
+    cfg.ollama_think = True
+    cfg.save()
+    
+    cfg2 = Config()
+    assert cfg2.ollama_think is True
+    
+    # Restore to False
+    cfg2.ollama_think = False
+    cfg2.save()
+
+
+def test_title_embeddings_generation(monkeypatch) -> None:
+    """Verifies that update_article_embedding correctly creates title embeddings."""
+    from kb_web.utils import update_article_embedding
+    from kb_web.config import Config
+    import sqlite_utils
+    import json
+    
+    db = sqlite_utils.Database(memory=True)
+    db["fetched_pages"].create(
+        {
+            "url": str,
+            "title": str,
+            "html_content": str,
+            "md_content": str,
+            "links": str,
+            "html_content_hash": str,
+            "md_content_hash": str,
+            "fetched_at": str,
+            "description": str,
+            "keywords": str,
+            "tags": str,
+        },
+        pk="url",
+    )
+    
+    db["fetched_pages"].insert({
+        "url": "https://example.com/test-title-embeddings",
+        "title": "Special Custom Title",
+        "tags": "[\"tech\"]",
+        "description": "Custom description"
+    })
+    
+    class DummyClient:
+        def embeddings(self, model, prompt):
+            return {"embedding": [0.1, 0.2, 0.3]}
+            
+    cfg = Config()
+    client = DummyClient()
+    
+    # Run embedding update
+    update_article_embedding(db, "https://example.com/test-title-embeddings", cfg, client)
+    
+    # Verify title embeddings exist
+    assert "title_embeddings" in db.table_names()
+    row = db["title_embeddings"].get("https://example.com/test-title-embeddings")
+    assert row is not None
+    assert json.loads(row["embedding"]) == [0.1, 0.2, 0.3]
+
+
+def test_extract_url_path_helper() -> None:
+    """Tests the Jinja filter helper extract_url_path."""
+    from kb_web.base import extract_url_path
+    
+    assert extract_url_path("https://example.com/some/long/path/file.html") == "/some/long/path/file.html"
+    assert extract_url_path("https://example.com/") == "example.com"
+    assert extract_url_path("invalid-url") == "invalid-url"
+
+
+def test_offline_video_metadata() -> None:
+    """Verifies schema contains local_path in youtube_videos table."""
+    from kb_web.db import init_db
+    import sqlite_utils
+    
+    db = sqlite_utils.Database(memory=True)
+    init_db(db)
+    
+    assert "youtube_videos" in db.table_names()
+    cols = db["youtube_videos"].columns_dict
+    assert "local_path" in cols
+
+
 
 
