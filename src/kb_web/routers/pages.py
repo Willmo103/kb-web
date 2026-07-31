@@ -91,6 +91,25 @@ def view_all_pages(
                     if not any(t.strip().lower() == tag_lower for t in tags_list):
                         continue
 
+                # Fetch collection details
+                coll_title = None
+                coll_id = None
+                if "collection_items" in db.table_names():
+                    try:
+                        coll_rows = list(db.execute_returning_dicts(
+                            """
+                            SELECT c.id, c.title FROM collections c
+                            JOIN collection_items ci ON c.id = ci.collection_id
+                            WHERE ci.source_id = ? AND c.id != 1
+                            """,
+                            [row["url"]]
+                        ))
+                        if coll_rows:
+                            coll_title = ", ".join([r["title"] for r in coll_rows])
+                            coll_id = coll_rows[0]["id"]
+                    except Exception:
+                        pass
+
                 video_id = row.get("video_id") or extract_youtube_video_id(row["url"])
                 if video_id:
                     creator = row.get("creator") or "Unknown Creator"
@@ -104,10 +123,15 @@ def view_all_pages(
                             page_obj.duration = row.get("duration")
                             page_obj.view_count = row.get("view_count")
                             page_obj.thumbnail_url = row.get("thumbnail_url")
+                            page_obj.collection_title = coll_title
+                            page_obj.collection_id = coll_id
                             videos_list.append(page_obj)
                 else:
                     if tag or view != "videos":
-                        pages_list.append(HTMLPage(**row))
+                        page_obj = HTMLPage(**row)
+                        page_obj.collection_title = coll_title
+                        page_obj.collection_id = coll_id
+                        pages_list.append(page_obj)
             except Exception as e:
                 print(f"Database row validation error: {e}")
                 continue
@@ -185,16 +209,32 @@ def view_saved_page(
                 content="<h1>Wiki Article Profile Missing</h1>", status_code=404
             )
 
-    # Fetch collection details if present
+    # Fetch collection details if present (using many-to-many relationship)
     collection_title = None
-    if getattr(page_obj, "collection_id", None):
+    assigned_collection_ids = []
+    assigned_collections = []
+    if "collection_items" in db.table_names():
         try:
-            col = db["collections"].get(page_obj.collection_id)
-            collection_title = col.get("title")
-        except Exception:
-            pass
+            rows = db.execute_returning_dicts(
+                """
+                SELECT c.id, c.title FROM collections c
+                JOIN collection_items ci ON c.id = ci.collection_id
+                WHERE ci.source_id = ?
+                """,
+                [decoded_url]
+            )
+            if rows:
+                non_general = [r for r in rows if r["id"] != 1]
+                if non_general:
+                    collection_title = ", ".join([c["title"] for c in non_general])
+                    page_obj.collection_id = non_general[0]["id"]
+                assigned_collection_ids = [r["id"] for r in rows]
+                assigned_collections = non_general
+        except Exception as e:
+            print(f"Failed to fetch assigned collections: {e}")
+            
     # Set attributes dynamically
-    page_obj.collection_title = collection_title
+    page_obj.collection_title = collection_title or None
 
     # Retrieve all collections for management dropdown
     collections_list = []
@@ -280,5 +320,7 @@ def view_saved_page(
             video_id=video_id,
             video_metadata=video_metadata,
             collections=collections_list,
+            assigned_collection_ids=assigned_collection_ids,
+            assigned_collections=assigned_collections,
         )
     )

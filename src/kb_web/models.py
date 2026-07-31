@@ -101,6 +101,7 @@ class HTMLPage(BaseModel):
     thumbnail_url: Optional[str] = None
     collection_id: Optional[int] = None
     collection_title: Optional[str] = None
+    exclude_from_general: Optional[int] = 0
 
     @field_validator("links", mode="before")
     @classmethod

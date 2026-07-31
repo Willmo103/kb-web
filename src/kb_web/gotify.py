@@ -10,7 +10,7 @@ def post_error_to_gotify(config, exc: Exception, tb: str, request: Optional[Requ
     """Sends a formatted Gotify notification detailing an uncaught internal server exception."""
     try:
         notifier = config.get_notifier()
-        if not notifier.token or not notifier.url:
+        if not notifier.POST_ENABLED:
             # Gotify is not configured, skip silently
             return
 

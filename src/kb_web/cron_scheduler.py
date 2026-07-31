@@ -175,7 +175,7 @@ async def run_single_job(db: sqlite_utils.Database, job_id: int, config) -> Dict
     if should_notify:
         try:
             notifier = config.get_notifier()
-            if notifier.token and notifier.url:
+            if notifier.POST_ENABLED:
                 title = f"⏰ Cron Job: {job['title']} [{status.upper()}]"
                 if status == "success":
                     msg = f"Job successfully finished in {duration:.2f} seconds.\n\nSummary:\n{prompt_output[:400]}..."
