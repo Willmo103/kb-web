@@ -5,46 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.25] - 2026-06-18
+## [0.1.24] - 2026-07-25
 ### Added
-- Created `get_general_collection_id` to dynamically resolve or seed the "General Collection" by title instead of hardcoding ID `1`, allowing user-created collections to coexist cleanly.
-- Implemented new unit tests `test_youtube_interception_and_embeddings` and `test_bytes_backup_export_and_import` to verify the ingestion of YouTube videos and robust database backups/restores for BLOB columns.
-- Implemented `LoggedOllamaClient` wrapper for the Ollama client that captures inputs, options, responses, duration, and status (success/failed) and logs them to the new `ollama_logs` database table.
-- Added a 90-second connection/read timeout to all Ollama clients to prevent indefinite pipeline hangs when the local Ollama service stalls in production.
-- Appended `test_ollama_logging_and_observability` unit test to verify successful/failed call logging.
-- Added granular progress logging statements yielding real-time status details before/after every DB transaction and Ollama request in the ingestion and seeding streams.
-
-### Changed
-- Intercept YouTube URL ingestion to scrap transcripts, metadata, and generate Gemma embeddings for programmatic API page/HTML imports.
-- Updated collections creation and suggestion accept endpoints to define fallback defaults for RAG and Taxonomy system prompts.
-- Compiled and passed the existing virtual taxonomy tree to the taxonomist agent.
-- Forced all Ollama chat/completions calls to use `think=False` to prevent thinking latency.
-- Removed the background Cron tasks scheduler execution and cron manager endpoints and pages.
-- Modified the UI URL Ingestion stream (`/import/url`) to commit database transactions incrementally, ensuring page text and metadata persist even if downstream embedding steps fail.
-
-### Fixed
-- Committed transactions in `init_db` migrations and collections seeding to prevent SQLite database locked errors.
-- Resolved Unicode encoding failures when printing warnings/symbols on Windows platforms.
-- Escaped title and taxonomy variables in populator stream script yields via `json.dumps` to prevent JS SyntaxError crashes.
-- Fixed database writes rollback by adding missing `db.conn.commit()` calls in programmatic API import handlers (`/api/import/html` and `/api/import/page`).
-
-## [0.1.24] - 2026-06-16
-### Added
-- Implemented Obsidian-style split **Collection Editor Workspace** (three-pane dashboard: filetree navigation, split preview markdown editor, Ollama agent chat).
-- Added collection-specific custom notes database storage and CRUD actions (`collection_notes` table).
-- Implemented many-to-many collections schema with custom drag-and-drop ordering, visibility settings, and multi-select page assignment.
-- Integrated character-level overlap text chunking (1500 limit, 150 overlap) with Google Gemma embeddings prefixing (`search_document: ` / `search_query: `) via Ollama.
-- Implemented Qdrant client REST synchronization endpoints with Cosine distance and a 768-dimensional default vector space, including offline fallback JSON queuing.
-- Added admin General Collection populator streaming route.
-- Added line tail limits selection and text downloads to admin logs panel.
-- Refactored URL import route to support synchronous HTML progress streaming.
-- Updated database backups/restores JSON formats to support all database tables.
-
-### Fixed
-- Fixed collections displays in general index views and collection views to correctly fetch assigned collections, showing specific collections as badges or "None" tags with an inline "+ Add to Collection" link.
-- Fixed process-level DB initialization locks and Gotify notification AttributeError bug.
-- Aligned similarity graph legend badges to render correctly as inline-block elements.
-- Cleaned up page listings by removing play buttons and making video/article cards fully clickable links.
+- Condensed all history, architecture, and agent instructions into package-level `GEMINI.md`.
+- Implemented sub-divided development rules in `.agent/rules/` (`development_rules.md`, `documentation_rules.md`, `python_coding_rules.md`, `git_rules.md`, `uat_and_ui_testing_rules.md`, `ui_component_uat_rules.md`, `vcs_testing_artifact_rules.md`, `custom_html_feedback_rules.md`).
+- Implemented automated UAT testing & feedback skills in `.agent/skills/`:
+  - `collect-uat-feedback-and-create-issues`: Interactive HTML feedback form template (`uat_feedback_form.html`) and issue parser script (`parse_uat_issues.py`) to convert user JSON submissions into actionable agent tasks.
+  - `generate-uat-testing-artifact`: Script (`generate_uat_report.py`) and template (`uat_report_template.md`) to generate VCS-tracked test logs and reports in `uat/`.
+  - `ui-component-uat-check`: Automated Jinja2 template & theme verifier script (`verify_ui_templates.py`).
+  - Added skills for `pre-commit-checks`, `document-code-issue-and-fix`, `kb-web-browser-extension`, and `kb-web-service-management`.
 
 ## [0.1.23] - 2026-06-14
 ### Changed

@@ -78,6 +78,7 @@ class Config(BaseConfig):
         self.youtube_wiki_prompt: str = os.getenv("KB_YOUTUBE_WIKI_PROMPT", DEFAULT_YOUTUBE_WIKI_PROMPT)
         self.similarity_threshold: float = float(os.getenv("KB_SIMILARITY_THRESHOLD", "0.8"))
         self.max_input_length: int = int(os.getenv("KB_MAX_INPUT_LENGTH", "20000"))
+        self.ollama_think: bool = os.getenv("KB_OLLAMA_THINK", "false").lower() in ("true", "1")
         self.gotify_url: Optional[str] = os.getenv("GOTIFY_URL")
         self.gotify_token: Optional[str] = os.getenv("GOTIFY_TOKEN")
         self.qdrant_host_url: Optional[str] = os.getenv("QDRANT_HOST_URL")
@@ -107,6 +108,8 @@ class Config(BaseConfig):
                         self.similarity_threshold = float(data["similarity_threshold"])
                     if "max_input_length" in data:
                         self.max_input_length = int(data["max_input_length"])
+                    if "ollama_think" in data:
+                        self.ollama_think = bool(data["ollama_think"])
                     if "gotify_url" in data:
                         self.gotify_url = data["gotify_url"]
                     if "gotify_token" in data:
@@ -134,6 +137,7 @@ class Config(BaseConfig):
                 "youtube_wiki_prompt": self.youtube_wiki_prompt,
                 "similarity_threshold": self.similarity_threshold,
                 "max_input_length": self.max_input_length,
+                "ollama_think": self.ollama_think,
                 "gotify_url": self.gotify_url,
                 "gotify_token": self.gotify_token,
                 "qdrant_host_url": self.qdrant_host_url,
