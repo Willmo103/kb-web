@@ -4,7 +4,7 @@ FastAPI Router for displaying pages index and detail wiki profile views in kb-we
 
 import json
 from typing import Optional
-from urllib.parse import unquote_plus, urlparse
+from urllib.parse import unquote_plus, urlparse, urljoin
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
