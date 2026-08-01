@@ -1651,22 +1651,15 @@ def test_crawler_domain_normalization(monkeypatch) -> None:
             "/page3"
         ])
     })
-    
-    # Pre-populate page1 and page3 as already fetched so crawler reads their links
-    db["fetched_pages"].insert({
-        "url": "https://www.example.com/page1",
-        "title": "Page 1",
-        "links": json.dumps([])
-    })
-    db["fetched_pages"].insert({
-        "url": "https://example.com/page3",
-        "title": "Page 3",
-        "links": json.dumps([])
-    })
 
     ingested_urls = []
     def mock_ingest(db_handle, url, cfg, client):
         ingested_urls.append(url)
+        db_handle["fetched_pages"].insert({
+            "url": url,
+            "title": "Ingested",
+            "links": "[]"
+        })
         
     monkeypatch.setattr("kb_web.utils.ingest_url_sync", mock_ingest)
     monkeypatch.setattr("kb_web.routers.pages._get_db", lambda: db)
@@ -1674,8 +1667,10 @@ def test_crawler_domain_normalization(monkeypatch) -> None:
     cfg = Config()
     run_recursive_crawl("https://example.com/start", depth=2, interval=0, config_obj=cfg)
     
-    # The queue should successfully resolve page1 and page3 normalized to example.com, and skip other.com.
-    # Let's verify that the crawler processed the start page.
+    # Verify same-domain normalized links were crawled and different-domain links were skipped
+    assert "https://www.example.com/page1" in ingested_urls
+    assert "https://example.com/page3" in ingested_urls
+    assert "https://other.com/page2" not in ingested_urls
 
 
 def test_import_with_collection(client: TestClient, monkeypatch) -> None:
