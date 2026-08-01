@@ -36,6 +36,68 @@ _jinja_env.filters["urlpath"] = extract_url_path
 COOKIE_NAME = "kb_session"
 SESSION_EXPIRATION_SECONDS = 3600 * 24  # 24 hours
 
+import logging
+
+class SQLiteLogHandler(logging.Handler):
+    """Custom logging handler that writes logs to the SQLite database `system_logs` table."""
+    def __init__(self, db_path: str) -> None:
+        super().__init__()
+        self.db_path = db_path
+        
+        # Create system_logs table immediately if it doesn't exist
+        import sqlite3
+        conn = sqlite3.connect(self.db_path, timeout=15.0)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS system_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT,
+                    level TEXT,
+                    module TEXT,
+                    message TEXT,
+                    traceback TEXT
+                )
+            """)
+            conn.commit()
+        finally:
+            conn.close()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            import sqlite3
+            from datetime import datetime
+            import traceback
+
+            # Format the message
+            msg = self.format(record)
+            
+            # Format traceback if present
+            tb = ""
+            if record.exc_info:
+                tb = "".join(traceback.format_exception(*record.exc_info))
+
+            conn = sqlite3.connect(self.db_path, timeout=15.0)
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO system_logs (timestamp, level, module, message, traceback) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        datetime.now().isoformat(),
+                        record.levelname,
+                        record.module,
+                        msg,
+                        tb
+                    )
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            # Prevent logging errors from crashing the application
+            pass
+
+
 _local = threading.local()
 _init_lock = threading.Lock()
 _db_initialized = False

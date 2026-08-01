@@ -13,12 +13,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from .base import config
 from .gotify import post_error_to_gotify
 
-# Setup logging targeting ~/.kb/logs/kb-web.log
+# Setup logging using SQLite database table system_logs
 def setup_logging():
-    log_dir = config.configs_dir.parent / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "kb-web.log"
-    
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     logger.handlers = []
@@ -30,14 +26,14 @@ def setup_logging():
     ))
     logger.addHandler(console_handler)
     
-    # File Handler
-    file_handler = RotatingFileHandler(
-        log_file, maxBytes=10*1024*1024, backupCount=5, encoding="utf-8"
-    )
-    file_handler.setFormatter(logging.Formatter(
-        "[%(asctime)s] %(levelname)s in %(module)s: %(message)s"
-    ))
-    logger.addHandler(file_handler)
+    # SQLite Database Logging Handler
+    try:
+        from .base import SQLiteLogHandler
+        db_handler = SQLiteLogHandler(config.db_path)
+        db_handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(db_handler)
+    except Exception as e:
+        print(f"Warning: Failed to setup SQLiteLogHandler: {e}")
     
     logging.getLogger("kb_web").setLevel(logging.INFO)
 
@@ -52,6 +48,29 @@ async def lifespan(app: FastAPI):
 
 # Instantiate core application
 app = FastAPI(title="Knowledge Base Web Importer", lifespan=lifespan)
+
+
+# Request logging middleware to trace request lifecycle and performance
+@app.middleware("http")
+async def log_request_middleware(request: Request, call_next):
+    import time
+    start_time = time.time()
+    method = request.method
+    url = str(request.url)
+    client_host = request.client.host if request.client else "unknown"
+    
+    logger.info(f"Incoming request: {method} {url} from {client_host}")
+    
+    try:
+        response = await call_next(request)
+        duration = time.time() - start_time
+        logger.info(f"Completed request: {method} {url} - Status: {response.status_code} - Duration: {duration:.3f}s")
+        return response
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"Failed request: {method} {url} - Error: {str(e)} - Duration: {duration:.3f}s", exc_info=True)
+        raise e
+
 
 
 # Exception handler posting internal errors to Gotify
