@@ -392,51 +392,14 @@ def init_db(db: sqlite_utils.Database) -> None:
         except Exception as e:
             print(f"Error creating video_embeddings table: {e}")
 
-    # Initialize cron_jobs table
-    if "cron_jobs" not in db.table_names():
-        try:
-            db["cron_jobs"].create(
-                {
-                    "id": int,
-                    "title": str,
-                    "url": str,
-                    "interval_minutes": int,
-                    "prompt_template": str,
-                    "output_type": str,
-                    "db_store": int, # 0 or 1
-                    "file_store": int, # 0 or 1
-                    "notify_on": str, # "success", "failure", "both", "none"
-                    "is_active": int, # 0 or 1
-                    "last_run_at": str,
-                    "created_at": str,
-                    "updated_at": str,
-                },
-                pk="id",
-            )
-            print("Initialized database table: cron_jobs")
-        except Exception as e:
-            print(f"Error creating cron_jobs table: {e}")
-
-    # Initialize cron_job_runs table
-    if "cron_job_runs" not in db.table_names():
-        try:
-            db["cron_job_runs"].create(
-                {
-                    "id": int,
-                    "cron_job_id": int,
-                    "status": str,
-                    "fetched_at": str,
-                    "prompt_output": str,
-                    "error_message": str,
-                    "files_created": str,
-                    "duration": float,
-                },
-                pk="id",
-                foreign_keys=[("cron_job_id", "cron_jobs", "id")],
-            )
-            print("Initialized database table: cron_job_runs")
-        except Exception as e:
-            print(f"Error creating cron_job_runs table: {e}")
+    # Drop legacy database tables: cron_jobs, cron_job_runs
+    for table_name in ("cron_job_runs", "cron_jobs"):
+        if table_name in db.table_names():
+            try:
+                db[table_name].drop()
+                print(f"Dropped legacy database table: {table_name}")
+            except Exception as e:
+                print(f"Warning: Failed to drop legacy database table {table_name}: {e}")
 
     # Initialize ollama_logs table
     if "ollama_logs" not in db.table_names():

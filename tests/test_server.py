@@ -1541,5 +1541,40 @@ def test_offline_video_metadata() -> None:
     assert "local_path" in cols
 
 
+def test_cron_subsystem_removal(client: TestClient) -> None:
+    """Verifies that the cron subsystem has been removed, including routes and database tables."""
+    from kb_web.db import init_db
+    import sqlite_utils
+
+    # 1. Verify tables are dropped and not created in init_db
+    db = sqlite_utils.Database(memory=True)
+    db["cron_jobs"].create({"id": int, "title": str}, pk="id")
+    db["cron_job_runs"].create({"id": int, "cron_job_id": int}, pk="id")
+    
+    init_db(db)
+    
+    assert "cron_jobs" not in db.table_names()
+    assert "cron_job_runs" not in db.table_names()
+
+    # 2. Login as admin
+    from kb_web.config import Config
+    cfg = Config()
+    login_resp = client.post(
+        "/login",
+        data={"password": cfg.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    assert session_cookie is not None
+
+    # 3. Request cron dashboard and verify 404
+    cron_resp = client.get(
+        "/admin/cron",
+        cookies={"kb_session": session_cookie}
+    )
+    assert cron_resp.status_code == 404
+
+
+
 
 

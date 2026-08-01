@@ -338,7 +338,7 @@ from fastapi import BackgroundTasks, Form, Depends
 from ..base import verify_auth
 import time
 
-def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj, db_handle):
+def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
     """
     Crawls recursively from a base URL up to a given depth, waiting `interval` seconds between fetches.
     Only crawls URLs that have the same netloc domain as the base URL.
@@ -348,6 +348,7 @@ def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj, db
     
     from ..utils import ingest_url_sync
     
+    db_handle = _get_db()
     base_netloc = urlparse(base_url).netloc
     queue = [(base_url, 0)]
     visited = set()
@@ -412,28 +413,28 @@ def start_site_crawl(
     interval: int = Form(5),
 ) -> dict:
     """Spawns a recursive crawler task in the background."""
-    db = _get_db()
     background_tasks.add_task(
         run_recursive_crawl,
         url,
         depth,
         interval,
-        config,
-        db
+        config
     )
     return {"status": "success", "message": f"Crawler started in background for: {url}"}
 
 
 from ..utils import download_youtube_video
 
-def background_video_downloader(video_id: str, url: str, db_handle, config_obj):
+def background_video_downloader(video_id: str, url: str, config_obj):
     try:
+        db_handle = _get_db()
         local_path = download_youtube_video(video_id, config_obj)
         # Update youtube_videos table with the local path
         db_handle["youtube_videos"].update(
             {"url": url, "local_path": local_path},
             pk="url"
         )
+        db_handle.conn.commit()
         print(f"[DOWNLOAD] Video {video_id} successfully saved offline at {local_path}")
     except Exception as e:
         print(f"[DOWNLOAD] Error downloading video {video_id}: {e}")
@@ -445,7 +446,6 @@ def start_video_download(
     url: str = Form(...),
 ) -> dict:
     """Spawns a background task to download a YouTube video offline."""
-    db = _get_db()
     video_id = extract_youtube_video_id(url)
     if not video_id:
         return {"status": "error", "message": "Invalid YouTube URL or video ID."}
@@ -454,7 +454,6 @@ def start_video_download(
         background_video_downloader,
         video_id,
         url,
-        db,
         config
     )
     return {"status": "success", "message": f"Downloading video {video_id} in background."}

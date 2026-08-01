@@ -198,11 +198,13 @@ def handle_url_import(
         db = _get_db()
         client = _get_ollama_client()
 
+        from fastapi.concurrency import run_in_threadpool
+
         # Step 1: Fetch
         msg = f"Fetching content from URL: {cleaned_url}..."
         yield f"<script>updateProgress({json.dumps(msg)}, 20);</script>\n"
         try:
-            page_data = fetch_url(cleaned_url)
+            page_data = await run_in_threadpool(fetch_url, cleaned_url)
             yield f"<script>addLog({json.dumps('Successfully fetched target URL content.')});</script>\n"
         except Exception as e:
             err_msg = f"Fetch failed: {str(e)}"
@@ -212,7 +214,7 @@ def handle_url_import(
         # Step 2: Rewrite Wiki
         yield f"<script>updateProgress({json.dumps('Running Ollama prompt extraction pipeline...')}, 55);</script>\n"
         try:
-            wiki_entry = extract_wiki_content(page_data, config, client)
+            wiki_entry = await run_in_threadpool(extract_wiki_content, page_data, config, client)
             page_data.description = wiki_entry
             yield f"<script>addLog({json.dumps('Ollama wiki entry generated successfully.')});</script>\n"
         except Exception as e:
@@ -236,7 +238,7 @@ def handle_url_import(
         # Step 4: Extract Tags
         yield f"<script>updateProgress({json.dumps('Extracting category tags via Ollama...')}, 75);</script>\n"
         try:
-            tags = extract_tags_content(page_data, config, client)
+            tags = await run_in_threadpool(extract_tags_content, page_data, config, client)
             page_data.tags = tags
             log_msg = f"Tags extracted: {tags}"
             yield f"<script>addLog({json.dumps(log_msg)});</script>\n"
@@ -260,19 +262,19 @@ def handle_url_import(
             
             if creator:
                 yield f"<script>addLog({json.dumps(f'Saving YouTube metadata (creator: {creator})...')});</script>\n"
-            save_youtube_metadata_helper(db, page_data.url, creator)
+            await run_in_threadpool(save_youtube_metadata_helper, db, page_data.url, creator)
             db.conn.commit()
             
             yield f"<script>addLog({json.dumps('Generating default description embedding...')});</script>\n"
-            update_article_embedding(db, page_data.url, config, client)
+            await run_in_threadpool(update_article_embedding, db, page_data.url, config, client)
             db.conn.commit()
             
             yield f"<script>addLog({json.dumps('Generating chunk embeddings using embeddinggemma...')});</script>\n"
-            generate_gemma_embeddings_for_page(db, page_data.url, config, client)
+            await run_in_threadpool(generate_gemma_embeddings_for_page, db, page_data.url, config, client)
             db.conn.commit()
             
             yield f"<script>addLog({json.dumps('Sending Gotify notification...')});</script>\n"
-            post_to_gotify(config, _jinja_env, page_data, view_url)
+            await run_in_threadpool(post_to_gotify, config, _jinja_env, page_data, view_url)
             
             yield f"<script>addLog({json.dumps('Successfully completed all database operations.')});</script>\n"
             yield f"<script>updateProgress('Done!', 100); setTimeout(() => {{ window.location.href = '{view_url}'; }}, 1000);</script>\n"

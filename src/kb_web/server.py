@@ -11,7 +11,6 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 
 from .base import config
-# from .cron_scheduler import run_cron_scheduler
 from .gotify import post_error_to_gotify
 
 # Setup logging targeting ~/.kb/logs/kb-web.log
