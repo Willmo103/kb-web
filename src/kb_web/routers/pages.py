@@ -343,17 +343,26 @@ def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
     Crawls recursively from a base URL up to a given depth, waiting `interval` seconds between fetches.
     Only crawls URLs that have the same netloc domain as the base URL.
     """
+    import logging
+    logger = logging.getLogger("kb_web")
+
     import ollama
     client = ollama.Client(host=config_obj.ollama_host)
     
     from ..utils import ingest_url_sync
     
     db_handle = _get_db()
+    
+    # Normalize base netloc domain to ignore www. differences
     base_netloc = urlparse(base_url).netloc
+    base_domain = base_netloc.lower()
+    if base_domain.startswith("www."):
+        base_domain = base_domain[4:]
+        
     queue = [(base_url, 0)]
     visited = set()
     
-    print(f"[CRAWLER] Starting crawl from: {base_url} with depth={depth}, interval={interval}s")
+    logger.info(f"[CRAWLER] Starting recursive crawl from: {base_url} (depth={depth}, interval={interval}s, normalized domain={base_domain})")
     
     count = 0
     max_pages = 50  # safeguard
@@ -373,16 +382,19 @@ def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
         except Exception:
             pass
             
-        print(f"[CRAWLER] Processing page: {current_url} (depth={current_depth})")
+        logger.info(f"[CRAWLER] Processing target: {current_url} at depth {current_depth}")
         
         try:
             if not already_ingested:
                 ingest_url_sync(db_handle, current_url, config_obj, client)
                 count += 1
+                logger.info(f"[CRAWLER] Ingested successfully: {current_url}")
                 # Sleep between requests to respect crawl interval
                 time.sleep(interval)
+            else:
+                logger.info(f"[CRAWLER] Skipping ingestion: {current_url} (already exists in database)")
         except Exception as e:
-            print(f"[CRAWLER] Error ingesting {current_url}: {e}")
+            logger.error(f"[CRAWLER] Ingestion failure for {current_url}: {str(e)}", exc_info=True)
             continue
 
         # Fetch page links to continue crawling if depth is not exceeded
@@ -391,18 +403,25 @@ def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
                 row = db_handle["fetched_pages"].get(current_url)
                 links_json = row.get("links") or "[]"
                 links = json.loads(links_json)
+                logger.info(f"[CRAWLER] Parsing links for {current_url}. Found {len(links)} links.")
                 for link in links:
                     if not link or link.startswith("#"):
                         continue
                     abs_link = urljoin(current_url, link)
                     parsed_link = urlparse(abs_link)
-                    if parsed_link.scheme in ("http", "https") and parsed_link.netloc == base_netloc:
+                    
+                    # Normalize child link netloc domain to ignore www. differences
+                    link_domain = parsed_link.netloc.lower()
+                    if link_domain.startswith("www."):
+                        link_domain = link_domain[4:]
+                        
+                    if parsed_link.scheme in ("http", "https") and link_domain == base_domain:
                         if abs_link not in visited:
                             queue.append((abs_link, current_depth + 1))
             except Exception as e:
-                print(f"[CRAWLER] Failed to parse links for {current_url}: {e}")
+                logger.error(f"[CRAWLER] Failed parsing links for {current_url}: {str(e)}", exc_info=True)
                 
-    print(f"[CRAWLER] Crawl completed. Crawled {count} page(s) successfully.")
+    logger.info(f"[CRAWLER] Recursive crawl finished. Total new pages ingested: {count}")
 
 
 @router.post("/api/crawl/start", dependencies=[Depends(verify_auth)])
