@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.25] - 2026-08-01
+### Fixed
+- Fixed YouTube transcript wiki generation hangs by disabling reasoning latency (`think=False`) for intermediate chunk summaries.
+- Fixed FastAPI event loop blocking hangs by wrapping synchronous ingestion steps (`fetch_url`, `extract_wiki_content`, etc.) in a threadpool utilizing `run_in_threadpool`.
+- Fixed background tasks thread-safety by opening a new connection handle via `_get_db()` within worker functions instead of sharing the request's database connection.
+- Optimized tag extraction and collection suggestions by setting `think=False` to prevent unnecessary reasoning delays.
+### Removed
+- Excised the entire cron job scheduler and management subsystem:
+  - Deleted `cron_scheduler.py` and `src/kb_web/routers/cron.py`.
+  - Deleted UI templates `cron_jobs.j2.html` and `view_cron_job.j2.html`.
+  - Removed table initializations for `cron_jobs` and `cron_job_runs` in `src/kb_web/db.py` and added a startup routine to drop these tables if they exist.
+  - Excised all references in `server.py` and `graph.py`.
+
 ## [0.1.24] - 2026-07-25
 ### Added
 - Condensed all history, architecture, and agent instructions into package-level `GEMINI.md`.

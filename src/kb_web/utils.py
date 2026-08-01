@@ -462,7 +462,7 @@ def extract_wiki_content(
                         {"role": "system", "content": system_message},
                         {"role": "user", "content": chunk},
                     ],
-                    think=config.ollama_think,
+                    think=False,
                 )
                 chunk_summaries.append(chunk_resp.message.content)
 
@@ -528,7 +528,7 @@ def extract_tags_content(
                     "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{content_to_analyze}",
                 },
             ],
-            think=config.ollama_think,
+            think=False,
         )
         tags_str = response.message.content
         tags = [t.strip().lower() for t in tags_str.split(",") if t.strip()]
