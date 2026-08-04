@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.27] - 2026-08-04
+### Added
+- Implemented descriptive YouTube video filenames formatting as `[Creator] - Title [VideoId].mp4` upon local offline downloads.
+- Added a directory-scan matching fallback to dynamically check `media/videos/` for any filenames matching `*{video_id}*`, preventing breakage from stale database paths.
+- Added comprehensive mock unit test `test_descriptive_video_download_and_resolution` to assert filename pattern and dynamic resolution.
+
+### Fixed
+- Fixed directory glob lookup character-range patterns parsing bug for filenames containing square brackets `[` `]` by utilizing direct filesystem iterators.
+
 ## [0.1.26] - 2026-08-04
 ### Added
 - Migrated all configuration settings (Ollama, Gotify, Qdrant details) to the database with dynamic, thread-safe sync.

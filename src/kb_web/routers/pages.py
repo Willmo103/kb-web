@@ -260,16 +260,26 @@ def view_saved_page(
             except Exception:
                 pass
         
-        default_local_path = config.configs_dir.parent / "media" / "videos" / f"{video_id}.mp4"
+        media_dir = config.configs_dir.parent / "media" / "videos"
+        default_local_path = media_dir / f"{video_id}.mp4"
         has_file = False
+        filename = None
+        
         if db_path and os.path.exists(db_path):
             has_file = True
+            filename = os.path.basename(db_path)
         elif default_local_path.exists():
             has_file = True
+            filename = f"{video_id}.mp4"
+        elif media_dir.exists():
+            matching = list(media_dir.glob(f"*{video_id}*"))
+            if matching:
+                has_file = True
+                filename = matching[0].name
             
-        if has_file:
+        if has_file and filename:
             is_offline = True
-            local_video_url = f"/media/videos/{video_id}.mp4"
+            local_video_url = f"/media/videos/{filename}"
 
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))

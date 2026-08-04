@@ -820,6 +820,7 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
     """
     import yt_dlp
     from pathlib import Path
+    import re
     
     if config_obj is None:
         config_obj = default_config
@@ -827,13 +828,67 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
     media_dir = config_obj.configs_dir.parent / "media" / "videos"
     media_dir.mkdir(parents=True, exist_ok=True)
     
-    output_path = media_dir / f"{video_id}.mp4"
-    if output_path.exists():
-        return str(output_path)
+    # Check if a file containing the video_id already exists in the media directory
+    existing_files = list(media_dir.glob(f"*{video_id}*"))
+    if existing_files:
+        return str(existing_files[0])
         
+    def sanitize_filename(name: str) -> str:
+        # Remove characters invalid in Windows & Unix filesystems: \ / : * ? " < > |
+        cleaned = re.sub(r'[\\/*?:"<>|]', "", name)
+        return cleaned.strip()
+
+    creator = None
+    title = None
+    
+    # Try looking up in the database first
+    url1 = f"https://www.youtube.com/watch?v={video_id}"
+    url2 = f"https://youtube.com/watch?v={video_id}"
+    try:
+        from .base import _get_db
+        db = _get_db()
+        if "youtube_videos" in db.table_names():
+            row = db["youtube_videos"].get(url1) or db["youtube_videos"].get(url2)
+            if row:
+                creator = row.get("creator")
+        if "fetched_pages" in db.table_names():
+            row = db["fetched_pages"].get(url1) or db["fetched_pages"].get(url2)
+            if row:
+                title = row.get("title")
+    except Exception:
+        pass
+
+    # Extract metadata using yt-dlp if database records do not exist
+    if not creator or not title:
+        try:
+            ydl_opts_info = {
+                'quiet': True,
+                'no_warnings': True,
+            }
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            with yt_dlp.YoutubeDL(ydl_opts_info) as ydl:
+                info = ydl.extract_info(video_url, download=False)
+                if info:
+                    if not creator:
+                        creator = info.get("uploader")
+                    if not title:
+                        title = info.get("title")
+        except Exception:
+            pass
+
+    creator_clean = sanitize_filename(creator) if creator else ""
+    title_clean = sanitize_filename(title) if title else ""
+
+    if creator_clean and title_clean:
+        filename_base = f"[{creator_clean}] - {title_clean} [{video_id}]"
+    elif title_clean:
+        filename_base = f"{title_clean} [{video_id}]"
+    else:
+        filename_base = f"{video_id}"
+
     ydl_opts = {
         'format': 'mp4/best',
-        'outtmpl': str(media_dir / f"{video_id}.%(ext)s"),
+        'outtmpl': str(media_dir / f"{filename_base}.%(ext)s"),
         'quiet': True,
         'no_warnings': True,
     }
@@ -842,7 +897,12 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([video_url])
         
-    downloaded_files = list(media_dir.glob(f"{video_id}.*"))
+    downloaded_files = []
+    if media_dir.exists():
+        for f in media_dir.iterdir():
+            if f.is_file() and f.name.startswith(filename_base):
+                downloaded_files.append(f)
+                
     if downloaded_files:
         first_file = downloaded_files[0]
         if first_file.suffix != ".mp4":

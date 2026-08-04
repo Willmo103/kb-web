@@ -1,0 +1,4 @@
+- `[x]` Update download_youtube_video in utils.py to save descriptive names
+- `[x]` Update offline video checks and local_video_url logic in pages.py
+- `[x]` Add unit test test_descriptive_video_download_and_resolution in test_server.py
+- `[x]` Verify unit tests and UI templates
