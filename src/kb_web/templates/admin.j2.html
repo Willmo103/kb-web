@@ -71,10 +71,64 @@
                     <div>
                         <label for="wiki_prompt" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Wiki Extraction System Prompt</label>
                         <textarea name="wiki_prompt" id="wiki_prompt" rows="5" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required>{{ config.wiki_prompt }}</textarea>
+                        
+                        {% if wiki_prompts_history %}
+                        <details class="mt-2 text-xs">
+                            <summary class="cursor-pointer text-indigo-650 hover:underline font-semibold select-none">View Wiki Prompt Version History ({{ wiki_prompts_history | length }})</summary>
+                            <div class="space-y-3 mt-2 bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-48 overflow-y-auto shadow-inner">
+                                {% for p in wiki_prompts_history %}
+                                <div class="border-b border-gray-200 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
+                                    <div class="flex justify-between items-center mb-1">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-bold text-gray-800">Version {{ p.version }}</span>
+                                            <span class="text-gray-400 text-[10px] font-mono">{{ p.created_at[:16] | replace('T', ' ') }}</span>
+                                            {% if p.is_head == 1 %}
+                                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.2 rounded border border-emerald-200">Active HEAD</span>
+                                            {% endif %}
+                                        </div>
+                                        {% if p.is_head != 1 %}
+                                        <button type="button" onclick="setPromptHead({{ p.id }}, 'wiki_prompt')" class="bg-white hover:bg-indigo-50 border border-gray-300 hover:border-indigo-300 text-indigo-700 font-bold px-2 py-0.5 rounded text-[10px] transition shadow-sm">
+                                            Use Version {{ p.version }}
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 bg-white border border-gray-150 rounded p-2 overflow-x-auto max-h-24">{{ p.prompt_text }}</pre>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </details>
+                        {% endif %}
                     </div>
                     <div>
                         <label for="youtube_wiki_prompt" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">YouTube Wiki System Prompt</label>
                         <textarea name="youtube_wiki_prompt" id="youtube_wiki_prompt" rows="5" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required>{{ config.youtube_wiki_prompt }}</textarea>
+                        
+                        {% if youtube_prompts_history %}
+                        <details class="mt-2 text-xs">
+                            <summary class="cursor-pointer text-indigo-650 hover:underline font-semibold select-none">View YouTube Wiki Prompt Version History ({{ youtube_prompts_history | length }})</summary>
+                            <div class="space-y-3 mt-2 bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-48 overflow-y-auto shadow-inner">
+                                {% for p in youtube_prompts_history %}
+                                <div class="border-b border-gray-200 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
+                                    <div class="flex justify-between items-center mb-1">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-bold text-gray-800">Version {{ p.version }}</span>
+                                            <span class="text-gray-400 text-[10px] font-mono">{{ p.created_at[:16] | replace('T', ' ') }}</span>
+                                            {% if p.is_head == 1 %}
+                                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.2 rounded border border-emerald-200">Active HEAD</span>
+                                            {% endif %}
+                                        </div>
+                                        {% if p.is_head != 1 %}
+                                        <button type="button" onclick="setPromptHead({{ p.id }}, 'youtube_wiki_prompt')" class="bg-white hover:bg-indigo-50 border border-gray-300 hover:border-indigo-300 text-indigo-700 font-bold px-2 py-0.5 rounded text-[10px] transition shadow-sm">
+                                            Use Version {{ p.version }}
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 bg-white border border-gray-150 rounded p-2 overflow-x-auto max-h-24">{{ p.prompt_text }}</pre>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </details>
+                        {% endif %}
                     </div>
                     <div>
                         <label for="max_input_length" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Maximum Input Length (Characters)</label>
@@ -323,6 +377,21 @@
             btn.classList.remove('opacity-50', 'cursor-not-allowed');
             statusText.classList.add('hidden');
         }
+    }
+</script>
+
+<!-- Hidden form for prompt rollback -->
+<form id="setPromptHeadForm" action="/admin/prompts/set-head" method="post" class="hidden">
+    <input type="hidden" name="prompt_id" id="head_prompt_id" />
+    <input type="hidden" name="prompt_type" id="head_prompt_type" />
+</form>
+
+<script>
+    function setPromptHead(id, type) {
+        if (!confirm("Are you sure you want to restore this prompt version? This will set it as the active prompt.")) return;
+        document.getElementById('head_prompt_id').value = id;
+        document.getElementById('head_prompt_type').value = type;
+        document.getElementById('setPromptHeadForm').submit();
     }
 </script>
 {% endblock %}

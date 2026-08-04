@@ -37,6 +37,7 @@
 
 <script>
     function changeLimit(val) {
+        document.cookie = "log_limit=" + val + "; path=/; max-age=31536000";
         window.location.href = '/admin/logs?limit=' + val;
     }
 </script>

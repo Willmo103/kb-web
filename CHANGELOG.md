@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.26] - 2026-08-04
+### Added
+- Migrated all configuration settings (Ollama, Gotify, Qdrant details) to the database with dynamic, thread-safe sync.
+- Implemented system prompt versioning and curation in the database (via table `agent_prompts`), displaying full history dropdowns and providing "Use This Version" rollback buttons in the Admin Dashboard.
+- Added a quick "Assign Item" collections sidebar form on the Collections dashboard.
+- Appended robust unit tests verifying video offline badge states, DB config migrations, prompt rollback operations, and log limits persistence.
+
+### Fixed
+- Fixed YouTube videos missing the collections badge, collection form dropdowns, and "Change Collections" action details by correctly passing collection template variables.
+- Fixed collections created via `/import` screen being created as private by default, updating them to public to match standard collections dashboards.
+- Fixed collections created via `/import` screen setting incorrect `source_type` ("articles") for video URLs, dynamically resolving it to "videos".
+- Fixed offline video player detection logic to check both the DB-recorded path and the default location in the media directory for offline files.
+- Fixed server log display to sort in reverse chronological order (most recent first) across log rendering and downloads.
+- Implemented persistent line limit preferences on server logs using request cookies, defaulting limit options to 100.
+
 ## [0.1.25] - 2026-08-01
 ### Fixed
 - Fixed YouTube transcript wiki generation hangs by disabling reasoning latency (`think=False`) for intermediate chunk summaries.

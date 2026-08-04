@@ -117,7 +117,7 @@ def _get_db() -> sqlite_utils.Database:
         if not _db_initialized:
             with _init_lock:
                 if not _db_initialized:
-                    init_db(db)
+                    init_db(db, config)
                     _db_initialized = True
         _local.db = db
         _local.db_path = db_path

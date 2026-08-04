@@ -247,17 +247,29 @@ def view_saved_page(
     video_metadata = None
     is_offline = False
     local_video_url = None
-    if "youtube_videos" in db.table_names():
-        try:
-            video_metadata = db["youtube_videos"].get(decoded_url)
-            if video_metadata and video_metadata.get("local_path"):
-                import os
-                if os.path.exists(video_metadata["local_path"]):
-                    is_offline = True
-                    video_id = extract_youtube_video_id(decoded_url)
-                    local_video_url = f"/media/videos/{video_id}.mp4"
-        except Exception:
-            pass
+    video_id = extract_youtube_video_id(decoded_url)
+    if video_id:
+        import os
+        from pathlib import Path
+        db_path = None
+        if "youtube_videos" in db.table_names():
+            try:
+                video_metadata = db["youtube_videos"].get(decoded_url)
+                if video_metadata:
+                    db_path = video_metadata.get("local_path")
+            except Exception:
+                pass
+        
+        default_local_path = config.configs_dir.parent / "media" / "videos" / f"{video_id}.mp4"
+        has_file = False
+        if db_path and os.path.exists(db_path):
+            has_file = True
+        elif default_local_path.exists():
+            has_file = True
+            
+        if has_file:
+            is_offline = True
+            local_video_url = f"/media/videos/{video_id}.mp4"
 
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))
@@ -330,6 +342,8 @@ def view_saved_page(
             collections=collections_list,
             is_offline=is_offline,
             local_video_url=local_video_url,
+            assigned_collections=assigned_collections,
+            assigned_collection_ids=assigned_collection_ids,
         )
     )
 

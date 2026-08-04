@@ -279,7 +279,7 @@ def handle_url_import(
             if collection_id == "new_collection" and new_collection_title:
                 col_row = {
                     "title": new_collection_title,
-                    "visibility": "private",
+                    "visibility": "public",
                     "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
                     "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
                     "general_system_context": "{}",
@@ -322,9 +322,12 @@ def handle_url_import(
                         [target_col_id, page_data.url]
                     ))
                     if not existing_items:
+                        is_video = bool(extract_youtube_video_id(page_data.url))
+                        source_type = "videos" if is_video else "articles"
+                        
                         db["collection_items"].insert({
                             "collection_id": target_col_id,
-                            "source_type": "articles",
+                            "source_type": source_type,
                             "source_id": page_data.url,
                             "item_note": "",
                             "taxonomy_path": f"/uncategorized/{page_data.title[:20].replace(' ', '_')}.md" if page_data.title else f"/uncategorized/{target_col_id}.md",
@@ -332,7 +335,7 @@ def handle_url_import(
                             "added_at": datetime.now().isoformat()
                         })
                         db.conn.commit()
-                        yield f"<script>addLog({json.dumps('Linked article to collection items.')});</script>\n"
+                        yield f"<script>addLog({json.dumps('Linked item to collection items.')});</script>\n"
                         logger.info(f"Linked page {cleaned_url} to collection {target_col_id}")
                 except Exception as ci_err:
                     yield f"<script>addLog({json.dumps(f'Warning: failed to link to collection: {ci_err}')});</script>\n"
@@ -392,6 +395,19 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             or "AI Processing skipped" in r.get("description", "")
         )
 
+    wiki_prompts_history = []
+    youtube_prompts_history = []
+    if "agent_prompts" in db.table_names():
+        try:
+            wiki_prompts_history = list(db["agent_prompts"].rows_where(
+                "prompt_type = 'wiki_prompt' ORDER BY version DESC"
+            ))
+            youtube_prompts_history = list(db["agent_prompts"].rows_where(
+                "prompt_type = 'youtube_wiki_prompt' ORDER BY version DESC"
+            ))
+        except Exception as e:
+            print(f"Failed to fetch prompt history: {e}")
+
     template = _jinja_env.get_template("admin.j2.html")
     return HTMLResponse(
         content=template.render(
@@ -399,8 +415,45 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             completion_message=msg,
             config=config,
             is_admin=True,
+            wiki_prompts_history=wiki_prompts_history,
+            youtube_prompts_history=youtube_prompts_history,
         )
     )
+
+
+@router.post("/admin/prompts/set-head", dependencies=[Depends(verify_auth)])
+def set_prompt_head(
+    prompt_id: int = Form(...),
+    prompt_type: str = Form(...),
+) -> RedirectResponse:
+    """Sets a specific historical version of a system prompt as the current active HEAD prompt."""
+    db = _get_db()
+    try:
+        # 1. Update is_head = 0 for all prompts of this type
+        db.execute("UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = ?", [prompt_type])
+        
+        # 2. Update is_head = 1 for the target prompt id
+        db.execute("UPDATE agent_prompts SET is_head = 1 WHERE id = ?", [prompt_id])
+        db.conn.commit()
+        
+        # 3. Retrieve the prompt text and sync with the active Config attributes
+        row = db["agent_prompts"].get(prompt_id)
+        if row:
+            if prompt_type == "wiki_prompt":
+                config._wiki_prompt = row["prompt_text"]
+            elif prompt_type == "youtube_wiki_prompt":
+                config._youtube_wiki_prompt = row["prompt_text"]
+            config.save()
+            
+        return RedirectResponse(
+            url="/admin?msg=Selected+prompt+version+successfully+restored+as+active+HEAD.",
+            status_code=303,
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin?msg=Error+restoring+prompt+version:+{quote_plus(str(e))}",
+            status_code=303,
+        )
 
 
 @router.post("/admin/config", dependencies=[Depends(verify_auth)], response_model=None)
@@ -862,8 +915,21 @@ async def websocket_import(websocket: WebSocket) -> None:
 
 
 @router.get("/admin/logs", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
-def get_logs_view(limit: int = Query(1000, ge=1, le=10000)) -> HTMLResponse:
-    """Renders the tail end of the application server database logs."""
+def get_logs_view(
+    request: Request,
+    limit: Optional[int] = Query(None, ge=1, le=10000)
+) -> HTMLResponse:
+    """Renders the tail end of the application server database logs (most recent first)."""
+    if limit is None:
+        cookie_limit = request.cookies.get("log_limit")
+        if cookie_limit:
+            try:
+                limit = int(cookie_limit)
+            except ValueError:
+                limit = 100
+        else:
+            limit = 100
+
     db = _get_db()
     log_content = ""
     try:
@@ -871,7 +937,6 @@ def get_logs_view(limit: int = Query(1000, ge=1, le=10000)) -> HTMLResponse:
             rows = list(db.execute_returning_dicts(
                 "SELECT * FROM system_logs ORDER BY rowid DESC LIMIT ?", [limit]
             ))
-            rows.reverse()
             
             lines = []
             for r in rows:
@@ -892,12 +957,26 @@ def get_logs_view(limit: int = Query(1000, ge=1, le=10000)) -> HTMLResponse:
         log_content = f"Error reading logs from database: {e}"
 
     template = _jinja_env.get_template("logs.j2.html")
-    return HTMLResponse(content=template.render(log_content=log_content, is_admin=True, limit=limit))
+    response = HTMLResponse(content=template.render(log_content=log_content, is_admin=True, limit=limit))
+    response.set_cookie("log_limit", str(limit), max_age=31536000, path="/")
+    return response
 
 
 @router.get("/admin/logs/download", dependencies=[Depends(verify_auth)])
-def download_logs(limit: int = Query(1000, ge=1, le=10000)) -> StreamingResponse:
-    """Streams the database logs as a downloadable text file."""
+def download_logs(
+    request: Request,
+    limit: Optional[int] = Query(None, ge=1, le=10000)
+) -> StreamingResponse:
+    """Streams the database logs as a downloadable text file (most recent first)."""
+    if limit is None:
+        cookie_limit = request.cookies.get("log_limit")
+        if cookie_limit:
+            try:
+                limit = int(cookie_limit)
+            except ValueError:
+                limit = 100
+        else:
+            limit = 100
     
     def generate_logs():
         db = _get_db()
@@ -906,7 +985,6 @@ def download_logs(limit: int = Query(1000, ge=1, le=10000)) -> StreamingResponse
                 rows = list(db.execute_returning_dicts(
                     "SELECT * FROM system_logs ORDER BY rowid DESC LIMIT ?", [limit]
                 ))
-                rows.reverse()
                 for r in rows:
                     ts = r.get("timestamp", "")
                     lvl = r.get("level", "INFO")

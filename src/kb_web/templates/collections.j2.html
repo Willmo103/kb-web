@@ -79,7 +79,7 @@
             </div>
         </div>
 
-        <!-- Right: Create Collection Form -->
+        <!-- Right: Actions -->
         {% if is_admin %}
         <div class="space-y-6">
             <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
@@ -91,6 +91,33 @@
                     </div>
                     <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
                         Create Collection
+                    </button>
+                </form>
+            </div>
+
+            <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                <h3 class="text-sm font-bold text-gray-955 uppercase tracking-wider mb-4 border-b pb-2">🔗 Assign Item</h3>
+                <form action="/admin/pages/update-collection" method="post" class="space-y-4">
+                    <div>
+                        <label for="assign_url" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Select Item</label>
+                        <select name="url" id="assign_url" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-200 focus:border-indigo-500 bg-white" required>
+                            <option value="">-- Choose Item --</option>
+                            {% for p in all_pages %}
+                            <option value="{{ p.url }}">{{ p.title or p.url }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label for="assign_collection" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Target Collection</label>
+                        <select name="collection_id" id="assign_collection" class="block w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-200 focus:border-indigo-500 bg-white" required>
+                            <option value="">-- Choose Collection --</option>
+                            {% for col in collections %}
+                            <option value="{{ col.id }}">{{ col.title }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
+                        Assign to Collection
                     </button>
                 </form>
             </div>
