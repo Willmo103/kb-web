@@ -14,8 +14,11 @@ from kb_web.server import config as server_config
 def setup_temp_db(tmp_path, monkeypatch) -> None:
     """Fixture to override config database path to a temp file, isolating test DB state."""
     old_db_path = server_config.db_path
+    old_configs_dir = server_config.configs_dir
+    
     temp_db = tmp_path / "test_kb.db"
     server_config.db_path = temp_db
+    server_config.configs_dir = tmp_path / "configs"
 
     # Ensure schema is preloaded
     _ = get_db(server_config)
@@ -35,6 +38,7 @@ def setup_temp_db(tmp_path, monkeypatch) -> None:
 
     # Restore path after execution completes
     server_config.db_path = old_db_path
+    server_config.configs_dir = old_configs_dir
 
 
 @pytest.fixture
@@ -1724,12 +1728,217 @@ def test_import_with_collection(client: TestClient, monkeypatch) -> None:
     # Check that collection was created
     col_rows = list(db["collections"].rows_where("title = ?", ["Import Target Collection"]))
     assert len(col_rows) == 1
+    assert col_rows[0]["visibility"] == "public"
     col_id = col_rows[0]["id"]
     
     # Check page was linked
     item_rows = list(db["collection_items"].rows_where("collection_id = ?", [col_id]))
     assert len(item_rows) == 1
     assert item_rows[0]["source_id"] == "https://example.com/import-col-test"
+
+
+def test_import_video_url_assigns_videos_type(client: TestClient, monkeypatch) -> None:
+    """Verifies that importing a YouTube video sets source_type to 'videos' in collection_items."""
+    db = get_db(server_config)
+    
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    
+    from kb_web.models import HTMLPage
+    video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    dummy_page = HTMLPage(
+        url=video_url,
+        title="Rick Astley Video",
+        html_content="html",
+        md_content="md",
+        links=[],
+        html_content_hash="h1",
+        md_content_hash="h2",
+        fetched_at="2026-05-31T12:00:00"
+    )
+    
+    monkeypatch.setattr("kb_web.routers.admin.fetch_url", lambda *args: dummy_page)
+    monkeypatch.setattr("kb_web.routers.admin.extract_wiki_content", lambda *args: "Wiki description")
+    monkeypatch.setattr("kb_web.routers.admin.extract_tags_content", lambda *args: [])
+    monkeypatch.setattr("kb_web.routers.admin.update_article_embedding", lambda *args: None)
+    monkeypatch.setattr("kb_web.routers.admin.generate_gemma_embeddings_for_page", lambda *args: None)
+    monkeypatch.setattr("kb_web.routers.admin.post_to_gotify", lambda *args: None)
+
+    resp = client.post(
+        "/import/url",
+        data={
+            "url": video_url,
+            "collection_id": "new_collection",
+            "new_collection_title": "Video Target Collection"
+        },
+        cookies={"kb_session": session_cookie}
+    )
+    assert resp.status_code == 200
+    
+    col_rows = list(db["collections"].rows_where("title = ?", ["Video Target Collection"]))
+    assert len(col_rows) == 1
+    col_id = col_rows[0]["id"]
+    
+    item_rows = list(db["collection_items"].rows_where("collection_id = ?", [col_id]))
+    assert len(item_rows) == 1
+    assert item_rows[0]["source_id"] == video_url
+    assert item_rows[0]["source_type"] == "videos"
+
+
+def test_video_offline_checking(client: TestClient, monkeypatch, tmp_path) -> None:
+    """Verifies video page shows correct player tag/badge if locally saved offline."""
+    from urllib.parse import quote_plus
+    db = get_db(server_config)
+    video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    
+    db["fetched_pages"].insert({
+        "url": video_url,
+        "title": "Rick Astley Video",
+        "html_content": "html",
+        "md_content": "md",
+        "links": "[]",
+        "html_content_hash": "h1",
+        "md_content_hash": "h2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "description": "desc"
+    })
+    db.conn.commit()
+    
+    # 1. Cloud stream state
+    resp = client.get(f"/view/page?url={quote_plus(video_url)}")
+    assert resp.status_code == 200
+    assert "Cloud Stream" in resp.text
+    
+    # 2. Saved offline state
+    old_configs_dir = server_config.configs_dir
+    server_config.configs_dir = tmp_path / "configs"
+    
+    media_dir = server_config.configs_dir.parent / "media" / "videos"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    video_file = media_dir / "dQw4w9WgXcQ.mp4"
+    video_file.write_text("dummy mp4 content")
+    
+    resp = client.get(f"/view/page?url={quote_plus(video_url)}")
+    assert resp.status_code == 200
+    assert "Saved Offline" in resp.text
+    
+    server_config.configs_dir = old_configs_dir
+
+
+def test_server_logs_limit_cookies_and_sorting(client: TestClient) -> None:
+    """Verifies that logs are reverse-sorted, page count defaults, and limits persist in cookies."""
+    db = get_db(server_config)
+    db["system_logs"].delete_where()
+    
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    
+    for i in range(10):
+        db["system_logs"].insert({
+            "timestamp": f"2026-06-01T12:00:0{i}",
+            "level": "INFO",
+            "module": "test",
+            "message": f"Log message {i}",
+            "traceback": ""
+        })
+    db.conn.commit()
+    
+    # Default is newest first (reverse sorted)
+    resp = client.get("/admin/logs", cookies={"kb_session": session_cookie})
+    assert resp.status_code == 200
+    log_text = resp.text
+    idx_9 = log_text.find("Log message 9")
+    idx_0 = log_text.find("Log message 0")
+    assert idx_9 != -1 and idx_0 != -1
+    assert idx_9 < idx_0
+    
+    # Query limits
+    resp = client.get("/admin/logs?limit=3", cookies={"kb_session": session_cookie})
+    assert resp.status_code == 200
+    assert "Log message 9" in resp.text
+    assert "Log message 8" in resp.text
+    assert "Log message 7" in resp.text
+    assert "Log message 6" not in resp.text
+    assert resp.cookies.get("log_limit") == "3"
+    
+    # Cookie overrides
+    resp2 = client.get("/admin/logs", cookies={"kb_session": session_cookie, "log_limit": "3"})
+    assert resp2.status_code == 200
+    assert "Log message 9" in resp2.text
+    assert "Log message 6" not in resp2.text
+
+
+def test_settings_and_prompts_db_persistence(client: TestClient) -> None:
+    """Verifies Config settings write to settings tables, version prompts, and allow rollbacks."""
+    db = get_db(server_config)
+    
+    server_config.ollama_host = "http://db-test-host:11434"
+    assert server_config.ollama_host == "http://db-test-host:11434"
+    
+    row = db["settings_ollama"].get("ollama_host")
+    assert row["value"] == "http://db-test-host:11434"
+    
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    
+    resp = client.post(
+        "/admin/config",
+        data={
+            "ollama_host": "http://post-test-host:11434",
+            "ollama_model": "test-gemma",
+            "ollama_embedding_model": "test-nomic",
+            "api_key": "test-key",
+            "gotify_url": "",
+            "gotify_token": "",
+            "qdrant_host_url": "",
+            "qdrant_api_key": "",
+            "wiki_prompt": "Initial Wiki Prompt",
+            "youtube_wiki_prompt": "Initial YT Prompt",
+            "max_input_length": 25000,
+            "ollama_think": "true"
+        },
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert resp.status_code == 303
+    
+    assert server_config.ollama_host == "http://post-test-host:11434"
+    assert server_config.wiki_prompt == "Initial Wiki Prompt"
+    
+    prompts = list(db["agent_prompts"].rows_where("prompt_type = 'wiki_prompt' ORDER BY version ASC"))
+    assert len(prompts) == 2
+    assert prompts[0]["version"] == 1
+    assert prompts[1]["version"] == 2
+    assert prompts[1]["prompt_text"] == "Initial Wiki Prompt"
+    assert prompts[1]["is_head"] == 1
+    
+    v1_id = prompts[0]["id"]
+    resp2 = client.post(
+        "/admin/prompts/set-head",
+        data={
+            "prompt_id": v1_id,
+            "prompt_type": "wiki_prompt"
+        },
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert resp2.status_code == 303
+    
+    assert server_config.wiki_prompt == prompts[0]["prompt_text"]
+    assert db["agent_prompts"].get(v1_id)["is_head"] == 1
+
 
 
 

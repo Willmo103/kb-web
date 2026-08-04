@@ -49,14 +49,55 @@ def clean_previous_builds():
 def main():
     clean_previous_builds()
 
-    # 1. Sync project environment
-    run_step(["uv", "sync"], "Synchronizing environment & dependencies")
+    # Detect if uv is available
+    has_uv = False
+    try:
+        res = subprocess.run(["uv", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=sys.platform == "win32")
+        if res.returncode == 0:
+            has_uv = True
+    except FileNotFoundError:
+        pass
 
-    # 2. Run unit tests
-    run_step(["uv", "run", "pytest"], "Running pytest suite")
+    project_dir = Path(__file__).resolve().parent
+    if has_uv:
+        # 1. Sync project environment
+        run_step(["uv", "sync"], "Synchronizing environment & dependencies")
 
-    # 3. Build packaging artifacts
-    run_step(["uv", "build"], "Building source and wheel packages")
+        # 2. Run unit tests
+        run_step(["uv", "run", "pytest"], "Running pytest suite")
+
+        # 3. Build packaging artifacts
+        run_step(["uv", "build"], "Building source and wheel packages")
+    else:
+        print("[INFO] 'uv' command not found. Falling back to python/venv tools.")
+        
+        # Determine executable paths
+        python_exe = sys.executable
+        if sys.platform == "win32":
+            pytest_exe = str(project_dir / ".venv" / "Scripts" / "pytest.exe")
+            pip_exe = str(project_dir / ".venv" / "Scripts" / "pip.exe")
+        else:
+            pytest_exe = str(project_dir / ".venv" / "bin" / "pytest")
+            pip_exe = str(project_dir / ".venv" / "bin" / "pip")
+
+        if not Path(pytest_exe).exists():
+            pytest_exe = "pytest"
+
+        # 1. Make sure build module is installed if we need to package
+        try:
+            import build
+        except ImportError:
+            print("[INFO] Installing 'build' package for packaging...")
+            if Path(pip_exe).exists():
+                subprocess.run([pip_exe, "install", "build"], check=True, shell=sys.platform == "win32")
+            else:
+                subprocess.run([python_exe, "-m", "pip", "install", "build"], check=True, shell=sys.platform == "win32")
+
+        # 2. Run unit tests
+        run_step([pytest_exe], "Running pytest suite")
+
+        # 3. Build packaging artifacts
+        run_step([python_exe, "-m", "build"], "Building source and wheel packages")
 
     # 4. Copy artifacts to ARTIFACTS_ROOT if set
     copy_artifacts()

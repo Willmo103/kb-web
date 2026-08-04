@@ -27,7 +27,21 @@ def main():
     report_file = reports_dir / f"uat_report_{args.task}_{timestamp}.md"
 
     # Run pytest and record log
-    pytest_res = subprocess.run(["uv", "run", "pytest"], capture_output=True, text=True, cwd=str(repo_root))
+    pytest_cmd = ["uv", "run", "pytest"]
+    if os.name == "nt":
+        venv_pytest = repo_root / ".venv" / "Scripts" / "pytest.exe"
+        if venv_pytest.exists():
+            pytest_cmd = [str(venv_pytest)]
+        else:
+            pytest_cmd = ["pytest"]
+    else:
+        venv_pytest = repo_root / ".venv" / "bin" / "pytest"
+        if venv_pytest.exists():
+            pytest_cmd = [str(venv_pytest)]
+        else:
+            pytest_cmd = ["pytest"]
+
+    pytest_res = subprocess.run(pytest_cmd, capture_output=True, text=True, cwd=str(repo_root))
     with open(log_file, "w", encoding="utf-8") as f:
         f.write("=== PYTEST OUTPUT LOG ===\n")
         f.write(pytest_res.stdout)

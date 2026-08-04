@@ -3,8 +3,9 @@ Database initialization and utilities for the Knowledge Base Web Importer applic
 """
 
 import sqlite_utils
+from typing import Optional
 
-from .config import Config, DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
+from .config import Config, DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT, DEFAULT_WIKI_PROMPT, DEFAULT_YOUTUBE_WIKI_PROMPT
 
 
 def get_db(config: Config) -> sqlite_utils.Database:
@@ -17,11 +18,11 @@ def get_db(config: Config) -> sqlite_utils.Database:
         sqlite_utils.Database: Database object targeting ~/.kb/kb.db.
     """
     db = config.get_db()
-    init_db(db)
+    init_db(db, config)
     return db
 
 
-def init_db(db: sqlite_utils.Database) -> None:
+def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
     """Checks for the presence of the `fetched_pages` table and initializes
 
     its schema if it is missing. Runs schema migrations to append title and
@@ -429,6 +430,161 @@ def init_db(db: sqlite_utils.Database) -> None:
             print("Dropped legacy database table: active_sessions")
         except Exception as e:
             print(f"Warning: Failed to drop active_sessions table: {e}")
+
+    # Initialize settings_ollama table
+    if "settings_ollama" not in db.table_names():
+        try:
+            db["settings_ollama"].create(
+                {
+                    "key": str,
+                    "value": str,
+                },
+                pk="key"
+            )
+            # Seed default values
+            from datetime import datetime
+            import os
+            from pathlib import Path
+            import json
+            
+            ollama_host = os.getenv("KB_OLLAMA_HOST", "http://localhost:11434")
+            ollama_model = os.getenv("KB_OLLAMA_MODEL", "gemma4:latest")
+            ollama_embedding = os.getenv("KB_OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+            ollama_think = os.getenv("KB_OLLAMA_THINK", "false").lower() in ("true", "1")
+            max_input = os.getenv("KB_MAX_INPUT_LENGTH", "20000")
+            
+            config_dir = config.configs_dir if config else (Path.home() / ".kb" / "configs")
+            config_file = config_dir / "kb-web.json"
+            if config_file.exists():
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        ollama_host = data.get("ollama_host", ollama_host)
+                        ollama_model = data.get("ollama_model", ollama_model)
+                        ollama_embedding = data.get("ollama_embedding_model", ollama_embedding)
+                        ollama_think = bool(data.get("ollama_think", ollama_think))
+                        max_input = str(data.get("max_input_length", max_input))
+                except Exception:
+                    pass
+            
+            db["settings_ollama"].insert_all([
+                {"key": "ollama_host", "value": ollama_host},
+                {"key": "ollama_model", "value": ollama_model},
+                {"key": "ollama_embedding_model", "value": ollama_embedding},
+                {"key": "ollama_think", "value": "1" if ollama_think else "0"},
+                {"key": "max_input_length", "value": str(max_input)},
+            ], pk="key")
+            db.conn.commit()
+            print("Initialized and seeded database table: settings_ollama")
+        except Exception as e:
+            print(f"Error creating settings_ollama table: {e}")
+
+    # Initialize settings_external table
+    if "settings_external" not in db.table_names():
+        try:
+            db["settings_external"].create(
+                {
+                    "key": str,
+                    "value": str,
+                },
+                pk="key"
+            )
+            import os
+            from pathlib import Path
+            import json
+            
+            api_key = os.getenv("KB_API_KEY", "kb-secret-key")
+            gotify_url = os.getenv("GOTIFY_URL", "")
+            gotify_token = os.getenv("GOTIFY_TOKEN", "")
+            qdrant_url = os.getenv("QDRANT_HOST_URL", "")
+            qdrant_key = os.getenv("QDRANT_API_KEY", "")
+            sim_threshold = os.getenv("KB_SIMILARITY_THRESHOLD", "0.8")
+            
+            config_dir = config.configs_dir if config else (Path.home() / ".kb" / "configs")
+            config_file = config_dir / "kb-web.json"
+            if config_file.exists():
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        api_key = data.get("api_key", api_key)
+                        gotify_url = data.get("gotify_url", gotify_url)
+                        gotify_token = data.get("gotify_token", gotify_token)
+                        qdrant_url = data.get("qdrant_host_url", qdrant_url)
+                        qdrant_key = data.get("qdrant_api_key", qdrant_key)
+                        sim_threshold = str(data.get("similarity_threshold", sim_threshold))
+                except Exception:
+                    pass
+            
+            db["settings_external"].insert_all([
+                {"key": "api_key", "value": api_key or ""},
+                {"key": "gotify_url", "value": gotify_url or ""},
+                {"key": "gotify_token", "value": gotify_token or ""},
+                {"key": "qdrant_host_url", "value": qdrant_url or ""},
+                {"key": "qdrant_api_key", "value": qdrant_key or ""},
+                {"key": "similarity_threshold", "value": str(sim_threshold)},
+            ], pk="key")
+            db.conn.commit()
+            print("Initialized and seeded database table: settings_external")
+        except Exception as e:
+            print(f"Error creating settings_external table: {e}")
+
+    # Initialize agent_prompts table
+    if "agent_prompts" not in db.table_names():
+        try:
+            db["agent_prompts"].create(
+                {
+                    "id": int,
+                    "prompt_type": str,
+                    "prompt_text": str,
+                    "is_head": int,
+                    "created_at": str,
+                    "version": int,
+                },
+                pk="id"
+            )
+            
+            # Seed default prompts
+            import os
+            from pathlib import Path
+            import json
+            from datetime import datetime
+            
+            wiki_prompt = os.getenv("KB_WIKI_PROMPT", DEFAULT_WIKI_PROMPT)
+            youtube_wiki_prompt = os.getenv("KB_YOUTUBE_WIKI_PROMPT", DEFAULT_YOUTUBE_WIKI_PROMPT)
+            
+            config_dir = config.configs_dir if config else (Path.home() / ".kb" / "configs")
+            config_file = config_dir / "kb-web.json"
+            if config_file.exists():
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        wiki_prompt = data.get("wiki_prompt", wiki_prompt)
+                        youtube_wiki_prompt = data.get("youtube_wiki_prompt", youtube_wiki_prompt)
+                except Exception:
+                    pass
+            
+            now = datetime.now().isoformat()
+            db["agent_prompts"].insert_all([
+                {
+                    "prompt_type": "wiki_prompt",
+                    "prompt_text": wiki_prompt,
+                    "is_head": 1,
+                    "version": 1,
+                    "created_at": now,
+                },
+                {
+                    "prompt_type": "youtube_wiki_prompt",
+                    "prompt_text": youtube_wiki_prompt,
+                    "is_head": 1,
+                    "version": 1,
+                    "created_at": now,
+                }
+            ], pk="id")
+            db.conn.commit()
+            print("Initialized and seeded database table: agent_prompts")
+        except Exception as e:
+            print(f"Error creating agent_prompts table: {e}")
+
 
 
 def get_general_collection_id(db: sqlite_utils.Database) -> int:
