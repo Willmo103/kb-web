@@ -1940,6 +1940,73 @@ def test_settings_and_prompts_db_persistence(client: TestClient) -> None:
     assert db["agent_prompts"].get(v1_id)["is_head"] == 1
 
 
+def test_descriptive_video_download_and_resolution(client: TestClient, monkeypatch, tmp_path) -> None:
+    """Verifies that download_youtube_video creates descriptive filenames and pages.py resolves them dynamically."""
+    from urllib.parse import quote_plus
+    from pathlib import Path
+    from kb_web.utils import download_youtube_video
+    
+    db = get_db(server_config)
+    video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    video_id = "dQw4w9WgXcQ"
+    
+    db["fetched_pages"].insert({
+        "url": video_url,
+        "title": "Rick Astley - Never Gonna Give You Up",
+        "html_content": "html",
+        "md_content": "md",
+        "links": "[]",
+        "html_content_hash": "h1",
+        "md_content_hash": "h2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "description": "desc"
+    })
+    db["youtube_videos"].insert({
+        "url": video_url,
+        "video_id": video_id,
+        "creator": "RickAstleyVEVO",
+        "channel_id": "UCuAXFKgjiqg_EMaCHwL7IAg",
+        "duration": 212,
+        "view_count": 1000000,
+        "thumbnail_url": "",
+        "local_path": "",
+        "updated_at": "2026-05-31T12:00:00"
+    })
+    db.conn.commit()
+
+    class DummyYoutubeDL:
+        def __init__(self, opts):
+            self.opts = opts
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+        def download(self, urls):
+            out_pattern = self.opts["outtmpl"]
+            out_file = Path(out_pattern.replace(".%(ext)s", ".mp4"))
+            out_file.write_text("dummy mp4")
+            
+    monkeypatch.setattr("yt_dlp.YoutubeDL", DummyYoutubeDL)
+
+    old_configs_dir = server_config.configs_dir
+    server_config.configs_dir = tmp_path / "configs"
+    
+    local_path = download_youtube_video(video_id, server_config)
+    
+    filename = Path(local_path).name
+    assert "RickAstleyVEVO" in filename
+    assert "Never Gonna Give You Up" in filename
+    assert video_id in filename
+    assert filename.endswith(".mp4")
+    
+    resp = client.get(f"/view/page?url={quote_plus(video_url)}")
+    assert resp.status_code == 200
+    assert "Saved Offline" in resp.text
+    assert f"/media/videos/{filename}" in resp.text
+    
+    server_config.configs_dir = old_configs_dir
+
+
 
 
 
