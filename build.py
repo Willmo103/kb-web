@@ -97,7 +97,7 @@ def main():
 
         # 1. Make sure build module is installed if we need to package
         try:
-            import build
+            from build import ProjectBuilder
         except ImportError:
             print("[INFO] Installing 'build' package for packaging...")
             if Path(pip_exe).exists():
@@ -109,8 +109,12 @@ def main():
         run_step([pytest_exe], "Running pytest suite")
 
         # 3. Build packaging artifacts
-        run_step([python_exe, "-m", "build"], "Building source and wheel packages")
-        run_step([python_exe, "-m", "build"], "Building CLI submodule source and wheel packages", cwd=project_dir / "kb-web-cli")
+        build_cmd = [
+            python_exe, "-c",
+            "import sys, os; sys.path = [p for p in sys.path if p != os.getcwd() and p != '']; import build.__main__; build.__main__.main(sys.argv[1:])"
+        ]
+        run_step(build_cmd, "Building source and wheel packages")
+        run_step(build_cmd, "Building CLI submodule source and wheel packages", cwd=project_dir / "kb-web-cli")
 
     # 4. Copy artifacts to ARTIFACTS_ROOT if set
     copy_artifacts()

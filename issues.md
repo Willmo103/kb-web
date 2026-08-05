@@ -4,27 +4,27 @@ Issues in this document that have their text ~~struck through~~ are considered c
 
 ---
 
-## Create A CLI for interacting with the LIVE server
+## ~~Create A CLI for interacting with the LIVE server~~
 
-@feature-request
+~~@feature-request~~
 
-I would like a CLI and accompanying API router in the application to expose *admin* tasks to the CLI. The CLI will use an `X-API-KEY` header in the request to pass an API key that is generated from the `admin portal` to register clients with their computer names.
+~~I would like a CLI and accompanying API router in the application to expose *admin* tasks to the CLI. The CLI will use an `X-API-KEY` header in the request to pass an API key that is generated from the `admin portal` to register clients with their computer names.~~
 
-I want to add commands to the CLI to do the following:
+~~I want to add commands to the CLI to do the following:~~
 
-**general**
-- Install the CLI
-- List available commands
-- Help for specific commands
-**API Interactions**
-- post url's to the server for processing
-- list `n` number of most recent articles/videos
-- triggure any of the privlaged functions for a specific article or video (regenerate-wiki, download-video, regenerate-tags, etc.)
-- list available collections and their item counts
-- trigger collection operations such as adding and removing items from collections
-- list all tags
-- triggure tag operations
-- **query an agent with tools to search and retrieve context from the knowledge base**
+~~**general**~~
+~~- Install the CLI~~
+~~- List available commands~~
+~~- Help for specific commands~~
+~~**API Interactions**~~
+~~- post url's to the server for processing~~
+~~- list `n` number of most recent articles/videos~~
+~~- triggure any of the privlaged functions for a specific article or video (regenerate-wiki, download-video, regenerate-tags, etc.)~~
+~~- list available collections and their item counts~~
+~~- trigger collection operations such as adding and removing items from collections~~
+~~- list all tags~~
+~~- triggure tag operations~~
+~~- **query an agent with tools to search and retrieve context from the knowledge base**~~
 
 ---
 
