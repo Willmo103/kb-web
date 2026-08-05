@@ -1,0 +1,8 @@
+- `[x]` Initialize database tables in db.py
+- `[x]` Update admin dashboard config routes and templates in admin.py & admin.j2.html
+- `[x]` Implement new cli_api.py router and mount in server.py
+- `[x]` Initialize kb-web-cli submodule directory, VCS git repo, and pyproject.toml
+- `[x]` Implement typer commands in kb-web-cli/src/kb_web_cli/main.py
+- `[x]` Integrate main build.py with kb-web-cli build packaging
+- `[x]` Add unit tests in test_server.py
+- `[ ]` Run build verification & pre-commit checking

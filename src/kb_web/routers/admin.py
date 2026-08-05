@@ -408,6 +408,19 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
         except Exception as e:
             print(f"Failed to fetch prompt history: {e}")
 
+    cli_keys = []
+    registered_clients = []
+    if "cli_api_keys" in db.table_names():
+        try:
+            cli_keys = list(db["cli_api_keys"].rows_where("1=1 ORDER BY created_at DESC"))
+        except Exception as e:
+            print(f"Failed to fetch CLI keys: {e}")
+    if "registered_clients" in db.table_names():
+        try:
+            registered_clients = list(db["registered_clients"].rows_where("1=1 ORDER BY registered_at DESC"))
+        except Exception as e:
+            print(f"Failed to fetch registered clients: {e}")
+
     template = _jinja_env.get_template("admin.j2.html")
     return HTMLResponse(
         content=template.render(
@@ -417,6 +430,8 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             is_admin=True,
             wiki_prompts_history=wiki_prompts_history,
             youtube_prompts_history=youtube_prompts_history,
+            cli_keys=cli_keys,
+            registered_clients=registered_clients,
         )
     )
 
@@ -1008,4 +1023,44 @@ def download_logs(
             "Content-Disposition": f"attachment; filename=kb_web_logs_{limit}.txt"
         },
     )
+
+
+@router.post("/admin/cli/keys/create", dependencies=[Depends(verify_auth)])
+def admin_create_cli_key(name: str = Form(...)) -> RedirectResponse:
+    import uuid
+    db = _get_db()
+    new_key = str(uuid.uuid4()).replace("-", "")
+    try:
+        db["cli_api_keys"].insert({
+            "key": new_key,
+            "name": name,
+            "created_at": datetime.now().isoformat()
+        }, pk="key")
+        db.conn.commit()
+        return RedirectResponse(url="/admin?msg=New+CLI+API+Key+generated.", status_code=303)
+    except Exception as e:
+        return RedirectResponse(url=f"/admin?msg=Error+generating+key:+{str(e)}", status_code=303)
+
+
+@router.post("/admin/cli/keys/delete", dependencies=[Depends(verify_auth)])
+def admin_delete_cli_key(key: str = Form(...)) -> RedirectResponse:
+    db = _get_db()
+    try:
+        db["cli_api_keys"].delete_where("key = ?", [key])
+        db.conn.commit()
+        return RedirectResponse(url="/admin?msg=CLI+API+Key+revoked.", status_code=303)
+    except Exception as e:
+        return RedirectResponse(url=f"/admin?msg=Error+revoking+key:+{str(e)}", status_code=303)
+
+
+@router.post("/admin/cli/clients/delete", dependencies=[Depends(verify_auth)])
+def admin_delete_cli_client(computer_name: str = Form(...)) -> RedirectResponse:
+    db = _get_db()
+    try:
+        db["registered_clients"].delete_where("computer_name = ?", [computer_name])
+        db.conn.commit()
+        return RedirectResponse(url="/admin?msg=Registered+CLI+client+removed.", status_code=303)
+    except Exception as e:
+        return RedirectResponse(url=f"/admin?msg=Error+removing+client:+{str(e)}", status_code=303)
+
 

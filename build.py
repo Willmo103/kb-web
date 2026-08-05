@@ -3,14 +3,16 @@ import sys
 from pathlib import Path
 
 
-def run_step(cmd: list[str], description: str):
+from typing import Optional
+
+def run_step(cmd: list[str], description: str, cwd: Optional[Path] = None):
     print("\n=========================================")
     print(f"Step: {description}")
     print(f"Running: {' '.join(cmd)}")
     print("=========================================")
     try:
         # Use shell=True on Windows to support running commands correctly in all shell contexts
-        subprocess.run(cmd, check=True, shell=sys.platform == "win32")
+        subprocess.run(cmd, check=True, shell=sys.platform == "win32", cwd=str(cwd) if cwd else None)
     except subprocess.CalledProcessError as e:
         print(f"\n[ERROR] Step failed: {description}")
         print(f"Command returned non-zero exit code: {e.returncode}")
@@ -45,6 +47,15 @@ def clean_previous_builds():
         except Exception as e:
             print(f"Warning: Failed to clean {desktop_dist}: {e}")
 
+    # 3. Clean project_dir / "kb-web-cli" / "dist"
+    cli_dist = project_dir / "kb-web-cli" / "dist"
+    if cli_dist.exists() and cli_dist.is_dir():
+        print(f"Cleaning previous CLI build directory: {cli_dist}")
+        try:
+            shutil.rmtree(cli_dist)
+        except Exception as e:
+            print(f"Warning: Failed to clean {cli_dist}: {e}")
+
 
 def main():
     clean_previous_builds()
@@ -68,6 +79,7 @@ def main():
 
         # 3. Build packaging artifacts
         run_step(["uv", "build"], "Building source and wheel packages")
+        run_step(["uv", "build"], "Building CLI submodule source and wheel packages", cwd=project_dir / "kb-web-cli")
     else:
         print("[INFO] 'uv' command not found. Falling back to python/venv tools.")
         
@@ -98,6 +110,7 @@ def main():
 
         # 3. Build packaging artifacts
         run_step([python_exe, "-m", "build"], "Building source and wheel packages")
+        run_step([python_exe, "-m", "build"], "Building CLI submodule source and wheel packages", cwd=project_dir / "kb-web-cli")
 
     # 4. Copy artifacts to ARTIFACTS_ROOT if set
     copy_artifacts()
@@ -159,6 +172,18 @@ def copy_artifacts():
                 shutil.copy2(item, dest_desktop / item.name)
             elif item.is_dir():
                 shutil.copytree(item, dest_desktop / item.name, dirs_exist_ok=True)
+
+    # Copy project_dir / "kb-web-cli" / "dist" to target_dir / "kb-web-cli" / "dist"
+    cli_dist_dir = project_dir / "kb-web-cli" / "dist"
+    if cli_dist_dir.exists() and cli_dist_dir.is_dir():
+        dest_cli = target_dir / "kb-web-cli" / "dist"
+        dest_cli.mkdir(parents=True, exist_ok=True)
+        print(f"Copying CLI artifacts from {cli_dist_dir} to {dest_cli}...")
+        for item in cli_dist_dir.iterdir():
+            if item.is_file():
+                shutil.copy2(item, dest_cli / item.name)
+            elif item.is_dir():
+                shutil.copytree(item, dest_cli / item.name, dirs_exist_ok=True)
 
 
 if __name__ == "__main__":

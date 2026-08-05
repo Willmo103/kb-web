@@ -2007,6 +2007,195 @@ def test_descriptive_video_download_and_resolution(client: TestClient, monkeypat
     server_config.configs_dir = old_configs_dir
 
 
+def test_cli_client_server_integration(client: TestClient, monkeypatch) -> None:
+    """Tests the new CLI API router endpoints for client registration, ingestion, operations, and querying."""
+    db = get_db(server_config)
+
+    # 1. Login to generate CLI key via administrative endpoints
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+
+    # Call admin/cli/keys/create
+    key_create_resp = client.post(
+        "/admin/cli/keys/create",
+        data={"name": "Test Key for Unit Tests"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert key_create_resp.status_code == 303
+
+    # Check that key was generated in the database
+    keys_in_db = list(db["cli_api_keys"].rows)
+    assert len(keys_in_db) == 1
+    api_key = keys_in_db[0]["key"]
+    assert keys_in_db[0]["name"] == "Test Key for Unit Tests"
+
+    # 2. Test Client Registration via POST /api/cli/register
+    reg_resp = client.post(
+        "/api/cli/register",
+        headers={"X-API-Key": api_key},
+        json={"computer_name": "Test-Client-Host"}
+    )
+    assert reg_resp.status_code == 200
+    assert reg_resp.json()["status"] == "success"
+
+    # Check client registry
+    clients = list(db["registered_clients"].rows)
+    assert len(clients) == 1
+    assert clients[0]["computer_name"] == "Test-Client-Host"
+    assert clients[0]["api_key"] == api_key
+
+    # 3. Test Invalid CLI API Key Authentication
+    bad_resp = client.post(
+        "/api/cli/register",
+        headers={"X-API-Key": "invalidkey"},
+        json={"computer_name": "Test-Client-Host"}
+    )
+    assert bad_resp.status_code == 403
+
+    # 4. Test Ingestion endpoint POST /api/cli/import/url
+    def mock_fetch_url(url: str):
+        from kb_web.models import HTMLPage
+        return HTMLPage(
+            url=url,
+            title="Ingestion CLI Page Title",
+            html_content="<html><body>Ingest this body content</body></html>",
+            md_content="Ingest this body content",
+            links=[],
+            html_content_hash="h1",
+            md_content_hash="h2",
+            fetched_at="2026-05-31T12:00:00",
+            description="",
+            keywords=[],
+            tags=[],
+        )
+
+    # Mock Ollama chat responses
+    class DummyMessage:
+        content = "# Ingestion CLI Page Title\nWiki entry description summary for CLI page."
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    monkeypatch.setattr("kb_web.routers.cli_api.fetch_url", mock_fetch_url)
+    monkeypatch.setattr(
+        "kb_web.routers.cli_api._get_ollama_client",
+        lambda: type("DummyClient", (), {
+            "chat": lambda *args, **kwargs: DummyChatResponse(),
+            "pull": lambda *args, **kwargs: None
+        })()
+    )
+
+    import_resp = client.post(
+        "/api/cli/import/url",
+        headers={"X-API-Key": api_key},
+        data={"url": "https://example.com/cli-import"}
+    )
+    assert import_resp.status_code == 200
+    assert import_resp.json()["status"] == "success"
+
+    # Verify article created in database
+    row = db["fetched_pages"].get("https://example.com/cli-import")
+    assert row["title"] == "Ingestion CLI Page Title"
+    assert "Wiki entry" in row["description"]
+
+    # 5. Test Listing endpoint GET /api/cli/pages
+    list_resp = client.get(
+        "/api/cli/pages",
+        headers={"X-API-Key": api_key},
+        params={"limit": 5}
+    )
+    assert list_resp.status_code == 200
+    pages = list_resp.json()
+    assert len(pages) >= 1
+    assert any(p["url"] == "https://example.com/cli-import" for p in pages)
+
+    # 6. Test Collections list endpoint GET /api/cli/collections
+    db["collections"].insert({
+        "id": 100,
+        "title": "CLI Test Collection",
+        "visibility": "private",
+        "rag_system_prompt": "",
+        "taxonomy_system_prompt": "",
+        "general_system_context": "{}",
+        "created_at": "2026-05-31T12:00:00"
+    })
+    db.conn.commit()
+
+    col_list_resp = client.get(
+        "/api/cli/collections",
+        headers={"X-API-Key": api_key}
+    )
+    assert col_list_resp.status_code == 200
+    cols = col_list_resp.json()
+    assert any(c["id"] == 100 for c in cols)
+
+    # 7. Test Collections Add/Remove endpoint POST /api/cli/collections/item
+    add_item_resp = client.post(
+        "/api/cli/collections/item",
+        headers={"X-API-Key": api_key},
+        data={
+            "action": "add",
+            "collection_id": 100,
+            "url": "https://example.com/cli-import"
+        }
+    )
+    assert add_item_resp.status_code == 200
+    assert add_item_resp.json()["status"] == "success"
+    # verify item linked
+    assert db["collection_items"].count_where("collection_id = ? AND source_id = ?", [100, "https://example.com/cli-import"]) == 1
+
+    # 8. Test Tags management endpoint GET /api/cli/tags and POST /api/cli/tags/operation
+    db["fetched_pages"].update("https://example.com/cli-import", {"tags": '["original-tag"]'})
+    db.conn.commit()
+
+    tag_op_resp = client.post(
+        "/api/cli/tags/operation",
+        headers={"X-API-Key": api_key},
+        data={
+            "action": "add",
+            "tag": "new-cli-tag",
+            "url": "https://example.com/cli-import"
+        }
+    )
+    assert tag_op_resp.status_code == 200
+    assert "new-cli-tag" in tag_op_resp.json()["tags"]
+
+    # 9. Test Agent query endpoint POST /api/cli/agent/query
+    agent_resp = client.post(
+        "/api/cli/agent/query",
+        headers={"X-API-Key": api_key},
+        data={"query": "CLI"}
+    )
+    assert agent_resp.status_code == 200
+    assert agent_resp.json()["status"] == "success"
+    assert "Wiki entry" in agent_resp.json()["reply"]
+    assert any(r["url"] == "https://example.com/cli-import" for r in agent_resp.json()["references"])
+
+    # 10. Clean up keys and clients via admin endpoints
+    key_del_resp = client.post(
+        "/admin/cli/keys/delete",
+        data={"key": api_key},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert key_del_resp.status_code == 303
+    assert db["cli_api_keys"].count_where("key = ?", [api_key]) == 0
+
+    client_del_resp = client.post(
+        "/admin/cli/clients/delete",
+        data={"computer_name": "Test-Client-Host"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert client_del_resp.status_code == 303
+    assert db["registered_clients"].count_where("computer_name = ?", ["Test-Client-Host"]) == 0
+
+
+
 
 
 
