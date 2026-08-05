@@ -232,6 +232,75 @@
             </div>
         </div>
 
+        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between md:col-span-2">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">🖥️ CLI Client Integration</h3>
+                <p class="text-sm text-gray-500 mb-6">Generate administrative API keys to register external computer terminals running the <code>kb-cli</code> tool.</p>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Column 1: API Keys Management -->
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-150">
+                        <h4 class="font-bold text-sm text-gray-800 mb-3">CLI API Keys</h4>
+                        
+                        <form action="/admin/cli/keys/create" method="post" class="flex gap-2 mb-4">
+                            <input type="text" name="name" placeholder="Key name (e.g. Will's Laptop)" class="flex-1 text-xs border border-gray-300 rounded px-2.5 py-1.5 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required />
+                            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded transition shadow-sm">
+                                Generate Key
+                            </button>
+                        </form>
+                        
+                        {% if cli_keys %}
+                        <div class="space-y-2.5 max-h-48 overflow-y-auto">
+                            {% for k in cli_keys %}
+                            <div class="flex justify-between items-center bg-white border border-gray-200 rounded p-2 text-xs shadow-sm">
+                                <div>
+                                    <div class="font-semibold text-gray-850">{{ k.name }}</div>
+                                    <div class="font-mono text-gray-405 text-[10px]">{{ k.key[:8] }}...{{ k.key[-8:] }}</div>
+                                </div>
+                                <form action="/admin/cli/keys/delete" method="post" onsubmit="return confirm('Are you sure you want to revoke this key?');">
+                                    <input type="hidden" name="key" value="{{ k.key }}" />
+                                    <button type="submit" class="text-red-655 hover:text-red-750 font-bold border border-gray-200 hover:border-red-200 hover:bg-red-50 px-2 py-0.5 rounded text-[10px] transition shadow-sm">
+                                        Revoke
+                                    </button>
+                                </form>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="text-xs text-gray-400 italic">No CLI API keys generated yet.</p>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Column 2: Registered Client Machines -->
+                    <div class="bg-gray-55 p-4 rounded-lg border border-gray-150">
+                        <h4 class="font-bold text-sm text-gray-800 mb-3">Registered Client Terminals</h4>
+                        
+                        {% if registered_clients %}
+                        <div class="space-y-2.5 max-h-60 overflow-y-auto">
+                            {% for c in registered_clients %}
+                            <div class="flex justify-between items-center bg-white border border-gray-200 rounded p-2 text-xs shadow-sm">
+                                <div>
+                                    <div class="font-semibold text-gray-850">{{ c.computer_name }}</div>
+                                    <div class="text-[10px] text-gray-550">Registered: {{ c.registered_at[:16] | replace('T', ' ') }}</div>
+                                    <div class="text-[10px] text-emerald-750 font-semibold bg-emerald-50 border border-emerald-150 rounded px-1 mt-0.5 inline-block">{{ c.status | upper }}</div>
+                                </div>
+                                <form action="/admin/cli/clients/delete" method="post" onsubmit="return confirm('Are you sure you want to de-register this client terminal?');">
+                                    <input type="hidden" name="computer_name" value="{{ c.computer_name }}" />
+                                    <button type="submit" class="text-red-655 hover:text-red-750 font-bold border border-gray-200 hover:border-red-200 hover:bg-red-50 px-2 py-0.5 rounded text-[10px] transition shadow-sm">
+                                        De-register
+                                    </button>
+                                </form>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="text-xs text-gray-400 italic">No client terminals registered yet.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
 

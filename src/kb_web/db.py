@@ -585,6 +585,39 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
         except Exception as e:
             print(f"Error creating agent_prompts table: {e}")
 
+    # Initialize cli_api_keys table
+    if "cli_api_keys" not in db.table_names():
+        try:
+            db["cli_api_keys"].create(
+                {
+                    "key": str,
+                    "name": str,
+                    "created_at": str,
+                },
+                pk="key"
+            )
+            db.conn.commit()
+            print("Initialized database table: cli_api_keys")
+        except Exception as e:
+            print(f"Error creating cli_api_keys table: {e}")
+
+    # Initialize registered_clients table
+    if "registered_clients" not in db.table_names():
+        try:
+            db["registered_clients"].create(
+                {
+                    "computer_name": str,
+                    "api_key": str,
+                    "registered_at": str,
+                    "status": str,
+                },
+                pk="computer_name"
+            )
+            db.conn.commit()
+            print("Initialized database table: registered_clients")
+        except Exception as e:
+            print(f"Error creating registered_clients table: {e}")
+
 
 
 def get_general_collection_id(db: sqlite_utils.Database) -> int:

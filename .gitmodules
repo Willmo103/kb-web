@@ -1,0 +1,3 @@
+[submodule "kb-web-cli"]
+	path = kb-web-cli
+	url = ./kb-web-cli
