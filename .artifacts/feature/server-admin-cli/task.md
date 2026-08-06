@@ -5,4 +5,4 @@
 - `[x]` Implement typer commands in kb-web-cli/src/kb_web_cli/main.py
 - `[x]` Integrate main build.py with kb-web-cli build packaging
 - `[x]` Add unit tests in test_server.py
-- `[ ]` Run build verification & pre-commit checking
+- `[x]` Run build verification & pre-commit checking

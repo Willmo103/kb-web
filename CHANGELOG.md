@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.28] - 2026-08-05
+### Added
+- Implemented standalone CLI package `kb-web-cli` as a nested git submodule containing `kb-cli` console command executable wrapper.
+- Added server-side CLI API router endpoints (`/api/cli`) exposing client registration, synchronous ingestion, tag/collection updates, and context-aware RAG agent query tasks.
+- Integrated dashboard CLI Integration configuration card panel, displaying generated API keys, registered computer terminal clients, and administrative revoke action forms.
+- Added comprehensive unit test suite `test_cli_client_server_integration` verifying full REST/CLI flow.
+
 ## [0.1.27] - 2026-08-04
 ### Added
 - Implemented descriptive YouTube video filenames formatting as `[Creator] - Title [VideoId].mp4` upon local offline downloads.
