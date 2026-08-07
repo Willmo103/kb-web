@@ -2,6 +2,11 @@
 
 Issues in this document that have their text ~~struck through~~ are considered completed. The newest issues will be added at the *top* of this markdown document.
 
+
+- The export proces should also include an option to download the saved videos
+ - I want to be able to export and import the entire datset from the UI
+
+- I want to modify the server to be able to upload and parse files (like pdfs, code, word docs, etc. and have them stored and wiki generated for them as I am for webpages and videos
 ---
 
 ## ~~Create A CLI for interacting with the LIVE server~~

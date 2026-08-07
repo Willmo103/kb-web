@@ -421,22 +421,23 @@ def extract_wiki_content(
             system_prompt = getattr(config, "youtube_wiki_prompt", config.wiki_prompt)
         else:
             system_prompt = config.wiki_prompt
-
         raw_content = html_page.md_content or ""
         max_len = getattr(config, "max_input_length", 20000)
 
         if len(raw_content) <= max_len:
-            response = client.chat(
-                model=config.ollama_model,
-                messages=[
+            chat_kwargs = {
+                "model": config.ollama_model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
                         "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{raw_content}",
                     },
                 ],
-                think=config.ollama_think,
-            )
+            }
+            if getattr(config, "ollama_think", False):
+                chat_kwargs["think"] = True
+            response = client.chat(**chat_kwargs)
             return response.message.content
         else:
             chunks = chunk_text(raw_content, max_len)
@@ -456,14 +457,16 @@ def extract_wiki_content(
                         "Do not omit important details."
                     )
 
-                chunk_resp = client.chat(
-                    model=config.ollama_model,
-                    messages=[
+                chat_kwargs = {
+                    "model": config.ollama_model,
+                    "messages": [
                         {"role": "system", "content": system_message},
                         {"role": "user", "content": chunk},
                     ],
-                    think=False,
-                )
+                }
+                if getattr(config, "ollama_think", False):
+                    chat_kwargs["think"] = True
+                chunk_resp = client.chat(**chat_kwargs)
                 chunk_summaries.append(chunk_resp.message.content)
 
             compiled_summaries = "\n\n---\n\n".join(chunk_summaries)
@@ -483,21 +486,23 @@ def extract_wiki_content(
                     f"COMPILED SECTION SUMMARIES:\n{compiled_summaries}"
                 )
 
-            response = client.chat(
-                model=config.ollama_model,
-                messages=[
+            chat_kwargs = {
+                "model": config.ollama_model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
                         "content": user_content,
                     },
                 ],
-                think=config.ollama_think,
-            )
+            }
+            if getattr(config, "ollama_think", False):
+                chat_kwargs["think"] = True
+            response = client.chat(**chat_kwargs)
             return response.message.content
     except Exception as e:
         print(f"Ollama extraction failed: {e}")
-        return f"# Ingestion Backup \n\nAI Processing skipped or failed. Raw layout captured below.\n\n {html_page.md_content[:2000]}"
+        raise
 
 
 def extract_tags_content(
@@ -519,23 +524,25 @@ def extract_tags_content(
         else:
             content_to_analyze = raw_content[:max_len]
 
-        response = client.chat(
-            model=config.ollama_model,
-            messages=[
+        chat_kwargs = {
+            "model": config.ollama_model,
+            "messages": [
                 {"role": "system", "content": DEFAULT_TAGS_PROMPT},
                 {
                     "role": "user",
                     "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{content_to_analyze}",
                 },
             ],
-            think=False,
-        )
+        }
+        if getattr(config, "ollama_think", False):
+            chat_kwargs["think"] = True
+        response = client.chat(**chat_kwargs)
         tags_str = response.message.content
         tags = [t.strip().lower() for t in tags_str.split(",") if t.strip()]
         return [t for t in tags if t]
     except Exception as e:
         print(f"Ollama tagging failed: {e}")
-        return []
+        raise
 
 
 def save_youtube_metadata_helper(
@@ -783,6 +790,74 @@ def generate_gemma_embeddings_for_page(
     if client is None:
         client = _get_ollama_client()
         
+    try:
+        row = db["fetched_pages"].get(url)
+    except Exception:
+        print(f"Page {url} not found for gemma embedding generation.")
+        return
+        
+    title = row.get("title") or url
+    md_content = row.get("md_content") or ""
+    description = row.get("description") or ""
+    
+    # Determine source type (articles or videos)
+    is_video = False
+    if "youtube_videos" in db.table_names():
+        try:
+            if db["youtube_videos"].get(url):
+                is_video = True
+        except Exception:
+            pass
+            
+    source_type = "videos" if is_video else "articles"
+    
+    # Check model availability for embeddinggemma
+    emb_model = "embeddinggemma"
+    try:
+        ensure_model_available(client, emb_model)
+    except Exception as e:
+        print(f"Warning: failed to verify/pull '{emb_model}': {e}. Using configured model.")
+        emb_model = getattr(config, "ollama_embedding_model", "nomic-embed-text")
+        
+    # 1. Chunk and embed md_content
+    chunks = chunk_text_with_overlap(md_content, 1500, 150)
+    
+    # Delete existing chunks for this url to avoid stale ones
+    db.execute("DELETE FROM chunk_embeddings WHERE source_type = ? AND source_id = ?", [source_type, url])
+    
+    for idx, chunk in enumerate(chunks):
+        prompt = f"search_document: {chunk}"
+        try:
+            resp = client.embeddings(model=emb_model, prompt=prompt)
+            vector = resp["embedding"]
+            db["chunk_embeddings"].insert({
+                "source_type": source_type,
+                "source_id": url,
+                "source_title": title,
+                "chunk_number": idx,
+                "chunk_content": chunk,
+                "chunk_vector": json.dumps(vector),
+                "created_at": datetime.now().isoformat()
+            })
+        except Exception as e:
+            print(f"Failed to generate chunk embedding for {url} chunk {idx}: {e}")
+            
+    # 2. Embed description and save to article_embeddings or video_embeddings
+    if description.strip():
+        prompt_desc = f"search_document: {description}"
+        try:
+            resp = client.embeddings(model=emb_model, prompt=prompt_desc)
+            vector_desc = resp["embedding"]
+            target_table = "video_embeddings" if is_video else "article_embeddings"
+            db[target_table].upsert({
+                "url": url,
+                "embedding": json.dumps(vector_desc),
+                "updated_at": datetime.now().isoformat()
+            }, pk="url")
+            print(f"Successfully stored gemma embedding of description for {url} in {target_table}")
+        except Exception as e:
+            print(f"Failed to generate description embedding for {url}: {e}")
+        
 def ingest_url_sync(db, url: str, config=None, client=None) -> dict:
     """Ingests a URL, processes it with Ollama, saves to DB, and updates embeddings."""
     url = extract_first_url(url)
@@ -912,70 +987,4 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
         return str(first_file)
         
     raise RuntimeError(f"Failed to download video {video_id} with yt-dlp.")
-    try:
-        row = db["fetched_pages"].get(url)
-    except Exception:
-        print(f"Page {url} not found for gemma embedding generation.")
-        return
-        
-    title = row.get("title") or url
-    md_content = row.get("md_content") or ""
-    description = row.get("description") or ""
-    
-    # Determine source type (articles or videos)
-    is_video = False
-    if "youtube_videos" in db.table_names():
-        try:
-            if db["youtube_videos"].get(url):
-                is_video = True
-        except Exception:
-            pass
-            
-    source_type = "videos" if is_video else "articles"
-    
-    # Check model availability for embeddinggemma
-    emb_model = "embeddinggemma"
-    try:
-        ensure_model_available(client, emb_model)
-    except Exception as e:
-        print(f"Warning: failed to verify/pull '{emb_model}': {e}. Using configured model.")
-        emb_model = getattr(config, "ollama_embedding_model", "nomic-embed-text")
-        
-    # 1. Chunk and embed md_content
-    chunks = chunk_text_with_overlap(md_content, 1500, 150)
-    
-    # Delete existing chunks for this url to avoid stale ones
-    db.execute("DELETE FROM chunk_embeddings WHERE source_type = ? AND source_id = ?", [source_type, url])
-    
-    for idx, chunk in enumerate(chunks):
-        prompt = f"search_document: {chunk}"
-        try:
-            resp = client.embeddings(model=emb_model, prompt=prompt)
-            vector = resp["embedding"]
-            db["chunk_embeddings"].insert({
-                "source_type": source_type,
-                "source_id": url,
-                "source_title": title,
-                "chunk_number": idx,
-                "chunk_content": chunk,
-                "chunk_vector": json.dumps(vector),
-                "created_at": datetime.now().isoformat()
-            })
-        except Exception as e:
-            print(f"Failed to generate chunk embedding for {url} chunk {idx}: {e}")
-            
-    # 2. Embed description and save to article_embeddings or video_embeddings
-    if description.strip():
-        prompt_desc = f"search_document: {description}"
-        try:
-            resp = client.embeddings(model=emb_model, prompt=prompt_desc)
-            vector_desc = resp["embedding"]
-            target_table = "video_embeddings" if is_video else "article_embeddings"
-            db[target_table].upsert({
-                "url": url,
-                "embedding": json.dumps(vector_desc),
-                "updated_at": datetime.now().isoformat()
-            }, pk="url")
-            print(f"Successfully stored gemma embedding of description for {url} in {target_table}")
-        except Exception as e:
-            print(f"Failed to generate description embedding for {url}: {e}")
+
