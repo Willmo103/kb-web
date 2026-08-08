@@ -76,22 +76,21 @@ def get_graph_data(request: Request) -> JSONResponse:
             "type": "page"
         })
 
-        # Link Page -> Site (excluding virtual cron URLs)
-        if not url.startswith("cron://"):
-            site = get_url_basename(url)
-            site_id = f"site:{site}"
-            if site not in sites_seen:
-                sites_seen.add(site)
-                nodes.append({
-                    "id": site_id,
-                    "label": site,
-                    "type": "site"
-                })
-            links.append({
-                "source": url,
-                "target": site_id,
-                "type": "page-site"
+        # Link Page -> Site
+        site = get_url_basename(url)
+        site_id = f"site:{site}"
+        if site not in sites_seen:
+            sites_seen.add(site)
+            nodes.append({
+                "id": site_id,
+                "label": site,
+                "type": "site"
             })
+        links.append({
+            "source": url,
+            "target": site_id,
+            "type": "page-site"
+        })
 
         # Link Page -> Creator (if YouTube video)
         creator = video_creators.get(url)

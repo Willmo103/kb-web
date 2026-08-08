@@ -760,7 +760,7 @@ def suggest_collections() -> JSONResponse:
                 {"role": "user", "content": user_content}
             ],
             format="json",
-            think=config.ollama_think,
+            think=False,
         )
         raw_text = response.message.content.strip()
         

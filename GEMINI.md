@@ -66,3 +66,10 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 - [document-code-issue-and-fix](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/document-code-issue-and-fix/SKILL.md): Formats changelog logs and bug fix records.
 - [kb-web-browser-extension](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/kb-web-browser-extension/SKILL.md): Extension testing & configuration.
 - [kb-web-service-management](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/kb-web-service-management/SKILL.md): Systemd service configuration.
+
+## Chat Turn Instructions
+
+- Artifacts: All artifacts (`implimantation_plan.md`, `walkthrough.md`, etc.) should always be saved in the `./.artifacts` folder in the root of the project.
+ - a *subfolder* should be created for the specific action that is being taken; e.g. `/.artifacts/feature-001/` This should **match the git branch from the `production` branch that the feature or fix is being developed on**.
+ - All files should be in **Markdown** format with clear headings and sections.
+ - all user feedback for the given turn should be documented as `user_feedback.md` in the artifacts folder. This should be done **before** any code is changed or committed. If no feedback is received, then this file should still be created and documented as such.

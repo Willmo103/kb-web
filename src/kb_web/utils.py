@@ -421,22 +421,23 @@ def extract_wiki_content(
             system_prompt = getattr(config, "youtube_wiki_prompt", config.wiki_prompt)
         else:
             system_prompt = config.wiki_prompt
-
         raw_content = html_page.md_content or ""
         max_len = getattr(config, "max_input_length", 20000)
 
         if len(raw_content) <= max_len:
-            response = client.chat(
-                model=config.ollama_model,
-                messages=[
+            chat_kwargs = {
+                "model": config.ollama_model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
                         "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{raw_content}",
                     },
                 ],
-                think=config.ollama_think,
-            )
+            }
+            if getattr(config, "ollama_think", False):
+                chat_kwargs["think"] = True
+            response = client.chat(**chat_kwargs)
             return response.message.content
         else:
             chunks = chunk_text(raw_content, max_len)
@@ -456,14 +457,16 @@ def extract_wiki_content(
                         "Do not omit important details."
                     )
 
-                chunk_resp = client.chat(
-                    model=config.ollama_model,
-                    messages=[
+                chat_kwargs = {
+                    "model": config.ollama_model,
+                    "messages": [
                         {"role": "system", "content": system_message},
                         {"role": "user", "content": chunk},
                     ],
-                    think=config.ollama_think,
-                )
+                }
+                if getattr(config, "ollama_think", False):
+                    chat_kwargs["think"] = True
+                chunk_resp = client.chat(**chat_kwargs)
                 chunk_summaries.append(chunk_resp.message.content)
 
             compiled_summaries = "\n\n---\n\n".join(chunk_summaries)
@@ -483,21 +486,23 @@ def extract_wiki_content(
                     f"COMPILED SECTION SUMMARIES:\n{compiled_summaries}"
                 )
 
-            response = client.chat(
-                model=config.ollama_model,
-                messages=[
+            chat_kwargs = {
+                "model": config.ollama_model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
                         "content": user_content,
                     },
                 ],
-                think=config.ollama_think,
-            )
+            }
+            if getattr(config, "ollama_think", False):
+                chat_kwargs["think"] = True
+            response = client.chat(**chat_kwargs)
             return response.message.content
     except Exception as e:
         print(f"Ollama extraction failed: {e}")
-        return f"# Ingestion Backup \n\nAI Processing skipped or failed. Raw layout captured below.\n\n {html_page.md_content[:2000]}"
+        raise
 
 
 def extract_tags_content(
@@ -519,23 +524,25 @@ def extract_tags_content(
         else:
             content_to_analyze = raw_content[:max_len]
 
-        response = client.chat(
-            model=config.ollama_model,
-            messages=[
+        chat_kwargs = {
+            "model": config.ollama_model,
+            "messages": [
                 {"role": "system", "content": DEFAULT_TAGS_PROMPT},
                 {
                     "role": "user",
                     "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{content_to_analyze}",
                 },
             ],
-            think=config.ollama_think,
-        )
+        }
+        if getattr(config, "ollama_think", False):
+            chat_kwargs["think"] = True
+        response = client.chat(**chat_kwargs)
         tags_str = response.message.content
         tags = [t.strip().lower() for t in tags_str.split(",") if t.strip()]
         return [t for t in tags if t]
     except Exception as e:
         print(f"Ollama tagging failed: {e}")
-        return []
+        raise
 
 
 def save_youtube_metadata_helper(
@@ -850,4 +857,134 @@ def generate_gemma_embeddings_for_page(
             print(f"Successfully stored gemma embedding of description for {url} in {target_table}")
         except Exception as e:
             print(f"Failed to generate description embedding for {url}: {e}")
+        
+def ingest_url_sync(db, url: str, config=None, client=None) -> dict:
+    """Ingests a URL, processes it with Ollama, saves to DB, and updates embeddings."""
+    url = extract_first_url(url)
+    page_data = fetch_url(url)
+    
+    wiki_entry = extract_wiki_content(page_data, config, client)
+    page_data.description = wiki_entry
+    
+    title = url
+    soup = BeautifulSoup(page_data.html_content, "html5lib")
+    if soup.title:
+        title = soup.title.string
+    if not title:
+        title = urlparse(url).netloc or url
+
+    if wiki_entry.strip().startswith("#"):
+        first_line = wiki_entry.strip().split("\n")[0]
+        title = first_line.replace("#", "").strip()
+
+    page_data.title = title
+    tags = extract_tags_content(page_data, config, client)
+    page_data.tags = tags
+
+    serialized, creator = serialize_page_for_db(page_data)
+    db["fetched_pages"].upsert(serialized, pk="url")
+    save_youtube_metadata_helper(db, page_data.url, creator)
+    update_article_embedding(db, page_data.url, config, client)
+    return {"status": "success", "url": url}
+
+
+def download_youtube_video(video_id: str, config_obj=None) -> str:
+    """Downloads a YouTube video to ~/.kb/media/videos/<video_id>.mp4 using yt-dlp.
+    
+    Returns the absolute local path to the downloaded video.
+    """
+    import yt_dlp
+    from pathlib import Path
+    import re
+    
+    if config_obj is None:
+        config_obj = default_config
+        
+    media_dir = config_obj.configs_dir.parent / "media" / "videos"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Check if a file containing the video_id already exists in the media directory
+    existing_files = list(media_dir.glob(f"*{video_id}*"))
+    if existing_files:
+        return str(existing_files[0])
+        
+    def sanitize_filename(name: str) -> str:
+        # Remove characters invalid in Windows & Unix filesystems: \ / : * ? " < > |
+        cleaned = re.sub(r'[\\/*?:"<>|]', "", name)
+        return cleaned.strip()
+
+    creator = None
+    title = None
+    
+    # Try looking up in the database first
+    url1 = f"https://www.youtube.com/watch?v={video_id}"
+    url2 = f"https://youtube.com/watch?v={video_id}"
+    try:
+        from .base import _get_db
+        db = _get_db()
+        if "youtube_videos" in db.table_names():
+            row = db["youtube_videos"].get(url1) or db["youtube_videos"].get(url2)
+            if row:
+                creator = row.get("creator")
+        if "fetched_pages" in db.table_names():
+            row = db["fetched_pages"].get(url1) or db["fetched_pages"].get(url2)
+            if row:
+                title = row.get("title")
+    except Exception:
+        pass
+
+    # Extract metadata using yt-dlp if database records do not exist
+    if not creator or not title:
+        try:
+            ydl_opts_info = {
+                'quiet': True,
+                'no_warnings': True,
+            }
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            with yt_dlp.YoutubeDL(ydl_opts_info) as ydl:
+                info = ydl.extract_info(video_url, download=False)
+                if info:
+                    if not creator:
+                        creator = info.get("uploader")
+                    if not title:
+                        title = info.get("title")
+        except Exception:
+            pass
+
+    creator_clean = sanitize_filename(creator) if creator else ""
+    title_clean = sanitize_filename(title) if title else ""
+
+    if creator_clean and title_clean:
+        filename_base = f"[{creator_clean}] - {title_clean} [{video_id}]"
+    elif title_clean:
+        filename_base = f"{title_clean} [{video_id}]"
+    else:
+        filename_base = f"{video_id}"
+
+    ydl_opts = {
+        'format': 'mp4/best',
+        'outtmpl': str(media_dir / f"{filename_base}.%(ext)s"),
+        'quiet': True,
+        'no_warnings': True,
+    }
+    
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([video_url])
+        
+    downloaded_files = []
+    if media_dir.exists():
+        for f in media_dir.iterdir():
+            if f.is_file() and f.name.startswith(filename_base):
+                downloaded_files.append(f)
+                
+    if downloaded_files:
+        first_file = downloaded_files[0]
+        if first_file.suffix != ".mp4":
+            new_path = first_file.with_suffix(".mp4")
+            first_file.rename(new_path)
+            return str(new_path)
+        return str(first_file)
+        
+    raise RuntimeError(f"Failed to download video {video_id} with yt-dlp.")
 

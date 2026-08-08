@@ -1,0 +1,9 @@
+- `[x]` Database Layer configurations/prompts table setup
+- `[x]` Config getters/setters database dynamic sync
+- `[x]` Collection & Importer fixes (default public visibility, source_type checks)
+- `[x]` Collections management form on dashboard
+- `[x]` Video offline player detection fix
+- `[x]` Server Log reverse sort and default limits with cookies
+- `[x]` Prompt version history, rollback, and set HEAD endpoint
+- `[x]` Admin UI prompt history visualization
+- `[x]` Verification tests and pipeline build checking

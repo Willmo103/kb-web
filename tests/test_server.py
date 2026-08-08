@@ -14,8 +14,11 @@ from kb_web.server import config as server_config
 def setup_temp_db(tmp_path, monkeypatch) -> None:
     """Fixture to override config database path to a temp file, isolating test DB state."""
     old_db_path = server_config.db_path
+    old_configs_dir = server_config.configs_dir
+    
     temp_db = tmp_path / "test_kb.db"
     server_config.db_path = temp_db
+    server_config.configs_dir = tmp_path / "configs"
 
     # Ensure schema is preloaded
     _ = get_db(server_config)
@@ -35,6 +38,7 @@ def setup_temp_db(tmp_path, monkeypatch) -> None:
 
     # Restore path after execution completes
     server_config.db_path = old_db_path
+    server_config.configs_dir = old_configs_dir
 
 
 @pytest.fixture
@@ -1081,15 +1085,26 @@ def test_logs_view(client: TestClient) -> None:
     )
     session_cookie = login_resp.cookies.get("kb_session")
 
-    # Create dummy log file
-    log_dir = server_config.configs_dir.parent / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "kb-web.log"
-    with open(log_file, "w", encoding="utf-8") as f:
-        f.write("This is a dummy log line.\nAnother warning line.")
+    # Seed the DB logs table
+    db = get_db(server_config)
+    db["system_logs"].insert({
+        "timestamp": "2026-05-31T12:00:00",
+        "level": "INFO",
+        "module": "test",
+        "message": "This is a dummy log line.",
+        "traceback": ""
+    })
+    db["system_logs"].insert({
+        "timestamp": "2026-05-31T12:01:00",
+        "level": "WARNING",
+        "module": "test",
+        "message": "Another warning line.",
+        "traceback": ""
+    })
 
     # Request logs view
     resp = client.get("/admin/logs", cookies={"kb_session": session_cookie})
+    print("RESPONSE TEXT IS:\n", resp.text)
     assert resp.status_code == 200
     assert "dummy log line" in resp.text
     assert "Another warning line" in resp.text
@@ -1450,6 +1465,830 @@ def test_ollama_logging_and_observability(monkeypatch) -> None:
     fail_logs = list(db["ollama_logs"].rows_where("status = 'failed'"))
     assert len(fail_logs) == 1
     assert "ValueError: Ollama server down" in fail_logs[0]["response"]
+
+
+
+
+
+def test_ollama_think_config_save() -> None:
+    """Verifies that ollama_think is correctly saved and loaded in the Config class."""
+    from kb_web.config import Config
+    cfg = Config()
+    cfg.ollama_think = True
+    cfg.save()
+    
+    cfg2 = Config()
+    assert cfg2.ollama_think is True
+    
+    # Restore to False
+    cfg2.ollama_think = False
+    cfg2.save()
+
+
+def test_title_embeddings_generation(monkeypatch) -> None:
+    """Verifies that update_article_embedding correctly creates title embeddings."""
+    from kb_web.utils import update_article_embedding
+    from kb_web.config import Config
+    import sqlite_utils
+    import json
+    
+    db = sqlite_utils.Database(memory=True)
+    db["fetched_pages"].create(
+        {
+            "url": str,
+            "title": str,
+            "html_content": str,
+            "md_content": str,
+            "links": str,
+            "html_content_hash": str,
+            "md_content_hash": str,
+            "fetched_at": str,
+            "description": str,
+            "keywords": str,
+            "tags": str,
+        },
+        pk="url",
+    )
+    
+    db["fetched_pages"].insert({
+        "url": "https://example.com/test-title-embeddings",
+        "title": "Special Custom Title",
+        "tags": "[\"tech\"]",
+        "description": "Custom description"
+    })
+    
+    class DummyClient:
+        def embeddings(self, model, prompt):
+            return {"embedding": [0.1, 0.2, 0.3]}
+            
+    cfg = Config()
+    client = DummyClient()
+    
+    # Run embedding update
+    update_article_embedding(db, "https://example.com/test-title-embeddings", cfg, client)
+    
+    # Verify title embeddings exist
+    assert "title_embeddings" in db.table_names()
+    row = db["title_embeddings"].get("https://example.com/test-title-embeddings")
+    assert row is not None
+    assert json.loads(row["embedding"]) == [0.1, 0.2, 0.3]
+
+
+def test_extract_url_path_helper() -> None:
+    """Tests the Jinja filter helper extract_url_path."""
+    from kb_web.base import extract_url_path
+    
+    assert extract_url_path("https://example.com/some/long/path/file.html") == "/some/long/path/file.html"
+    assert extract_url_path("https://example.com/") == "example.com"
+    assert extract_url_path("invalid-url") == "invalid-url"
+
+
+def test_offline_video_metadata() -> None:
+    """Verifies schema contains local_path in youtube_videos table."""
+    from kb_web.db import init_db
+    import sqlite_utils
+    
+    db = sqlite_utils.Database(memory=True)
+    init_db(db)
+    
+    assert "youtube_videos" in db.table_names()
+    cols = db["youtube_videos"].columns_dict
+    assert "local_path" in cols
+
+
+def test_cron_subsystem_removal(client: TestClient) -> None:
+    """Verifies that the cron subsystem has been removed, including routes and database tables."""
+    from kb_web.db import init_db
+    import sqlite_utils
+
+    # 1. Verify tables are dropped and not created in init_db
+    db = sqlite_utils.Database(memory=True)
+    db["cron_jobs"].create({"id": int, "title": str}, pk="id")
+    db["cron_job_runs"].create({"id": int, "cron_job_id": int}, pk="id")
+    
+    init_db(db)
+    
+    assert "cron_jobs" not in db.table_names()
+    assert "cron_job_runs" not in db.table_names()
+
+    # 2. Login as admin
+    from kb_web.config import Config
+    cfg = Config()
+    login_resp = client.post(
+        "/login",
+        data={"password": cfg.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    assert session_cookie is not None
+
+    # 3. Request cron dashboard and verify 404
+    cron_resp = client.get(
+        "/admin/cron",
+        cookies={"kb_session": session_cookie}
+    )
+    assert cron_resp.status_code == 404
+
+
+def test_sqlite_logging_handler() -> None:
+    """Verifies that SQLiteLogHandler writes log records to the database log table."""
+    import tempfile
+    import os
+    import sqlite3
+    import logging
+    from kb_web.base import SQLiteLogHandler
+    
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
+    
+    try:
+        handler = SQLiteLogHandler(db_path)
+        logger = logging.getLogger("test_db_logger")
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        
+        logger.info("Test log message database")
+        
+        # Verify it exists in db
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT message, level, module FROM system_logs")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        assert len(rows) == 1
+        assert rows[0][0] == "Test log message database"
+        assert rows[0][1] == "INFO"
+    finally:
+        if os.path.exists(db_path):
+            os.remove(db_path)
+
+
+def test_crawler_domain_normalization(monkeypatch) -> None:
+    """Verifies that the recursive crawler strips www. prefix when checking same-domain URLs."""
+    from kb_web.routers.pages import run_recursive_crawl
+    from kb_web.config import Config
+    import sqlite_utils
+    import json
+    
+    db = sqlite_utils.Database(memory=True)
+    db["fetched_pages"].create({
+        "url": str,
+        "title": str,
+        "html_content": str,
+        "md_content": str,
+        "links": str,
+        "html_content_hash": str,
+        "md_content_hash": str,
+        "fetched_at": str,
+        "description": str,
+        "tags": str,
+    }, pk="url")
+
+    # Insert page with links
+    db["fetched_pages"].insert({
+        "url": "https://example.com/start",
+        "title": "Start",
+        "links": json.dumps([
+            "https://www.example.com/page1",
+            "https://other.com/page2",
+            "/page3"
+        ])
+    })
+
+    ingested_urls = []
+    def mock_ingest(db_handle, url, cfg, client):
+        ingested_urls.append(url)
+        db_handle["fetched_pages"].insert({
+            "url": url,
+            "title": "Ingested",
+            "links": "[]"
+        })
+        
+    monkeypatch.setattr("kb_web.utils.ingest_url_sync", mock_ingest)
+    monkeypatch.setattr("kb_web.routers.pages._get_db", lambda: db)
+    
+    cfg = Config()
+    run_recursive_crawl("https://example.com/start", depth=2, interval=0, config_obj=cfg)
+    
+    # Verify same-domain normalized links were crawled and different-domain links were skipped
+    assert "https://www.example.com/page1" in ingested_urls
+    assert "https://example.com/page3" in ingested_urls
+    assert "https://other.com/page2" not in ingested_urls
+
+
+def test_import_with_collection(client: TestClient, monkeypatch) -> None:
+    """Verifies that importing a URL with collection parameters creates/links to collections."""
+    from kb_web.config import Config
+    import sqlite_utils
+    
+    db = get_db(server_config)
+    
+    # 1. Login as admin
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    assert session_cookie is not None
+
+    # Mock fetch and ingestion
+    from kb_web.models import HTMLPage
+    dummy_page = HTMLPage(
+        url="https://example.com/import-col-test",
+        title="Import Collection Test",
+        html_content="html",
+        md_content="md",
+        links=[],
+        html_content_hash="h1",
+        md_content_hash="h2",
+        fetched_at="2026-05-31T12:00:00"
+    )
+    
+    monkeypatch.setattr("kb_web.routers.admin.fetch_url", lambda *args: dummy_page)
+    monkeypatch.setattr("kb_web.routers.admin.extract_wiki_content", lambda *args: "Wiki description")
+    monkeypatch.setattr("kb_web.routers.admin.extract_tags_content", lambda *args: [])
+    monkeypatch.setattr("kb_web.routers.admin.update_article_embedding", lambda *args: None)
+    monkeypatch.setattr("kb_web.routers.admin.generate_gemma_embeddings_for_page", lambda *args: None)
+    monkeypatch.setattr("kb_web.routers.admin.post_to_gotify", lambda *args: None)
+
+    # Ingest URL with "new_collection"
+    resp = client.post(
+        "/import/url",
+        data={
+            "url": "https://example.com/import-col-test",
+            "collection_id": "new_collection",
+            "new_collection_title": "Import Target Collection"
+        },
+        cookies={"kb_session": session_cookie}
+    )
+    assert resp.status_code == 200
+    
+    # Check that collection was created
+    col_rows = list(db["collections"].rows_where("title = ?", ["Import Target Collection"]))
+    assert len(col_rows) == 1
+    assert col_rows[0]["visibility"] == "public"
+    col_id = col_rows[0]["id"]
+    
+    # Check page was linked
+    item_rows = list(db["collection_items"].rows_where("collection_id = ?", [col_id]))
+    assert len(item_rows) == 1
+    assert item_rows[0]["source_id"] == "https://example.com/import-col-test"
+
+
+def test_import_video_url_assigns_videos_type(client: TestClient, monkeypatch) -> None:
+    """Verifies that importing a YouTube video sets source_type to 'videos' in collection_items."""
+    db = get_db(server_config)
+    
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    
+    from kb_web.models import HTMLPage
+    video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    dummy_page = HTMLPage(
+        url=video_url,
+        title="Rick Astley Video",
+        html_content="html",
+        md_content="md",
+        links=[],
+        html_content_hash="h1",
+        md_content_hash="h2",
+        fetched_at="2026-05-31T12:00:00"
+    )
+    
+    monkeypatch.setattr("kb_web.routers.admin.fetch_url", lambda *args: dummy_page)
+    monkeypatch.setattr("kb_web.routers.admin.extract_wiki_content", lambda *args: "Wiki description")
+    monkeypatch.setattr("kb_web.routers.admin.extract_tags_content", lambda *args: [])
+    monkeypatch.setattr("kb_web.routers.admin.update_article_embedding", lambda *args: None)
+    monkeypatch.setattr("kb_web.routers.admin.generate_gemma_embeddings_for_page", lambda *args: None)
+    monkeypatch.setattr("kb_web.routers.admin.post_to_gotify", lambda *args: None)
+
+    resp = client.post(
+        "/import/url",
+        data={
+            "url": video_url,
+            "collection_id": "new_collection",
+            "new_collection_title": "Video Target Collection"
+        },
+        cookies={"kb_session": session_cookie}
+    )
+    assert resp.status_code == 200
+    
+    col_rows = list(db["collections"].rows_where("title = ?", ["Video Target Collection"]))
+    assert len(col_rows) == 1
+    col_id = col_rows[0]["id"]
+    
+    item_rows = list(db["collection_items"].rows_where("collection_id = ?", [col_id]))
+    assert len(item_rows) == 1
+    assert item_rows[0]["source_id"] == video_url
+    assert item_rows[0]["source_type"] == "videos"
+
+
+def test_video_offline_checking(client: TestClient, monkeypatch, tmp_path) -> None:
+    """Verifies video page shows correct player tag/badge if locally saved offline."""
+    from urllib.parse import quote_plus
+    db = get_db(server_config)
+    video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    
+    db["fetched_pages"].insert({
+        "url": video_url,
+        "title": "Rick Astley Video",
+        "html_content": "html",
+        "md_content": "md",
+        "links": "[]",
+        "html_content_hash": "h1",
+        "md_content_hash": "h2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "description": "desc"
+    })
+    db.conn.commit()
+    
+    # 1. Cloud stream state
+    resp = client.get(f"/view/page?url={quote_plus(video_url)}")
+    assert resp.status_code == 200
+    assert "Cloud Stream" in resp.text
+    
+    # 2. Saved offline state
+    old_configs_dir = server_config.configs_dir
+    server_config.configs_dir = tmp_path / "configs"
+    
+    media_dir = server_config.configs_dir.parent / "media" / "videos"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    video_file = media_dir / "dQw4w9WgXcQ.mp4"
+    video_file.write_text("dummy mp4 content")
+    
+    resp = client.get(f"/view/page?url={quote_plus(video_url)}")
+    assert resp.status_code == 200
+    assert "Saved Offline" in resp.text
+    
+    server_config.configs_dir = old_configs_dir
+
+
+def test_server_logs_limit_cookies_and_sorting(client: TestClient) -> None:
+    """Verifies that logs are reverse-sorted, page count defaults, and limits persist in cookies."""
+    db = get_db(server_config)
+    db["system_logs"].delete_where()
+    
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    
+    for i in range(10):
+        db["system_logs"].insert({
+            "timestamp": f"2026-06-01T12:00:0{i}",
+            "level": "INFO",
+            "module": "test",
+            "message": f"Log message {i}",
+            "traceback": ""
+        })
+    db.conn.commit()
+    
+    # Default is newest first (reverse sorted)
+    resp = client.get("/admin/logs", cookies={"kb_session": session_cookie})
+    assert resp.status_code == 200
+    log_text = resp.text
+    idx_9 = log_text.find("Log message 9")
+    idx_0 = log_text.find("Log message 0")
+    assert idx_9 != -1 and idx_0 != -1
+    assert idx_9 < idx_0
+    
+    # Query limits
+    resp = client.get("/admin/logs?limit=3", cookies={"kb_session": session_cookie})
+    assert resp.status_code == 200
+    assert "Log message 9" in resp.text
+    assert "Log message 8" in resp.text
+    assert "Log message 7" in resp.text
+    assert "Log message 6" not in resp.text
+    assert resp.cookies.get("log_limit") == "3"
+    
+    # Cookie overrides
+    resp2 = client.get("/admin/logs", cookies={"kb_session": session_cookie, "log_limit": "3"})
+    assert resp2.status_code == 200
+    assert "Log message 9" in resp2.text
+    assert "Log message 6" not in resp2.text
+
+
+def test_settings_and_prompts_db_persistence(client: TestClient) -> None:
+    """Verifies Config settings write to settings tables, version prompts, and allow rollbacks."""
+    db = get_db(server_config)
+    
+    server_config.ollama_host = "http://db-test-host:11434"
+    assert server_config.ollama_host == "http://db-test-host:11434"
+    
+    row = db["settings_ollama"].get("ollama_host")
+    assert row["value"] == "http://db-test-host:11434"
+    
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    
+    resp = client.post(
+        "/admin/config",
+        data={
+            "ollama_host": "http://post-test-host:11434",
+            "ollama_model": "test-gemma",
+            "ollama_embedding_model": "test-nomic",
+            "api_key": "test-key",
+            "gotify_url": "",
+            "gotify_token": "",
+            "qdrant_host_url": "",
+            "qdrant_api_key": "",
+            "wiki_prompt": "Initial Wiki Prompt",
+            "youtube_wiki_prompt": "Initial YT Prompt",
+            "max_input_length": 25000,
+            "ollama_think": "true"
+        },
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert resp.status_code == 303
+    
+    assert server_config.ollama_host == "http://post-test-host:11434"
+    assert server_config.wiki_prompt == "Initial Wiki Prompt"
+    
+    prompts = list(db["agent_prompts"].rows_where("prompt_type = 'wiki_prompt' ORDER BY version ASC"))
+    assert len(prompts) == 2
+    assert prompts[0]["version"] == 1
+    assert prompts[1]["version"] == 2
+    assert prompts[1]["prompt_text"] == "Initial Wiki Prompt"
+    assert prompts[1]["is_head"] == 1
+    
+    v1_id = prompts[0]["id"]
+    resp2 = client.post(
+        "/admin/prompts/set-head",
+        data={
+            "prompt_id": v1_id,
+            "prompt_type": "wiki_prompt"
+        },
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert resp2.status_code == 303
+    
+    assert server_config.wiki_prompt == prompts[0]["prompt_text"]
+    assert db["agent_prompts"].get(v1_id)["is_head"] == 1
+
+
+def test_descriptive_video_download_and_resolution(client: TestClient, monkeypatch, tmp_path) -> None:
+    """Verifies that download_youtube_video creates descriptive filenames and pages.py resolves them dynamically."""
+    from urllib.parse import quote_plus
+    from pathlib import Path
+    from kb_web.utils import download_youtube_video
+    
+    db = get_db(server_config)
+    video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    video_id = "dQw4w9WgXcQ"
+    
+    db["fetched_pages"].insert({
+        "url": video_url,
+        "title": "Rick Astley - Never Gonna Give You Up",
+        "html_content": "html",
+        "md_content": "md",
+        "links": "[]",
+        "html_content_hash": "h1",
+        "md_content_hash": "h2",
+        "fetched_at": "2026-05-31T12:00:00",
+        "description": "desc"
+    })
+    db["youtube_videos"].insert({
+        "url": video_url,
+        "video_id": video_id,
+        "creator": "RickAstleyVEVO",
+        "channel_id": "UCuAXFKgjiqg_EMaCHwL7IAg",
+        "duration": 212,
+        "view_count": 1000000,
+        "thumbnail_url": "",
+        "local_path": "",
+        "updated_at": "2026-05-31T12:00:00"
+    })
+    db.conn.commit()
+
+    class DummyYoutubeDL:
+        def __init__(self, opts):
+            self.opts = opts
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+        def download(self, urls):
+            out_pattern = self.opts["outtmpl"]
+            out_file = Path(out_pattern.replace(".%(ext)s", ".mp4"))
+            out_file.write_text("dummy mp4")
+            
+    monkeypatch.setattr("yt_dlp.YoutubeDL", DummyYoutubeDL)
+
+    old_configs_dir = server_config.configs_dir
+    server_config.configs_dir = tmp_path / "configs"
+    
+    local_path = download_youtube_video(video_id, server_config)
+    
+    filename = Path(local_path).name
+    assert "RickAstleyVEVO" in filename
+    assert "Never Gonna Give You Up" in filename
+    assert video_id in filename
+    assert filename.endswith(".mp4")
+    
+    resp = client.get(f"/view/page?url={quote_plus(video_url)}")
+    assert resp.status_code == 200
+    assert "Saved Offline" in resp.text
+    assert f"/media/videos/{filename}" in resp.text
+    
+    server_config.configs_dir = old_configs_dir
+
+
+def test_cli_client_server_integration(client: TestClient, monkeypatch) -> None:
+    """Tests the new CLI API router endpoints for client registration, ingestion, operations, and querying."""
+    db = get_db(server_config)
+
+    # 1. Login to generate CLI key via administrative endpoints
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+
+    # Call admin/cli/keys/create
+    key_create_resp = client.post(
+        "/admin/cli/keys/create",
+        data={"name": "Test Key for Unit Tests"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert key_create_resp.status_code == 303
+
+    # Check that key was generated in the database
+    keys_in_db = list(db["cli_api_keys"].rows)
+    assert len(keys_in_db) == 1
+    api_key = keys_in_db[0]["key"]
+    assert keys_in_db[0]["name"] == "Test Key for Unit Tests"
+
+    # 2. Test Client Registration via POST /api/cli/register
+    reg_resp = client.post(
+        "/api/cli/register",
+        headers={"X-API-Key": api_key},
+        json={"computer_name": "Test-Client-Host"}
+    )
+    assert reg_resp.status_code == 200
+    assert reg_resp.json()["status"] == "success"
+
+    # Check client registry
+    clients = list(db["registered_clients"].rows)
+    assert len(clients) == 1
+    assert clients[0]["computer_name"] == "Test-Client-Host"
+    assert clients[0]["api_key"] == api_key
+
+    # 3. Test Invalid CLI API Key Authentication
+    bad_resp = client.post(
+        "/api/cli/register",
+        headers={"X-API-Key": "invalidkey"},
+        json={"computer_name": "Test-Client-Host"}
+    )
+    assert bad_resp.status_code == 403
+
+    # 4. Test Ingestion endpoint POST /api/cli/import/url
+    def mock_fetch_url(url: str):
+        from kb_web.models import HTMLPage
+        return HTMLPage(
+            url=url,
+            title="Ingestion CLI Page Title",
+            html_content="<html><body>Ingest this body content</body></html>",
+            md_content="Ingest this body content",
+            links=[],
+            html_content_hash="h1",
+            md_content_hash="h2",
+            fetched_at="2026-05-31T12:00:00",
+            description="",
+            keywords=[],
+            tags=[],
+        )
+
+    # Mock Ollama chat responses
+    class DummyMessage:
+        content = "# Ingestion CLI Page Title\nWiki entry description summary for CLI page."
+    class DummyChatResponse:
+        message = DummyMessage()
+
+    monkeypatch.setattr("kb_web.routers.cli_api.fetch_url", mock_fetch_url)
+    monkeypatch.setattr(
+        "kb_web.routers.cli_api._get_ollama_client",
+        lambda: type("DummyClient", (), {
+            "chat": lambda *args, **kwargs: DummyChatResponse(),
+            "pull": lambda *args, **kwargs: None
+        })()
+    )
+
+    import_resp = client.post(
+        "/api/cli/import/url",
+        headers={"X-API-Key": api_key},
+        data={"url": "https://example.com/cli-import"}
+    )
+    assert import_resp.status_code == 200
+    assert import_resp.json()["status"] == "success"
+
+    # Verify article created in database
+    row = db["fetched_pages"].get("https://example.com/cli-import")
+    assert row["title"] == "Ingestion CLI Page Title"
+    assert "Wiki entry" in row["description"]
+
+    # 5. Test Listing endpoint GET /api/cli/pages
+    list_resp = client.get(
+        "/api/cli/pages",
+        headers={"X-API-Key": api_key},
+        params={"limit": 5}
+    )
+    assert list_resp.status_code == 200
+    pages = list_resp.json()
+    assert len(pages) >= 1
+    assert any(p["url"] == "https://example.com/cli-import" for p in pages)
+
+    # 6. Test Collections list endpoint GET /api/cli/collections
+    db["collections"].insert({
+        "id": 100,
+        "title": "CLI Test Collection",
+        "visibility": "private",
+        "rag_system_prompt": "",
+        "taxonomy_system_prompt": "",
+        "general_system_context": "{}",
+        "created_at": "2026-05-31T12:00:00"
+    })
+    db.conn.commit()
+
+    col_list_resp = client.get(
+        "/api/cli/collections",
+        headers={"X-API-Key": api_key}
+    )
+    assert col_list_resp.status_code == 200
+    cols = col_list_resp.json()
+    assert any(c["id"] == 100 for c in cols)
+
+    # 7. Test Collections Add/Remove endpoint POST /api/cli/collections/item
+    add_item_resp = client.post(
+        "/api/cli/collections/item",
+        headers={"X-API-Key": api_key},
+        data={
+            "action": "add",
+            "collection_id": 100,
+            "url": "https://example.com/cli-import"
+        }
+    )
+    assert add_item_resp.status_code == 200
+    assert add_item_resp.json()["status"] == "success"
+    # verify item linked
+    assert db["collection_items"].count_where("collection_id = ? AND source_id = ?", [100, "https://example.com/cli-import"]) == 1
+
+    # 8. Test Tags management endpoint GET /api/cli/tags and POST /api/cli/tags/operation
+    db["fetched_pages"].update("https://example.com/cli-import", {"tags": '["original-tag"]'})
+    db.conn.commit()
+
+    tag_op_resp = client.post(
+        "/api/cli/tags/operation",
+        headers={"X-API-Key": api_key},
+        data={
+            "action": "add",
+            "tag": "new-cli-tag",
+            "url": "https://example.com/cli-import"
+        }
+    )
+    assert tag_op_resp.status_code == 200
+    assert "new-cli-tag" in tag_op_resp.json()["tags"]
+
+    # 9. Test Agent query endpoint POST /api/cli/agent/query
+    agent_resp = client.post(
+        "/api/cli/agent/query",
+        headers={"X-API-Key": api_key},
+        data={"query": "CLI"}
+    )
+    assert agent_resp.status_code == 200
+    assert agent_resp.json()["status"] == "success"
+    assert "Wiki entry" in agent_resp.json()["reply"]
+    assert any(r["url"] == "https://example.com/cli-import" for r in agent_resp.json()["references"])
+
+    # 10. Clean up keys and clients via admin endpoints
+    key_del_resp = client.post(
+        "/admin/cli/keys/delete",
+        data={"key": api_key},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert key_del_resp.status_code == 303
+    assert db["cli_api_keys"].count_where("key = ?", [api_key]) == 0
+
+    client_del_resp = client.post(
+        "/admin/cli/clients/delete",
+        data={"computer_name": "Test-Client-Host"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert client_del_resp.status_code == 303
+    assert db["registered_clients"].count_where("computer_name = ?", ["Test-Client-Host"]) == 0
+
+
+def test_links_management_and_tracking(client: TestClient) -> None:
+    """Tests the new links tracking endpoints: creation, redirects, deletion, and HTML bookmarks parsing."""
+    db = get_db(server_config)
+
+    # 1. Access GET /links publicly
+    resp = client.get("/links")
+    assert resp.status_code == 200
+    assert "Directory" in resp.text
+
+    # 2. Try to add link without logging in (should redirect to login)
+    add_resp = client.post(
+        "/links/add",
+        data={"url": "https://example.com/test-ref", "title": "Test Ref", "description": "Quick reference link"},
+        follow_redirects=False
+    )
+    assert add_resp.status_code == 303
+    assert "login" in add_resp.headers.get("Location", "")
+
+    # 3. Log in to get session cookie
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    assert session_cookie is not None
+
+    # 4. Add link with session cookie
+    add_resp = client.post(
+        "/links/add",
+        data={"url": "https://example.com/test-ref", "title": "Test Ref", "description": "Quick reference link"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert add_resp.status_code == 303
+    assert add_resp.headers.get("Location") == "/links"
+
+    # Verify link created in DB
+    links = list(db["links"].rows)
+    assert len(links) == 1
+    assert links[0]["url"] == "https://example.com/test-ref"
+    assert links[0]["title"] == "Test Ref"
+    assert links[0]["click_count"] == 0
+    link_id = links[0]["id"]
+
+    # 5. Access redirect tracking GET /links/go
+    go_resp = client.get(f"/links/go?id={link_id}", follow_redirects=False)
+    assert go_resp.status_code == 303
+    assert go_resp.headers.get("Location") == "https://example.com/test-ref"
+
+    # Check updated click count
+    row = db["links"].get(link_id)
+    assert row["click_count"] == 1
+    assert row["last_clicked_at"] != ""
+
+    # 6. Test Bookmarks HTML upload import
+    mock_bookmarks_html = """<!DOCTYPE NETSCAPE-Bookmark-file-1>
+    <META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+    <TITLE>Bookmarks</TITLE>
+    <H1>Bookmarks</H1>
+    <DL><p>
+        <DT><A HREF="https://example.com/imported-link-1">Imported Link 1</A>
+        <DT><A HREF="https://example.com/imported-link-2">Imported Link 2</A>
+    </DL><p>
+    """
+    
+    import_resp = client.post(
+        "/links/import-bookmarks",
+        files={"file": ("bookmarks.html", mock_bookmarks_html, "text/html")},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert import_resp.status_code == 303
+    assert import_resp.headers.get("Location") == "/links"
+
+    # Verify imported links in database
+    imported_rows = list(db["links"].rows_where("description = 'Imported from Bookmarks'"))
+    assert len(imported_rows) == 2
+    assert any(r["url"] == "https://example.com/imported-link-1" for r in imported_rows)
+    assert any(r["url"] == "https://example.com/imported-link-2" for r in imported_rows)
+
+    # 7. Delete a link
+    del_resp = client.post(
+        "/links/delete",
+        data={"id": link_id},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert del_resp.status_code == 303
+    
+    # Verify link deleted
+    assert db["links"].count_where("id = ?", [link_id]) == 0
+
+
 
 
 

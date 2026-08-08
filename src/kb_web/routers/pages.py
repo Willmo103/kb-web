@@ -4,7 +4,7 @@ FastAPI Router for displaying pages index and detail wiki profile views in kb-we
 
 import json
 from typing import Optional
-from urllib.parse import unquote_plus, urlparse
+from urllib.parse import unquote_plus, urlparse, urljoin
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
@@ -245,11 +245,41 @@ def view_saved_page(
             pass
 
     video_metadata = None
-    if "youtube_videos" in db.table_names():
-        try:
-            video_metadata = db["youtube_videos"].get(decoded_url)
-        except Exception:
-            pass
+    is_offline = False
+    local_video_url = None
+    video_id = extract_youtube_video_id(decoded_url)
+    if video_id:
+        import os
+        from pathlib import Path
+        db_path = None
+        if "youtube_videos" in db.table_names():
+            try:
+                video_metadata = db["youtube_videos"].get(decoded_url)
+                if video_metadata:
+                    db_path = video_metadata.get("local_path")
+            except Exception:
+                pass
+        
+        media_dir = config.configs_dir.parent / "media" / "videos"
+        default_local_path = media_dir / f"{video_id}.mp4"
+        has_file = False
+        filename = None
+        
+        if db_path and os.path.exists(db_path):
+            has_file = True
+            filename = os.path.basename(db_path)
+        elif default_local_path.exists():
+            has_file = True
+            filename = f"{video_id}.mp4"
+        elif media_dir.exists():
+            matching = list(media_dir.glob(f"*{video_id}*"))
+            if matching:
+                has_file = True
+                filename = matching[0].name
+            
+        if has_file and filename:
+            is_offline = True
+            local_video_url = f"/media/videos/{filename}"
 
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))
@@ -320,7 +350,153 @@ def view_saved_page(
             video_id=video_id,
             video_metadata=video_metadata,
             collections=collections_list,
-            assigned_collection_ids=assigned_collection_ids,
+            is_offline=is_offline,
+            local_video_url=local_video_url,
             assigned_collections=assigned_collections,
+            assigned_collection_ids=assigned_collection_ids,
         )
     )
+
+
+from fastapi import BackgroundTasks, Form, Depends
+from ..base import verify_auth
+import time
+
+def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
+    """
+    Crawls recursively from a base URL up to a given depth, waiting `interval` seconds between fetches.
+    Only crawls URLs that have the same netloc domain as the base URL.
+    """
+    import logging
+    logger = logging.getLogger("kb_web")
+
+    import ollama
+    client = ollama.Client(host=config_obj.ollama_host)
+    
+    from ..utils import ingest_url_sync
+    
+    db_handle = _get_db()
+    
+    # Normalize base netloc domain to ignore www. differences
+    base_netloc = urlparse(base_url).netloc
+    base_domain = base_netloc.lower()
+    if base_domain.startswith("www."):
+        base_domain = base_domain[4:]
+        
+    queue = [(base_url, 0)]
+    visited = set()
+    
+    logger.info(f"[CRAWLER] Starting recursive crawl from: {base_url} (depth={depth}, interval={interval}s, normalized domain={base_domain})")
+    
+    count = 0
+    max_pages = 50  # safeguard
+    
+    while queue and count < max_pages:
+        current_url, current_depth = queue.pop(0)
+        
+        if current_url in visited:
+            continue
+        visited.add(current_url)
+        
+        # Check if already ingested in database
+        already_ingested = False
+        try:
+            db_handle["fetched_pages"].get(current_url)
+            already_ingested = True
+        except Exception:
+            pass
+            
+        logger.info(f"[CRAWLER] Processing target: {current_url} at depth {current_depth}")
+        
+        try:
+            if not already_ingested:
+                ingest_url_sync(db_handle, current_url, config_obj, client)
+                count += 1
+                logger.info(f"[CRAWLER] Ingested successfully: {current_url}")
+                # Sleep between requests to respect crawl interval
+                time.sleep(interval)
+            else:
+                logger.info(f"[CRAWLER] Skipping ingestion: {current_url} (already exists in database)")
+        except Exception as e:
+            logger.error(f"[CRAWLER] Ingestion failure for {current_url}: {str(e)}", exc_info=True)
+            continue
+
+        # Fetch page links to continue crawling if depth is not exceeded
+        if current_depth < depth:
+            try:
+                row = db_handle["fetched_pages"].get(current_url)
+                links_json = row.get("links") or "[]"
+                links = json.loads(links_json)
+                logger.info(f"[CRAWLER] Parsing links for {current_url}. Found {len(links)} links.")
+                for link in links:
+                    if not link or link.startswith("#"):
+                        continue
+                    abs_link = urljoin(current_url, link)
+                    parsed_link = urlparse(abs_link)
+                    
+                    # Normalize child link netloc domain to ignore www. differences
+                    link_domain = parsed_link.netloc.lower()
+                    if link_domain.startswith("www."):
+                        link_domain = link_domain[4:]
+                        
+                    if parsed_link.scheme in ("http", "https") and link_domain == base_domain:
+                        if abs_link not in visited:
+                            queue.append((abs_link, current_depth + 1))
+            except Exception as e:
+                logger.error(f"[CRAWLER] Failed parsing links for {current_url}: {str(e)}", exc_info=True)
+                
+    logger.info(f"[CRAWLER] Recursive crawl finished. Total new pages ingested: {count}")
+
+
+@router.post("/api/crawl/start", dependencies=[Depends(verify_auth)])
+def start_site_crawl(
+    background_tasks: BackgroundTasks,
+    url: str = Form(...),
+    depth: int = Form(3),
+    interval: int = Form(5),
+) -> dict:
+    """Spawns a recursive crawler task in the background."""
+    background_tasks.add_task(
+        run_recursive_crawl,
+        url,
+        depth,
+        interval,
+        config
+    )
+    return {"status": "success", "message": f"Crawler started in background for: {url}"}
+
+
+from ..utils import download_youtube_video
+
+def background_video_downloader(video_id: str, url: str, config_obj):
+    try:
+        db_handle = _get_db()
+        local_path = download_youtube_video(video_id, config_obj)
+        # Update youtube_videos table with the local path
+        db_handle["youtube_videos"].update(
+            {"url": url, "local_path": local_path},
+            pk="url"
+        )
+        db_handle.conn.commit()
+        print(f"[DOWNLOAD] Video {video_id} successfully saved offline at {local_path}")
+    except Exception as e:
+        print(f"[DOWNLOAD] Error downloading video {video_id}: {e}")
+
+
+@router.post("/api/youtube/download", dependencies=[Depends(verify_auth)])
+def start_video_download(
+    background_tasks: BackgroundTasks,
+    url: str = Form(...),
+) -> dict:
+    """Spawns a background task to download a YouTube video offline."""
+    video_id = extract_youtube_video_id(url)
+    if not video_id:
+        return {"status": "error", "message": "Invalid YouTube URL or video ID."}
+        
+    background_tasks.add_task(
+        background_video_downloader,
+        video_id,
+        url,
+        config
+    )
+    return {"status": "success", "message": f"Downloading video {video_id} in background."}

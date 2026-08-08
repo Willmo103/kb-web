@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.29] - 2026-08-07
+### Added
+- Implemented regular webpage links saving and cataloging dashboard (`/links`).
+- Added click usage and redirection tracking (`/links/go?id=...`) to increment click count and record last clicked timestamp.
+- Implemented Chromium standard HTML bookmarks file importer to upload and bulk populate saved links directory.
+- Restored the missing `generate_gemma_embeddings_for_page` implementation block.
+
+### Fixed
+- Fixed Ollama reasoning `think` parameter compatibility crashes with older Ollama servers by only passing the argument conditionally when enabled.
+- Propagated exceptions in `extract_wiki_content` and `extract_tags_content` so that ingestion failures show actual errors instead of silently creating broken `"Ingestion Backup"` pages.
+- Broken circular dependency import inside `cli_api.py` by importing the Jinja2 environment from `..base`.
+
+## [0.1.28] - 2026-08-05
+### Added
+- Implemented standalone CLI package `kb-web-cli` as a nested git submodule containing `kb-cli` console command executable wrapper.
+- Added server-side CLI API router endpoints (`/api/cli`) exposing client registration, synchronous ingestion, tag/collection updates, and context-aware RAG agent query tasks.
+- Integrated dashboard CLI Integration configuration card panel, displaying generated API keys, registered computer terminal clients, and administrative revoke action forms.
+- Added comprehensive unit test suite `test_cli_client_server_integration` verifying full REST/CLI flow.
+
+## [0.1.27] - 2026-08-04
+### Added
+- Implemented descriptive YouTube video filenames formatting as `[Creator] - Title [VideoId].mp4` upon local offline downloads.
+- Added a directory-scan matching fallback to dynamically check `media/videos/` for any filenames matching `*{video_id}*`, preventing breakage from stale database paths.
+- Added comprehensive mock unit test `test_descriptive_video_download_and_resolution` to assert filename pattern and dynamic resolution.
+
+### Fixed
+- Fixed directory glob lookup character-range patterns parsing bug for filenames containing square brackets `[` `]` by utilizing direct filesystem iterators.
+
+## [0.1.26] - 2026-08-04
+### Added
+- Migrated all configuration settings (Ollama, Gotify, Qdrant details) to the database with dynamic, thread-safe sync.
+- Implemented system prompt versioning and curation in the database (via table `agent_prompts`), displaying full history dropdowns and providing "Use This Version" rollback buttons in the Admin Dashboard.
+- Added a quick "Assign Item" collections sidebar form on the Collections dashboard.
+- Appended robust unit tests verifying video offline badge states, DB config migrations, prompt rollback operations, and log limits persistence.
+
+### Fixed
+- Fixed YouTube videos missing the collections badge, collection form dropdowns, and "Change Collections" action details by correctly passing collection template variables.
+- Fixed collections created via `/import` screen being created as private by default, updating them to public to match standard collections dashboards.
+- Fixed collections created via `/import` screen setting incorrect `source_type` ("articles") for video URLs, dynamically resolving it to "videos".
+- Fixed offline video player detection logic to check both the DB-recorded path and the default location in the media directory for offline files.
+- Fixed server log display to sort in reverse chronological order (most recent first) across log rendering and downloads.
+- Implemented persistent line limit preferences on server logs using request cookies, defaulting limit options to 100.
+
+## [0.1.25] - 2026-08-01
+### Fixed
+- Fixed YouTube transcript wiki generation hangs by disabling reasoning latency (`think=False`) for intermediate chunk summaries.
+- Fixed FastAPI event loop blocking hangs by wrapping synchronous ingestion steps (`fetch_url`, `extract_wiki_content`, etc.) in a threadpool utilizing `run_in_threadpool`.
+- Fixed background tasks thread-safety by opening a new connection handle via `_get_db()` within worker functions instead of sharing the request's database connection.
+- Optimized tag extraction and collection suggestions by setting `think=False` to prevent unnecessary reasoning delays.
+### Removed
+- Excised the entire cron job scheduler and management subsystem:
+  - Deleted `cron_scheduler.py` and `src/kb_web/routers/cron.py`.
+  - Deleted UI templates `cron_jobs.j2.html` and `view_cron_job.j2.html`.
+  - Removed table initializations for `cron_jobs` and `cron_job_runs` in `src/kb_web/db.py` and added a startup routine to drop these tables if they exist.
+  - Excised all references in `server.py` and `graph.py`.
+
 ## [0.1.24] - 2026-07-25
 ### Added
 - Condensed all history, architecture, and agent instructions into package-level `GEMINI.md`.

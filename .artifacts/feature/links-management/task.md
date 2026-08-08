@@ -1,0 +1,7 @@
+- `[x]` Update database schema in db.py for the new `links` table
+- `[x]` Fix CLI router circular import and Ollama think parameter issues in cli_api.py and utils.py
+- `[x]` Implement new links.py router (GET /links, GET /links/go, POST /links/add, POST /links/delete, POST /links/import-bookmarks)
+- `[x]` Create links.j2.html templates for links administration dashboard
+- `[x]` Mount links router in server.py and add navigation link in base.j2.html
+- `[x]` Implement unit tests in tests/test_server.py
+- `[x]` Run build verification & pre-commit checking
