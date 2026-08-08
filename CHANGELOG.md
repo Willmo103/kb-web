@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.29] - 2026-08-07
+### Added
+- Implemented regular webpage links saving and cataloging dashboard (`/links`).
+- Added click usage and redirection tracking (`/links/go?id=...`) to increment click count and record last clicked timestamp.
+- Implemented Chromium standard HTML bookmarks file importer to upload and bulk populate saved links directory.
+- Restored the missing `generate_gemma_embeddings_for_page` implementation block.
+
+### Fixed
+- Fixed Ollama reasoning `think` parameter compatibility crashes with older Ollama servers by only passing the argument conditionally when enabled.
+- Propagated exceptions in `extract_wiki_content` and `extract_tags_content` so that ingestion failures show actual errors instead of silently creating broken `"Ingestion Backup"` pages.
+- Broken circular dependency import inside `cli_api.py` by importing the Jinja2 environment from `..base`.
+
 ## [0.1.28] - 2026-08-05
 ### Added
 - Implemented standalone CLI package `kb-web-cli` as a nested git submodule containing `kb-cli` console command executable wrapper.

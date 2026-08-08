@@ -618,6 +618,27 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
         except Exception as e:
             print(f"Error creating registered_clients table: {e}")
 
+    # Initialize links table
+    if "links" not in db.table_names():
+        try:
+            db["links"].create(
+                {
+                    "id": int,
+                    "url": str,
+                    "title": str,
+                    "description": str,
+                    "click_count": int,
+                    "created_at": str,
+                    "last_clicked_at": str,
+                },
+                pk="id"
+            )
+            db["links"].create_index(["url"], unique=True)
+            db.conn.commit()
+            print("Initialized database table: links")
+        except Exception as e:
+            print(f"Error creating links table: {e}")
+
 
 
 def get_general_collection_id(db: sqlite_utils.Database) -> int:
