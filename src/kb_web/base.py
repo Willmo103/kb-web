@@ -128,7 +128,7 @@ class LoggedOllamaClient:
     """A wrapper for ollama.Client that logs call details, duration, and responses/errors
     to the SQLite database table `ollama_logs` and enforces a connection timeout.
     """
-    def __init__(self, host: str, timeout: float = 90.0) -> None:
+    def __init__(self, host: str, timeout: float = 300.0) -> None:
         self._client = ollama.Client(host=host, timeout=timeout)
         self.host = host
 

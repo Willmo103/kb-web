@@ -3,7 +3,7 @@
 {% block title %}Server Maintenance Admin{% endblock %}
 
 {% block content %}
-<div class="container mx-auto px-4 max-w-4xl">
+<div class="container mx-auto px-4 max-w-[95%] w-full">
 
     {% if completion_message %}
     <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-lg text-sm mb-6 shadow-sm">
@@ -255,7 +255,12 @@
                             <div class="flex justify-between items-center bg-white border border-gray-200 rounded p-2 text-xs shadow-sm">
                                 <div>
                                     <div class="font-semibold text-gray-850">{{ k.name }}</div>
-                                    <div class="font-mono text-gray-405 text-[10px]">{{ k.key[:8] }}...{{ k.key[-8:] }}</div>
+                                    <div class="font-mono text-gray-405 text-[10px] flex items-center gap-1.5 mt-0.5">
+                                        <span>{{ k.key[:8] }}...{{ k.key[-8:] }}</span>
+                                        <button type="button" onclick="copyToClipboard('{{ k.key }}', this)" class="text-indigo-600 hover:text-indigo-800 font-bold hover:underline transition text-[10px]" title="Copy full API Key to clipboard">
+                                            📋 Copy
+                                        </button>
+                                    </div>
                                 </div>
                                 <form action="/admin/cli/keys/delete" method="post" onsubmit="return confirm('Are you sure you want to revoke this key?');">
                                     <input type="hidden" name="key" value="{{ k.key }}" />
@@ -461,6 +466,45 @@
         document.getElementById('head_prompt_id').value = id;
         document.getElementById('head_prompt_type').value = type;
         document.getElementById('setPromptHeadForm').submit();
+    }
+
+    function copyToClipboard(text, btnEl) {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(function() {
+                showCopySuccess(btnEl);
+            }).catch(function(err) {
+                fallbackCopyText(text, btnEl);
+            });
+        } else {
+            fallbackCopyText(text, btnEl);
+        }
+    }
+
+    function showCopySuccess(btnEl) {
+        const originalText = btnEl.innerHTML;
+        btnEl.innerHTML = "✅ Copied!";
+        btnEl.classList.add("text-emerald-600");
+        setTimeout(function() {
+            btnEl.innerHTML = originalText;
+            btnEl.classList.remove("text-emerald-600");
+        }, 2000);
+    }
+
+    function fallbackCopyText(text, btnEl) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            showCopySuccess(btnEl);
+        } catch (err) {
+            alert("Failed to copy API key to clipboard.");
+        }
+        document.body.removeChild(textArea);
     }
 </script>
 {% endblock %}
