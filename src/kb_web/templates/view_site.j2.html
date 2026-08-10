@@ -7,20 +7,20 @@
 {% endblock %}
 
 {% block content %}
-<div class="container mx-auto px-4 max-w-7xl pb-8">
+<div class="container mx-auto px-4 max-w-[95%] w-full pb-8">
 
     {% if msg %}
-    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-lg text-sm mb-6 shadow-sm max-w-6xl mx-auto">
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-lg text-sm mb-6 shadow-sm w-full mx-auto">
         {{ msg }}
     </div>
     {% endif %}
     {% if error %}
-    <div class="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-sm mb-6 shadow-sm max-w-6xl mx-auto">
+    <div class="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-sm mb-6 shadow-sm w-full mx-auto">
         {{ error }}
     </div>
     {% endif %}
 
-    <div class="flex flex-col lg:flex-row gap-6 max-w-6xl mx-auto">
+    <div class="flex flex-col lg:flex-row gap-6 w-full mx-auto">
         
         <!-- Left Sidebar (All Sites Directory) -->
         <aside class="w-full lg:w-64 flex-shrink-0 lg:sticky lg:top-4 h-fit">

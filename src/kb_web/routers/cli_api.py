@@ -523,3 +523,21 @@ def query_agent(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ollama query failed: {str(e)}")
+
+
+@router.get("/logs")
+def get_cli_logs(
+    limit: int = 100,
+    api_key: str = Depends(verify_cli_api_key)
+):
+    db = _get_db()
+    if "system_logs" not in db.table_names():
+        return []
+    try:
+        rows = list(db.execute_returning_dicts(
+            "SELECT * FROM system_logs ORDER BY rowid DESC LIMIT ?", [limit]
+        ))
+        return rows
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error reading logs: {str(e)}")
+

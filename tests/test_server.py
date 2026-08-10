@@ -2175,6 +2175,15 @@ def test_cli_client_server_integration(client: TestClient, monkeypatch) -> None:
     assert "Wiki entry" in agent_resp.json()["reply"]
     assert any(r["url"] == "https://example.com/cli-import" for r in agent_resp.json()["references"])
 
+    # 9.5 Test CLI Logs endpoint GET /api/cli/logs
+    logs_cli_resp = client.get(
+        "/api/cli/logs",
+        headers={"X-API-Key": api_key},
+        params={"limit": 10}
+    )
+    assert logs_cli_resp.status_code == 200
+    assert isinstance(logs_cli_resp.json(), list)
+
     # 10. Clean up keys and clients via admin endpoints
     key_del_resp = client.post(
         "/admin/cli/keys/delete",
