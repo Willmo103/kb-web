@@ -157,7 +157,7 @@ app.mount("/media", StaticFiles(directory=str(media_dir)), name="media")
 
 
 # Import and register routers
-from .routers import auth, pages, sites, admin, api, collections, graph, cli_api  # noqa: E402
+from .routers import auth, pages, sites, admin, api, collections, graph, cli_api, links  # noqa: E402
 
 app.include_router(auth.router)
 app.include_router(pages.router)
@@ -167,6 +167,7 @@ app.include_router(api.router)
 app.include_router(collections.router)
 app.include_router(graph.router)
 app.include_router(cli_api.router)
+app.include_router(links.router)
 
 
 # --- Re-export utility functions for backward test compatibility ---

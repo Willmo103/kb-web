@@ -2204,6 +2204,101 @@ def test_cli_client_server_integration(client: TestClient, monkeypatch) -> None:
     assert db["registered_clients"].count_where("computer_name = ?", ["Test-Client-Host"]) == 0
 
 
+def test_links_management_and_tracking(client: TestClient) -> None:
+    """Tests the new links tracking endpoints: creation, redirects, deletion, and HTML bookmarks parsing."""
+    db = get_db(server_config)
+
+    # 1. Access GET /links publicly
+    resp = client.get("/links")
+    assert resp.status_code == 200
+    assert "Directory" in resp.text
+
+    # 2. Try to add link without logging in (should redirect to login)
+    add_resp = client.post(
+        "/links/add",
+        data={"url": "https://example.com/test-ref", "title": "Test Ref", "description": "Quick reference link"},
+        follow_redirects=False
+    )
+    assert add_resp.status_code == 303
+    assert "login" in add_resp.headers.get("Location", "")
+
+    # 3. Log in to get session cookie
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    assert session_cookie is not None
+
+    # 4. Add link with session cookie
+    add_resp = client.post(
+        "/links/add",
+        data={"url": "https://example.com/test-ref", "title": "Test Ref", "description": "Quick reference link"},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert add_resp.status_code == 303
+    assert add_resp.headers.get("Location") == "/links"
+
+    # Verify link created in DB
+    links = list(db["links"].rows)
+    assert len(links) == 1
+    assert links[0]["url"] == "https://example.com/test-ref"
+    assert links[0]["title"] == "Test Ref"
+    assert links[0]["click_count"] == 0
+    link_id = links[0]["id"]
+
+    # 5. Access redirect tracking GET /links/go
+    go_resp = client.get(f"/links/go?id={link_id}", follow_redirects=False)
+    assert go_resp.status_code == 303
+    assert go_resp.headers.get("Location") == "https://example.com/test-ref"
+
+    # Check updated click count
+    row = db["links"].get(link_id)
+    assert row["click_count"] == 1
+    assert row["last_clicked_at"] != ""
+
+    # 6. Test Bookmarks HTML upload import
+    mock_bookmarks_html = """<!DOCTYPE NETSCAPE-Bookmark-file-1>
+    <META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
+    <TITLE>Bookmarks</TITLE>
+    <H1>Bookmarks</H1>
+    <DL><p>
+        <DT><A HREF="https://example.com/imported-link-1">Imported Link 1</A>
+        <DT><A HREF="https://example.com/imported-link-2">Imported Link 2</A>
+    </DL><p>
+    """
+    
+    import_resp = client.post(
+        "/links/import-bookmarks",
+        files={"file": ("bookmarks.html", mock_bookmarks_html, "text/html")},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert import_resp.status_code == 303
+    assert import_resp.headers.get("Location") == "/links"
+
+    # Verify imported links in database
+    imported_rows = list(db["links"].rows_where("description = 'Imported from Bookmarks'"))
+    assert len(imported_rows) == 2
+    assert any(r["url"] == "https://example.com/imported-link-1" for r in imported_rows)
+    assert any(r["url"] == "https://example.com/imported-link-2" for r in imported_rows)
+
+    # 7. Delete a link
+    del_resp = client.post(
+        "/links/delete",
+        data={"id": link_id},
+        cookies={"kb_session": session_cookie},
+        follow_redirects=False
+    )
+    assert del_resp.status_code == 303
+    
+    # Verify link deleted
+    assert db["links"].count_where("id = ?", [link_id]) == 0
+
+
+
 
 
 

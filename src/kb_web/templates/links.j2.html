@@ -1,0 +1,131 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Links Tracker | Knowledge Base Engine{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 pb-12">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">🔗 Saved Links Directory</h1>
+            <p class="text-sm text-gray-500 mt-1">Track usage and catalog frequently visited external sites without ingesting them.</p>
+        </div>
+    </div>
+
+    <!-- Admin Panel (Forms to Add and Import) -->
+    {% if is_admin %}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <!-- Add Link Form -->
+        <div class="md:col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition hover:shadow-md">
+            <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <span>➕</span> Add Quick Link
+            </h2>
+            <form action="/links/add" method="POST" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Destination URL</label>
+                    <input type="url" name="url" placeholder="https://example.com/some-resource" required
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50">
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Title (Optional)</label>
+                        <input type="text" name="title" placeholder="My Regular Reference"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Description (Optional)</label>
+                        <input type="text" name="description" placeholder="A short memo about this site"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-gray-50">
+                    </div>
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm py-2.5 px-4 rounded-lg shadow-sm transition transform hover:-translate-y-0.5">
+                    Save External Link
+                </button>
+            </form>
+        </div>
+
+        <!-- Import Bookmarks Form -->
+        <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition hover:shadow-md flex flex-col justify-between">
+            <div>
+                <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <span>📤</span> Chromium Import
+                </h2>
+                <p class="text-xs text-gray-500 mb-4">Upload a standard Netscape HTML bookmarks file exported from Chrome, Brave, or Edge.</p>
+            </div>
+            <form action="/links/import-bookmarks" method="POST" enctype="multipart/form-data" class="space-y-4">
+                <div class="border-2 border-dashed border-gray-200 rounded-lg p-4 text-center cursor-pointer hover:border-indigo-400 transition relative">
+                    <input type="file" name="file" accept=".html" required
+                           class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                           onchange="document.getElementById('file-chosen').innerText = this.files[0].name">
+                    <span class="text-xs font-medium text-indigo-600 block" id="file-chosen">📁 Select bookmarks.html</span>
+                </div>
+                <button type="submit" class="w-full bg-gray-800 hover:bg-gray-900 text-white font-bold text-sm py-2.5 px-4 rounded-lg shadow-sm transition transform hover:-translate-y-0.5">
+                    Import Bookmarks Bar
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Directory List -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-gray-100 flex justify-between items-center">
+            <h2 class="text-lg font-bold text-gray-800">Directoy Directory ({{ links|length }} saved)</h2>
+        </div>
+        
+        {% if links %}
+        <div class="divide-y divide-gray-150">
+            {% for link in links %}
+            <div class="p-6 hover:bg-gray-50 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div class="space-y-1.5 max-w-2xl">
+                    <div class="flex items-center gap-2.5 flex-wrap">
+                        <a href="/links/go?id={{ link.id }}" target="_blank" 
+                           class="text-indigo-660 hover:text-indigo-800 font-bold text-md flex items-center gap-1 hover:underline">
+                            {{ link.title }} <span class="text-xs text-gray-400">↗️</span>
+                        </a>
+                        <span class="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                            🔥 {{ link.click_count }} click{% if link.click_count != 1 %}s{% endif %}
+                        </span>
+                    </div>
+                    {% if link.description %}
+                    <p class="text-xs text-gray-600 font-medium">{{ link.description }}</p>
+                    {% endif %}
+                    <div class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider flex items-center gap-3">
+                        <span>Created: {{ link.created_at[:10] }}</span>
+                        {% if link.last_clicked_at %}
+                        <span>•</span>
+                        <span class="text-indigo-500">Last Clicked: {{ link.last_clicked_at[:10] }} at {{ link.last_clicked_at[11:16] }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="flex items-center gap-3 self-end sm:self-center">
+                    <a href="/links/go?id={{ link.id }}" target="_blank" 
+                       class="bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-1.5 px-3 rounded-lg shadow-sm transition">
+                        🔗 Open Link
+                    </a>
+                    {% if is_admin %}
+                    <form action="/links/delete" method="POST" onsubmit="return confirm('Delete this link reference?');" class="inline">
+                        <input type="hidden" name="id" value="{{ link.id }}">
+                        <button type="submit" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-xs font-bold py-1.5 px-3 rounded-lg shadow-sm transition">
+                            🗑️ Delete
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="p-12 text-center text-gray-500">
+            <span class="text-4xl block mb-3">📭</span>
+            <p class="text-sm font-medium">No external link reference tracking records created yet.</p>
+            {% if is_admin %}
+            <p class="text-xs text-gray-400 mt-1">Use the panel above to add references or import bookmark lists.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

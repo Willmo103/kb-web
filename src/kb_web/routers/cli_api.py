@@ -174,7 +174,7 @@ def cli_import_url(
         
         try:
             view_url = f"/view/page?url={page_data.safe_url}"
-            from ..server import _jinja_env
+            from ..base import _jinja_env
             post_to_gotify(config, _jinja_env, page_data, view_url)
         except Exception:
             pass

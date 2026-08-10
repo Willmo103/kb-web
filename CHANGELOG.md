@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.29] - 2026-08-10
+## [0.1.30] - 2026-08-10
 ### Added
 - Implemented `kb-cli logs` command in CLI tool allowing remote inspection of server system logs with `--limit` parameter persistence.
 - Added `GET /api/cli/logs` endpoint in CLI API router returning database system logs (ordered by most recent first).
@@ -14,6 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Converted layout containers across all web templates (`admin`, `collection_editor`, `collections`, `logs`, `pages_list`, `similarity_graph`, `sites_list`, `view_collection`, `view_page`, `view_site`, `base`) from static max-widths (`max-w-4xl`, `max-w-5xl`, `max-w-6xl`, `max-w-7xl`) to reactive full-width `max-w-[95%] w-full` layout containers.
 - Increased default Ollama client connection timeout from 90s to 300s in `src/kb_web/base.py` and CLI HTTP client timeouts to 300s in `kb-web-cli/src/kb_web_cli/main.py` to prevent timeout errors during Ollama cold-starts and heavy model reasoning calls.
+
+## [0.1.29] - 2026-08-07
+### Added
+- Implemented regular webpage links saving and cataloging dashboard (`/links`).
+- Added click usage and redirection tracking (`/links/go?id=...`) to increment click count and record last clicked timestamp.
+- Implemented Chromium standard HTML bookmarks file importer to upload and bulk populate saved links directory.
+- Restored the missing `generate_gemma_embeddings_for_page` implementation block.
+
+### Fixed
+- Fixed Ollama reasoning `think` parameter compatibility crashes with older Ollama servers by only passing the argument conditionally when enabled.
+- Propagated exceptions in `extract_wiki_content` and `extract_tags_content` so that ingestion failures show actual errors instead of silently creating broken `"Ingestion Backup"` pages.
+- Broken circular dependency import inside `cli_api.py` by importing the Jinja2 environment from `..base`.
 
 ## [0.1.28] - 2026-08-05
 ### Added
