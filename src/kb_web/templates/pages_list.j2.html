@@ -133,38 +133,38 @@
                     {% if pages %}
                     <div>
                         <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 border-b pb-2">📝 Articles matching tag ({{ pages | length }})</h2>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                             {% for page in pages %}
-                            <div class="relative bg-white border border-gray-200 rounded-xl p-4 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm min-h-48">
+                            <div class="relative bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm min-h-52">
                                 <a href="/view/page?url={{ page.safe_url }}" class="absolute inset-0 z-0"></a>
                                 <div>
                                     <div class="flex items-center justify-between gap-1 mb-2">
-                                        <span class="px-2 py-0.5 bg-gray-100 text-gray-700 text-[11px] font-mono rounded border border-gray-200 truncate max-w-[130px]">
+                                        <span class="px-2 py-0.5 bg-gray-100 text-gray-700 text-[11px] font-mono rounded border border-gray-200 truncate max-w-[140px]">
                                             {{ page.parsed_url.hostname or "Source" }}
                                         </span>
                                         <span class="text-[10px] text-gray-400 font-medium whitespace-nowrap">{{ page.fetched_at[:10] }}</span>
                                     </div>
-                                    <div class="mb-2">
+                                    <h2 class="text-base sm:text-lg font-extrabold text-gray-900 leading-tight line-clamp-3 mb-2">
+                                        <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600 relative z-10">
+                                            {{ page.title or page.url }}
+                                        </a>
+                                    </h2>
+                                    <div class="mb-2 flex items-center gap-1.5 flex-wrap">
                                         {% if page.collection_title %}
-                                        <span class="px-2 py-0.5 bg-indigo-50 text-indigo-800 text-[10px] font-bold rounded border border-indigo-200 animate-fade-in inline-block">
+                                        <span class="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-semibold rounded border border-indigo-100 animate-fade-in inline-block">
                                             📁 {{ page.collection_title }}
                                         </span>
                                         {% else %}
-                                        <span class="px-2 py-0.5 bg-gray-50 text-gray-400 text-[10px] font-medium rounded border border-gray-200 italic inline-block">
+                                        <span class="px-1.5 py-0.5 bg-gray-50 text-gray-400 text-[10px] font-medium rounded border border-gray-200 italic inline-block">
                                             None
                                         </span>
                                         {% if is_admin %}
-                                        <a href="/view/page?url={{ page.safe_url }}" class="text-indigo-600 hover:text-indigo-800 text-[10px] font-bold hover:underline ml-1 relative z-10">
+                                        <a href="/view/page?url={{ page.safe_url }}" class="text-indigo-600 hover:text-indigo-800 text-[10px] font-bold hover:underline relative z-10">
                                             + Add
                                         </a>
                                         {% endif %}
                                         {% endif %}
                                     </div>
-                                    <h2 class="text-sm font-bold text-gray-900 leading-snug line-clamp-3">
-                                        <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600 relative z-10">
-                                            {{ page.title or page.url }}
-                                        </a>
-                                    </h2>
                                     {% if page.title and page.title != page.url %}
                                     <p class="text-[11px] text-gray-400 truncate mt-1">
                                         <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600 relative z-10">{{ page.url }}</a>
@@ -172,7 +172,7 @@
                                     {% endif %}
                                 </div>
                                 {% if page.tags %}
-                                <div class="flex flex-wrap gap-1 mt-3 pt-2 border-t border-gray-100">
+                                <div class="flex flex-wrap gap-1 mt-3 pt-2.5 border-t border-gray-100">
                                     {% for tag in page.tags[:4] %}
                                     <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-[10px] font-semibold rounded-full border border-indigo-100 transition relative z-10">
                                         {{ tag }}
@@ -360,38 +360,38 @@
                     <p class="text-gray-500 text-sm">No wiki articles inside system. Submit items to populate table context indices.</p>
                 </div>
                 {% else %}
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                     {% for page in pages %}
-                    <div class="relative bg-white border border-gray-200 rounded-xl p-4 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm min-h-48">
+                    <div class="relative bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm min-h-52">
                         <a href="/view/page?url={{ page.safe_url }}" class="absolute inset-0 z-0"></a>
                         <div>
                             <div class="flex items-center justify-between gap-1 mb-2">
-                                <span class="px-2 py-0.5 bg-gray-100 text-gray-700 text-[11px] font-mono rounded border border-gray-200 truncate max-w-[130px]">
+                                <span class="px-2 py-0.5 bg-gray-100 text-gray-700 text-[11px] font-mono rounded border border-gray-200 truncate max-w-[140px]">
                                     {{ page.parsed_url.hostname or "Source" }}
                                 </span>
                                 <span class="text-[10px] text-gray-400 font-medium whitespace-nowrap">{{ page.fetched_at[:10] }}</span>
                             </div>
-                            <div class="mb-2">
+                            <h2 class="text-base sm:text-lg font-extrabold text-gray-900 leading-tight line-clamp-3 mb-2">
+                                <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600 relative z-10">
+                                    {{ page.title or page.url }}
+                                </a>
+                            </h2>
+                            <div class="mb-2 flex items-center gap-1.5 flex-wrap">
                                 {% if page.collection_title %}
-                                <span class="px-2 py-0.5 bg-indigo-50 text-indigo-800 text-[10px] font-bold rounded border border-indigo-200 animate-fade-in inline-block">
+                                <span class="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-semibold rounded border border-indigo-100 animate-fade-in inline-block">
                                     📁 {{ page.collection_title }}
                                 </span>
                                 {% else %}
-                                <span class="px-2 py-0.5 bg-gray-50 text-gray-400 text-[10px] font-medium rounded border border-gray-200 italic inline-block">
+                                <span class="px-1.5 py-0.5 bg-gray-50 text-gray-400 text-[10px] font-medium rounded border border-gray-200 italic inline-block">
                                     None
                                 </span>
                                 {% if is_admin %}
-                                <a href="/view/page?url={{ page.safe_url }}" class="text-indigo-600 hover:text-indigo-800 text-[10px] font-bold hover:underline ml-1 relative z-10">
+                                <a href="/view/page?url={{ page.safe_url }}" class="text-indigo-600 hover:text-indigo-800 text-[10px] font-bold hover:underline relative z-10">
                                     + Add
                                 </a>
                                 {% endif %}
                                 {% endif %}
                             </div>
-                            <h2 class="text-sm font-bold text-gray-900 leading-snug line-clamp-3">
-                                <a href="/view/page?url={{ page.safe_url }}" class="hover:text-indigo-600 relative z-10">
-                                    {{ page.title or page.url }}
-                                </a>
-                            </h2>
                             {% if page.title and page.title != page.url %}
                             <p class="text-[11px] text-gray-400 truncate mt-1">
                                 <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600 relative z-10">{{ page.url }}</a>
@@ -399,7 +399,7 @@
                             {% endif %}
                         </div>
                         {% if page.tags %}
-                        <div class="flex flex-wrap gap-1 mt-3 pt-2 border-t border-gray-100">
+                        <div class="flex flex-wrap gap-1 mt-3 pt-2.5 border-t border-gray-100">
                             {% for tag in page.tags[:4] %}
                             <a href="/?tag={{ tag | urlencode }}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-[10px] font-semibold rounded-full border border-indigo-100 transition relative z-10">
                                 {{ tag }}
