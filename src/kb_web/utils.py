@@ -863,6 +863,28 @@ def ingest_url_sync(db, url: str, config=None, client=None) -> dict:
     url = extract_first_url(url)
     page_data = fetch_url(url)
     
+    try:
+        existing_row = db["fetched_pages"].get(url)
+        if existing_row.get("md_content_hash") == page_data.md_content_hash:
+            return {"status": "success", "message": "Content unchanged. Skipping ingestion.", "url": url}
+        else:
+            db["page_versions"].insert({
+                "url": existing_row["url"],
+                "title": existing_row.get("title"),
+                "html_content": existing_row.get("html_content"),
+                "md_content": existing_row.get("md_content"),
+                "links": existing_row.get("links"),
+                "html_content_hash": existing_row.get("html_content_hash"),
+                "md_content_hash": existing_row.get("md_content_hash"),
+                "fetched_at": existing_row.get("fetched_at"),
+                "description": existing_row.get("description"),
+                "keywords": existing_row.get("keywords"),
+                "tags": existing_row.get("tags"),
+            })
+            db.conn.commit()
+    except KeyError:
+        pass
+
     wiki_entry = extract_wiki_content(page_data, config, client)
     page_data.description = wiki_entry
     
@@ -894,7 +916,6 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
     Returns the absolute local path to the downloaded video.
     """
     import yt_dlp
-    from pathlib import Path
     import re
     
     if config_obj is None:

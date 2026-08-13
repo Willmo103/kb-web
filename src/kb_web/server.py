@@ -6,7 +6,6 @@ import os
 import logging
 import traceback
 from contextlib import asynccontextmanager
-from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 

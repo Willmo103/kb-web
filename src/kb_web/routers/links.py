@@ -2,8 +2,6 @@
 FastAPI Router for managing and tracking regular, non-ingested web links.
 """
 
-import json
-import re
 from datetime import datetime
 from typing import Optional
 from bs4 import BeautifulSoup
@@ -11,7 +9,6 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..base import (
-    config,
     _get_db,
     _jinja_env,
     COOKIE_NAME,

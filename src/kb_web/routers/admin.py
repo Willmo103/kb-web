@@ -41,6 +41,7 @@ from ..utils import (
     generate_gemma_embeddings_for_page,
 )
 from ..gotify import post_to_gotify
+from .pages import background_video_downloader
 
 from bs4 import BeautifulSoup  # type: ignore
 
@@ -141,9 +142,11 @@ def handle_incoming_mobile_share(
 @router.post("/import/url", dependencies=[Depends(verify_auth)], response_model=None)
 def handle_url_import(
     request: Request,
+    background_tasks: BackgroundTasks,
     url: str = Form(...),
     collection_id: Optional[str] = Form(None),
     new_collection_title: Optional[str] = Form(None),
+    download_video: Optional[str] = Form(None),
 ) -> StreamingResponse:
     """Processes URL ingestion, downloads content, rewrites with LLM, and logs to database."""
     cleaned_url = extract_first_url(url)
@@ -230,6 +233,87 @@ def handle_url_import(
             yield f"<script>showError({json.dumps(err_msg)});</script>\n"
             logger.error(f"Ingestion fetch failed for: {cleaned_url} - Error: {str(e)}", exc_info=True)
             return
+
+        # Check duplicate
+        existing_rows = list(db["fetched_pages"].rows_where("url = ?", [cleaned_url]))
+        if existing_rows:
+            existing_row = existing_rows[0]
+            if existing_row.get("md_content_hash") == page_data.md_content_hash:
+                yield f"<script>addLog({json.dumps('URL already exists and content is identical. Skipping pipeline...')});</script>\n"
+                
+                target_col_id = None
+                if collection_id == "new_collection" and new_collection_title:
+                    from ..config import DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
+                    col_row = {
+                        "title": new_collection_title,
+                        "visibility": "public",
+                        "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                        "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                        "general_system_context": "{}",
+                        "created_at": datetime.now().isoformat()
+                    }
+                    res = db["collections"].insert(col_row)
+                    db.conn.commit()
+                    target_col_id = res.last_pk
+                    yield f"<script>addLog({json.dumps(f'Created new collection: {new_collection_title}')});</script>\n"
+                elif collection_id:
+                    try:
+                        target_col_id = int(collection_id)
+                    except ValueError:
+                        pass
+                
+                if target_col_id:
+                    existing_items = list(db["collection_items"].rows_where(
+                        "collection_id = ? AND source_id = ?",
+                        [target_col_id, cleaned_url]
+                    ))
+                    if not existing_items:
+                        is_video = bool(extract_youtube_video_id(cleaned_url))
+                        source_type = "videos" if is_video else "articles"
+                        title_val = existing_row.get("title") or ""
+                        db["collection_items"].insert({
+                            "collection_id": target_col_id,
+                            "source_type": source_type,
+                            "source_id": cleaned_url,
+                            "item_note": "",
+                            "taxonomy_path": f"/uncategorized/{title_val[:20].replace(' ', '_')}.md" if title_val else f"/uncategorized/{target_col_id}.md",
+                            "item_order": 0,
+                            "added_at": datetime.now().isoformat()
+                        })
+                        db.conn.commit()
+                        yield f"<script>addLog({json.dumps('Linked item to collection items.')});</script>\n"
+                
+                if download_video == "yes":
+                    video_id = extract_youtube_video_id(cleaned_url)
+                    if video_id:
+                        yield f"<script>addLog({json.dumps('Spawning background task to download YouTube video...')});</script>\n"
+                        background_tasks.add_task(
+                            background_video_downloader,
+                            video_id,
+                            cleaned_url,
+                            config
+                        )
+                
+                base_url = str(request.base_url).rstrip("/")
+                view_url = f"{base_url}/view/page?url={page_data.safe_url}"
+                yield f"<script>updateProgress('Done!', 100); setTimeout(() => {{ window.location.href = '{view_url}'; }}, 1000);</script>\n"
+                return
+            else:
+                yield f"<script>addLog({json.dumps('URL already exists but content has changed. Archiving current version to history...')});</script>\n"
+                db["page_versions"].insert({
+                    "url": existing_row["url"],
+                    "title": existing_row.get("title"),
+                    "html_content": existing_row.get("html_content"),
+                    "md_content": existing_row.get("md_content"),
+                    "links": existing_row.get("links"),
+                    "html_content_hash": existing_row.get("html_content_hash"),
+                    "md_content_hash": existing_row.get("md_content_hash"),
+                    "fetched_at": existing_row.get("fetched_at"),
+                    "description": existing_row.get("description"),
+                    "keywords": existing_row.get("keywords"),
+                    "tags": existing_row.get("tags"),
+                })
+                db.conn.commit()
 
         # Step 2: Rewrite Wiki
         yield f"<script>updateProgress({json.dumps('Running Ollama prompt extraction pipeline...')}, 55);</script>\n"
@@ -359,6 +443,18 @@ def handle_url_import(
             yield f"<script>addLog({json.dumps('Sending Gotify notification...')});</script>\n"
             await run_in_threadpool(post_to_gotify, config, _jinja_env, page_data, view_url)
             
+            # Spawn video download if requested
+            if download_video == "yes":
+                video_id = extract_youtube_video_id(cleaned_url)
+                if video_id:
+                    yield f"<script>addLog({json.dumps('Spawning background task to download YouTube video...')});</script>\n"
+                    background_tasks.add_task(
+                        background_video_downloader,
+                        video_id,
+                        cleaned_url,
+                        config
+                    )
+
             yield f"<script>addLog({json.dumps('Successfully completed all database operations.')});</script>\n"
             yield f"<script>updateProgress('Done!', 100); setTimeout(() => {{ window.location.href = '{view_url}'; }}, 1000);</script>\n"
             logger.info(f"Ingestion fully completed successfully for: {cleaned_url}")

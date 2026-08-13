@@ -14,9 +14,9 @@ def main():
         sys.exit(1)
 
     template_files = list(templates_dir.glob("**/*.html"))
-    print(f"\n=========================================")
-    print(f"  UI TEMPLATE & UAT VERIFIER")
-    print(f"=========================================")
+    print("\n=========================================")
+    print("  UI TEMPLATE & UAT VERIFIER")
+    print("=========================================")
     print(f"Found {len(template_files)} HTML template file(s) in {templates_dir}\n")
 
     warnings = 0
