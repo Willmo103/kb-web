@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.32] - 2026-08-13
+### Added
+- Implemented duplicate URL import verification across UI, CLI, and REST endpoint pipelines, archiving changed pages to `page_versions` and bypassing LLM processing on identical content (resolving Issue #33).
+- Added parallel background video downloading option to the URL import page, complete with dynamic JavaScript detection of YouTube URLs (resolving Issue #34).
+
+### Fixed
+- Resolved `sqlite3.OperationalError: database is locked` errors during test suite execution by fully consuming streaming responses in test client requests and closing database connections immediately after use.
+- Avoided `sqlite_utils.db.NotFoundError` crashes on duplicate checks for new URLs by using `rows_where` queries instead of `get`.
+
 ## [0.1.31] - 2026-08-12
 ### Security
 - Added `Depends(verify_auth)` to the `GET /links` and `GET /links/go` endpoints, securing the saved links views and tracking from unauthorized users (resolving Issue #31).
