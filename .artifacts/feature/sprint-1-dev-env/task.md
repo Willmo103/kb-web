@@ -8,9 +8,9 @@
 - `[x]` Sub-Issue 1: Database Schema Docs & SQLite baseline (Issue #39)
   - `[x]` Create `docs/database_schema.md` outlining the SQLite layout
   - `[x]` Create `migrations/baseline_sqlite.sql` baseline schema snapshot
-- `[ ]` Sub-Issue 2: Alembic Baseline Migration & Deploy Scripts (Issue #40)
-  - `[ ]` Initialize Alembic framework
-  - `[ ]` Configure `migrations/env.py` database settings
-  - `[ ]` Write Alembic baseline migration version
-  - `[ ]` Write `scripts/deploy_migrations.py` programmatic deploy script
-  - `[ ]` Integrate deployment upgrade routines into the server startup lifecycle
+- `[x]` Sub-Issue 2: Alembic Baseline Migration & Deploy Scripts (Issue #40)
+  - `[x]` Initialize Alembic framework
+  - `[x]` Configure `migrations/env.py` database settings
+  - `[x]` Write Alembic baseline migration version
+  - `[x]` Write `scripts/deploy_migrations.py` programmatic deploy script
+  - `[x]` Integrate deployment upgrade routines into the server startup lifecycle

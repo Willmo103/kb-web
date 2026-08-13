@@ -1,4 +1,4 @@
-CREATE TABLE [fetched_pages] (
+CREATE TABLE IF NOT EXISTS [fetched_pages] (
    [url] TEXT PRIMARY KEY,
    [title] TEXT,
    [html_content] TEXT,
@@ -12,7 +12,7 @@ CREATE TABLE [fetched_pages] (
    [tags] TEXT
 , [collection_id] INTEGER, [exclude_from_general] INTEGER);
 
-CREATE TABLE [page_versions] (
+CREATE TABLE IF NOT EXISTS [page_versions] (
    [id] INTEGER PRIMARY KEY,
    [url] TEXT,
    [title] TEXT,
@@ -27,25 +27,25 @@ CREATE TABLE [page_versions] (
    [tags] TEXT
 );
 
-CREATE TABLE [article_embeddings] (
+CREATE TABLE IF NOT EXISTS [article_embeddings] (
    [url] TEXT PRIMARY KEY REFERENCES [fetched_pages]([url]),
    [embedding] TEXT,
    [updated_at] TEXT
 );
 
-CREATE TABLE [title_embeddings] (
+CREATE TABLE IF NOT EXISTS [title_embeddings] (
    [url] TEXT PRIMARY KEY REFERENCES [fetched_pages]([url]),
    [embedding] TEXT,
    [updated_at] TEXT
 );
 
-CREATE TABLE [site_wikis] (
+CREATE TABLE IF NOT EXISTS [site_wikis] (
    [site] TEXT PRIMARY KEY,
    [wiki_content] TEXT,
    [updated_at] TEXT
 );
 
-CREATE TABLE [youtube_videos] (
+CREATE TABLE IF NOT EXISTS [youtube_videos] (
    [url] TEXT PRIMARY KEY REFERENCES [fetched_pages]([url]),
    [video_id] TEXT,
    [creator] TEXT,
@@ -57,7 +57,7 @@ CREATE TABLE [youtube_videos] (
    [updated_at] TEXT
 );
 
-CREATE TABLE [collections] (
+CREATE TABLE IF NOT EXISTS [collections] (
    [id] INTEGER PRIMARY KEY,
    [title] TEXT,
    [visibility] TEXT,
@@ -67,7 +67,7 @@ CREATE TABLE [collections] (
    [created_at] TEXT
 );
 
-CREATE TABLE [collection_items] (
+CREATE TABLE IF NOT EXISTS [collection_items] (
    [id] INTEGER PRIMARY KEY,
    [collection_id] INTEGER REFERENCES [collections]([id]),
    [source_type] TEXT,
@@ -78,10 +78,10 @@ CREATE TABLE [collection_items] (
    [added_at] TEXT
 );
 
-CREATE UNIQUE INDEX [idx_collection_items_collection_id_source_type_source_id]
+CREATE UNIQUE INDEX IF NOT EXISTS [idx_collection_items_collection_id_source_type_source_id]
     ON [collection_items] ([collection_id], [source_type], [source_id]);
 
-CREATE TABLE [collection_notes] (
+CREATE TABLE IF NOT EXISTS [collection_notes] (
    [id] INTEGER PRIMARY KEY,
    [collection_id] INTEGER REFERENCES [collections]([id]),
    [title] TEXT,
@@ -91,10 +91,10 @@ CREATE TABLE [collection_notes] (
    [updated_at] TEXT
 );
 
-CREATE INDEX [idx_collection_notes_collection_id]
+CREATE INDEX IF NOT EXISTS [idx_collection_notes_collection_id]
     ON [collection_notes] ([collection_id]);
 
-CREATE TABLE [chunk_embeddings] (
+CREATE TABLE IF NOT EXISTS [chunk_embeddings] (
    [id] INTEGER PRIMARY KEY,
    [source_type] TEXT,
    [source_id] TEXT,
@@ -105,16 +105,16 @@ CREATE TABLE [chunk_embeddings] (
    [created_at] TEXT
 );
 
-CREATE INDEX [idx_chunk_embeddings_source_type_source_id_chunk_number]
+CREATE INDEX IF NOT EXISTS [idx_chunk_embeddings_source_type_source_id_chunk_number]
     ON [chunk_embeddings] ([source_type], [source_id], [chunk_number]);
 
-CREATE TABLE [video_embeddings] (
+CREATE TABLE IF NOT EXISTS [video_embeddings] (
    [url] TEXT PRIMARY KEY REFERENCES [fetched_pages]([url]),
    [embedding] TEXT,
    [updated_at] TEXT
 );
 
-CREATE TABLE [ollama_logs] (
+CREATE TABLE IF NOT EXISTS [ollama_logs] (
    [id] INTEGER PRIMARY KEY,
    [timestamp] TEXT,
    [model] TEXT,
@@ -126,17 +126,17 @@ CREATE TABLE [ollama_logs] (
    [status] TEXT
 );
 
-CREATE TABLE [settings_ollama] (
+CREATE TABLE IF NOT EXISTS [settings_ollama] (
    [key] TEXT PRIMARY KEY,
    [value] TEXT
 );
 
-CREATE TABLE [settings_external] (
+CREATE TABLE IF NOT EXISTS [settings_external] (
    [key] TEXT PRIMARY KEY,
    [value] TEXT
 );
 
-CREATE TABLE [agent_prompts] (
+CREATE TABLE IF NOT EXISTS [agent_prompts] (
    [id] INTEGER PRIMARY KEY,
    [prompt_type] TEXT,
    [prompt_text] TEXT,
@@ -145,20 +145,20 @@ CREATE TABLE [agent_prompts] (
    [version] INTEGER
 );
 
-CREATE TABLE [cli_api_keys] (
+CREATE TABLE IF NOT EXISTS [cli_api_keys] (
    [key] TEXT PRIMARY KEY,
    [name] TEXT,
    [created_at] TEXT
 );
 
-CREATE TABLE [registered_clients] (
+CREATE TABLE IF NOT EXISTS [registered_clients] (
    [computer_name] TEXT PRIMARY KEY,
    [api_key] TEXT,
    [registered_at] TEXT,
    [status] TEXT
 );
 
-CREATE TABLE [links] (
+CREATE TABLE IF NOT EXISTS [links] (
    [id] INTEGER PRIMARY KEY,
    [url] TEXT,
    [title] TEXT,
@@ -168,5 +168,5 @@ CREATE TABLE [links] (
    [last_clicked_at] TEXT
 );
 
-CREATE UNIQUE INDEX [idx_links_url]
+CREATE UNIQUE INDEX IF NOT EXISTS [idx_links_url]
     ON [links] ([url]);
