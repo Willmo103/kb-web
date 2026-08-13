@@ -8,26 +8,30 @@ This document breaks down the remaining scope of **Issue #29** (Import Process N
 
 The remaining portions of Issue #29 (excluding the completed duplicate checks and video download triggers) focus on transitioning the linear import process to a background job-queue architecture, handling large file drops via WebSockets, caching Ollama logs/prompts, and exposing settings in the Admin panel.
 
-### 1. [Sub-Issue] Job Queue Schema & State Management
+### 1. [Sub-Issue] Top-Level Ingestion Sources & Processing Registry Schema
 * **Parent**: #29
-* **Description**: Create a database structure to model import tasks.
+* **Description**: Create a top-level unified database structure to model all import sources and register processing services.
 * **Requirements**:
-  - Define a new `job_queue` table with columns: `id` (int PK), `url_or_filepath` (text), `state` (text: `pending`, `fetching`, `extracting`, `embedding`, `completed`, `failed`), `options` (text/JSON configurations like collection IDs, target type, download video), `attempts` (int), `error_log` (text), `created_at` (text), `updated_at` (text).
-  - Add helper functions in `src/kb_web/db.py` to enqueue new tasks and update existing job states.
-  - Implement basic API endpoints to retrieve active/failed jobs to expose pipeline health status.
+  - Define a new `sources` table containing:
+    - `id`: UUID (Primary Key, uuid4 generated)
+    - `url`: Text (Nullable, unique target url)
+    - `file_hash`: Text (Nullable, uploaded file content hash for deduplication)
+    - `type`: Text (source_type enum: `file`, `article`, `youtube_video`, `note`, `link`, `code_folder`, `git_clone_url`)
+    - `processor_id`: Integer (Nullable, FK referencing `_processor_xref` table)
+    - `path`: Text (Nullable, path on server)
+    - `timestamp`: Text/DateTime (creation datetime)
+  - Define a `_processor_xref` registry table to register pre-processing, processing, and post-processing services (code actions or stored procedures) for different types of inputs.
+  - Relate all database entities (such as fetched pages, chunk embeddings, videos) back to their corresponding row in the `sources` table.
+  - Implement helper CRUD operations in `src/kb_web/db.py`.
 
-### 2. [Sub-Issue] Background Job Queue Processor Daemon
+### 2. [Sub-Issue] State-Driven Job Queue Processor Daemon
 * **Parent**: #29
-* **Description**: Implement a worker thread/service to execute the queue in the background.
+* **Description**: Implement a worker thread/service to run tasks by driving items through the registered processing stages.
 * **Requirements**:
-  - Implement a background loop or worker thread service (e.g. in `server.py` or as a separate daemon) that polls the `job_queue` table for `pending` or `failed` tasks (with exponential backoff retries).
-  - Decouple the ingestion steps into vertical, self-contained processing functions:
-    1. HTML/YouTube fetch
-    2. Ollama wiki summary generation
-    3. Tag extraction
-    4. Text chunking & Gemma embeddings generation
-    5. Video offline downloader
-  - Hook up Gotify notification hooks to dispatch alerts containing exact error traces and recovery hints if a step in the pipeline fails.
+  - Implement a background loop or worker thread service (e.g. in `server.py` or as a separate daemon) that polls the `sources` table for items requiring processing.
+  - Execute the corresponding service dynamically based on the current `processor_id` using the `_processor_xref` registry.
+  - Upon successful completion of each stage in the processing pipeline, update the `processor_id` of the source item to point to the next registered processor.
+  - Hook up Gotify notification hooks to dispatch alerts containing exact error traces and recovery hints if a processing stage fails.
 
 ### 3. [Sub-Issue] WebSocket File Ingestion & Drag-and-Drop Ingestion UI
 * **Parent**: #29
