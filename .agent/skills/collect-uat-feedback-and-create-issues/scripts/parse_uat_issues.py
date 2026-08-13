@@ -22,9 +22,9 @@ def main():
     verdict = data.get("verdict", "UNKNOWN")
     issues = data.get("issues", [])
 
-    print(f"\n=========================================")
-    print(f"  UAT ISSUE PARSER & TASK GENERATOR")
-    print(f"=========================================")
+    print("\n=========================================")
+    print("  UAT ISSUE PARSER & TASK GENERATOR")
+    print("=========================================")
     print(f"Task: {task_name}")
     print(f"Tester: {tester}")
     print(f"Overall Verdict: {verdict}")

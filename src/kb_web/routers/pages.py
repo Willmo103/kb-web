@@ -250,7 +250,6 @@ def view_saved_page(
     video_id = extract_youtube_video_id(decoded_url)
     if video_id:
         import os
-        from pathlib import Path
         db_path = None
         if "youtube_videos" in db.table_names():
             try:

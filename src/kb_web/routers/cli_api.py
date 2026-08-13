@@ -88,6 +88,67 @@ def cli_import_url(
     except Exception as e:
         return {"status": "error", "message": f"Fetch failed: {str(e)}"}
         
+    existing_rows = list(db["fetched_pages"].rows_where("url = ?", [cleaned_url]))
+    if existing_rows:
+        existing_row = existing_rows[0]
+        if existing_row.get("md_content_hash") == page_data.md_content_hash:
+            target_col_id = None
+            if collection_id == "new_collection" and new_collection_title:
+                from ..config import DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
+                col_row = {
+                    "title": new_collection_title,
+                    "visibility": "public",
+                    "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                    "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                    "general_system_context": "{}",
+                    "created_at": datetime.now().isoformat()
+                }
+                res = db["collections"].insert(col_row)
+                db.conn.commit()
+                target_col_id = res.last_pk
+            elif collection_id:
+                try:
+                    target_col_id = int(collection_id)
+                except ValueError:
+                    pass
+
+            if target_col_id:
+                existing_items = list(db["collection_items"].rows_where(
+                    "collection_id = ? AND source_id = ?",
+                    [target_col_id, cleaned_url]
+                ))
+                if not existing_items:
+                    is_video = bool(extract_youtube_video_id(cleaned_url))
+                    source_type = "videos" if is_video else "articles"
+                    title_val = existing_row.get("title") or ""
+                    db["collection_items"].insert({
+                        "collection_id": target_col_id,
+                        "source_type": source_type,
+                        "source_id": cleaned_url,
+                        "item_note": "",
+                        "taxonomy_path": f"/uncategorized/{title_val[:20].replace(' ', '_')}.md" if title_val else f"/uncategorized/{target_col_id}.md",
+                        "item_order": 0,
+                        "added_at": datetime.now().isoformat()
+                    })
+                    db.conn.commit()
+
+            return {"status": "success", "message": "Content unchanged. Skipping ingestion.", "url": cleaned_url}
+        else:
+            db["page_versions"].insert({
+                "url": existing_row["url"],
+                "title": existing_row.get("title"),
+                "html_content": existing_row.get("html_content"),
+                "md_content": existing_row.get("md_content"),
+                "links": existing_row.get("links"),
+                "html_content_hash": existing_row.get("html_content_hash"),
+                "md_content_hash": existing_row.get("md_content_hash"),
+                "fetched_at": existing_row.get("fetched_at"),
+                "description": existing_row.get("description"),
+                "keywords": existing_row.get("keywords"),
+                "tags": existing_row.get("tags"),
+            })
+            db.conn.commit()
+
     try:
         wiki_entry = extract_wiki_content(page_data, config, client)
         page_data.description = wiki_entry
@@ -109,7 +170,7 @@ def cli_import_url(
     try:
         tags = extract_tags_content(page_data, config, client)
         page_data.tags = tags
-    except Exception as e:
+    except Exception:
         tags = []
         
     try:

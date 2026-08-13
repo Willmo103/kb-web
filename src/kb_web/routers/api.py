@@ -83,6 +83,33 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse page HTML: {e}")
 
+    base_url = str(request.base_url).rstrip("/")
+    view_url = f"{base_url}/view/page?url={page_data.safe_url}"
+
+    try:
+        existing_rows = list(db["fetched_pages"].rows_where("url = ?", [url]))
+        if existing_rows:
+            existing_row = existing_rows[0]
+            if existing_row.get("html_content_hash") == page_data.html_content_hash:
+                return {"status": "success", "message": "Content unchanged. Skipping ingestion.", "url": url, "view_url": view_url}
+            else:
+                db["page_versions"].insert({
+                    "url": existing_row["url"],
+                    "title": existing_row.get("title"),
+                    "html_content": existing_row.get("html_content"),
+                    "md_content": existing_row.get("md_content"),
+                    "links": existing_row.get("links"),
+                    "html_content_hash": existing_row.get("html_content_hash"),
+                    "md_content_hash": existing_row.get("md_content_hash"),
+                    "fetched_at": existing_row.get("fetched_at"),
+                    "description": existing_row.get("description"),
+                    "keywords": existing_row.get("keywords"),
+                    "tags": existing_row.get("tags"),
+                })
+                db.conn.commit()
+    except Exception:
+        pass
+
     client = _get_ollama_client()
     wiki_entry = extract_wiki_content(page_data, config, client)
     page_data.description = wiki_entry
@@ -94,8 +121,7 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
     tags = extract_tags_content(page_data, config, client)
     page_data.tags = tags
 
-    base_url = str(request.base_url).rstrip("/")
-    view_url = f"{base_url}/view/page?url={page_data.safe_url}"
+
 
     serialized, creator = serialize_page_for_db(page_data)
     db["fetched_pages"].upsert(serialized, pk="url")
@@ -138,6 +164,33 @@ def handle_page_import(payload: HTMLPage, request: Request) -> dict:
             title = urlparse(payload.url).netloc or payload.url
         payload.title = title
 
+    base_url = str(request.base_url).rstrip("/")
+    view_url = f"{base_url}/view/page?url={payload.safe_url}"
+
+    try:
+        existing_rows = list(db["fetched_pages"].rows_where("url = ?", [payload.url]))
+        if existing_rows:
+            existing_row = existing_rows[0]
+            if existing_row.get("html_content_hash") == payload.html_content_hash:
+                return {"status": "success", "message": "Content unchanged. Skipping ingestion.", "url": payload.url, "view_url": view_url}
+            else:
+                db["page_versions"].insert({
+                    "url": existing_row["url"],
+                    "title": existing_row.get("title"),
+                    "html_content": existing_row.get("html_content"),
+                    "md_content": existing_row.get("md_content"),
+                    "links": existing_row.get("links"),
+                    "html_content_hash": existing_row.get("html_content_hash"),
+                    "md_content_hash": existing_row.get("md_content_hash"),
+                    "fetched_at": existing_row.get("fetched_at"),
+                    "description": existing_row.get("description"),
+                    "keywords": existing_row.get("keywords"),
+                    "tags": existing_row.get("tags"),
+                })
+                db.conn.commit()
+    except Exception:
+        pass
+
     client = _get_ollama_client()
     if not payload.description:
         wiki_entry = extract_wiki_content(payload, config, client)
@@ -150,8 +203,7 @@ def handle_page_import(payload: HTMLPage, request: Request) -> dict:
     if not payload.tags:
         payload.tags = extract_tags_content(payload, config, client)
 
-    base_url = str(request.base_url).rstrip("/")
-    view_url = f"{base_url}/view/page?url={payload.safe_url}"
+
 
     serialized, creator = serialize_page_for_db(payload)
     db["fetched_pages"].upsert(serialized, pk="url")

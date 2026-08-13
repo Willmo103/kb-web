@@ -1689,8 +1689,6 @@ def test_crawler_domain_normalization(monkeypatch) -> None:
 
 def test_import_with_collection(client: TestClient, monkeypatch) -> None:
     """Verifies that importing a URL with collection parameters creates/links to collections."""
-    from kb_web.config import Config
-    import sqlite_utils
     
     db = get_db(server_config)
     
@@ -2317,6 +2315,133 @@ def test_links_management_and_tracking(client: TestClient) -> None:
     
     # Verify link deleted
     assert db["links"].count_where("id = ?", [link_id]) == 0
+
+
+def test_import_url_duplicate_checking(client: TestClient, monkeypatch) -> None:
+    """Verifies duplicate checking behavior during URL import: identical content vs changed content."""
+    db = get_db(server_config)
+    
+    # Login to get admin cookie
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    session_cookie = login_resp.cookies.get("kb_session")
+    
+    from kb_web.models import HTMLPage
+    url = "https://example.com/duplicate-test-page"
+    
+    # 1. Clear existing matching page and versions
+    if "fetched_pages" in db.table_names():
+        db["fetched_pages"].delete_where("url = ?", [url])
+    if "page_versions" in db.table_names():
+        db["page_versions"].delete_where("url = ?", [url])
+    db.conn.close()
+    
+    dummy_page_1 = HTMLPage(
+        url=url,
+        title="Duplicate Test Page v1",
+        html_content="<html><head><title>Duplicate Test Page v1</title></head><body>v1 content</body></html>",
+        md_content="v1 content",
+        links=[],
+        html_content_hash="hash_v1_html",
+        md_content_hash="hash_v1_md",
+        fetched_at="2026-05-31T12:00:00"
+    )
+    
+    # Mock extractors/fetchers
+    monkeypatch.setattr("kb_web.routers.admin.fetch_url", lambda *args: dummy_page_1)
+    monkeypatch.setattr("kb_web.routers.admin.extract_wiki_content", lambda *args: "Wiki description v1")
+    monkeypatch.setattr("kb_web.routers.admin.extract_tags_content", lambda *args: ["v1"])
+    monkeypatch.setattr("kb_web.routers.admin.update_article_embedding", lambda *args: None)
+    monkeypatch.setattr("kb_web.routers.admin.generate_gemma_embeddings_for_page", lambda *args: None)
+    monkeypatch.setattr("kb_web.routers.admin.post_to_gotify", lambda *args: None)
+    
+    # Ingest v1
+    resp1 = client.post(
+        "/import/url",
+        data={"url": url},
+        cookies={"kb_session": session_cookie}
+    )
+    assert resp1.status_code == 200
+    _ = resp1.text
+    
+    # Verify saved
+    db_verify = get_db(server_config)
+    row = db_verify["fetched_pages"].get(url)
+    assert row["title"] == "Duplicate Test Page v1"
+    assert row["md_content_hash"] == "hash_v1_md"
+    
+    # Verify no versions archived yet
+    versions = list(db_verify["page_versions"].rows_where("url = ?", [url]))
+    assert len(versions) == 0
+    db_verify.conn.close()
+    
+    # 2. Ingest duplicate v1 (identical hash) - should skip LLM extraction, not archive
+    extracted_wiki_calls = 0
+    def mock_extract_wiki(*args):
+        nonlocal extracted_wiki_calls
+        extracted_wiki_calls += 1
+        return "Wiki description v1 updated"
+        
+    monkeypatch.setattr("kb_web.routers.admin.extract_wiki_content", mock_extract_wiki)
+    
+    resp2 = client.post(
+        "/import/url",
+        data={"url": url},
+        cookies={"kb_session": session_cookie}
+    )
+    assert resp2.status_code == 200
+    _ = resp2.text
+    
+    # Verify that LLM extraction was NOT called (i.e. skipped because hashes were identical)
+    assert extracted_wiki_calls == 0
+    
+    # Verify no versions archived
+    db_verify = get_db(server_config)
+    versions = list(db_verify["page_versions"].rows_where("url = ?", [url]))
+    assert len(versions) == 0
+    db_verify.conn.close()
+    
+    # 3. Ingest v2 (different hash) - should archive v1, run extraction, update fetched_pages
+    dummy_page_2 = HTMLPage(
+        url=url,
+        title="Duplicate Test Page v2",
+        html_content="<html><head><title>Duplicate Test Page v2</title></head><body>v2 content</body></html>",
+        md_content="v2 content",
+        links=[],
+        html_content_hash="hash_v2_html",
+        md_content_hash="hash_v2_md",
+        fetched_at="2026-05-31T13:00:00"
+    )
+    monkeypatch.setattr("kb_web.routers.admin.fetch_url", lambda *args: dummy_page_2)
+    monkeypatch.setattr("kb_web.routers.admin.extract_wiki_content", lambda *args: "Wiki description v2")
+    monkeypatch.setattr("kb_web.routers.admin.extract_tags_content", lambda *args: ["v2"])
+    
+    resp3 = client.post(
+        "/import/url",
+        data={"url": url},
+        cookies={"kb_session": session_cookie}
+    )
+    assert resp3.status_code == 200
+    _ = resp3.text
+    
+    # Verify updated in fetched_pages
+    db_verify = get_db(server_config)
+    row_updated = db_verify["fetched_pages"].get(url)
+    assert row_updated["title"] == "Duplicate Test Page v2"
+    assert row_updated["md_content_hash"] == "hash_v2_md"
+    assert row_updated["description"] == "Wiki description v2"
+    
+    # Verify archived version
+    versions = list(db_verify["page_versions"].rows_where("url = ?", [url]))
+    assert len(versions) == 1
+    assert versions[0]["title"] == "Duplicate Test Page v1"
+    assert versions[0]["md_content_hash"] == "hash_v1_md"
+    assert versions[0]["description"] == "Wiki description v1"
+    db_verify.conn.close()
+
 
 
 
