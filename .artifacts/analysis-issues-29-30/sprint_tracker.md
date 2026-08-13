@@ -8,7 +8,7 @@ This document serves as the master checklist and progress tracker for the planne
 * **Goal**: Establish a local PostgreSQL container, baseline schema documentation, and Alembic migrations deployment scripts.
 * **Sub-Issues to Resolve**:
   - `[x]` Sub-Issue 0: DevContainer PostgreSQL & pgvector Setup (Issue #38)
-  - `[ ]` Sub-Issue 1: Database Schema Docs & SQLite baseline (Issue #39)
+  - `[x]` Sub-Issue 1: Database Schema Docs & SQLite baseline (Issue #39)
   - `[ ]` Sub-Issue 2: Alembic Baseline Migration & Deploy Scripts (Issue #40)
 
 ### [ ] Sprint 2: SQLAlchemy ORM & pgvector Searches (Issue #41) -> [Details](./sprint_2_orm_pgvector.md)

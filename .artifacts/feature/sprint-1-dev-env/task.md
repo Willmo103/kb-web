@@ -5,9 +5,9 @@
   - `[x]` Create `.devcontainer/devcontainer.json` defining workspace configuration
   - `[x]` Create `scripts/check_db_ready.py` health check script
   - `[x]` Update `build.py` to launch the database container and run socket checks
-- `[ ]` Sub-Issue 1: Database Schema Docs & SQLite baseline (Issue #39)
-  - `[ ]` Create `docs/database_schema.md` outlining the SQLite layout
-  - `[ ]` Create `migrations/baseline_sqlite.sql` baseline schema snapshot
+- `[x]` Sub-Issue 1: Database Schema Docs & SQLite baseline (Issue #39)
+  - `[x]` Create `docs/database_schema.md` outlining the SQLite layout
+  - `[x]` Create `migrations/baseline_sqlite.sql` baseline schema snapshot
 - `[ ]` Sub-Issue 2: Alembic Baseline Migration & Deploy Scripts (Issue #40)
   - `[ ]` Initialize Alembic framework
   - `[ ]` Configure `migrations/env.py` database settings
