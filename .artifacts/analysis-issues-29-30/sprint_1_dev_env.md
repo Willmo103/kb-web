@@ -1,14 +1,14 @@
-# Sprint 1: Dev Environment & Baseline Migrations
+# Sprint 1: Dev Environment & Baseline Migrations (Issue #37)
 
 * **Sprint Goal**: Establish local PostgreSQL container environments, compile baseline schema documentation, and build automated Alembic migrations deployment scripts.
-* **Target Issues**: Sub-Issue 0, Sub-Issue 1, Sub-Issue 2
+* **Parent Issue**: #30 (PostgreSQL | SQLAlchemy Support)
 * **Estimated Duration**: 11 Days
 
 ---
 
 ## Detailed Task List
 
-### 1. DevContainer & PostgreSQL Setup
+### 1. DevContainer & PostgreSQL Setup (Sub-Issue #38)
 - [ ] Add `.devcontainer/docker-compose.yml` to declare a `db` database container service:
   - Base Image: `pgvector/pgvector:pg16`
   - Ports: map `5432:5432`
@@ -18,13 +18,13 @@
 - [ ] Create a check script `scripts/check_db_ready.py` that attempts connection to the PostgreSQL port and exits 0 only when fully online.
 - [ ] Refactor the pre-test pipeline in `build.py` to check for active test db configurations and initialize transient postgres instances before running unit tests.
 
-### 2. Database Schema Documentation & SQLite baseline
+### 2. Database Schema Documentation & SQLite baseline (Sub-Issue #39)
 - [ ] Create `docs/database_schema.md` detailing:
   - Description and layout of all 20+ active tables (`fetched_pages`, `article_embeddings`, `links`, etc.).
   - Primary keys, foreign key relations, constraints, indexes, and calculated views.
 - [ ] Export the existing SQLite schema structure to `migrations/baseline_sqlite.sql`.
 
-### 3. Alembic initialization & Deployment scripting
+### 3. Alembic initialization & Deployment scripting (Sub-Issue #40)
 - [ ] Install Alembic dependencies: `pip install alembic psycopg2-binary`.
 - [ ] Initialize alembic in root folder: `alembic init migrations`.
 - [ ] Configure `migrations/env.py` to:
