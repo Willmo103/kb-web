@@ -1,16 +1,19 @@
-# Sprint Execution Workflow
-
-This document defines the systematic, step-by-step workflow that agents and developers must follow when executing a development sprint.
-
+---
+name: Sprint Execution Workflow
+description: Systematic step-by-step workflow that developers and agents must follow when executing a development sprint.
 ---
 
-## Step-by-Step Workflow
+# Sprint Execution Workflow
 
-### 1. Sprint Discovery & Artifact Reading
-- Locate and read the corresponding sprint details document (e.g. `sprint_1_dev_env.md`).
+This workflow guides the implementation of task lists, branch checkpoints, draft pull requests, and review hand-offs for development sprints.
+
+## Steps
+
+### 1. Read Sprint Details
+- Locate and read the corresponding sprint details document (e.g. `.artifacts/analysis-issues-29-30/sprint_1_dev_env.md`).
 - Review the sprint goal, parent/child issue IDs, and the task checkboxes checklist.
 
-### 2. Dedicated Branch Creation
+### 2. Branch Creation
 - Ensure your local repository is up to date:
   ```bash
   git checkout production
@@ -31,7 +34,7 @@ This document defines the systematic, step-by-step workflow that agents and deve
   ```bash
   gh pr create --draft --base production --title "Sprint <number>: <Goal Description>" --body "Resolves Sprint Issues"
   ```
-- Retrieve the PR number and associate all sprint issues with the draft PR (using the parent/child issues listed in the sprint document).
+- Retrieve the PR number and associate all sprint issues with the draft PR.
 
 ### 4. Incremental Task Resolution
 - Work through the issues sequentially using the sprint checklist as your progress guideline.
