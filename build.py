@@ -57,8 +57,50 @@ def clean_previous_builds():
             print(f"Warning: Failed to clean {cli_dist}: {e}")
 
 
+def bootstrap_database():
+    import socket
+    import time
+    
+    print("[INFO] Checking if local PostgreSQL is active...")
+    try:
+        with socket.create_connection(("localhost", 5432), timeout=2):
+            print("[INFO] Local PostgreSQL is already running and ready.")
+            return
+    except (socket.timeout, ConnectionRefusedError):
+        pass
+
+    print("[INFO] Local PostgreSQL is not running. Attempting to start service using docker-compose...")
+    try:
+        res = subprocess.run(["docker", "compose", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=sys.platform == "win32")
+        if res.returncode == 0:
+            compose_cmd = ["docker", "compose"]
+        else:
+            compose_cmd = ["docker-compose"]
+        
+        project_dir = Path(__file__).resolve().parent
+        compose_file = project_dir / ".devcontainer" / "docker-compose.yml"
+        if compose_file.exists():
+            print(f"[INFO] Booting database stack using: {' '.join(compose_cmd)} -f {compose_file} up -d db")
+            subprocess.run(compose_cmd + ["-f", str(compose_file), "up", "-d", "db"], check=True, shell=sys.platform == "win32")
+            print("[INFO] Waiting for database connection to be established...")
+            for _ in range(30):
+                try:
+                    with socket.create_connection(("localhost", 5432), timeout=1):
+                        print("[INFO] PostgreSQL service is fully online.")
+                        return
+                except (socket.timeout, ConnectionRefusedError):
+                    time.sleep(1)
+            print("[ERROR] Timeout waiting for PostgreSQL database startup.")
+            sys.exit(1)
+        else:
+            print("[WARNING] docker-compose.yml not found in .devcontainer/ folder. Cannot auto-start database.")
+    except Exception as e:
+        print(f"[WARNING] Failed to auto-start database container: {e}")
+
+
 def main():
     clean_previous_builds()
+    bootstrap_database()
 
     # Detect if uv is available
     has_uv = False
