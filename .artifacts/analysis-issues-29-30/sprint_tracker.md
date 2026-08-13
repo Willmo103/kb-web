@@ -4,10 +4,10 @@ This document serves as the master checklist and progress tracker for the planne
 
 ## Sprints Checklist
 
-### [ ] Sprint 1: Dev Environment & Baseline Migrations (Issue #37) -> [Details](./sprint_1_dev_env.md)
+### [/] Sprint 1: Dev Environment & Baseline Migrations (Issue #37) -> [Details](./sprint_1_dev_env.md)
 * **Goal**: Establish a local PostgreSQL container, baseline schema documentation, and Alembic migrations deployment scripts.
 * **Sub-Issues to Resolve**:
-  - `[ ]` Sub-Issue 0: DevContainer PostgreSQL & pgvector Setup (Issue #38)
+  - `[/]` Sub-Issue 0: DevContainer PostgreSQL & pgvector Setup (Issue #38)
   - `[ ]` Sub-Issue 1: Database Schema Docs & SQLite baseline (Issue #39)
   - `[ ]` Sub-Issue 2: Alembic Baseline Migration & Deploy Scripts (Issue #40)
 
