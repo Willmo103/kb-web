@@ -34,6 +34,16 @@ def setup_temp_db(tmp_path, monkeypatch) -> None:
     )
     monkeypatch.setattr(ollama.Client, "pull", lambda *args, **kwargs: None)
 
+    # Mock Gotify globally during tests to prevent real notifications if credentials exist in the environment
+    class DummyGotify:
+        def __init__(self, *args, **kwargs):
+            self.POST_ENABLED = False
+        def send_notification(self, *args, **kwargs) -> None:
+            pass
+
+    import kb_core.notifier
+    monkeypatch.setattr(kb_core.notifier, "Gotify", DummyGotify)
+
     yield
 
     # Restore path after execution completes
@@ -2208,10 +2218,10 @@ def test_links_management_and_tracking(client: TestClient) -> None:
     """Tests the new links tracking endpoints: creation, redirects, deletion, and HTML bookmarks parsing."""
     db = get_db(server_config)
 
-    # 1. Access GET /links publicly
-    resp = client.get("/links")
-    assert resp.status_code == 200
-    assert "Directory" in resp.text
+    # 1. Access GET /links publicly (should redirect to login)
+    resp = client.get("/links", follow_redirects=False)
+    assert resp.status_code == 303
+    assert "login" in resp.headers.get("Location", "")
 
     # 2. Try to add link without logging in (should redirect to login)
     add_resp = client.post(
@@ -2231,6 +2241,11 @@ def test_links_management_and_tracking(client: TestClient) -> None:
     session_cookie = login_resp.cookies.get("kb_session")
     assert session_cookie is not None
 
+    # Access GET /links with authentication
+    resp_auth = client.get("/links", cookies={"kb_session": session_cookie})
+    assert resp_auth.status_code == 200
+    assert "Directory" in resp_auth.text
+
     # 4. Add link with session cookie
     add_resp = client.post(
         "/links/add",
@@ -2249,8 +2264,14 @@ def test_links_management_and_tracking(client: TestClient) -> None:
     assert links[0]["click_count"] == 0
     link_id = links[0]["id"]
 
-    # 5. Access redirect tracking GET /links/go
-    go_resp = client.get(f"/links/go?id={link_id}", follow_redirects=False)
+    # 5. Access redirect tracking GET /links/go publicly (should redirect to login)
+    client.cookies.clear()
+    go_resp_public = client.get(f"/links/go?id={link_id}", follow_redirects=False)
+    assert go_resp_public.status_code == 303
+    assert "login" in go_resp_public.headers.get("Location", "")
+
+    # Access redirect tracking GET /links/go with authentication
+    go_resp = client.get(f"/links/go?id={link_id}", cookies={"kb_session": session_cookie}, follow_redirects=False)
     assert go_resp.status_code == 303
     assert go_resp.headers.get("Location") == "https://example.com/test-ref"
 

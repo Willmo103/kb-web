@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.31] - 2026-08-12
+### Security
+- Added `Depends(verify_auth)` to the `GET /links` and `GET /links/go` endpoints, securing the saved links views and tracking from unauthorized users (resolving Issue #31).
+
+### Fixed
+- Globally mocked `kb_core.notifier.Gotify` in the test suite setup fixture (`tests/test_server.py`) to prevent real alerts and notifications from being fired during automated tests.
+
+### Documented
+- Added documentation under the Running Automated Tests section of `README.md` and init rules of `GEMINI.md` to guide developers on disabling Gotify notifications when running test suites.
+
 ## [0.1.30] - 2026-08-10
 ### Added
 - Implemented `kb-cli logs` command in CLI tool allowing remote inspection of server system logs with `--limit` parameter persistence.
