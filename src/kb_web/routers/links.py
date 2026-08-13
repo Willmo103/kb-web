@@ -22,7 +22,7 @@ from ..base import (
 router = APIRouter()
 
 
-@router.get("/links", response_class=HTMLResponse)
+@router.get("/links", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
 def view_links(request: Request) -> HTMLResponse:
     db = _get_db()
     links_list = []
@@ -86,7 +86,7 @@ def add_link(
     return RedirectResponse(url="/links", status_code=303)
 
 
-@router.get("/links/go")
+@router.get("/links/go", dependencies=[Depends(verify_auth)])
 def go_to_link(id: int) -> RedirectResponse:
     db = _get_db()
     try:

@@ -102,6 +102,11 @@ Run the test suite to verify route parsing and model constraints:
 uv run pytest
 ```
 
+> [!NOTE]
+> Gotify alerts are globally mocked during automated test runs via `tests/test_server.py` to prevent spamming notification channels. However, if you are running tests in an environment where you want to be completely sure no notifications leak, you should unset the `GOTIFY_URL` and `GOTIFY_TOKEN` environment variables:
+> - **Windows (PowerShell)**: `$env:GOTIFY_URL=""; $env:GOTIFY_TOKEN=""`
+> - **Linux/macOS**: `GOTIFY_URL="" GOTIFY_TOKEN="" uv run pytest`
+
 ---
 
 ## Production Linux Server Deployment (Git Flow)
