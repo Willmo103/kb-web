@@ -10,3 +10,6 @@ wheels/
 .venv
 deploy.sh
 dling.willmo.dev.openapi.json
+.env
+.data/*
+!.data/.gitkeep
