@@ -11,12 +11,12 @@ This document serves as the master checklist and progress tracker for the planne
   - `[x]` Sub-Issue 1: Database Schema Docs & SQLite baseline (Issue #39)
   - `[x]` Sub-Issue 2: Alembic Baseline Migration & Deploy Scripts (Issue #40)
 
-### [ ] Sprint 2: SQLAlchemy ORM & pgvector Searches (Issue #41) -> [Details](./sprint_2_orm_pgvector.md)
+### [/] Sprint 2: SQLAlchemy ORM & pgvector Searches (Issue #41) -> [Details](./sprint_2_orm_pgvector.md)
 * **Goal**: Map declarative ORM models and transition embedding vector queries to use `pgvector`.
 * **Sub-Issues to Resolve**:
-  - `[ ]` Sub-Issue 3: pgvector Extension & Embeddings Refactor (Issue #42)
-  - `[ ]` Sub-Issue 4: SQLAlchemy ORM Schema mapping (Issue #43)
-  - `[ ]` Sub-Issue 5: Database Session & Driver Abstraction (Issue #44)
+  - `[/]` Sub-Issue 3: pgvector Extension & Embeddings Refactor (Issue #42)
+  - `[/]` Sub-Issue 4: SQLAlchemy ORM Schema mapping (Issue #43)
+  - `[/]` Sub-Issue 5: Database Session & Driver Abstraction (Issue #44)
 
 ### [ ] Sprint 3: Core Database Access Refactoring & Migration Utility (Issue #45) -> [Details](./sprint_3_core_refactor.md)
 * **Goal**: Replace direct `sqlite_utils` table queries with ORM queries and implement a sqlite-to-postgres migrator.
