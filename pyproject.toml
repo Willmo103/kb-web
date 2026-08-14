@@ -29,6 +29,9 @@ dependencies = [
     "yt-dlp>=2025.1.15",
     "mcp>=0.1.0",
     "alembic>=1.19.1",
+    "sqlalchemy>=2.0.28",
+    "pgvector>=0.2.5",
+    "psycopg2-binary>=2.9.9",
 ]
 
 [project.scripts]

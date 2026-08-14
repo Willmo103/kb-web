@@ -3,9 +3,10 @@ FastAPI Router for displaying pages index and detail wiki profile views in kb-we
 """
 
 import json
+import time
 from typing import Optional
 from urllib.parse import unquote_plus, urlparse, urljoin
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, BackgroundTasks, Form, Depends
 from fastapi.responses import HTMLResponse
 
 from ..base import (
@@ -14,12 +15,14 @@ from ..base import (
     _jinja_env,
     COOKIE_NAME,
     verify_session_token,
+    verify_auth,
 )
 from ..models import HTMLPage, extract_youtube_video_id
 from ..utils import (
     get_url_basename,
     preprocess_markdown,
     get_similar_articles,
+    download_youtube_video,
 )
 
 import markdown
@@ -56,10 +59,12 @@ def view_all_pages(
                 """
                 rows = list(db.execute_returning_dicts(query, [f"%{q}%", f"%{q}%"]))
             else:
-                rows = list(db.execute_returning_dicts(
-                    "SELECT * FROM fetched_pages WHERE title LIKE ? OR tags LIKE ? ORDER BY ROWID DESC",
-                    [f"%{q}%", f"%{q}%"],
-                ))
+                rows = list(
+                    db.execute_returning_dicts(
+                        "SELECT * FROM fetched_pages WHERE title LIKE ? OR tags LIKE ? ORDER BY ROWID DESC",
+                        [f"%{q}%", f"%{q}%"],
+                    )
+                )
         else:
             if has_yt_table:
                 query = """
@@ -70,7 +75,11 @@ def view_all_pages(
                 """
                 rows = list(db.execute_returning_dicts(query))
             else:
-                rows = list(db.execute_returning_dicts("SELECT * FROM fetched_pages ORDER BY ROWID DESC"))
+                rows = list(
+                    db.execute_returning_dicts(
+                        "SELECT * FROM fetched_pages ORDER BY ROWID DESC"
+                    )
+                )
 
         for row in rows:
             try:
@@ -84,7 +93,7 @@ def view_all_pages(
                             tags_list = []
                     except Exception:
                         pass
-                
+
                 # Check tag filter
                 if tag:
                     tag_lower = tag.strip().lower()
@@ -96,14 +105,16 @@ def view_all_pages(
                 coll_id = None
                 if "collection_items" in db.table_names():
                     try:
-                        coll_rows = list(db.execute_returning_dicts(
-                            """
+                        coll_rows = list(
+                            db.execute_returning_dicts(
+                                """
                             SELECT c.id, c.title FROM collections c
                             JOIN collection_items ci ON c.id = ci.collection_id
                             WHERE ci.source_id = ? AND c.id != 1
                             """,
-                            [row["url"]]
-                        ))
+                                [row["url"]],
+                            )
+                        )
                         if coll_rows:
                             coll_title = ", ".join([r["title"] for r in coll_rows])
                             coll_id = coll_rows[0]["id"]
@@ -221,7 +232,7 @@ def view_saved_page(
                 JOIN collection_items ci ON c.id = ci.collection_id
                 WHERE ci.source_id = ?
                 """,
-                [decoded_url]
+                [decoded_url],
             )
             if rows:
                 non_general = [r for r in rows if r["id"] != 1]
@@ -232,7 +243,7 @@ def view_saved_page(
                 assigned_collections = non_general
         except Exception as e:
             print(f"Failed to fetch assigned collections: {e}")
-            
+
     # Set attributes dynamically
     page_obj.collection_title = collection_title or None
 
@@ -250,6 +261,7 @@ def view_saved_page(
     video_id = extract_youtube_video_id(decoded_url)
     if video_id:
         import os
+
         db_path = None
         if "youtube_videos" in db.table_names():
             try:
@@ -258,12 +270,12 @@ def view_saved_page(
                     db_path = video_metadata.get("local_path")
             except Exception:
                 pass
-        
+
         media_dir = config.configs_dir.parent / "media" / "videos"
         default_local_path = media_dir / f"{video_id}.mp4"
         has_file = False
         filename = None
-        
+
         if db_path and os.path.exists(db_path):
             has_file = True
             filename = os.path.basename(db_path)
@@ -275,7 +287,7 @@ def view_saved_page(
             if matching:
                 has_file = True
                 filename = matching[0].name
-            
+
         if has_file and filename:
             is_offline = True
             local_video_url = f"/media/videos/{filename}"
@@ -302,6 +314,7 @@ def view_saved_page(
     scraped_links = []
     if page_obj.links:
         from urllib.parse import urljoin
+
         for link in page_obj.links:
             if not link or link.startswith("#"):
                 continue
@@ -316,20 +329,21 @@ def view_saved_page(
         placeholders = ", ".join(["?"] * len(scraped_links))
         rows = db.execute_returning_dicts(
             f"SELECT url FROM fetched_pages WHERE url IN ({placeholders})",
-            scraped_links
+            scraped_links,
         )
         ingested_urls = {r["url"] for r in rows}
-        
+
     page_links_data = [
-        {"url": link, "ingested": link in ingested_urls}
-        for link in scraped_links
+        {"url": link, "ingested": link in ingested_urls} for link in scraped_links
     ]
 
     rendered_wiki_html = markdown.markdown(
-        preprocess_markdown(page_obj.description or ""), extensions=["fenced_code", "tables"]
+        preprocess_markdown(page_obj.description or ""),
+        extensions=["fenced_code", "tables"],
     )
     rendered_md_html = markdown.markdown(
-        preprocess_markdown(page_obj.md_content or ""), extensions=["fenced_code", "tables"]
+        preprocess_markdown(page_obj.md_content or ""),
+        extensions=["fenced_code", "tables"],
     )
     video_id = extract_youtube_video_id(decoded_url)
     template = _jinja_env.get_template("view_page.j2.html")
@@ -357,9 +371,6 @@ def view_saved_page(
     )
 
 
-from fastapi import BackgroundTasks, Form, Depends
-from ..base import verify_auth
-import time
 
 def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
     """
@@ -367,36 +378,40 @@ def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
     Only crawls URLs that have the same netloc domain as the base URL.
     """
     import logging
+
     logger = logging.getLogger("kb_web")
 
     import ollama
+
     client = ollama.Client(host=config_obj.ollama_host)
-    
+
     from ..utils import ingest_url_sync
-    
+
     db_handle = _get_db()
-    
+
     # Normalize base netloc domain to ignore www. differences
     base_netloc = urlparse(base_url).netloc
     base_domain = base_netloc.lower()
     if base_domain.startswith("www."):
         base_domain = base_domain[4:]
-        
+
     queue = [(base_url, 0)]
     visited = set()
-    
-    logger.info(f"[CRAWLER] Starting recursive crawl from: {base_url} (depth={depth}, interval={interval}s, normalized domain={base_domain})")
-    
+
+    logger.info(
+        f"[CRAWLER] Starting recursive crawl from: {base_url} (depth={depth}, interval={interval}s, normalized domain={base_domain})"
+    )
+
     count = 0
     max_pages = 50  # safeguard
-    
+
     while queue and count < max_pages:
         current_url, current_depth = queue.pop(0)
-        
+
         if current_url in visited:
             continue
         visited.add(current_url)
-        
+
         # Check if already ingested in database
         already_ingested = False
         try:
@@ -404,9 +419,11 @@ def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
             already_ingested = True
         except Exception:
             pass
-            
-        logger.info(f"[CRAWLER] Processing target: {current_url} at depth {current_depth}")
-        
+
+        logger.info(
+            f"[CRAWLER] Processing target: {current_url} at depth {current_depth}"
+        )
+
         try:
             if not already_ingested:
                 ingest_url_sync(db_handle, current_url, config_obj, client)
@@ -415,9 +432,14 @@ def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
                 # Sleep between requests to respect crawl interval
                 time.sleep(interval)
             else:
-                logger.info(f"[CRAWLER] Skipping ingestion: {current_url} (already exists in database)")
+                logger.info(
+                    f"[CRAWLER] Skipping ingestion: {current_url} (already exists in database)"
+                )
         except Exception as e:
-            logger.error(f"[CRAWLER] Ingestion failure for {current_url}: {str(e)}", exc_info=True)
+            logger.error(
+                f"[CRAWLER] Ingestion failure for {current_url}: {str(e)}",
+                exc_info=True,
+            )
             continue
 
         # Fetch page links to continue crawling if depth is not exceeded
@@ -426,25 +448,35 @@ def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
                 row = db_handle["fetched_pages"].get(current_url)
                 links_json = row.get("links") or "[]"
                 links = json.loads(links_json)
-                logger.info(f"[CRAWLER] Parsing links for {current_url}. Found {len(links)} links.")
+                logger.info(
+                    f"[CRAWLER] Parsing links for {current_url}. Found {len(links)} links."
+                )
                 for link in links:
                     if not link or link.startswith("#"):
                         continue
                     abs_link = urljoin(current_url, link)
                     parsed_link = urlparse(abs_link)
-                    
+
                     # Normalize child link netloc domain to ignore www. differences
                     link_domain = parsed_link.netloc.lower()
                     if link_domain.startswith("www."):
                         link_domain = link_domain[4:]
-                        
-                    if parsed_link.scheme in ("http", "https") and link_domain == base_domain:
+
+                    if (
+                        parsed_link.scheme in ("http", "https")
+                        and link_domain == base_domain
+                    ):
                         if abs_link not in visited:
                             queue.append((abs_link, current_depth + 1))
             except Exception as e:
-                logger.error(f"[CRAWLER] Failed parsing links for {current_url}: {str(e)}", exc_info=True)
-                
-    logger.info(f"[CRAWLER] Recursive crawl finished. Total new pages ingested: {count}")
+                logger.error(
+                    f"[CRAWLER] Failed parsing links for {current_url}: {str(e)}",
+                    exc_info=True,
+                )
+
+    logger.info(
+        f"[CRAWLER] Recursive crawl finished. Total new pages ingested: {count}"
+    )
 
 
 @router.post("/api/crawl/start", dependencies=[Depends(verify_auth)])
@@ -455,17 +487,9 @@ def start_site_crawl(
     interval: int = Form(5),
 ) -> dict:
     """Spawns a recursive crawler task in the background."""
-    background_tasks.add_task(
-        run_recursive_crawl,
-        url,
-        depth,
-        interval,
-        config
-    )
+    background_tasks.add_task(run_recursive_crawl, url, depth, interval, config)
     return {"status": "success", "message": f"Crawler started in background for: {url}"}
 
-
-from ..utils import download_youtube_video
 
 def background_video_downloader(video_id: str, url: str, config_obj):
     try:
@@ -473,8 +497,7 @@ def background_video_downloader(video_id: str, url: str, config_obj):
         local_path = download_youtube_video(video_id, config_obj)
         # Update youtube_videos table with the local path
         db_handle["youtube_videos"].update(
-            {"url": url, "local_path": local_path},
-            pk="url"
+            {"url": url, "local_path": local_path}, pk="url"
         )
         db_handle.conn.commit()
         print(f"[DOWNLOAD] Video {video_id} successfully saved offline at {local_path}")
@@ -491,11 +514,9 @@ def start_video_download(
     video_id = extract_youtube_video_id(url)
     if not video_id:
         return {"status": "error", "message": "Invalid YouTube URL or video ID."}
-        
-    background_tasks.add_task(
-        background_video_downloader,
-        video_id,
-        url,
-        config
-    )
-    return {"status": "success", "message": f"Downloading video {video_id} in background."}
+
+    background_tasks.add_task(background_video_downloader, video_id, url, config)
+    return {
+        "status": "success",
+        "message": f"Downloading video {video_id} in background.",
+    }

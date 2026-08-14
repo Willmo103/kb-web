@@ -2,8 +2,10 @@
 """
 Verifies Jinja2 templates in kb-web for syntax, theme variable presence, and layout integrity.
 """
+
 import sys
 from pathlib import Path
+
 
 def main():
     repo_root = Path(__file__).resolve().parents[4]
@@ -28,13 +30,16 @@ def main():
         block_starts = content.count("{% block")
         block_ends = content.count("{% endblock")
         if block_starts != block_ends:
-            print(f"[WARNING] {rel_path}: Mismatched Jinja2 block tags ({block_starts} start vs {block_ends} end)")
+            print(
+                f"[WARNING] {rel_path}: Mismatched Jinja2 block tags ({block_starts} start vs {block_ends} end)"
+            )
             warnings += 1
         else:
             print(f"[OK] {rel_path}: Jinja2 blocks verified ({block_starts} blocks)")
 
     print(f"\n[SUMMARY] UI Verification complete. Total warnings: {warnings}")
     sys.exit(0 if warnings == 0 else 1)
+
 
 if __name__ == "__main__":
     main()

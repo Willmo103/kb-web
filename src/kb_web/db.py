@@ -5,7 +5,13 @@ Database initialization and utilities for the Knowledge Base Web Importer applic
 import sqlite_utils
 from typing import Optional
 
-from .config import Config, DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT, DEFAULT_WIKI_PROMPT, DEFAULT_YOUTUBE_WIKI_PROMPT
+from .config import (
+    Config,
+    DEFAULT_RAG_SYSTEM_PROMPT,
+    DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+    DEFAULT_WIKI_PROMPT,
+    DEFAULT_YOUTUBE_WIKI_PROMPT,
+)
 
 
 def get_db(config: Config) -> sqlite_utils.Database:
@@ -170,9 +176,13 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
         if "local_path" not in columns:
             try:
                 db["youtube_videos"].add_column("local_path", str)
-                print("Schema Migration: Added 'local_path' column to youtube_videos table.")
+                print(
+                    "Schema Migration: Added 'local_path' column to youtube_videos table."
+                )
             except Exception as e:
-                print(f"Error migrating database (adding local_path column to youtube_videos): {e}")
+                print(
+                    f"Error migrating database (adding local_path column to youtube_videos): {e}"
+                )
 
     # Retrospective migration for youtube_videos table
     if "youtube_videos" in db.table_names() and "fetched_pages" in db.table_names():
@@ -180,21 +190,25 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
             if db["youtube_videos"].count == 0:
                 from datetime import datetime
                 from .models import extract_youtube_video_id
-                
+
                 rows_to_migrate = []
                 for row in db["fetched_pages"].rows:
                     url = row["url"]
                     video_id = extract_youtube_video_id(url)
                     if video_id:
-                        rows_to_migrate.append({
-                            "url": url,
-                            "video_id": video_id,
-                            "creator": "Unknown Creator",
-                            "updated_at": datetime.now().isoformat(),
-                        })
+                        rows_to_migrate.append(
+                            {
+                                "url": url,
+                                "video_id": video_id,
+                                "creator": "Unknown Creator",
+                                "updated_at": datetime.now().isoformat(),
+                            }
+                        )
                 if rows_to_migrate:
                     db["youtube_videos"].insert_all(rows_to_migrate, pk="url")
-                    print(f"Retrospective migration complete: created {len(rows_to_migrate)} entries in youtube_videos table.")
+                    print(
+                        f"Retrospective migration complete: created {len(rows_to_migrate)} entries in youtube_videos table."
+                    )
         except Exception as e:
             print(f"Warning: Retrospective migration failed: {e}")
 
@@ -228,36 +242,45 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
             if col_name not in col_cols:
                 try:
                     db["collections"].add_column(col_name, col_type)
-                    print(f"Schema Migration: Added '{col_name}' column to collections table.")
+                    print(
+                        f"Schema Migration: Added '{col_name}' column to collections table."
+                    )
                 except Exception as e:
-                    print(f"Error migrating collections (adding {col_name} column): {e}")
+                    print(
+                        f"Error migrating collections (adding {col_name} column): {e}"
+                    )
 
     # Ensure "General Collection" exists
     try:
         from datetime import datetime
+
         general_row = list(db["collections"].rows_where("title = 'General Collection'"))
         if not general_row:
             # Check if id=1 is available to preserve it on clean installs
             if not list(db["collections"].rows_where("id = 1")):
-                db["collections"].insert({
-                    "id": 1,
-                    "title": "General Collection",
-                    "visibility": "private",
-                    "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
-                    "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
-                    "general_system_context": "{}",
-                    "created_at": datetime.now().isoformat()
-                })
+                db["collections"].insert(
+                    {
+                        "id": 1,
+                        "title": "General Collection",
+                        "visibility": "private",
+                        "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                        "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                        "general_system_context": "{}",
+                        "created_at": datetime.now().isoformat(),
+                    }
+                )
                 print("Seeded database: General Collection (id=1)")
             else:
-                db["collections"].insert({
-                    "title": "General Collection",
-                    "visibility": "private",
-                    "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
-                    "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
-                    "general_system_context": "{}",
-                    "created_at": datetime.now().isoformat()
-                })
+                db["collections"].insert(
+                    {
+                        "title": "General Collection",
+                        "visibility": "private",
+                        "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                        "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                        "general_system_context": "{}",
+                        "created_at": datetime.now().isoformat(),
+                    }
+                )
                 print("Seeded database: General Collection (auto-incremented ID)")
         else:
             # Migration to set default prompts if they are empty on existing General Collection
@@ -271,15 +294,15 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                 db["collections"].update(row["id"], updates)
                 db.conn.commit()
                 print("Migrated General Collection prompts to default values.")
-                
+
         # Migration for other collections
         db.execute(
             "UPDATE collections SET rag_system_prompt = ? WHERE rag_system_prompt IS NULL OR rag_system_prompt = ''",
-            [DEFAULT_RAG_SYSTEM_PROMPT]
+            [DEFAULT_RAG_SYSTEM_PROMPT],
         )
         db.execute(
             "UPDATE collections SET taxonomy_system_prompt = ? WHERE taxonomy_system_prompt IS NULL OR taxonomy_system_prompt = ''",
-            [DEFAULT_TAXONOMY_SYSTEM_PROMPT]
+            [DEFAULT_TAXONOMY_SYSTEM_PROMPT],
         )
         db.conn.commit()
     except Exception as e:
@@ -291,17 +314,25 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
         if "collection_id" not in columns:
             try:
                 db["fetched_pages"].add_column("collection_id", int)
-                print("Schema Migration: Added 'collection_id' column to fetched_pages table.")
+                print(
+                    "Schema Migration: Added 'collection_id' column to fetched_pages table."
+                )
             except Exception as e:
                 print(f"Error migrating database (adding collection_id column): {e}")
         if "exclude_from_general" not in columns:
             try:
                 db["fetched_pages"].add_column("exclude_from_general", int)
                 # default existing records to 0
-                db.execute("UPDATE fetched_pages SET exclude_from_general = 0 WHERE exclude_from_general IS NULL")
-                print("Schema Migration: Added 'exclude_from_general' column to fetched_pages table.")
+                db.execute(
+                    "UPDATE fetched_pages SET exclude_from_general = 0 WHERE exclude_from_general IS NULL"
+                )
+                print(
+                    "Schema Migration: Added 'exclude_from_general' column to fetched_pages table."
+                )
             except Exception as e:
-                print(f"Error migrating database (adding exclude_from_general column): {e}")
+                print(
+                    f"Error migrating database (adding exclude_from_general column): {e}"
+                )
 
     # Initialize collection_items table
     if "collection_items" not in db.table_names():
@@ -311,17 +342,19 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                     "id": int,
                     "collection_id": int,
                     "source_type": str,  # "articles" or "videos"
-                    "source_id": str,    # URL
+                    "source_id": str,  # URL
                     "item_note": str,
                     "taxonomy_path": str,
-                    "item_order": int,   # Order index for custom sorting
+                    "item_order": int,  # Order index for custom sorting
                     "added_at": str,
                 },
                 pk="id",
                 foreign_keys=[("collection_id", "collections", "id")],
             )
             # Create unique index to avoid duplicates
-            db["collection_items"].create_index(["collection_id", "source_type", "source_id"], unique=True)
+            db["collection_items"].create_index(
+                ["collection_id", "source_type", "source_id"], unique=True
+            )
             print("Initialized database table: collection_items")
         except Exception as e:
             print(f"Error creating collection_items table: {e}")
@@ -331,7 +364,9 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
         if "item_order" not in columns:
             try:
                 db["collection_items"].add_column("item_order", int)
-                print("Schema Migration: Added 'item_order' column to collection_items table.")
+                print(
+                    "Schema Migration: Added 'item_order' column to collection_items table."
+                )
             except Exception as e:
                 print(f"Error migrating database (adding item_order column): {e}")
 
@@ -372,7 +407,9 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                 },
                 pk="id",
             )
-            db["chunk_embeddings"].create_index(["source_type", "source_id", "chunk_number"])
+            db["chunk_embeddings"].create_index(
+                ["source_type", "source_id", "chunk_number"]
+            )
             print("Initialized database table: chunk_embeddings")
         except Exception as e:
             print(f"Error creating chunk_embeddings table: {e}")
@@ -400,7 +437,9 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                 db[table_name].drop()
                 print(f"Dropped legacy database table: {table_name}")
             except Exception as e:
-                print(f"Warning: Failed to drop legacy database table {table_name}: {e}")
+                print(
+                    f"Warning: Failed to drop legacy database table {table_name}: {e}"
+                )
 
     # Initialize ollama_logs table
     if "ollama_logs" not in db.table_names():
@@ -439,21 +478,28 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                     "key": str,
                     "value": str,
                 },
-                pk="key"
+                pk="key",
             )
             # Seed default values
             from datetime import datetime
             import os
             from pathlib import Path
             import json
-            
+
             ollama_host = os.getenv("KB_OLLAMA_HOST", "http://localhost:11434")
             ollama_model = os.getenv("KB_OLLAMA_MODEL", "gemma4:latest")
-            ollama_embedding = os.getenv("KB_OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
-            ollama_think = os.getenv("KB_OLLAMA_THINK", "false").lower() in ("true", "1")
+            ollama_embedding = os.getenv(
+                "KB_OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"
+            )
+            ollama_think = os.getenv("KB_OLLAMA_THINK", "false").lower() in (
+                "true",
+                "1",
+            )
             max_input = os.getenv("KB_MAX_INPUT_LENGTH", "20000")
-            
-            config_dir = config.configs_dir if config else (Path.home() / ".kb" / "configs")
+
+            config_dir = (
+                config.configs_dir if config else (Path.home() / ".kb" / "configs")
+            )
             config_file = config_dir / "kb-web.json"
             if config_file.exists():
                 try:
@@ -461,19 +507,24 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                         data = json.load(f)
                         ollama_host = data.get("ollama_host", ollama_host)
                         ollama_model = data.get("ollama_model", ollama_model)
-                        ollama_embedding = data.get("ollama_embedding_model", ollama_embedding)
+                        ollama_embedding = data.get(
+                            "ollama_embedding_model", ollama_embedding
+                        )
                         ollama_think = bool(data.get("ollama_think", ollama_think))
                         max_input = str(data.get("max_input_length", max_input))
                 except Exception:
                     pass
-            
-            db["settings_ollama"].insert_all([
-                {"key": "ollama_host", "value": ollama_host},
-                {"key": "ollama_model", "value": ollama_model},
-                {"key": "ollama_embedding_model", "value": ollama_embedding},
-                {"key": "ollama_think", "value": "1" if ollama_think else "0"},
-                {"key": "max_input_length", "value": str(max_input)},
-            ], pk="key")
+
+            db["settings_ollama"].insert_all(
+                [
+                    {"key": "ollama_host", "value": ollama_host},
+                    {"key": "ollama_model", "value": ollama_model},
+                    {"key": "ollama_embedding_model", "value": ollama_embedding},
+                    {"key": "ollama_think", "value": "1" if ollama_think else "0"},
+                    {"key": "max_input_length", "value": str(max_input)},
+                ],
+                pk="key",
+            )
             db.conn.commit()
             print("Initialized and seeded database table: settings_ollama")
         except Exception as e:
@@ -487,20 +538,22 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                     "key": str,
                     "value": str,
                 },
-                pk="key"
+                pk="key",
             )
             import os
             from pathlib import Path
             import json
-            
+
             api_key = os.getenv("KB_API_KEY", "kb-secret-key")
             gotify_url = os.getenv("GOTIFY_URL", "")
             gotify_token = os.getenv("GOTIFY_TOKEN", "")
             qdrant_url = os.getenv("QDRANT_HOST_URL", "")
             qdrant_key = os.getenv("QDRANT_API_KEY", "")
             sim_threshold = os.getenv("KB_SIMILARITY_THRESHOLD", "0.8")
-            
-            config_dir = config.configs_dir if config else (Path.home() / ".kb" / "configs")
+
+            config_dir = (
+                config.configs_dir if config else (Path.home() / ".kb" / "configs")
+            )
             config_file = config_dir / "kb-web.json"
             if config_file.exists():
                 try:
@@ -511,18 +564,23 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                         gotify_token = data.get("gotify_token", gotify_token)
                         qdrant_url = data.get("qdrant_host_url", qdrant_url)
                         qdrant_key = data.get("qdrant_api_key", qdrant_key)
-                        sim_threshold = str(data.get("similarity_threshold", sim_threshold))
+                        sim_threshold = str(
+                            data.get("similarity_threshold", sim_threshold)
+                        )
                 except Exception:
                     pass
-            
-            db["settings_external"].insert_all([
-                {"key": "api_key", "value": api_key or ""},
-                {"key": "gotify_url", "value": gotify_url or ""},
-                {"key": "gotify_token", "value": gotify_token or ""},
-                {"key": "qdrant_host_url", "value": qdrant_url or ""},
-                {"key": "qdrant_api_key", "value": qdrant_key or ""},
-                {"key": "similarity_threshold", "value": str(sim_threshold)},
-            ], pk="key")
+
+            db["settings_external"].insert_all(
+                [
+                    {"key": "api_key", "value": api_key or ""},
+                    {"key": "gotify_url", "value": gotify_url or ""},
+                    {"key": "gotify_token", "value": gotify_token or ""},
+                    {"key": "qdrant_host_url", "value": qdrant_url or ""},
+                    {"key": "qdrant_api_key", "value": qdrant_key or ""},
+                    {"key": "similarity_threshold", "value": str(sim_threshold)},
+                ],
+                pk="key",
+            )
             db.conn.commit()
             print("Initialized and seeded database table: settings_external")
         except Exception as e:
@@ -540,46 +598,55 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                     "created_at": str,
                     "version": int,
                 },
-                pk="id"
+                pk="id",
             )
-            
+
             # Seed default prompts
             import os
             from pathlib import Path
             import json
             from datetime import datetime
-            
+
             wiki_prompt = os.getenv("KB_WIKI_PROMPT", DEFAULT_WIKI_PROMPT)
-            youtube_wiki_prompt = os.getenv("KB_YOUTUBE_WIKI_PROMPT", DEFAULT_YOUTUBE_WIKI_PROMPT)
-            
-            config_dir = config.configs_dir if config else (Path.home() / ".kb" / "configs")
+            youtube_wiki_prompt = os.getenv(
+                "KB_YOUTUBE_WIKI_PROMPT", DEFAULT_YOUTUBE_WIKI_PROMPT
+            )
+
+            config_dir = (
+                config.configs_dir if config else (Path.home() / ".kb" / "configs")
+            )
             config_file = config_dir / "kb-web.json"
             if config_file.exists():
                 try:
                     with open(config_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                         wiki_prompt = data.get("wiki_prompt", wiki_prompt)
-                        youtube_wiki_prompt = data.get("youtube_wiki_prompt", youtube_wiki_prompt)
+                        youtube_wiki_prompt = data.get(
+                            "youtube_wiki_prompt", youtube_wiki_prompt
+                        )
                 except Exception:
                     pass
-            
+
             now = datetime.now().isoformat()
-            db["agent_prompts"].insert_all([
-                {
-                    "prompt_type": "wiki_prompt",
-                    "prompt_text": wiki_prompt,
-                    "is_head": 1,
-                    "version": 1,
-                    "created_at": now,
-                },
-                {
-                    "prompt_type": "youtube_wiki_prompt",
-                    "prompt_text": youtube_wiki_prompt,
-                    "is_head": 1,
-                    "version": 1,
-                    "created_at": now,
-                }
-            ], pk="id")
+            db["agent_prompts"].insert_all(
+                [
+                    {
+                        "prompt_type": "wiki_prompt",
+                        "prompt_text": wiki_prompt,
+                        "is_head": 1,
+                        "version": 1,
+                        "created_at": now,
+                    },
+                    {
+                        "prompt_type": "youtube_wiki_prompt",
+                        "prompt_text": youtube_wiki_prompt,
+                        "is_head": 1,
+                        "version": 1,
+                        "created_at": now,
+                    },
+                ],
+                pk="id",
+            )
             db.conn.commit()
             print("Initialized and seeded database table: agent_prompts")
         except Exception as e:
@@ -594,7 +661,7 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                     "name": str,
                     "created_at": str,
                 },
-                pk="key"
+                pk="key",
             )
             db.conn.commit()
             print("Initialized database table: cli_api_keys")
@@ -611,7 +678,7 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                     "registered_at": str,
                     "status": str,
                 },
-                pk="computer_name"
+                pk="computer_name",
             )
             db.conn.commit()
             print("Initialized database table: registered_clients")
@@ -631,7 +698,7 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
                     "created_at": str,
                     "last_clicked_at": str,
                 },
-                pk="id"
+                pk="id",
             )
             db["links"].create_index(["url"], unique=True)
             db.conn.commit()
@@ -640,41 +707,43 @@ def init_db(db: sqlite_utils.Database, config: Optional[Config] = None) -> None:
             print(f"Error creating links table: {e}")
 
 
-
 def get_general_collection_id(db: sqlite_utils.Database) -> int:
     """Finds the General Collection ID from the database, seeding it if missing."""
     rows = list(db["collections"].rows_where("title = 'General Collection'"))
     if rows:
         return rows[0]["id"]
-    
+
     # If not found, try to insert it (handling ID 1 availability)
     try:
         from datetime import datetime
+
         if not list(db["collections"].rows_where("id = 1")):
-            db["collections"].insert({
-                "id": 1,
-                "title": "General Collection",
-                "visibility": "private",
-                "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
-                "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
-                "general_system_context": "{}",
-                "created_at": datetime.now().isoformat()
-            })
+            db["collections"].insert(
+                {
+                    "id": 1,
+                    "title": "General Collection",
+                    "visibility": "private",
+                    "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                    "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                    "general_system_context": "{}",
+                    "created_at": datetime.now().isoformat(),
+                }
+            )
             db.conn.commit()
             return 1
         else:
-            res = db["collections"].insert({
-                "title": "General Collection",
-                "visibility": "private",
-                "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
-                "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
-                "general_system_context": "{}",
-                "created_at": datetime.now().isoformat()
-            })
+            res = db["collections"].insert(
+                {
+                    "title": "General Collection",
+                    "visibility": "private",
+                    "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
+                    "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                    "general_system_context": "{}",
+                    "created_at": datetime.now().isoformat(),
+                }
+            )
             db.conn.commit()
             return res.last_pk
     except Exception as e:
         print(f"Error seeding General Collection in helper: {e}")
         return 1
-
-

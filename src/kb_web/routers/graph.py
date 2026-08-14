@@ -70,27 +70,15 @@ def get_graph_data(request: Request) -> JSONResponse:
     for p in pages:
         url = p["url"]
         title = p.get("title") or url
-        nodes.append({
-            "id": url,
-            "label": title,
-            "type": "page"
-        })
+        nodes.append({"id": url, "label": title, "type": "page"})
 
         # Link Page -> Site
         site = get_url_basename(url)
         site_id = f"site:{site}"
         if site not in sites_seen:
             sites_seen.add(site)
-            nodes.append({
-                "id": site_id,
-                "label": site,
-                "type": "site"
-            })
-        links.append({
-            "source": url,
-            "target": site_id,
-            "type": "page-site"
-        })
+            nodes.append({"id": site_id, "label": site, "type": "site"})
+        links.append({"source": url, "target": site_id, "type": "page-site"})
 
         # Link Page -> Creator (if YouTube video)
         creator = video_creators.get(url)
@@ -98,16 +86,8 @@ def get_graph_data(request: Request) -> JSONResponse:
             creator_id = f"creator:{creator}"
             if creator not in creators_seen:
                 creators_seen.add(creator)
-                nodes.append({
-                    "id": creator_id,
-                    "label": creator,
-                    "type": "creator"
-                })
-            links.append({
-                "source": url,
-                "target": creator_id,
-                "type": "page-creator"
-            })
+                nodes.append({"id": creator_id, "label": creator, "type": "creator"})
+            links.append({"source": url, "target": creator_id, "type": "page-creator"})
 
         # Link Page -> Tags
         tags_json = p.get("tags")
@@ -118,16 +98,8 @@ def get_graph_data(request: Request) -> JSONResponse:
                     tag_id = f"tag:{t}"
                     if t not in tags_seen:
                         tags_seen.add(t)
-                        nodes.append({
-                            "id": tag_id,
-                            "label": t,
-                            "type": "tag"
-                        })
-                    links.append({
-                        "source": url,
-                        "target": tag_id,
-                        "type": "page-tag"
-                    })
+                        nodes.append({"id": tag_id, "label": t, "type": "tag"})
+                    links.append({"source": url, "target": tag_id, "type": "page-tag"})
             except Exception:
                 pass
 
@@ -140,11 +112,13 @@ def get_graph_data(request: Request) -> JSONResponse:
             u2 = url_list[j]
             sim = cosine_similarity(embeddings[u1], embeddings[u2])
             if sim >= threshold:
-                links.append({
-                    "source": u1,
-                    "target": u2,
-                    "type": "similarity",
-                    "weight": round(sim, 2)
-                })
+                links.append(
+                    {
+                        "source": u1,
+                        "target": u2,
+                        "type": "similarity",
+                        "weight": round(sim, 2),
+                    }
+                )
 
     return JSONResponse(content={"nodes": nodes, "links": links})

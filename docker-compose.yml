@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  postgres-dev:
+    image: pgvector/pgvector:pg16
+    container_name: kb-postgres-dev
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kb_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    volumes:
+      - pg_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-kb_dev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - dev
+
+  postgres-test:
+    image: pgvector/pgvector:pg16
+    container_name: kb-postgres-test
+    ports:
+      - "${POSTGRES_TEST_PORT:-5433}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_TEST_DB:-kb_test}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    volumes:
+      - pg_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_TEST_DB:-kb_test}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - test
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    container_name: kb-web-app
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      KB_OLLAMA_HOST: ${KB_OLLAMA_HOST:-http://host.docker.internal:11434}
+    depends_on:
+      postgres-dev:
+        condition: service_healthy
+    profiles:
+      - app
+
+volumes:
+  pg_dev_data:
+  pg_test_data:

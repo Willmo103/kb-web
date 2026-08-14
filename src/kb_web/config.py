@@ -48,8 +48,6 @@ DEFAULT_TAXONOMY_SYSTEM_PROMPT = (
 )
 
 
-
-
 class Config(BaseConfig):
     """Configuration class for the kb-web application.
 
@@ -75,14 +73,22 @@ class Config(BaseConfig):
         self._admin_password: str = os.getenv("KB_PASSWORD", "admin123")
         self._api_key: Optional[str] = os.getenv("KB_API_KEY", "kb-secret-key")
         self._wiki_prompt: str = os.getenv("KB_WIKI_PROMPT", DEFAULT_WIKI_PROMPT)
-        self._youtube_wiki_prompt: str = os.getenv("KB_YOUTUBE_WIKI_PROMPT", DEFAULT_YOUTUBE_WIKI_PROMPT)
-        self._similarity_threshold: float = float(os.getenv("KB_SIMILARITY_THRESHOLD", "0.8"))
+        self._youtube_wiki_prompt: str = os.getenv(
+            "KB_YOUTUBE_WIKI_PROMPT", DEFAULT_YOUTUBE_WIKI_PROMPT
+        )
+        self._similarity_threshold: float = float(
+            os.getenv("KB_SIMILARITY_THRESHOLD", "0.8")
+        )
         self._max_input_length: int = int(os.getenv("KB_MAX_INPUT_LENGTH", "20000"))
-        self._ollama_think: bool = os.getenv("KB_OLLAMA_THINK", "false").lower() in ("true", "1")
+        self._ollama_think: bool = os.getenv("KB_OLLAMA_THINK", "false").lower() in (
+            "true",
+            "1",
+        )
         self._gotify_url: Optional[str] = os.getenv("GOTIFY_URL")
         self._gotify_token: Optional[str] = os.getenv("GOTIFY_TOKEN")
         self._qdrant_host_url: Optional[str] = os.getenv("QDRANT_HOST_URL")
         self._qdrant_api_key: Optional[str] = os.getenv("QDRANT_API_KEY")
+        self._database_url: str = os.getenv("DATABASE_URL", "")
 
         # 2. Overlay values from JSON configuration file if it exists
         try:
@@ -90,6 +96,8 @@ class Config(BaseConfig):
             if config_file.exists():
                 with open(config_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                    if "database_url" in data:
+                        self._database_url = data["database_url"]
                     if "ollama_host" in data:
                         self._ollama_host = data["ollama_host"]
                     if "ollama_model" in data:
@@ -152,8 +160,10 @@ class Config(BaseConfig):
 
     @property
     def ollama_host(self) -> str:
-        return self._read_db_setting("settings_ollama", "ollama_host", self._ollama_host)
-        
+        return self._read_db_setting(
+            "settings_ollama", "ollama_host", self._ollama_host
+        )
+
     @ollama_host.setter
     def ollama_host(self, value: str) -> None:
         self._ollama_host = value
@@ -161,8 +171,10 @@ class Config(BaseConfig):
 
     @property
     def ollama_model(self) -> str:
-        return self._read_db_setting("settings_ollama", "ollama_model", self._ollama_model)
-        
+        return self._read_db_setting(
+            "settings_ollama", "ollama_model", self._ollama_model
+        )
+
     @ollama_model.setter
     def ollama_model(self, value: str) -> None:
         self._ollama_model = value
@@ -170,8 +182,10 @@ class Config(BaseConfig):
 
     @property
     def ollama_embedding_model(self) -> str:
-        return self._read_db_setting("settings_ollama", "ollama_embedding_model", self._ollama_embedding_model)
-        
+        return self._read_db_setting(
+            "settings_ollama", "ollama_embedding_model", self._ollama_embedding_model
+        )
+
     @ollama_embedding_model.setter
     def ollama_embedding_model(self, value: str) -> None:
         self._ollama_embedding_model = value
@@ -179,8 +193,10 @@ class Config(BaseConfig):
 
     @property
     def max_input_length(self) -> int:
-        return self._read_db_setting("settings_ollama", "max_input_length", self._max_input_length)
-        
+        return self._read_db_setting(
+            "settings_ollama", "max_input_length", self._max_input_length
+        )
+
     @max_input_length.setter
     def max_input_length(self, value: int) -> None:
         self._max_input_length = value
@@ -188,17 +204,29 @@ class Config(BaseConfig):
 
     @property
     def ollama_think(self) -> bool:
-        return self._read_db_setting("settings_ollama", "ollama_think", self._ollama_think)
-        
+        return self._read_db_setting(
+            "settings_ollama", "ollama_think", self._ollama_think
+        )
+
     @ollama_think.setter
     def ollama_think(self, value: bool) -> None:
         self._ollama_think = value
         self._write_db_setting("settings_ollama", "ollama_think", "1" if value else "0")
 
     @property
+    def database_url(self) -> str:
+        return self._database_url
+
+    @database_url.setter
+    def database_url(self, value: str) -> None:
+        self._database_url = value
+
+    @property
     def admin_password(self) -> str:
-        return self._read_db_setting("settings_external", "admin_password", self._admin_password)
-        
+        return self._read_db_setting(
+            "settings_external", "admin_password", self._admin_password
+        )
+
     @admin_password.setter
     def admin_password(self, value: str) -> None:
         self._admin_password = value
@@ -208,7 +236,7 @@ class Config(BaseConfig):
     def api_key(self) -> Optional[str]:
         val = self._read_db_setting("settings_external", "api_key", self._api_key)
         return val if val else None
-        
+
     @api_key.setter
     def api_key(self, value: Optional[str]) -> None:
         self._api_key = value
@@ -218,7 +246,7 @@ class Config(BaseConfig):
     def gotify_url(self) -> Optional[str]:
         val = self._read_db_setting("settings_external", "gotify_url", self._gotify_url)
         return val if val else None
-        
+
     @gotify_url.setter
     def gotify_url(self, value: Optional[str]) -> None:
         self._gotify_url = value
@@ -226,9 +254,11 @@ class Config(BaseConfig):
 
     @property
     def gotify_token(self) -> Optional[str]:
-        val = self._read_db_setting("settings_external", "gotify_token", self._gotify_token)
+        val = self._read_db_setting(
+            "settings_external", "gotify_token", self._gotify_token
+        )
         return val if val else None
-        
+
     @gotify_token.setter
     def gotify_token(self, value: Optional[str]) -> None:
         self._gotify_token = value
@@ -236,9 +266,11 @@ class Config(BaseConfig):
 
     @property
     def qdrant_host_url(self) -> Optional[str]:
-        val = self._read_db_setting("settings_external", "qdrant_host_url", self._qdrant_host_url)
+        val = self._read_db_setting(
+            "settings_external", "qdrant_host_url", self._qdrant_host_url
+        )
         return val if val else None
-        
+
     @qdrant_host_url.setter
     def qdrant_host_url(self, value: Optional[str]) -> None:
         self._qdrant_host_url = value
@@ -246,9 +278,11 @@ class Config(BaseConfig):
 
     @property
     def qdrant_api_key(self) -> Optional[str]:
-        val = self._read_db_setting("settings_external", "qdrant_api_key", self._qdrant_api_key)
+        val = self._read_db_setting(
+            "settings_external", "qdrant_api_key", self._qdrant_api_key
+        )
         return val if val else None
-        
+
     @qdrant_api_key.setter
     def qdrant_api_key(self, value: Optional[str]) -> None:
         self._qdrant_api_key = value
@@ -256,8 +290,10 @@ class Config(BaseConfig):
 
     @property
     def similarity_threshold(self) -> float:
-        return self._read_db_setting("settings_external", "similarity_threshold", self._similarity_threshold)
-        
+        return self._read_db_setting(
+            "settings_external", "similarity_threshold", self._similarity_threshold
+        )
+
     @similarity_threshold.setter
     def similarity_threshold(self, value: float) -> None:
         self._similarity_threshold = value
@@ -268,7 +304,11 @@ class Config(BaseConfig):
         try:
             db = self.get_db()
             if "agent_prompts" in db.table_names():
-                rows = list(db["agent_prompts"].rows_where("prompt_type = 'wiki_prompt' AND is_head = 1"))
+                rows = list(
+                    db["agent_prompts"].rows_where(
+                        "prompt_type = 'wiki_prompt' AND is_head = 1"
+                    )
+                )
                 if rows:
                     return rows[0]["prompt_text"]
         except Exception:
@@ -282,27 +322,38 @@ class Config(BaseConfig):
             db = self.get_db()
             if "agent_prompts" in db.table_names():
                 current_head = None
-                rows = list(db["agent_prompts"].rows_where("prompt_type = 'wiki_prompt' AND is_head = 1"))
+                rows = list(
+                    db["agent_prompts"].rows_where(
+                        "prompt_type = 'wiki_prompt' AND is_head = 1"
+                    )
+                )
                 if rows:
                     current_head = rows[0]["prompt_text"]
-                
+
                 if current_head != value:
                     from datetime import datetime
+
                     max_version = 0
-                    all_versions = list(db.execute_returning_dicts(
-                        "SELECT MAX(version) as mv FROM agent_prompts WHERE prompt_type = 'wiki_prompt'"
-                    ))
+                    all_versions = list(
+                        db.execute_returning_dicts(
+                            "SELECT MAX(version) as mv FROM agent_prompts WHERE prompt_type = 'wiki_prompt'"
+                        )
+                    )
                     if all_versions and all_versions[0]["mv"] is not None:
                         max_version = all_versions[0]["mv"]
-                        
-                    db.execute("UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = 'wiki_prompt'")
-                    db["agent_prompts"].insert({
-                        "prompt_type": "wiki_prompt",
-                        "prompt_text": value,
-                        "is_head": 1,
-                        "version": max_version + 1,
-                        "created_at": datetime.now().isoformat()
-                    })
+
+                    db.execute(
+                        "UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = 'wiki_prompt'"
+                    )
+                    db["agent_prompts"].insert(
+                        {
+                            "prompt_type": "wiki_prompt",
+                            "prompt_text": value,
+                            "is_head": 1,
+                            "version": max_version + 1,
+                            "created_at": datetime.now().isoformat(),
+                        }
+                    )
                     db.conn.commit()
         except Exception as e:
             print(f"Error setting wiki_prompt: {e}")
@@ -312,7 +363,11 @@ class Config(BaseConfig):
         try:
             db = self.get_db()
             if "agent_prompts" in db.table_names():
-                rows = list(db["agent_prompts"].rows_where("prompt_type = 'youtube_wiki_prompt' AND is_head = 1"))
+                rows = list(
+                    db["agent_prompts"].rows_where(
+                        "prompt_type = 'youtube_wiki_prompt' AND is_head = 1"
+                    )
+                )
                 if rows:
                     return rows[0]["prompt_text"]
         except Exception:
@@ -326,27 +381,38 @@ class Config(BaseConfig):
             db = self.get_db()
             if "agent_prompts" in db.table_names():
                 current_head = None
-                rows = list(db["agent_prompts"].rows_where("prompt_type = 'youtube_wiki_prompt' AND is_head = 1"))
+                rows = list(
+                    db["agent_prompts"].rows_where(
+                        "prompt_type = 'youtube_wiki_prompt' AND is_head = 1"
+                    )
+                )
                 if rows:
                     current_head = rows[0]["prompt_text"]
-                
+
                 if current_head != value:
                     from datetime import datetime
+
                     max_version = 0
-                    all_versions = list(db.execute_returning_dicts(
-                        "SELECT MAX(version) as mv FROM agent_prompts WHERE prompt_type = 'youtube_wiki_prompt'"
-                    ))
+                    all_versions = list(
+                        db.execute_returning_dicts(
+                            "SELECT MAX(version) as mv FROM agent_prompts WHERE prompt_type = 'youtube_wiki_prompt'"
+                        )
+                    )
                     if all_versions and all_versions[0]["mv"] is not None:
                         max_version = all_versions[0]["mv"]
-                        
-                    db.execute("UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = 'youtube_wiki_prompt'")
-                    db["agent_prompts"].insert({
-                        "prompt_type": "youtube_wiki_prompt",
-                        "prompt_text": value,
-                        "is_head": 1,
-                        "version": max_version + 1,
-                        "created_at": datetime.now().isoformat()
-                    })
+
+                    db.execute(
+                        "UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = 'youtube_wiki_prompt'"
+                    )
+                    db["agent_prompts"].insert(
+                        {
+                            "prompt_type": "youtube_wiki_prompt",
+                            "prompt_text": value,
+                            "is_head": 1,
+                            "version": max_version + 1,
+                            "created_at": datetime.now().isoformat(),
+                        }
+                    )
                     db.conn.commit()
         except Exception as e:
             print(f"Error setting youtube_wiki_prompt: {e}")
@@ -357,6 +423,7 @@ class Config(BaseConfig):
             self.configs_dir.mkdir(parents=True, exist_ok=True)
             config_file = self.configs_dir / "kb-web.json"
             data = {
+                "database_url": self.database_url,
                 "ollama_host": self.ollama_host,
                 "ollama_model": self.ollama_model,
                 "ollama_embedding_model": self.ollama_embedding_model,

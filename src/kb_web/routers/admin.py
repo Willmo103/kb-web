@@ -3,6 +3,7 @@ FastAPI Router for administrative controls, configuration updates, and maintenan
 """
 
 import json
+import logging
 from datetime import datetime
 from typing import AsyncGenerator, Optional
 from urllib.parse import unquote_plus, quote_plus, urlparse
@@ -100,7 +101,6 @@ def run_bulk_embedding_maintenance() -> None:
 # --- Router Endpoints ---
 
 
-import logging
 logger = logging.getLogger("kb_web")
 
 
@@ -115,7 +115,9 @@ def get_import_url_page() -> HTMLResponse:
     return HTMLResponse(content=template.render(is_admin=True, collections=collections))
 
 
-@router.get("/import/shared-url", dependencies=[Depends(verify_auth)], response_model=None)
+@router.get(
+    "/import/shared-url", dependencies=[Depends(verify_auth)], response_model=None
+)
 def handle_incoming_mobile_share(
     request: Request,
     url: Optional[str] = Query(None),
@@ -135,7 +137,9 @@ def handle_incoming_mobile_share(
 
     template = _jinja_env.get_template("url_import.j2.html")
     return HTMLResponse(
-        content=template.render(prefilled_url=target_link, is_admin=True, collections=collections)
+        content=template.render(
+            prefilled_url=target_link, is_admin=True, collections=collections
+        )
     )
 
 
@@ -219,7 +223,9 @@ def handle_url_import(
 
         from fastapi.concurrency import run_in_threadpool
 
-        logger.info(f"Ingestion started for URL: {cleaned_url} (collection: {collection_id}, new title: {new_collection_title})")
+        logger.info(
+            f"Ingestion started for URL: {cleaned_url} (collection: {collection_id}, new title: {new_collection_title})"
+        )
 
         # Step 1: Fetch
         msg = f"Fetching content from URL: {cleaned_url}..."
@@ -231,7 +237,10 @@ def handle_url_import(
         except Exception as e:
             err_msg = f"Fetch failed: {str(e)}"
             yield f"<script>showError({json.dumps(err_msg)});</script>\n"
-            logger.error(f"Ingestion fetch failed for: {cleaned_url} - Error: {str(e)}", exc_info=True)
+            logger.error(
+                f"Ingestion fetch failed for: {cleaned_url} - Error: {str(e)}",
+                exc_info=True,
+            )
             return
 
         # Check duplicate
@@ -240,17 +249,21 @@ def handle_url_import(
             existing_row = existing_rows[0]
             if existing_row.get("md_content_hash") == page_data.md_content_hash:
                 yield f"<script>addLog({json.dumps('URL already exists and content is identical. Skipping pipeline...')});</script>\n"
-                
+
                 target_col_id = None
                 if collection_id == "new_collection" and new_collection_title:
-                    from ..config import DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
+                    from ..config import (
+                        DEFAULT_RAG_SYSTEM_PROMPT,
+                        DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                    )
+
                     col_row = {
                         "title": new_collection_title,
                         "visibility": "public",
                         "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
                         "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
                         "general_system_context": "{}",
-                        "created_at": datetime.now().isoformat()
+                        "created_at": datetime.now().isoformat(),
                     }
                     res = db["collections"].insert(col_row)
                     db.conn.commit()
@@ -261,71 +274,81 @@ def handle_url_import(
                         target_col_id = int(collection_id)
                     except ValueError:
                         pass
-                
+
                 if target_col_id:
-                    existing_items = list(db["collection_items"].rows_where(
-                        "collection_id = ? AND source_id = ?",
-                        [target_col_id, cleaned_url]
-                    ))
+                    existing_items = list(
+                        db["collection_items"].rows_where(
+                            "collection_id = ? AND source_id = ?",
+                            [target_col_id, cleaned_url],
+                        )
+                    )
                     if not existing_items:
                         is_video = bool(extract_youtube_video_id(cleaned_url))
                         source_type = "videos" if is_video else "articles"
                         title_val = existing_row.get("title") or ""
-                        db["collection_items"].insert({
-                            "collection_id": target_col_id,
-                            "source_type": source_type,
-                            "source_id": cleaned_url,
-                            "item_note": "",
-                            "taxonomy_path": f"/uncategorized/{title_val[:20].replace(' ', '_')}.md" if title_val else f"/uncategorized/{target_col_id}.md",
-                            "item_order": 0,
-                            "added_at": datetime.now().isoformat()
-                        })
+                        db["collection_items"].insert(
+                            {
+                                "collection_id": target_col_id,
+                                "source_type": source_type,
+                                "source_id": cleaned_url,
+                                "item_note": "",
+                                "taxonomy_path": f"/uncategorized/{title_val[:20].replace(' ', '_')}.md"
+                                if title_val
+                                else f"/uncategorized/{target_col_id}.md",
+                                "item_order": 0,
+                                "added_at": datetime.now().isoformat(),
+                            }
+                        )
                         db.conn.commit()
                         yield f"<script>addLog({json.dumps('Linked item to collection items.')});</script>\n"
-                
+
                 if download_video == "yes":
                     video_id = extract_youtube_video_id(cleaned_url)
                     if video_id:
                         yield f"<script>addLog({json.dumps('Spawning background task to download YouTube video...')});</script>\n"
                         background_tasks.add_task(
-                            background_video_downloader,
-                            video_id,
-                            cleaned_url,
-                            config
+                            background_video_downloader, video_id, cleaned_url, config
                         )
-                
+
                 base_url = str(request.base_url).rstrip("/")
                 view_url = f"{base_url}/view/page?url={page_data.safe_url}"
                 yield f"<script>updateProgress('Done!', 100); setTimeout(() => {{ window.location.href = '{view_url}'; }}, 1000);</script>\n"
                 return
             else:
                 yield f"<script>addLog({json.dumps('URL already exists but content has changed. Archiving current version to history...')});</script>\n"
-                db["page_versions"].insert({
-                    "url": existing_row["url"],
-                    "title": existing_row.get("title"),
-                    "html_content": existing_row.get("html_content"),
-                    "md_content": existing_row.get("md_content"),
-                    "links": existing_row.get("links"),
-                    "html_content_hash": existing_row.get("html_content_hash"),
-                    "md_content_hash": existing_row.get("md_content_hash"),
-                    "fetched_at": existing_row.get("fetched_at"),
-                    "description": existing_row.get("description"),
-                    "keywords": existing_row.get("keywords"),
-                    "tags": existing_row.get("tags"),
-                })
+                db["page_versions"].insert(
+                    {
+                        "url": existing_row["url"],
+                        "title": existing_row.get("title"),
+                        "html_content": existing_row.get("html_content"),
+                        "md_content": existing_row.get("md_content"),
+                        "links": existing_row.get("links"),
+                        "html_content_hash": existing_row.get("html_content_hash"),
+                        "md_content_hash": existing_row.get("md_content_hash"),
+                        "fetched_at": existing_row.get("fetched_at"),
+                        "description": existing_row.get("description"),
+                        "keywords": existing_row.get("keywords"),
+                        "tags": existing_row.get("tags"),
+                    }
+                )
                 db.conn.commit()
 
         # Step 2: Rewrite Wiki
         yield f"<script>updateProgress({json.dumps('Running Ollama prompt extraction pipeline...')}, 55);</script>\n"
         try:
-            wiki_entry = await run_in_threadpool(extract_wiki_content, page_data, config, client)
+            wiki_entry = await run_in_threadpool(
+                extract_wiki_content, page_data, config, client
+            )
             page_data.description = wiki_entry
             yield f"<script>addLog({json.dumps('Ollama wiki entry generated successfully.')});</script>\n"
             logger.info(f"Ingestion wiki generated for: {cleaned_url}")
         except Exception as e:
             err_msg = f"Ollama wiki generation failed: {str(e)}"
             yield f"<script>showError({json.dumps(err_msg)});</script>\n"
-            logger.error(f"Ingestion wiki generation failed for: {cleaned_url} - Error: {str(e)}", exc_info=True)
+            logger.error(
+                f"Ingestion wiki generation failed for: {cleaned_url} - Error: {str(e)}",
+                exc_info=True,
+            )
             return
 
         # Step 3: Extract Title
@@ -344,7 +367,9 @@ def handle_url_import(
         # Step 4: Extract Tags
         yield f"<script>updateProgress({json.dumps('Extracting category tags via Ollama...')}, 75);</script>\n"
         try:
-            tags = await run_in_threadpool(extract_tags_content, page_data, config, client)
+            tags = await run_in_threadpool(
+                extract_tags_content, page_data, config, client
+            )
             page_data.tags = tags
             log_msg = f"Tags extracted: {tags}"
             yield f"<script>addLog({json.dumps(log_msg)});</script>\n"
@@ -352,12 +377,18 @@ def handle_url_import(
         except Exception as e:
             err_msg = f"Failed to extract tags: {str(e)}"
             yield f"<script>addLog({json.dumps(err_msg)});</script>\n"
-            logger.error(f"Ingestion tags extraction failed for: {cleaned_url} - Error: {str(e)}", exc_info=True)
+            logger.error(
+                f"Ingestion tags extraction failed for: {cleaned_url} - Error: {str(e)}",
+                exc_info=True,
+            )
 
         # Step 5: Embeddings & Database Ops
         yield "<script>updateProgress('Saving database records...', 90);</script>\n"
         try:
-            from ..config import DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
+            from ..config import (
+                DEFAULT_RAG_SYSTEM_PROMPT,
+                DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+            )
 
             target_col_id = None
             if collection_id == "new_collection" and new_collection_title:
@@ -367,13 +398,15 @@ def handle_url_import(
                     "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
                     "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
                     "general_system_context": "{}",
-                    "created_at": datetime.now().isoformat()
+                    "created_at": datetime.now().isoformat(),
                 }
                 res = db["collections"].insert(col_row)
                 db.conn.commit()
                 target_col_id = res.last_pk
                 yield f"<script>addLog({json.dumps(f'Created new collection: {new_collection_title}')});</script>\n"
-                logger.info(f"Created new collection: {new_collection_title} (ID: {target_col_id}) during ingestion")
+                logger.info(
+                    f"Created new collection: {new_collection_title} (ID: {target_col_id}) during ingestion"
+                )
             elif collection_id:
                 try:
                     target_col_id = int(collection_id)
@@ -390,69 +423,85 @@ def handle_url_import(
             serialized, creator = serialize_page_for_db(page_data)
             if target_col_id:
                 serialized["collection_id"] = target_col_id
-            
+
             yield f"<script>addLog({json.dumps('Upserting fetched_pages record...')});</script>\n"
             db["fetched_pages"].upsert(serialized, pk="url")
             db.conn.commit()
             yield f"<script>addLog({json.dumps('Committed fetched_pages record.')});</script>\n"
             logger.info(f"Upserted fetched_pages record for: {cleaned_url}")
-            
+
             # Associate to collection_items if collection is chosen/created
             if target_col_id:
                 try:
                     # check if already in collection_items
-                    existing_items = list(db["collection_items"].rows_where(
-                        "collection_id = ? AND source_id = ?",
-                        [target_col_id, page_data.url]
-                    ))
+                    existing_items = list(
+                        db["collection_items"].rows_where(
+                            "collection_id = ? AND source_id = ?",
+                            [target_col_id, page_data.url],
+                        )
+                    )
                     if not existing_items:
                         is_video = bool(extract_youtube_video_id(page_data.url))
                         source_type = "videos" if is_video else "articles"
-                        
-                        db["collection_items"].insert({
-                            "collection_id": target_col_id,
-                            "source_type": source_type,
-                            "source_id": page_data.url,
-                            "item_note": "",
-                            "taxonomy_path": f"/uncategorized/{page_data.title[:20].replace(' ', '_')}.md" if page_data.title else f"/uncategorized/{target_col_id}.md",
-                            "item_order": 0,
-                            "added_at": datetime.now().isoformat()
-                        })
+
+                        db["collection_items"].insert(
+                            {
+                                "collection_id": target_col_id,
+                                "source_type": source_type,
+                                "source_id": page_data.url,
+                                "item_note": "",
+                                "taxonomy_path": f"/uncategorized/{page_data.title[:20].replace(' ', '_')}.md"
+                                if page_data.title
+                                else f"/uncategorized/{target_col_id}.md",
+                                "item_order": 0,
+                                "added_at": datetime.now().isoformat(),
+                            }
+                        )
                         db.conn.commit()
                         yield f"<script>addLog({json.dumps('Linked item to collection items.')});</script>\n"
-                        logger.info(f"Linked page {cleaned_url} to collection {target_col_id}")
+                        logger.info(
+                            f"Linked page {cleaned_url} to collection {target_col_id}"
+                        )
                 except Exception as ci_err:
                     yield f"<script>addLog({json.dumps(f'Warning: failed to link to collection: {ci_err}')});</script>\n"
-                    logger.error(f"Failed to link page {cleaned_url} to collection {target_col_id}: {str(ci_err)}", exc_info=True)
-            
+                    logger.error(
+                        f"Failed to link page {cleaned_url} to collection {target_col_id}: {str(ci_err)}",
+                        exc_info=True,
+                    )
+
             if creator:
                 yield f"<script>addLog({json.dumps(f'Saving YouTube metadata (creator: {creator})...')});</script>\n"
-                await run_in_threadpool(save_youtube_metadata_helper, db, page_data.url, creator)
+                await run_in_threadpool(
+                    save_youtube_metadata_helper, db, page_data.url, creator
+                )
                 db.conn.commit()
                 logger.info(f"Saved YouTube metadata for video by creator: {creator}")
-            
+
             yield f"<script>addLog({json.dumps('Generating default description embedding...')});</script>\n"
-            await run_in_threadpool(update_article_embedding, db, page_data.url, config, client)
+            await run_in_threadpool(
+                update_article_embedding, db, page_data.url, config, client
+            )
             db.conn.commit()
-            
+
             yield f"<script>addLog({json.dumps('Generating chunk embeddings using embeddinggemma...')});</script>\n"
-            await run_in_threadpool(generate_gemma_embeddings_for_page, db, page_data.url, config, client)
+            await run_in_threadpool(
+                generate_gemma_embeddings_for_page, db, page_data.url, config, client
+            )
             db.conn.commit()
             logger.info(f"Generated embeddings for: {cleaned_url}")
-            
+
             yield f"<script>addLog({json.dumps('Sending Gotify notification...')});</script>\n"
-            await run_in_threadpool(post_to_gotify, config, _jinja_env, page_data, view_url)
-            
+            await run_in_threadpool(
+                post_to_gotify, config, _jinja_env, page_data, view_url
+            )
+
             # Spawn video download if requested
             if download_video == "yes":
                 video_id = extract_youtube_video_id(cleaned_url)
                 if video_id:
                     yield f"<script>addLog({json.dumps('Spawning background task to download YouTube video...')});</script>\n"
                     background_tasks.add_task(
-                        background_video_downloader,
-                        video_id,
-                        cleaned_url,
-                        config
+                        background_video_downloader, video_id, cleaned_url, config
                     )
 
             yield f"<script>addLog({json.dumps('Successfully completed all database operations.')});</script>\n"
@@ -461,11 +510,15 @@ def handle_url_import(
         except Exception as e:
             err_msg = f"Database sync/embedding failed: {str(e)}"
             import traceback
+
             print(f"Ingestion database sync failed: {e}\n{traceback.format_exc()}")
             yield f"<script>showError({json.dumps(err_msg)});</script>\n"
-            logger.error(f"Ingestion database sync failed for: {cleaned_url} - Error: {str(e)}", exc_info=True)
+            logger.error(
+                f"Ingestion database sync failed for: {cleaned_url} - Error: {str(e)}",
+                exc_info=True,
+            )
             return
-            
+
     return StreamingResponse(
         stream_ingestion(),
         media_type="text/html",
@@ -473,8 +526,8 @@ def handle_url_import(
             "X-Accel-Buffering": "no",
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
-            "Expires": "0"
-        }
+            "Expires": "0",
+        },
     )
 
 
@@ -495,12 +548,16 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
     youtube_prompts_history = []
     if "agent_prompts" in db.table_names():
         try:
-            wiki_prompts_history = list(db["agent_prompts"].rows_where(
-                "prompt_type = 'wiki_prompt' ORDER BY version DESC"
-            ))
-            youtube_prompts_history = list(db["agent_prompts"].rows_where(
-                "prompt_type = 'youtube_wiki_prompt' ORDER BY version DESC"
-            ))
+            wiki_prompts_history = list(
+                db["agent_prompts"].rows_where(
+                    "prompt_type = 'wiki_prompt' ORDER BY version DESC"
+                )
+            )
+            youtube_prompts_history = list(
+                db["agent_prompts"].rows_where(
+                    "prompt_type = 'youtube_wiki_prompt' ORDER BY version DESC"
+                )
+            )
         except Exception as e:
             print(f"Failed to fetch prompt history: {e}")
 
@@ -508,12 +565,16 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
     registered_clients = []
     if "cli_api_keys" in db.table_names():
         try:
-            cli_keys = list(db["cli_api_keys"].rows_where("1=1 ORDER BY created_at DESC"))
+            cli_keys = list(
+                db["cli_api_keys"].rows_where("1=1 ORDER BY created_at DESC")
+            )
         except Exception as e:
             print(f"Failed to fetch CLI keys: {e}")
     if "registered_clients" in db.table_names():
         try:
-            registered_clients = list(db["registered_clients"].rows_where("1=1 ORDER BY registered_at DESC"))
+            registered_clients = list(
+                db["registered_clients"].rows_where("1=1 ORDER BY registered_at DESC")
+            )
         except Exception as e:
             print(f"Failed to fetch registered clients: {e}")
 
@@ -541,12 +602,14 @@ def set_prompt_head(
     db = _get_db()
     try:
         # 1. Update is_head = 0 for all prompts of this type
-        db.execute("UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = ?", [prompt_type])
-        
+        db.execute(
+            "UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = ?", [prompt_type]
+        )
+
         # 2. Update is_head = 1 for the target prompt id
         db.execute("UPDATE agent_prompts SET is_head = 1 WHERE id = ?", [prompt_id])
         db.conn.commit()
-        
+
         # 3. Retrieve the prompt text and sync with the active Config attributes
         row = db["agent_prompts"].get(prompt_id)
         if row:
@@ -555,7 +618,7 @@ def set_prompt_head(
             elif prompt_type == "youtube_wiki_prompt":
                 config._youtube_wiki_prompt = row["prompt_text"]
             config.save()
-            
+
         return RedirectResponse(
             url="/admin?msg=Selected+prompt+version+successfully+restored+as+active+HEAD.",
             status_code=303,
@@ -702,7 +765,9 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
 
 
 @router.post(
-    "/admin/regenerate/youtube-metadata", dependencies=[Depends(verify_auth)], response_model=None
+    "/admin/regenerate/youtube-metadata",
+    dependencies=[Depends(verify_auth)],
+    response_model=None,
 )
 def handle_regenerate_youtube_metadata(url: str = Query(...)) -> RedirectResponse:
     """Triggers re-fetching and updating YouTube video metadata for a page."""
@@ -859,7 +924,9 @@ def handle_delete_page(url: str = Form(...)) -> RedirectResponse:
             db.execute("DELETE FROM page_versions WHERE url = ?", [url])
         if "article_embeddings" in db.table_names():
             db.execute("DELETE FROM article_embeddings WHERE url = ?", [url])
-        print(f"Administrative Delete: Removed {url} and all archived versions from database.")
+        print(
+            f"Administrative Delete: Removed {url} and all archived versions from database."
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="Target page profile not found.")
     return RedirectResponse(url="/", status_code=303)
@@ -900,7 +967,7 @@ async def export_database() -> StreamingResponse:
             for row in rows:
                 if not first_row:
                     yield ",\n"
-                
+
                 # Preprocess row values to serialize raw bytes to hex strings
                 clean_row = {}
                 for k, v in row.items():
@@ -913,7 +980,7 @@ async def export_database() -> StreamingResponse:
                             clean_row[k] = f"hex:{v.hex()}"
                     else:
                         clean_row[k] = v
-                
+
                 yield "    " + json.dumps(clean_row)
                 first_row = False
             yield "\n  ]"
@@ -959,6 +1026,7 @@ async def websocket_import(websocket: WebSocket) -> None:
 
         # Initialize schema tables to be safe
         from ..db import init_db
+
         init_db(db)
 
         if isinstance(data, dict):
@@ -978,7 +1046,7 @@ async def websocket_import(websocket: WebSocket) -> None:
                             else:
                                 clean_r[k] = v
                         cleaned_rows.append(clean_r)
-                        
+
                     try:
                         pk = db[table_name].pks
                         if not pk:
@@ -1007,8 +1075,12 @@ async def websocket_import(websocket: WebSocket) -> None:
                         save_youtube_metadata_helper(db, page_obj.url, creator)
                     success_count += 1
                 except Exception as e:
-                    print(f"Skipping record {record.get('url')} due to validation error: {e}")
-            msg = f"SUCCESS: Imported {success_count} legacy records into fetched_pages."
+                    print(
+                        f"Skipping record {record.get('url')} due to validation error: {e}"
+                    )
+            msg = (
+                f"SUCCESS: Imported {success_count} legacy records into fetched_pages."
+            )
         else:
             msg = "ERROR: Unsupported import file format."
 
@@ -1025,10 +1097,11 @@ async def websocket_import(websocket: WebSocket) -> None:
             pass
 
 
-@router.get("/admin/logs", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
+@router.get(
+    "/admin/logs", response_class=HTMLResponse, dependencies=[Depends(verify_auth)]
+)
 def get_logs_view(
-    request: Request,
-    limit: Optional[int] = Query(None, ge=1, le=10000)
+    request: Request, limit: Optional[int] = Query(None, ge=1, le=10000)
 ) -> HTMLResponse:
     """Renders the tail end of the application server database logs (most recent first)."""
     if limit is None:
@@ -1045,10 +1118,12 @@ def get_logs_view(
     log_content = ""
     try:
         if "system_logs" in db.table_names():
-            rows = list(db.execute_returning_dicts(
-                "SELECT * FROM system_logs ORDER BY rowid DESC LIMIT ?", [limit]
-            ))
-            
+            rows = list(
+                db.execute_returning_dicts(
+                    "SELECT * FROM system_logs ORDER BY rowid DESC LIMIT ?", [limit]
+                )
+            )
+
             lines = []
             for r in rows:
                 ts = r.get("timestamp", "")
@@ -1056,7 +1131,7 @@ def get_logs_view(
                 mod = r.get("module", "root")
                 msg = r.get("message", "")
                 tb = r.get("traceback", "")
-                
+
                 line = f"[{ts}] {lvl} in {mod}: {msg}"
                 if tb:
                     line += f"\n{tb}"
@@ -1068,15 +1143,16 @@ def get_logs_view(
         log_content = f"Error reading logs from database: {e}"
 
     template = _jinja_env.get_template("logs.j2.html")
-    response = HTMLResponse(content=template.render(log_content=log_content, is_admin=True, limit=limit))
+    response = HTMLResponse(
+        content=template.render(log_content=log_content, is_admin=True, limit=limit)
+    )
     response.set_cookie("log_limit", str(limit), max_age=31536000, path="/")
     return response
 
 
 @router.get("/admin/logs/download", dependencies=[Depends(verify_auth)])
 def download_logs(
-    request: Request,
-    limit: Optional[int] = Query(None, ge=1, le=10000)
+    request: Request, limit: Optional[int] = Query(None, ge=1, le=10000)
 ) -> StreamingResponse:
     """Streams the database logs as a downloadable text file (most recent first)."""
     if limit is None:
@@ -1088,21 +1164,23 @@ def download_logs(
                 limit = 100
         else:
             limit = 100
-    
+
     def generate_logs():
         db = _get_db()
         try:
             if "system_logs" in db.table_names():
-                rows = list(db.execute_returning_dicts(
-                    "SELECT * FROM system_logs ORDER BY rowid DESC LIMIT ?", [limit]
-                ))
+                rows = list(
+                    db.execute_returning_dicts(
+                        "SELECT * FROM system_logs ORDER BY rowid DESC LIMIT ?", [limit]
+                    )
+                )
                 for r in rows:
                     ts = r.get("timestamp", "")
                     lvl = r.get("level", "INFO")
                     mod = r.get("module", "root")
                     msg = r.get("message", "")
                     tb = r.get("traceback", "")
-                    
+
                     line = f"[{ts}] {lvl} in {mod}: {msg}\n"
                     if tb:
                         line += f"{tb}\n"
@@ -1124,18 +1202,22 @@ def download_logs(
 @router.post("/admin/cli/keys/create", dependencies=[Depends(verify_auth)])
 def admin_create_cli_key(name: str = Form(...)) -> RedirectResponse:
     import uuid
+
     db = _get_db()
     new_key = str(uuid.uuid4()).replace("-", "")
     try:
-        db["cli_api_keys"].insert({
-            "key": new_key,
-            "name": name,
-            "created_at": datetime.now().isoformat()
-        }, pk="key")
+        db["cli_api_keys"].insert(
+            {"key": new_key, "name": name, "created_at": datetime.now().isoformat()},
+            pk="key",
+        )
         db.conn.commit()
-        return RedirectResponse(url="/admin?msg=New+CLI+API+Key+generated.", status_code=303)
+        return RedirectResponse(
+            url="/admin?msg=New+CLI+API+Key+generated.", status_code=303
+        )
     except Exception as e:
-        return RedirectResponse(url=f"/admin?msg=Error+generating+key:+{str(e)}", status_code=303)
+        return RedirectResponse(
+            url=f"/admin?msg=Error+generating+key:+{str(e)}", status_code=303
+        )
 
 
 @router.post("/admin/cli/keys/delete", dependencies=[Depends(verify_auth)])
@@ -1146,7 +1228,9 @@ def admin_delete_cli_key(key: str = Form(...)) -> RedirectResponse:
         db.conn.commit()
         return RedirectResponse(url="/admin?msg=CLI+API+Key+revoked.", status_code=303)
     except Exception as e:
-        return RedirectResponse(url=f"/admin?msg=Error+revoking+key:+{str(e)}", status_code=303)
+        return RedirectResponse(
+            url=f"/admin?msg=Error+revoking+key:+{str(e)}", status_code=303
+        )
 
 
 @router.post("/admin/cli/clients/delete", dependencies=[Depends(verify_auth)])
@@ -1155,8 +1239,10 @@ def admin_delete_cli_client(computer_name: str = Form(...)) -> RedirectResponse:
     try:
         db["registered_clients"].delete_where("computer_name = ?", [computer_name])
         db.conn.commit()
-        return RedirectResponse(url="/admin?msg=Registered+CLI+client+removed.", status_code=303)
+        return RedirectResponse(
+            url="/admin?msg=Registered+CLI+client+removed.", status_code=303
+        )
     except Exception as e:
-        return RedirectResponse(url=f"/admin?msg=Error+removing+client:+{str(e)}", status_code=303)
-
-
+        return RedirectResponse(
+            url=f"/admin?msg=Error+removing+client:+{str(e)}", status_code=303
+        )

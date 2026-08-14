@@ -2,6 +2,7 @@ import socket
 import time
 import sys
 
+
 def wait_for_db(host="localhost", port=5432, timeout=30):
     start = time.time()
     print(f"Waiting for database at {host}:{port}...")
@@ -14,6 +15,7 @@ def wait_for_db(host="localhost", port=5432, timeout=30):
             time.sleep(1)
     print("Database connection timed out.")
     return False
+
 
 if __name__ == "__main__":
     if not wait_for_db():

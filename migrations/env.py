@@ -1,21 +1,18 @@
-from logging.config import fileConfig
-
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
-from alembic import context
-
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
-config = context.config
-
 import sys
 from pathlib import Path
 
 project_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_dir / "src"))
 
-from kb_web.config import Config
+from logging.config import fileConfig  # noqa: E402
+from sqlalchemy import engine_from_config, pool  # noqa: E402
+from alembic import context  # noqa: E402
+from kb_web.config import Config  # noqa: E402
+
+# this is the Alembic Config object, which provides
+# access to the values within the .ini file in use.
+config = context.config
+
 cfg = Config()
 
 # Override Alembic URL dynamically from config
@@ -77,9 +74,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

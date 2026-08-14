@@ -167,44 +167,46 @@ def chunk_text(text: str, max_chunk_size: int) -> list[str]:
     return chunks
 
 
-def chunk_text_with_overlap(text: str, max_chunk_size: int = 1500, overlap: int = 150) -> list[str]:
+def chunk_text_with_overlap(
+    text: str, max_chunk_size: int = 1500, overlap: int = 150
+) -> list[str]:
     """Splits text into chunks of at most max_chunk_size characters with overlap.
-    
+
     Tries to split along paragraph/line boundaries if possible.
     """
     if not text:
         return []
-    
+
     chunks = []
     start = 0
     text_len = len(text)
-    
+
     while start < text_len:
         end = start + max_chunk_size
         if end >= text_len:
             chunks.append(text[start:])
             break
-            
+
         # Try to find a line break within the overlap window to split cleanly
         split_pos = end
         search_start = max(start, end - overlap)
-        last_newline = text.rfind('\n', search_start, end)
+        last_newline = text.rfind("\n", search_start, end)
         if last_newline != -1:
             split_pos = last_newline + 1
         else:
-            last_space = text.rfind(' ', search_start, end)
+            last_space = text.rfind(" ", search_start, end)
             if last_space != -1:
                 split_pos = last_space + 1
-                
+
         chunk = text[start:split_pos]
         chunks.append(chunk)
-        
+
         # Next chunk starts at split_pos minus overlap (or start + max_chunk_size - overlap)
         actual_chunk_len = len(chunk)
         start = start + actual_chunk_len - overlap
         if start >= text_len or actual_chunk_len <= overlap:
             break
-            
+
     return [c.strip() for c in chunks if c.strip()]
 
 
@@ -445,14 +447,14 @@ def extract_wiki_content(
             for idx, chunk in enumerate(chunks):
                 if is_video:
                     system_message = (
-                        f"You are an AI assistant helping to process segment {idx+1} of {len(chunks)} of a long YouTube video transcript. "
+                        f"You are an AI assistant helping to process segment {idx + 1} of {len(chunks)} of a long YouTube video transcript. "
                         "Summarize this segment chronologically. Extract all key insights, arguments, and quotes. "
                         "CRITICAL: You MUST preserve timestamps (e.g., [MM:SS] or [HH:MM:SS]) and exact quotes with their timestamps. "
                         "Do not omit timing information."
                     )
                 else:
                     system_message = (
-                        f"You are an AI assistant helping to process segment {idx+1} of {len(chunks)} of a long article. "
+                        f"You are an AI assistant helping to process segment {idx + 1} of {len(chunks)} of a long article. "
                         "Summarize this segment, extracting all key information, main topics, and technical details. "
                         "Do not omit important details."
                     )
@@ -657,42 +659,103 @@ def update_article_embedding(
             )
             embedding = response["embedding"]
 
-        db["article_embeddings"].upsert(
-            {
-                "url": url,
-                "embedding": json.dumps(embedding),
-                "updated_at": datetime.now().isoformat(),
-            },
-            pk="url",
-        )
-        print(f"Successfully generated and stored embedding for: {url}")
+        # Conditionally route between PostgreSQL (ORM) and SQLite fallback (sqlite_utils)
+        if config.database_url and (
+            "postgresql" in config.database_url or "postgres" in config.database_url
+        ):
+            from .models_orm import ArticleEmbedding, TitleEmbedding
+            from .base import db_session
 
-        # Generate and store title embedding
-        title = row.get("title") or ""
-        if title.strip():
-            try:
-                try:
-                    title_resp = client.embeddings(model=emb_model, prompt=title[:4000])
-                    title_embedding = title_resp["embedding"]
-                except Exception as e2:
-                    print(f"Ollama title embedding with model '{emb_model}' failed: {e2}. Trying main model '{config.ollama_model}'...")
-                    ensure_model_available(client, config.ollama_model)
-                    title_resp = client.embeddings(
-                        model=config.ollama_model, prompt=title[:4000]
+            now_str = datetime.now().isoformat()
+            with db_session() as session:
+                art_emb = session.query(ArticleEmbedding).filter_by(url=url).first()
+                if art_emb:
+                    art_emb.embedding = embedding
+                    art_emb.updated_at = now_str
+                else:
+                    art_emb = ArticleEmbedding(
+                        url=url, embedding=embedding, updated_at=now_str
                     )
-                    title_embedding = title_resp["embedding"]
+                    session.add(art_emb)
 
-                db["title_embeddings"].upsert(
-                    {
-                        "url": url,
-                        "embedding": json.dumps(title_embedding),
-                        "updated_at": datetime.now().isoformat(),
-                    },
-                    pk="url",
-                )
-                print(f"Successfully generated and stored title embedding for: {url}")
-            except Exception as te:
-                print(f"Failed to generate title embedding for {url}: {te}")
+                # Generate and store title embedding
+                title = row.get("title") or ""
+                if title.strip():
+                    try:
+                        try:
+                            title_resp = client.embeddings(
+                                model=emb_model, prompt=title[:4000]
+                            )
+                            title_embedding = title_resp["embedding"]
+                        except Exception as e2:
+                            print(
+                                f"Ollama title embedding with model '{emb_model}' failed: {e2}. Trying main model '{config.ollama_model}'..."
+                            )
+                            ensure_model_available(client, config.ollama_model)
+                            title_resp = client.embeddings(
+                                model=config.ollama_model, prompt=title[:4000]
+                            )
+                            title_embedding = title_resp["embedding"]
+
+                        title_emb = (
+                            session.query(TitleEmbedding).filter_by(url=url).first()
+                        )
+                        if title_emb:
+                            title_emb.embedding = title_embedding
+                            title_emb.updated_at = now_str
+                        else:
+                            title_emb = TitleEmbedding(
+                                url=url, embedding=title_embedding, updated_at=now_str
+                            )
+                            session.add(title_emb)
+                        print(
+                            f"Successfully generated and stored title embedding for: {url}"
+                        )
+                    except Exception as te:
+                        print(f"Failed to generate title embedding for {url}: {te}")
+        else:
+            db["article_embeddings"].upsert(
+                {
+                    "url": url,
+                    "embedding": json.dumps(embedding),
+                    "updated_at": datetime.now().isoformat(),
+                },
+                pk="url",
+            )
+            print(f"Successfully generated and stored embedding for: {url}")
+
+            # Generate and store title embedding
+            title = row.get("title") or ""
+            if title.strip():
+                try:
+                    try:
+                        title_resp = client.embeddings(
+                            model=emb_model, prompt=title[:4000]
+                        )
+                        title_embedding = title_resp["embedding"]
+                    except Exception as e2:
+                        print(
+                            f"Ollama title embedding with model '{emb_model}' failed: {e2}. Trying main model '{config.ollama_model}'..."
+                        )
+                        ensure_model_available(client, config.ollama_model)
+                        title_resp = client.embeddings(
+                            model=config.ollama_model, prompt=title[:4000]
+                        )
+                        title_embedding = title_resp["embedding"]
+
+                    db["title_embeddings"].upsert(
+                        {
+                            "url": url,
+                            "embedding": json.dumps(title_embedding),
+                            "updated_at": datetime.now().isoformat(),
+                        },
+                        pk="url",
+                    )
+                    print(
+                        f"Successfully generated and stored title embedding for: {url}"
+                    )
+                except Exception as te:
+                    print(f"Failed to generate title embedding for {url}: {te}")
     except Exception as e:
         print(f"Failed to generate embedding for {url}: {e}")
 
@@ -715,6 +778,61 @@ def get_similar_articles(
     """Calculates cosine similarity between current_url and all other articles."""
     if config is None:
         config = default_config
+
+    # If running against PostgreSQL, utilize native pgvector distance searches
+    if config.database_url and (
+        "postgresql" in config.database_url or "postgres" in config.database_url
+    ):
+        try:
+            from .models_orm import ArticleEmbedding, FetchedPage
+            from .base import db_session
+
+            with db_session() as session:
+                curr = (
+                    session.query(ArticleEmbedding).filter_by(url=current_url).first()
+                )
+                if not curr:
+                    return []
+
+                # Cosine distance = 1.0 - Cosine similarity
+                distance_col = ArticleEmbedding.embedding.cosine_distance(
+                    curr.embedding
+                )
+                results = (
+                    session.query(ArticleEmbedding, FetchedPage, distance_col)
+                    .join(FetchedPage, ArticleEmbedding.url == FetchedPage.url)
+                    .filter(ArticleEmbedding.url != current_url)
+                    .order_by(distance_col)
+                    .limit(limit)
+                    .all()
+                )
+
+                similarities = []
+                for emb, page, distance in results:
+                    if distance is None:
+                        continue
+                    similarity = 1.0 - float(distance)
+                    if similarity >= getattr(config, "similarity_threshold", 0.8):
+                        tags_json = page.tags or "[]"
+                        try:
+                            tags = json.loads(tags_json)
+                        except Exception:
+                            tags = []
+
+                        similarities.append(
+                            {
+                                "url": page.url,
+                                "title": page.title or page.url,
+                                "tags": tags,
+                                "similarity": round(similarity * 100, 1),
+                            }
+                        )
+                return similarities
+        except Exception as e:
+            print(f"Error computing PostgreSQL pgvector similar articles: {e}")
+            # Fallback to SQLite execution on failure
+            pass
+
     try:
         if "article_embeddings" not in db.table_names():
             return []
@@ -759,7 +877,7 @@ def get_similar_articles(
         similarities.sort(key=lambda x: x["similarity"], reverse=True)
         return similarities[:limit]
     except Exception as e:
-        print(f"Error computing similar articles: {e}")
+        print(f"Error computing SQLite similar articles: {e}")
         return []
 
 
@@ -789,17 +907,17 @@ def generate_gemma_embeddings_for_page(
         config = default_config
     if client is None:
         client = _get_ollama_client()
-        
+
     try:
         row = db["fetched_pages"].get(url)
     except Exception:
         print(f"Page {url} not found for gemma embedding generation.")
         return
-        
+
     title = row.get("title") or url
     md_content = row.get("md_content") or ""
     description = row.get("description") or ""
-    
+
     # Determine source type (articles or videos)
     is_video = False
     if "youtube_videos" in db.table_names():
@@ -808,86 +926,176 @@ def generate_gemma_embeddings_for_page(
                 is_video = True
         except Exception:
             pass
-            
+
     source_type = "videos" if is_video else "articles"
-    
+
     # Check model availability for embeddinggemma
     emb_model = "embeddinggemma"
     try:
         ensure_model_available(client, emb_model)
     except Exception as e:
-        print(f"Warning: failed to verify/pull '{emb_model}': {e}. Using configured model.")
+        print(
+            f"Warning: failed to verify/pull '{emb_model}': {e}. Using configured model."
+        )
         emb_model = getattr(config, "ollama_embedding_model", "nomic-embed-text")
-        
+
     # 1. Chunk and embed md_content
     chunks = chunk_text_with_overlap(md_content, 1500, 150)
-    
-    # Delete existing chunks for this url to avoid stale ones
-    db.execute("DELETE FROM chunk_embeddings WHERE source_type = ? AND source_id = ?", [source_type, url])
-    
-    for idx, chunk in enumerate(chunks):
-        prompt = f"search_document: {chunk}"
-        try:
-            resp = client.embeddings(model=emb_model, prompt=prompt)
-            vector = resp["embedding"]
-            db["chunk_embeddings"].insert({
-                "source_type": source_type,
-                "source_id": url,
-                "source_title": title,
-                "chunk_number": idx,
-                "chunk_content": chunk,
-                "chunk_vector": json.dumps(vector),
-                "created_at": datetime.now().isoformat()
-            })
-        except Exception as e:
-            print(f"Failed to generate chunk embedding for {url} chunk {idx}: {e}")
-            
-    # 2. Embed description and save to article_embeddings or video_embeddings
-    if description.strip():
-        prompt_desc = f"search_document: {description}"
-        try:
-            resp = client.embeddings(model=emb_model, prompt=prompt_desc)
-            vector_desc = resp["embedding"]
-            target_table = "video_embeddings" if is_video else "article_embeddings"
-            db[target_table].upsert({
-                "url": url,
-                "embedding": json.dumps(vector_desc),
-                "updated_at": datetime.now().isoformat()
-            }, pk="url")
-            print(f"Successfully stored gemma embedding of description for {url} in {target_table}")
-        except Exception as e:
-            print(f"Failed to generate description embedding for {url}: {e}")
-        
+
+    # Conditionally route between PostgreSQL (ORM) and SQLite fallback (sqlite_utils)
+    if config.database_url and (
+        "postgresql" in config.database_url or "postgres" in config.database_url
+    ):
+        from .models_orm import ChunkEmbedding, ArticleEmbedding, VideoEmbedding
+        from .base import db_session
+
+        with db_session() as session:
+            # Delete existing chunks for this url to avoid stale ones
+            session.query(ChunkEmbedding).filter_by(
+                source_type=source_type, source_id=url
+            ).delete()
+
+            for idx, chunk in enumerate(chunks):
+                prompt = f"search_document: {chunk}"
+                try:
+                    resp = client.embeddings(model=emb_model, prompt=prompt)
+                    vector = resp["embedding"]
+                    new_chunk = ChunkEmbedding(
+                        source_type=source_type,
+                        source_id=url,
+                        source_title=title,
+                        chunk_number=idx,
+                        chunk_content=chunk,
+                        chunk_vector=vector,
+                        created_at=datetime.now().isoformat(),
+                    )
+                    session.add(new_chunk)
+                except Exception as e:
+                    print(
+                        f"Failed to generate chunk embedding for {url} chunk {idx}: {e}"
+                    )
+
+            # 2. Embed description and save to article_embeddings or video_embeddings
+            if description.strip():
+                prompt_desc = f"search_document: {description}"
+                try:
+                    resp = client.embeddings(model=emb_model, prompt=prompt_desc)
+                    vector_desc = resp["embedding"]
+                    now_str = datetime.now().isoformat()
+
+                    if is_video:
+                        vid_emb = (
+                            session.query(VideoEmbedding).filter_by(url=url).first()
+                        )
+                        if vid_emb:
+                            vid_emb.embedding = vector_desc
+                            vid_emb.updated_at = now_str
+                        else:
+                            vid_emb = VideoEmbedding(
+                                url=url, embedding=vector_desc, updated_at=now_str
+                            )
+                            session.add(vid_emb)
+                    else:
+                        art_emb = (
+                            session.query(ArticleEmbedding).filter_by(url=url).first()
+                        )
+                        if art_emb:
+                            art_emb.embedding = vector_desc
+                            art_emb.updated_at = now_str
+                        else:
+                            art_emb = ArticleEmbedding(
+                                url=url, embedding=vector_desc, updated_at=now_str
+                            )
+                            session.add(art_emb)
+                    print(
+                        f"Successfully stored gemma embedding of description for {url}"
+                    )
+                except Exception as e:
+                    print(f"Failed to generate description embedding for {url}: {e}")
+    else:
+        # Delete existing chunks for this url to avoid stale ones
+        db.execute(
+            "DELETE FROM chunk_embeddings WHERE source_type = ? AND source_id = ?",
+            [source_type, url],
+        )
+
+        for idx, chunk in enumerate(chunks):
+            prompt = f"search_document: {chunk}"
+            try:
+                resp = client.embeddings(model=emb_model, prompt=prompt)
+                vector = resp["embedding"]
+                db["chunk_embeddings"].insert(
+                    {
+                        "source_type": source_type,
+                        "source_id": url,
+                        "source_title": title,
+                        "chunk_number": idx,
+                        "chunk_content": chunk,
+                        "chunk_vector": json.dumps(vector),
+                        "created_at": datetime.now().isoformat(),
+                    }
+                )
+            except Exception as e:
+                print(f"Failed to generate chunk embedding for {url} chunk {idx}: {e}")
+
+        # 2. Embed description and save to article_embeddings or video_embeddings
+        if description.strip():
+            prompt_desc = f"search_document: {description}"
+            try:
+                resp = client.embeddings(model=emb_model, prompt=prompt_desc)
+                vector_desc = resp["embedding"]
+                target_table = "video_embeddings" if is_video else "article_embeddings"
+                db[target_table].upsert(
+                    {
+                        "url": url,
+                        "embedding": json.dumps(vector_desc),
+                        "updated_at": datetime.now().isoformat(),
+                    },
+                    pk="url",
+                )
+                print(
+                    f"Successfully stored gemma embedding of description for {url} in {target_table}"
+                )
+            except Exception as e:
+                print(f"Failed to generate description embedding for {url}: {e}")
+
+
 def ingest_url_sync(db, url: str, config=None, client=None) -> dict:
     """Ingests a URL, processes it with Ollama, saves to DB, and updates embeddings."""
     url = extract_first_url(url)
     page_data = fetch_url(url)
-    
+
     try:
         existing_row = db["fetched_pages"].get(url)
         if existing_row.get("md_content_hash") == page_data.md_content_hash:
-            return {"status": "success", "message": "Content unchanged. Skipping ingestion.", "url": url}
+            return {
+                "status": "success",
+                "message": "Content unchanged. Skipping ingestion.",
+                "url": url,
+            }
         else:
-            db["page_versions"].insert({
-                "url": existing_row["url"],
-                "title": existing_row.get("title"),
-                "html_content": existing_row.get("html_content"),
-                "md_content": existing_row.get("md_content"),
-                "links": existing_row.get("links"),
-                "html_content_hash": existing_row.get("html_content_hash"),
-                "md_content_hash": existing_row.get("md_content_hash"),
-                "fetched_at": existing_row.get("fetched_at"),
-                "description": existing_row.get("description"),
-                "keywords": existing_row.get("keywords"),
-                "tags": existing_row.get("tags"),
-            })
+            db["page_versions"].insert(
+                {
+                    "url": existing_row["url"],
+                    "title": existing_row.get("title"),
+                    "html_content": existing_row.get("html_content"),
+                    "md_content": existing_row.get("md_content"),
+                    "links": existing_row.get("links"),
+                    "html_content_hash": existing_row.get("html_content_hash"),
+                    "md_content_hash": existing_row.get("md_content_hash"),
+                    "fetched_at": existing_row.get("fetched_at"),
+                    "description": existing_row.get("description"),
+                    "keywords": existing_row.get("keywords"),
+                    "tags": existing_row.get("tags"),
+                }
+            )
             db.conn.commit()
     except KeyError:
         pass
 
     wiki_entry = extract_wiki_content(page_data, config, client)
     page_data.description = wiki_entry
-    
+
     title = url
     soup = BeautifulSoup(page_data.html_content, "html5lib")
     if soup.title:
@@ -912,23 +1120,23 @@ def ingest_url_sync(db, url: str, config=None, client=None) -> dict:
 
 def download_youtube_video(video_id: str, config_obj=None) -> str:
     """Downloads a YouTube video to ~/.kb/media/videos/<video_id>.mp4 using yt-dlp.
-    
+
     Returns the absolute local path to the downloaded video.
     """
     import yt_dlp
     import re
-    
+
     if config_obj is None:
         config_obj = default_config
-        
+
     media_dir = config_obj.configs_dir.parent / "media" / "videos"
     media_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Check if a file containing the video_id already exists in the media directory
     existing_files = list(media_dir.glob(f"*{video_id}*"))
     if existing_files:
         return str(existing_files[0])
-        
+
     def sanitize_filename(name: str) -> str:
         # Remove characters invalid in Windows & Unix filesystems: \ / : * ? " < > |
         cleaned = re.sub(r'[\\/*?:"<>|]', "", name)
@@ -936,12 +1144,13 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
 
     creator = None
     title = None
-    
+
     # Try looking up in the database first
     url1 = f"https://www.youtube.com/watch?v={video_id}"
     url2 = f"https://youtube.com/watch?v={video_id}"
     try:
         from .base import _get_db
+
         db = _get_db()
         if "youtube_videos" in db.table_names():
             row = db["youtube_videos"].get(url1) or db["youtube_videos"].get(url2)
@@ -958,8 +1167,8 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
     if not creator or not title:
         try:
             ydl_opts_info = {
-                'quiet': True,
-                'no_warnings': True,
+                "quiet": True,
+                "no_warnings": True,
             }
             video_url = f"https://www.youtube.com/watch?v={video_id}"
             with yt_dlp.YoutubeDL(ydl_opts_info) as ydl:
@@ -983,22 +1192,22 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
         filename_base = f"{video_id}"
 
     ydl_opts = {
-        'format': 'mp4/best',
-        'outtmpl': str(media_dir / f"{filename_base}.%(ext)s"),
-        'quiet': True,
-        'no_warnings': True,
+        "format": "mp4/best",
+        "outtmpl": str(media_dir / f"{filename_base}.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
     }
-    
+
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([video_url])
-        
+
     downloaded_files = []
     if media_dir.exists():
         for f in media_dir.iterdir():
             if f.is_file() and f.name.startswith(filename_base):
                 downloaded_files.append(f)
-                
+
     if downloaded_files:
         first_file = downloaded_files[0]
         if first_file.suffix != ".mp4":
@@ -1006,6 +1215,5 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
             first_file.rename(new_path)
             return str(new_path)
         return str(first_file)
-        
-    raise RuntimeError(f"Failed to download video {video_id} with yt-dlp.")
 
+    raise RuntimeError(f"Failed to download video {video_id} with yt-dlp.")
