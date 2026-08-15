@@ -7,9 +7,11 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, Header, HTTPException, Depends, status, Form
 from pydantic import BaseModel
+from sqlalchemy import or_
 
-from ..base import _get_db, _get_ollama_client, config
+from ..base import _get_ollama_client, config, db_session, verify_api_key
 from ..gotify import post_to_gotify
+from ..models_orm import CliApiKey, RegisteredClient, FetchedPage, PageVersion, Collection, CollectionItem, YouTubeVideo, ArticleEmbedding, TitleEmbedding
 from ..utils import (
     fetch_url,
     extract_wiki_content,
@@ -28,21 +30,15 @@ router = APIRouter(prefix="/api/cli", tags=["CLI API"])
 
 
 def verify_cli_api_key(x_api_key: str = Header(...)) -> str:
-    db = _get_db()
-    if "cli_api_keys" not in db.table_names():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="API Key configuration is missing on server.",
-        )
-    try:
-        # Check if the key exists
-        db["cli_api_keys"].get(x_api_key)
-        return x_api_key
-    except Exception:
+    with db_session() as session:
+        key_exists = session.query(CliApiKey).filter_by(key=x_api_key).first() is not None
+
+    if not key_exists:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid or revoked CLI API Key.",
         )
+    return x_api_key
 
 
 class RegistrationRequest(BaseModel):
@@ -53,25 +49,22 @@ class RegistrationRequest(BaseModel):
 def register_cli_client(
     req: RegistrationRequest, api_key: str = Depends(verify_cli_api_key)
 ):
-    db = _get_db()
-    if "registered_clients" not in db.table_names():
-        raise HTTPException(
-            status_code=500,
-            detail="Database table 'registered_clients' not initialized.",
-        )
-
     try:
-        db["registered_clients"].insert(
-            {
-                "computer_name": req.computer_name,
-                "api_key": api_key,
-                "registered_at": datetime.now().isoformat(),
-                "status": "active",
-            },
-            pk="computer_name",
-            replace=True,
-        )
-        db.conn.commit()
+        with db_session() as session:
+            client = session.query(RegisteredClient).filter_by(computer_name=req.computer_name).first()
+            if client:
+                client.api_key = api_key
+                client.registered_at = datetime.now().isoformat()
+                client.status = "active"
+            else:
+                session.add(
+                    RegisteredClient(
+                        computer_name=req.computer_name,
+                        api_key=api_key,
+                        registered_at=datetime.now().isoformat(),
+                        status="active",
+                    )
+                )
         return {
             "status": "success",
             "message": f"Client '{req.computer_name}' successfully registered.",
@@ -85,100 +78,51 @@ def cli_import_url(
     url: str = Form(...),
     collection_id: Optional[str] = Form(None),
     new_collection_title: Optional[str] = Form(None),
+    download_video: Optional[str] = Form(None),
     api_key: str = Depends(verify_cli_api_key),
 ):
     cleaned_url = extract_first_url(url)
-    db = _get_db()
-    client = _get_ollama_client()
+    logger.info(f"CLI Ingestion starting for: {cleaned_url}")
 
-    logger.info(f"CLI Ingestion started for URL: {cleaned_url}")
     try:
         page_data = fetch_url(cleaned_url)
     except Exception as e:
-        return {"status": "error", "message": f"Fetch failed: {str(e)}"}
+        raise HTTPException(status_code=400, detail=f"Fetch failed: {str(e)}")
 
-    existing_rows = list(db["fetched_pages"].rows_where("url = ?", [cleaned_url]))
-    if existing_rows:
-        existing_row = existing_rows[0]
-        if existing_row.get("md_content_hash") == page_data.md_content_hash:
-            target_col_id = None
-            if collection_id == "new_collection" and new_collection_title:
-                from ..config import (
-                    DEFAULT_RAG_SYSTEM_PROMPT,
-                    DEFAULT_TAXONOMY_SYSTEM_PROMPT,
-                )
-
-                col_row = {
-                    "title": new_collection_title,
-                    "visibility": "public",
-                    "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
-                    "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
-                    "general_system_context": "{}",
-                    "created_at": datetime.now().isoformat(),
+    with db_session() as session:
+        existing = session.query(FetchedPage).filter_by(url=cleaned_url).first()
+        if existing:
+            if existing.md_content_hash == page_data.md_content_hash:
+                return {
+                    "status": "success",
+                    "message": "Content unchanged. Skipping ingestion.",
+                    "url": cleaned_url,
                 }
-                res = db["collections"].insert(col_row)
-                db.conn.commit()
-                target_col_id = res.last_pk
-            elif collection_id:
-                try:
-                    target_col_id = int(collection_id)
-                except ValueError:
-                    pass
-
-            if target_col_id:
-                existing_items = list(
-                    db["collection_items"].rows_where(
-                        "collection_id = ? AND source_id = ?",
-                        [target_col_id, cleaned_url],
+            else:
+                session.add(
+                    PageVersion(
+                        url=existing.url,
+                        title=existing.title,
+                        html_content=existing.html_content,
+                        md_content=existing.md_content,
+                        links=existing.links,
+                        html_content_hash=existing.html_content_hash,
+                        md_content_hash=existing.md_content_hash,
+                        fetched_at=existing.fetched_at,
+                        description=existing.description,
+                        keywords=existing.keywords,
+                        tags=existing.tags,
                     )
                 )
-                if not existing_items:
-                    is_video = bool(extract_youtube_video_id(cleaned_url))
-                    source_type = "videos" if is_video else "articles"
-                    title_val = existing_row.get("title") or ""
-                    db["collection_items"].insert(
-                        {
-                            "collection_id": target_col_id,
-                            "source_type": source_type,
-                            "source_id": cleaned_url,
-                            "item_note": "",
-                            "taxonomy_path": f"/uncategorized/{title_val[:20].replace(' ', '_')}.md"
-                            if title_val
-                            else f"/uncategorized/{target_col_id}.md",
-                            "item_order": 0,
-                            "added_at": datetime.now().isoformat(),
-                        }
-                    )
-                    db.conn.commit()
 
-            return {
-                "status": "success",
-                "message": "Content unchanged. Skipping ingestion.",
-                "url": cleaned_url,
-            }
-        else:
-            db["page_versions"].insert(
-                {
-                    "url": existing_row["url"],
-                    "title": existing_row.get("title"),
-                    "html_content": existing_row.get("html_content"),
-                    "md_content": existing_row.get("md_content"),
-                    "links": existing_row.get("links"),
-                    "html_content_hash": existing_row.get("html_content_hash"),
-                    "md_content_hash": existing_row.get("md_content_hash"),
-                    "fetched_at": existing_row.get("fetched_at"),
-                    "description": existing_row.get("description"),
-                    "keywords": existing_row.get("keywords"),
-                    "tags": existing_row.get("tags"),
-                }
-            )
-            db.conn.commit()
-
+    client = _get_ollama_client()
     try:
         wiki_entry = extract_wiki_content(page_data, config, client)
         page_data.description = wiki_entry
     except Exception as e:
-        return {"status": "error", "message": f"Wiki generation failed: {str(e)}"}
+        raise HTTPException(
+            status_code=500, detail=f"LLM Summary Extraction failed: {str(e)}"
+        )
 
     title = cleaned_url
     soup = BeautifulSoup(page_data.html_content, "html5lib")
@@ -190,283 +134,211 @@ def cli_import_url(
     if wiki_entry.strip().startswith("#"):
         first_line = wiki_entry.strip().split("\n")[0]
         title = first_line.replace("#", "").strip()
+
     page_data.title = title
-
     try:
-        tags = extract_tags_content(page_data, config, client)
-        page_data.tags = tags
+        page_data.tags = extract_tags_content(page_data, config, client)
     except Exception:
-        tags = []
+        pass
 
-    try:
-        from ..config import DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
-
-        target_col_id = None
-        if collection_id == "new_collection" and new_collection_title:
-            col_row = {
-                "title": new_collection_title,
-                "visibility": "public",
-                "rag_system_prompt": DEFAULT_RAG_SYSTEM_PROMPT,
-                "taxonomy_system_prompt": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
-                "general_system_context": "{}",
-                "created_at": datetime.now().isoformat(),
-            }
-            res = db["collections"].insert(col_row)
-            db.conn.commit()
-            target_col_id = res.last_pk
-        elif collection_id:
-            try:
-                target_col_id = int(collection_id)
-            except ValueError:
-                pass
-
-        if target_col_id:
-            page_data.collection_id = target_col_id
-
-        serialized, creator = serialize_page_for_db(page_data)
-        if target_col_id:
-            serialized["collection_id"] = target_col_id
-
-        db["fetched_pages"].upsert(serialized, pk="url")
-        db.conn.commit()
-
-        if target_col_id:
-            existing_items = list(
-                db["collection_items"].rows_where(
-                    "collection_id = ? AND source_id = ?",
-                    [target_col_id, page_data.url],
+    resolved_col_id = None
+    with db_session() as session:
+        if new_collection_title and new_collection_title.strip():
+            col_title = new_collection_title.strip()
+            col = session.query(Collection).filter_by(title=col_title).first()
+            if not col:
+                col = Collection(
+                    title=col_title,
+                    visibility="public",
+                    rag_system_prompt=DEFAULT_RAG_SYSTEM_PROMPT,
+                    taxonomy_system_prompt=DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+                    general_system_context="{}",
+                    created_at=datetime.now().isoformat(),
                 )
-            )
-            if not existing_items:
-                is_video = bool(extract_youtube_video_id(page_data.url))
+                session.add(col)
+                session.flush()
+            resolved_col_id = col.id
+        elif collection_id and collection_id.isdigit():
+            resolved_col_id = int(collection_id)
+
+    page_data.collection_id = resolved_col_id
+    serialized, creator = serialize_page_for_db(page_data)
+
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=cleaned_url).first()
+        if page:
+            for k, v in serialized.items():
+                setattr(page, k, v)
+        else:
+            session.add(FetchedPage(**serialized))
+
+        # Associate to Collection
+        if resolved_col_id:
+            existing_item = session.query(CollectionItem).filter_by(collection_id=resolved_col_id, source_id=cleaned_url).first()
+            if not existing_item:
+                is_video = session.query(YouTubeVideo).filter_by(url=cleaned_url).first() is not None
                 source_type = "videos" if is_video else "articles"
-                db["collection_items"].insert(
-                    {
-                        "collection_id": target_col_id,
-                        "source_type": source_type,
-                        "source_id": page_data.url,
-                        "item_note": "",
-                        "taxonomy_path": f"/uncategorized/{page_data.title[:20].replace(' ', '_')}.md"
-                        if page_data.title
-                        else f"/uncategorized/{target_col_id}.md",
-                        "item_order": 0,
-                        "added_at": datetime.now().isoformat(),
-                    }
+                from sqlalchemy import func
+                max_order = session.query(func.max(CollectionItem.item_order)).filter_by(collection_id=resolved_col_id).scalar() or 0
+                session.add(
+                    CollectionItem(
+                        collection_id=resolved_col_id,
+                        source_type=source_type,
+                        source_id=cleaned_url,
+                        item_note="",
+                        taxonomy_path="",
+                        item_order=max_order + 1,
+                        added_at=datetime.now().isoformat(),
+                    )
                 )
-                db.conn.commit()
 
-        if creator:
-            save_youtube_metadata_helper(db, page_data.url, creator)
-            db.conn.commit()
+    save_youtube_metadata_helper(None, page_data.url, creator)
+    update_article_embedding(None, page_data.url, config, client)
+    generate_gemma_embeddings_for_page(None, page_data.url, config, client)
 
-        update_article_embedding(db, page_data.url, config, client)
-        db.conn.commit()
-
-        generate_gemma_embeddings_for_page(db, page_data.url, config, client)
-        db.conn.commit()
-
-        try:
-            view_url = f"/view/page?url={page_data.safe_url}"
-            from ..base import _jinja_env
-
-            post_to_gotify(config, _jinja_env, page_data, view_url)
-        except Exception:
-            pass
-
-        return {
-            "status": "success",
-            "message": "Ingestion fully completed successfully.",
-            "title": page_data.title,
-            "url": page_data.url,
-            "tags": page_data.tags,
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Database sync/embedding failed: {str(e)}",
-        }
-
-
-@router.get("/pages")
-def list_pages(
-    limit: int = 10,
-    type: Optional[str] = None,
-    api_key: str = Depends(verify_cli_api_key),
-):
-    db = _get_db()
-    if "fetched_pages" not in db.table_names():
-        return []
-
-    if type == "videos":
-        if "youtube_videos" in db.table_names():
-            rows = list(
-                db.execute_returning_dicts(
-                    "SELECT fp.* FROM fetched_pages fp JOIN youtube_videos yv ON fp.url = yv.url ORDER BY fp.fetched_at DESC LIMIT ?",
-                    [limit],
-                )
-            )
-        else:
-            rows = list(
-                db.execute_returning_dicts(
-                    "SELECT * FROM fetched_pages WHERE url LIKE '%youtube.com%' OR url LIKE '%youtu.be%' ORDER BY fetched_at DESC LIMIT ?",
-                    [limit],
-                )
-            )
-    elif type == "articles":
-        if "youtube_videos" in db.table_names():
-            rows = list(
-                db.execute_returning_dicts(
-                    "SELECT fp.* FROM fetched_pages fp LEFT JOIN youtube_videos yv ON fp.url = yv.url WHERE yv.url IS NULL ORDER BY fp.fetched_at DESC LIMIT ?",
-                    [limit],
-                )
-            )
-        else:
-            rows = list(
-                db.execute_returning_dicts(
-                    "SELECT * FROM fetched_pages WHERE url NOT LIKE '%youtube.com%' AND url NOT LIKE '%youtu.be%' ORDER BY fetched_at DESC LIMIT ?",
-                    [limit],
-                )
-            )
-    else:
-        rows = list(
-            db.execute_returning_dicts(
-                "SELECT * FROM fetched_pages ORDER BY fetched_at DESC LIMIT ?", [limit]
-            )
-        )
-
-    res = []
-    for r in rows:
-        try:
-            tags = json.loads(r.get("tags") or "[]")
-        except Exception:
-            tags = []
-        res.append(
-            {
-                "url": r.get("url"),
-                "title": r.get("title"),
-                "description": r.get("description"),
-                "tags": tags,
-                "fetched_at": r.get("fetched_at"),
-            }
-        )
-    return res
-
-
-@router.post("/pages/action")
-def trigger_page_action(
-    url: str = Form(...),
-    action: str = Form(...),
-    api_key: str = Depends(verify_cli_api_key),
-):
-    db = _get_db()
-    if "fetched_pages" not in db.table_names():
-        return {"status": "error", "message": "No pages in database."}
-
-    try:
-        page_row = db["fetched_pages"].get(url)
-    except Exception:
-        return {"status": "error", "message": f"Page with URL '{url}' not found."}
-
-    client = _get_ollama_client()
-
-    if action == "regenerate-wiki":
-        from ..models import HTMLPage
-
-        try:
-            page_data = HTMLPage(
-                url=page_row["url"],
-                title=page_row["title"],
-                html_content=page_row["html_content"],
-                md_content=page_row["md_content"],
-                links=[],
-                html_content_hash="",
-                md_content_hash="",
-                fetched_at=page_row["fetched_at"],
-            )
-            wiki_entry = extract_wiki_content(page_data, config, client)
-            db["fetched_pages"].update(url, {"description": wiki_entry})
-            db.conn.commit()
-            return {
-                "status": "success",
-                "message": "Wiki entry regenerated successfully.",
-                "wiki": wiki_entry,
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": f"Failed to regenerate wiki: {str(e)}",
-            }
-
-    elif action == "regenerate-tags":
-        from ..models import HTMLPage
-
-        try:
-            page_data = HTMLPage(
-                url=page_row["url"],
-                title=page_row["title"],
-                html_content=page_row["html_content"],
-                md_content=page_row["md_content"],
-                links=[],
-                html_content_hash="",
-                md_content_hash="",
-                fetched_at=page_row["fetched_at"],
-            )
-            tags = extract_tags_content(page_data, config, client)
-            db["fetched_pages"].update(url, {"tags": json.dumps(tags)})
-            db.conn.commit()
-            return {
-                "status": "success",
-                "message": "Tags regenerated successfully.",
-                "tags": tags,
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": f"Failed to regenerate tags: {str(e)}",
-            }
-
-    elif action == "download-video":
-        video_id = extract_youtube_video_id(url)
-        if not video_id:
-            return {"status": "error", "message": "Not a valid YouTube URL."}
+    video_id = extract_youtube_video_id(cleaned_url)
+    if download_video == "true" and video_id:
         try:
             local_path = download_youtube_video(video_id, config)
-            if "youtube_videos" in db.table_names():
-                db["youtube_videos"].update(url, {"local_path": local_path})
-                db.conn.commit()
-            return {
-                "status": "success",
-                "message": "Video downloaded successfully.",
-                "local_path": local_path,
-            }
+            with db_session() as session:
+                yt = session.query(YouTubeVideo).filter_by(url=page_data.url).first()
+                if yt:
+                    yt.local_path = local_path
+                else:
+                    session.add(YouTubeVideo(url=page_data.url, video_id=video_id, local_path=local_path))
         except Exception as e:
-            return {"status": "error", "message": f"Failed to download video: {str(e)}"}
+            logger.error(f"Background downloader failed: {e}")
 
-    else:
-        return {"status": "error", "message": f"Unknown action: {action}"}
+    # Post notification
+    try:
+        view_url = f"/view/page?url={page_data.safe_url}"
+        post_to_gotify(config, None, page_data, view_url)
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "url": cleaned_url,
+        "message": "URL successfully ingested via CLI API.",
+    }
+
+
+@router.post("/query-similar")
+def cli_query_similar(
+    query: str = Form(...),
+    collection_id: Optional[int] = Form(None),
+    limit: int = Form(5),
+    api_key: str = Depends(verify_api_key),
+):
+    emb_model = "embeddinggemma"
+    try:
+        client = _get_ollama_client()
+        resp = client.embeddings(model=emb_model, prompt=f"search_query: {query}")
+        vector = resp["embedding"]
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Ollama embedding query failed: {str(e)}"
+        )
+
+    # Perform similarity search
+    from ..utils import get_similar_articles
+    with db_session() as session:
+        # Fallback or PgVector search
+        # If SQLite, fallback to custom cosine query
+        pass
+
+    results = get_similar_articles(None, None, config, query_vector=vector, limit=limit, collection_id=collection_id)
+    return {"status": "success", "results": results}
+
+
+@router.post("/update/describe")
+def cli_update_describe(
+    url: str = Form(...),
+    api_key: str = Depends(verify_api_key),
+):
+    client = _get_ollama_client()
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=url).first()
+        if not page:
+            raise HTTPException(status_code=404, detail="Page not found.")
+
+        p_dict = {col.name: getattr(page, col.name) for col in page.__table__.columns}
+        for fld in ("links", "keywords", "tags"):
+            if p_dict.get(fld):
+                try:
+                    p_dict[fld] = json.loads(p_dict[fld])
+                except Exception:
+                    p_dict[fld] = []
+            else:
+                p_dict[fld] = []
+        page_obj = HTMLPage(**p_dict)
+
+        wiki_entry = extract_wiki_content(page_obj, config, client)
+        page.description = wiki_entry
+
+    update_article_embedding(None, url, config, client)
+    return {"status": "success", "description": wiki_entry}
+
+
+@router.post("/update/tags")
+def cli_update_tags(
+    url: str = Form(...),
+    api_key: str = Depends(verify_api_key),
+):
+    client = _get_ollama_client()
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=url).first()
+        if not page:
+            raise HTTPException(status_code=404, detail="Page not found.")
+
+        p_dict = {col.name: getattr(page, col.name) for col in page.__table__.columns}
+        for fld in ("links", "keywords", "tags"):
+            if p_dict.get(fld):
+                try:
+                    p_dict[fld] = json.loads(p_dict[fld])
+                except Exception:
+                    p_dict[fld] = []
+            else:
+                p_dict[fld] = []
+        page_obj = HTMLPage(**p_dict)
+
+        tags = extract_tags_content(page_obj, config, client)
+        page.tags = json.dumps(tags)
+
+    update_article_embedding(None, url, config, client)
+    return {"status": "success", "tags": tags}
+
+
+@router.post("/update/video-path")
+def cli_update_video_path(
+    url: str = Form(...),
+    local_path: str = Form(...),
+    api_key: str = Depends(verify_api_key),
+):
+    with db_session() as session:
+        yt = session.query(YouTubeVideo).filter_by(url=url).first()
+        if yt:
+            yt.local_path = local_path
+        else:
+            session.add(YouTubeVideo(url=url, local_path=local_path))
+    return {"status": "success"}
 
 
 @router.get("/collections")
-def list_collections(api_key: str = Depends(verify_cli_api_key)):
-    db = _get_db()
-    if "collections" not in db.table_names():
-        return []
-
-    collections = list(db["collections"].rows)
+def cli_list_collections(api_key: str = Depends(verify_cli_api_key)):
     res = []
-    for col in collections:
-        col_id = col["id"]
-        count = 0
-        if "collection_items" in db.table_names():
-            count = db["collection_items"].count_where("collection_id = ?", [col_id])
-        res.append(
-            {
-                "id": col_id,
-                "title": col["title"],
-                "visibility": col["visibility"],
-                "item_count": count,
-            }
-        )
+    with db_session() as session:
+        collections = session.query(Collection).all()
+        for col in collections:
+            count = session.query(CollectionItem).filter_by(collection_id=col.id).count()
+            res.append(
+                {
+                    "id": col.id,
+                    "title": col.title,
+                    "visibility": col.visibility,
+                    "item_count": count,
+                }
+            )
     return res
 
 
@@ -477,153 +349,241 @@ def manage_collection_item(
     url: str = Form(...),
     api_key: str = Depends(verify_cli_api_key),
 ):
-    db = _get_db()
-    if "collections" not in db.table_names():
-        return {"status": "error", "message": "Collections table not found."}
+    with db_session() as session:
+        col = session.query(Collection).filter_by(id=collection_id).first()
+        if not col:
+            return {"status": "error", "message": "Collection not found."}
 
-    try:
-        db["collections"].get(collection_id)
-    except Exception:
-        return {"status": "error", "message": "Collection not found."}
+        page = session.query(FetchedPage).filter_by(url=url).first()
+        if not page:
+            return {"status": "error", "message": f"Page with URL '{url}' not found. Please import it first."}
 
-    if action == "add":
-        try:
-            page_row = db["fetched_pages"].get(url)
-        except Exception:
-            return {
-                "status": "error",
-                "message": f"Page with URL '{url}' not found. Please import it first.",
-            }
+        if action == "add":
+            existing = session.query(CollectionItem).filter_by(collection_id=collection_id, source_id=url).first()
+            if existing:
+                return {"status": "success", "message": "Item already in collection."}
 
-        existing = list(
-            db["collection_items"].rows_where(
-                "collection_id = ? AND source_id = ?", [collection_id, url]
+            is_video = session.query(YouTubeVideo).filter_by(url=url).first() is not None
+            source_type = "videos" if is_video else "articles"
+            from sqlalchemy import func
+            max_order = session.query(func.max(CollectionItem.item_order)).filter_by(collection_id=collection_id).scalar() or 0
+
+            session.add(
+                CollectionItem(
+                    collection_id=collection_id,
+                    source_type=source_type,
+                    source_id=url,
+                    item_note="",
+                    taxonomy_path="",
+                    item_order=max_order + 1,
+                    added_at=datetime.now().isoformat(),
+                )
             )
-        )
-        if existing:
-            return {"status": "success", "message": "Item already in collection."}
+            return {"status": "success", "message": "Item added to collection."}
 
-        is_video = bool(extract_youtube_video_id(url))
-        source_type = "videos" if is_video else "articles"
+        elif action == "remove":
+            session.query(CollectionItem).filter_by(collection_id=collection_id, source_id=url).delete()
+            return {"status": "success", "message": "Item removed from collection."}
+        else:
+            return {"status": "error", "message": f"Unknown action: {action}"}
 
-        db["collection_items"].insert(
-            {
-                "collection_id": collection_id,
-                "source_type": source_type,
-                "source_id": url,
-                "item_note": "",
-                "taxonomy_path": f"/uncategorized/{page_row.get('title', 'item')[:20].replace(' ', '_')}.md",
-                "item_order": 0,
-                "added_at": datetime.now().isoformat(),
-            }
-        )
-        db.conn.commit()
-        return {"status": "success", "message": "Item added to collection."}
 
-    elif action == "remove":
-        db["collection_items"].delete_where(
-            "collection_id = ? AND source_id = ?", [collection_id, url]
-        )
-        db.conn.commit()
-        return {"status": "success", "message": "Item removed from collection."}
-    else:
-        return {"status": "error", "message": f"Unknown action: {action}"}
+@router.get("/pages")
+def cli_list_pages(api_key: str = Depends(verify_cli_api_key)):
+    res = []
+    with db_session() as session:
+        pages = session.query(FetchedPage).all()
+        for page in pages:
+            res.append(
+                {
+                    "url": page.url,
+                    "title": page.title,
+                    "fetched_at": page.fetched_at,
+                }
+            )
+    return res
 
 
 @router.get("/tags")
-def list_tags(api_key: str = Depends(verify_cli_api_key)):
-    db = _get_db()
-    if "fetched_pages" not in db.table_names():
-        return []
-
-    all_tags = set()
-    for row in db["fetched_pages"].rows:
-        try:
-            tags = json.loads(row.get("tags") or "[]")
-            for t in tags:
-                all_tags.add(t)
-        except Exception:
-            pass
-    return sorted(list(all_tags))
+def cli_list_tags(api_key: str = Depends(verify_cli_api_key)):
+    with db_session() as session:
+        all_tags = set()
+        pages = session.query(FetchedPage).all()
+        for page in pages:
+            if page.tags:
+                try:
+                    tags = json.loads(page.tags)
+                    for t in tags:
+                        all_tags.add(t)
+                except Exception:
+                    pass
+        return sorted(list(all_tags))
 
 
 @router.post("/tags/operation")
-def manage_tag(
+def cli_manage_tag(
     action: str = Form(...),
     tag: str = Form(...),
     url: str = Form(...),
     api_key: str = Depends(verify_cli_api_key),
 ):
-    db = _get_db()
-    if "fetched_pages" not in db.table_names():
-        return {"status": "error", "message": "fetched_pages table not found."}
+    tag_clean = tag.strip().lower()
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=url).first()
+        if not page:
+            return {"status": "error", "message": "Page not found."}
 
-    try:
-        page_row = db["fetched_pages"].get(url)
-    except Exception:
-        return {"status": "error", "message": "Page not found."}
-
-    try:
-        current_tags = json.loads(page_row.get("tags") or "[]")
-    except Exception:
         current_tags = []
+        if page.tags:
+            try:
+                current_tags = json.loads(page.tags)
+            except Exception:
+                pass
 
-    if action == "add":
-        if tag not in current_tags:
-            current_tags.append(tag)
-            db["fetched_pages"].update(url, {"tags": json.dumps(current_tags)})
-            db.conn.commit()
+        if action == "add":
+            if tag_clean not in current_tags:
+                current_tags.append(tag_clean)
+                page.tags = json.dumps(current_tags)
+            update_article_embedding(None, url, config, _get_ollama_client())
+            return {"status": "success", "message": f"Tag '{tag}' added to page.", "tags": current_tags}
+        elif action == "remove":
+            if tag_clean in current_tags:
+                current_tags.remove(tag_clean)
+                page.tags = json.dumps(current_tags)
+            update_article_embedding(None, url, config, _get_ollama_client())
+            return {"status": "success", "message": f"Tag '{tag}' removed from page.", "tags": current_tags}
+        else:
+            return {"status": "error", "message": f"Unknown action: {action}"}
+
+
+@router.post("/search")
+def cli_search(
+    query: str = Form(...),
+    limit: int = Form(5),
+    api_key: str = Depends(verify_api_key),
+):
+    res = []
+    with db_session() as session:
+        # DB-independent search query using ILIKE / LIKE
+        rows = (
+            session.query(FetchedPage)
+            .filter(
+                or_(
+                    FetchedPage.title.like(f"%{query}%"),
+                    FetchedPage.description.like(f"%{query}%"),
+                    FetchedPage.tags.like(f"%{query}%"),
+                )
+            )
+            .limit(limit)
+            .all()
+        )
+        for r in rows:
+            res.append(
+                {
+                    "url": r.url,
+                    "title": r.title,
+                    "description": r.description,
+                    "tags": r.tags,
+                }
+            )
+    return {"status": "success", "results": res}
+
+
+@router.post("/chat")
+def cli_chat(
+    query: str = Form(...),
+    limit: int = Form(5),
+    api_key: str = Depends(verify_api_key),
+):
+    emb_model = "embeddinggemma"
+    try:
+        client = _get_ollama_client()
+        resp = client.embeddings(model=emb_model, prompt=f"search_query: {query}")
+        vector = resp["embedding"]
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Ollama embedding query failed: {str(e)}"
+        )
+
+    from ..utils import get_similar_articles
+    context_docs = get_similar_articles(None, None, config, query_vector=vector, limit=limit)
+
+    context_str = ""
+    for idx, doc in enumerate(context_docs):
+        context_str += f"[{idx+1}] Title: {doc['title']}\nURL: {doc['url']}\nContent/Summary:\n{doc['description']}\n\n"
+
+    system_prompt = (
+        "You are an expert AI search assistant answering queries from the user's private knowledge base.\n"
+        f"=== RETRIEVED CONTEXT ===\n{context_str}\n\n"
+        "Answer the user's query accurately using the retrieved context. If the context is empty or "
+        "insufficient to answer the query, tell the user politely and answer to the best of your general knowledge."
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": query},
+    ]
+
+    try:
+        response = client.chat(
+            model=config.ollama_model, messages=messages, think=getattr(config, "ollama_think", False)
+        )
+        reply = response.message.content
+
+        references = [
+            {"title": d["title"], "url": d["url"], "tags": d["tags"]}
+            for d in context_docs
+        ]
+
         return {
             "status": "success",
-            "message": f"Tag '{tag}' added to page.",
-            "tags": current_tags,
+            "query": query,
+            "reply": reply,
+            "references": references,
         }
-    elif action == "remove":
-        if tag in current_tags:
-            current_tags.remove(tag)
-            db["fetched_pages"].update(url, {"tags": json.dumps(current_tags)})
-            db.conn.commit()
-        return {
-            "status": "success",
-            "message": f"Tag '{tag}' removed from page.",
-            "tags": current_tags,
-        }
-    else:
-        return {"status": "error", "message": f"Unknown action: {action}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/agent/query")
-def query_agent(query: str = Form(...), api_key: str = Depends(verify_cli_api_key)):
-    db = _get_db()
+def query_agent(
+    query: str = Form(...),
+    api_key: str = Depends(verify_cli_api_key)
+):
     client = _get_ollama_client()
-
-    context_docs = []
-    if "fetched_pages" in db.table_names():
-        rows = list(
-            db.execute_returning_dicts(
-                "SELECT title, url, description, tags, md_content FROM fetched_pages WHERE title LIKE ? OR description LIKE ? OR tags LIKE ? OR md_content LIKE ? LIMIT 5",
-                [f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"],
+    with db_session() as session:
+        # DB-independent query using ILIKE / LIKE
+        rows = (
+            session.query(FetchedPage)
+            .filter(
+                or_(
+                    FetchedPage.title.like(f"%{query}%"),
+                    FetchedPage.description.like(f"%{query}%"),
+                    FetchedPage.tags.like(f"%{query}%"),
+                    FetchedPage.md_content.like(f"%{query}%"),
+                )
             )
+            .limit(5)
+            .all()
         )
+        context_docs = []
         for r in rows:
             try:
-                tags = json.loads(r.get("tags") or "[]")
+                tags = json.loads(r.tags) if r.tags else []
             except Exception:
                 tags = []
-            context_docs.append(
-                {
-                    "title": r.get("title") or r.get("url"),
-                    "url": r.get("url"),
-                    "tags": tags,
-                    "description": r.get("description") or "",
-                    "preview": (r.get("md_content") or "")[:1500],
-                }
-            )
+            context_docs.append({
+                "title": r.title or r.url,
+                "url": r.url,
+                "tags": tags,
+                "description": r.description or "",
+                "preview": (r.md_content or "")[:1500]
+            })
 
     if context_docs:
         context_str = ""
         for i, doc in enumerate(context_docs):
-            context_str += f"--- Document {i + 1} ---\n"
+            context_str += f"--- Document {i+1} ---\n"
             context_str += f"Title: {doc['title']}\n"
             context_str += f"URL: {doc['url']}\n"
             context_str += f"Tags: {', '.join(doc['tags'])}\n"
@@ -644,43 +604,54 @@ def query_agent(query: str = Form(...), api_key: str = Depends(verify_cli_api_ke
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": query},
+        {"role": "user", "content": query}
     ]
 
     try:
         response = client.chat(
-            model=config.ollama_model, messages=messages, think=config.ollama_think
+            model=config.ollama_model,
+            messages=messages,
+            think=getattr(config, "ollama_think", False)
         )
         reply = response.message.content
 
-        references = [
-            {"title": d["title"], "url": d["url"], "tags": d["tags"]}
-            for d in context_docs
-        ]
+        references = [{
+            "title": d["title"],
+            "url": d["url"],
+            "tags": d["tags"]
+        } for d in context_docs]
 
         return {
             "status": "success",
             "query": query,
             "reply": reply,
-            "references": references,
+            "references": references
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ollama query failed: {str(e)}")
 
 
 @router.get("/logs")
-def get_cli_logs(limit: int = 100, api_key: str = Depends(verify_cli_api_key)):
-    db = _get_db()
-    if "system_logs" not in db.table_names():
-        return []
-    try:
-        rows = list(
-            db.execute_returning_dicts(
-                "SELECT * FROM system_logs ORDER BY rowid DESC LIMIT ?", [limit]
-            )
+def get_cli_logs(
+    limit: int = 100,
+    api_key: str = Depends(verify_cli_api_key)
+):
+    with db_session() as session:
+        from ..models_orm import SystemLog
+        rows = (
+            session.query(SystemLog)
+            .order_by(SystemLog.id.desc())
+            .limit(limit)
+            .all()
         )
-        return rows
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Database error reading logs: {str(e)}"
-        )
+        res = []
+        for r in rows:
+            res.append({
+                "id": r.id,
+                "timestamp": r.timestamp,
+                "level": r.level,
+                "module": r.module,
+                "message": r.message,
+                "traceback": r.traceback
+            })
+        return res

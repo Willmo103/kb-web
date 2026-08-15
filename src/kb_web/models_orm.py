@@ -35,6 +35,8 @@ class SafeVector(TypeDecorator):
             return None
         if dialect.name == "postgresql":
             return value
+        if isinstance(value, str):
+            return value
         return json.dumps(value)
 
     def process_result_value(self, value, dialect):
@@ -43,7 +45,15 @@ class SafeVector(TypeDecorator):
         if dialect.name == "postgresql":
             # pgvector returns it as array/list of float
             return list(value) if not isinstance(value, list) else value
-        return json.loads(value)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, str):
+                    parsed = json.loads(parsed)
+                return parsed
+            except Exception:
+                pass
+        return value
 
 
 class FetchedPage(Base):
@@ -154,6 +164,18 @@ class CollectionNote(Base):
     taxonomy_path = Column(String)
     created_at = Column(String)
     updated_at = Column(String)
+
+
+class CollectionAction(Base):
+    __tablename__ = "collection_actions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    collection_id = Column(Integer, ForeignKey("collections.id"))
+    action_type = Column(String)
+    source_type = Column(String)
+    source_id = Column(String)
+    note = Column(Text)
+    created_at = Column(String)
 
 
 class ChunkEmbedding(Base):

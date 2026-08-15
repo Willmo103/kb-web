@@ -131,6 +131,32 @@ class Config(BaseConfig):
             print(f"Warning: Failed to load config file 'kb-web.json': {e}")
 
     def _read_db_setting(self, table: str, key: str, default):
+        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+            try:
+                from .models_orm import SettingOllama, SettingExternal
+                from .base import db_session
+
+                with db_session() as session:
+                    if table == "settings_ollama":
+                        row = session.query(SettingOllama).filter_by(key=key).first()
+                    elif table == "settings_external":
+                        row = session.query(SettingExternal).filter_by(key=key).first()
+                    else:
+                        row = None
+
+                    if row and row.value is not None:
+                        val = row.value
+                        if isinstance(default, bool):
+                            return val.lower() in ("true", "1")
+                        if isinstance(default, int):
+                            return int(val)
+                        if isinstance(default, float):
+                            return float(val)
+                        return val
+            except Exception as e:
+                print(f"Error reading DB setting from PostgreSQL: {e}")
+            return default
+
         try:
             db = self.get_db()
             if table in db.table_names():
@@ -149,6 +175,30 @@ class Config(BaseConfig):
         return default
 
     def _write_db_setting(self, table: str, key: str, value) -> None:
+        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+            try:
+                from .models_orm import SettingOllama, SettingExternal
+                from .base import db_session
+
+                val_str = str(value)
+                with db_session() as session:
+                    if table == "settings_ollama":
+                        row = session.query(SettingOllama).filter_by(key=key).first()
+                        if row:
+                            row.value = val_str
+                        else:
+                            session.add(SettingOllama(key=key, value=val_str))
+                    elif table == "settings_external":
+                        row = session.query(SettingExternal).filter_by(key=key).first()
+                        if row:
+                            row.value = val_str
+                        else:
+                            session.add(SettingExternal(key=key, value=val_str))
+                return
+            except Exception as e:
+                print(f"Error writing DB setting to PostgreSQL: {e}")
+                return
+
         try:
             db = self.get_db()
             if table in db.table_names():
@@ -301,6 +351,19 @@ class Config(BaseConfig):
 
     @property
     def wiki_prompt(self) -> str:
+        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+            try:
+                from .models_orm import AgentPrompt
+                from .base import db_session
+
+                with db_session() as session:
+                    row = session.query(AgentPrompt).filter_by(prompt_type="wiki_prompt", is_head=1).first()
+                    if row:
+                        return row.prompt_text
+            except Exception:
+                pass
+            return self._wiki_prompt
+
         try:
             db = self.get_db()
             if "agent_prompts" in db.table_names():
@@ -318,6 +381,36 @@ class Config(BaseConfig):
     @wiki_prompt.setter
     def wiki_prompt(self, value: str) -> None:
         self._wiki_prompt = value
+        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+            try:
+                from .models_orm import AgentPrompt
+                from .base import db_session
+                from datetime import datetime
+                from sqlalchemy import func
+
+                with db_session() as session:
+                    current_head = None
+                    row = session.query(AgentPrompt).filter_by(prompt_type="wiki_prompt", is_head=1).first()
+                    if row:
+                        current_head = row.prompt_text
+
+                    if current_head != value:
+                        max_version = session.query(func.max(AgentPrompt.version)).filter_by(prompt_type="wiki_prompt").scalar() or 0
+                        session.query(AgentPrompt).filter_by(prompt_type="wiki_prompt", is_head=1).update({"is_head": 0})
+                        session.add(
+                            AgentPrompt(
+                                prompt_type="wiki_prompt",
+                                prompt_text=value,
+                                is_head=1,
+                                version=max_version + 1,
+                                created_at=datetime.now().isoformat(),
+                            )
+                        )
+                return
+            except Exception as e:
+                print(f"Error setting wiki_prompt on PostgreSQL: {e}")
+                return
+
         try:
             db = self.get_db()
             if "agent_prompts" in db.table_names():
@@ -360,6 +453,19 @@ class Config(BaseConfig):
 
     @property
     def youtube_wiki_prompt(self) -> str:
+        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+            try:
+                from .models_orm import AgentPrompt
+                from .base import db_session
+
+                with db_session() as session:
+                    row = session.query(AgentPrompt).filter_by(prompt_type="youtube_wiki_prompt", is_head=1).first()
+                    if row:
+                        return row.prompt_text
+            except Exception:
+                pass
+            return self._youtube_wiki_prompt
+
         try:
             db = self.get_db()
             if "agent_prompts" in db.table_names():
@@ -377,6 +483,36 @@ class Config(BaseConfig):
     @youtube_wiki_prompt.setter
     def youtube_wiki_prompt(self, value: str) -> None:
         self._youtube_wiki_prompt = value
+        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+            try:
+                from .models_orm import AgentPrompt
+                from .base import db_session
+                from datetime import datetime
+                from sqlalchemy import func
+
+                with db_session() as session:
+                    current_head = None
+                    row = session.query(AgentPrompt).filter_by(prompt_type="youtube_wiki_prompt", is_head=1).first()
+                    if row:
+                        current_head = row.prompt_text
+
+                    if current_head != value:
+                        max_version = session.query(func.max(AgentPrompt.version)).filter_by(prompt_type="youtube_wiki_prompt").scalar() or 0
+                        session.query(AgentPrompt).filter_by(prompt_type="youtube_wiki_prompt", is_head=1).update({"is_head": 0})
+                        session.add(
+                            AgentPrompt(
+                                prompt_type="youtube_wiki_prompt",
+                                prompt_text=value,
+                                is_head=1,
+                                version=max_version + 1,
+                                created_at=datetime.now().isoformat(),
+                            )
+                        )
+                return
+            except Exception as e:
+                print(f"Error setting youtube_wiki_prompt on PostgreSQL: {e}")
+                return
+
         try:
             db = self.get_db()
             if "agent_prompts" in db.table_names():

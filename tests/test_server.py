@@ -8,7 +8,245 @@ from kb_web.db import get_db
 from kb_web.models import HTMLPage
 from kb_web.server import app
 from kb_web.server import config as server_config
+from kb_web.models_orm import (
+    Base, FetchedPage, PageVersion, YouTubeVideo, Collection, CollectionItem, CollectionNote, CollectionAction,
+    ChunkEmbedding, ArticleEmbedding, VideoEmbedding, TitleEmbedding, OllamaLog, SettingOllama, SettingExternal,
+    AgentPrompt, CliApiKey, RegisteredClient, SystemLog, Link
+)
 
+TABLE_TO_MODEL = {
+    "fetched_pages": FetchedPage,
+    "page_versions": PageVersion,
+    "youtube_videos": YouTubeVideo,
+    "collections": Collection,
+    "collection_items": CollectionItem,
+    "collection_notes": CollectionNote,
+    "collection_actions": CollectionAction,
+    "chunk_embeddings": ChunkEmbedding,
+    "article_embeddings": ArticleEmbedding,
+    "video_embeddings": VideoEmbedding,
+    "title_embeddings": TitleEmbedding,
+    "ollama_logs": OllamaLog,
+    "settings_ollama": SettingOllama,
+    "settings_external": SettingExternal,
+    "agent_prompts": AgentPrompt,
+    "cli_api_keys": CliApiKey,
+    "registered_clients": RegisteredClient,
+    "system_logs": SystemLog,
+    "links": Link,
+}
+
+class TableAdapter:
+    def __init__(self, table_name, db_adapter):
+        self.table_name = table_name
+        self.db_adapter = db_adapter
+        self.model_cls = TABLE_TO_MODEL[table_name]
+
+    def insert(self, record, replace=True, pk=None):
+        from kb_web.base import db_session
+        clean_record = {}
+        for k, v in record.items():
+            if isinstance(v, (list, dict)):
+                clean_record[k] = json.dumps(v)
+            else:
+                clean_record[k] = v
+
+        with db_session() as session:
+            pks = [c.name for c in self.model_cls.__table__.primary_key.columns]
+            pk_vals = {pk_col: clean_record[pk_col] for pk_col in pks if pk_col in clean_record}
+            
+            existing = None
+            if len(pk_vals) == len(pks) and pks:
+                existing = session.query(self.model_cls).filter_by(**pk_vals).first()
+            
+            if existing and replace:
+                for k, v in clean_record.items():
+                    setattr(existing, k, v)
+            else:
+                session.add(self.model_cls(**clean_record))
+        return self
+
+    def upsert(self, record, pk=None):
+        return self.insert(record, replace=True, pk=pk)
+
+    def insert_all(self, records, pk=None, replace=True):
+        for r in records:
+            self.insert(r, replace=replace, pk=pk)
+        return self
+
+    def get(self, pk_value):
+        from kb_web.base import db_session
+        with db_session() as session:
+            pks = [c.name for c in self.model_cls.__table__.primary_key.columns]
+            if not pks:
+                raise KeyError("No primary key found for table.")
+            if isinstance(pk_value, tuple):
+                filter_kwargs = {pks[i]: pk_value[i] for i in range(len(pk_value))}
+            else:
+                filter_kwargs = {pks[0]: pk_value}
+            
+            row = session.query(self.model_cls).filter_by(**filter_kwargs).first()
+            if not row:
+                from sqlite_utils.db import NotFoundError
+                raise NotFoundError(f"Record {pk_value} not found.")
+            
+            res = {}
+            for col in row.__table__.columns:
+                val = getattr(row, col.name)
+                res[col.name] = val
+            return res
+
+    def update(self, pk_value, record):
+        from kb_web.base import db_session
+        with db_session() as session:
+            pks = [c.name for c in self.model_cls.__table__.primary_key.columns]
+            if isinstance(pk_value, tuple):
+                filter_kwargs = {pks[i]: pk_value[i] for i in range(len(pk_value))}
+            else:
+                filter_kwargs = {pks[0]: pk_value}
+            row = session.query(self.model_cls).filter_by(**filter_kwargs).first()
+            if row:
+                for k, v in record.items():
+                    if isinstance(v, (list, dict)):
+                        setattr(row, k, json.dumps(v))
+                    else:
+                        setattr(row, k, v)
+        return self
+
+    def delete(self, pk_value):
+        from kb_web.base import db_session
+        with db_session() as session:
+            pks = [c.name for c in self.model_cls.__table__.primary_key.columns]
+            if isinstance(pk_value, tuple):
+                filter_kwargs = {pks[i]: pk_value[i] for i in range(len(pk_value))}
+            else:
+                filter_kwargs = {pks[0]: pk_value}
+            session.query(self.model_cls).filter_by(**filter_kwargs).delete()
+        return self
+
+    def delete_where(self, clause=None, params=None):
+        from kb_web.base import db_session
+        with db_session() as session:
+            from sqlalchemy import text
+            if not clause:
+                sql = f"DELETE FROM {self.table_name}"
+                session.execute(text(sql))
+            else:
+                sql = clause
+                bind_params = {}
+                if params:
+                    for idx, val in enumerate(params):
+                        bind_params[f"param_{idx}"] = val
+                    for idx in range(len(params)):
+                        sql = sql.replace("?", f":param_{idx}", 1)
+                sql = f"DELETE FROM {self.table_name} WHERE {sql}"
+                session.execute(text(sql), bind_params)
+        return self
+
+    def count_where(self, clause, params=None):
+        from kb_web.base import db_session
+        with db_session() as session:
+            from sqlalchemy import text
+            sql = clause
+            bind_params = {}
+            if params:
+                for idx, val in enumerate(params):
+                    bind_params[f"param_{idx}"] = val
+                for idx in range(len(params)):
+                    sql = sql.replace("?", f":param_{idx}", 1)
+            full_sql = f"SELECT COUNT(*) FROM {self.table_name} WHERE {sql}"
+            res = session.execute(text(full_sql), bind_params).scalar()
+            return res or 0
+
+    def rows_where(self, clause, params=None, order_by=None):
+        from kb_web.base import db_session
+        with db_session() as session:
+            from sqlalchemy import text
+            sql = clause
+            bind_params = {}
+            if params:
+                for idx, val in enumerate(params):
+                    bind_params[f"param_{idx}"] = val
+                for idx in range(len(params)):
+                    sql = sql.replace("?", f":param_{idx}", 1)
+            full_sql = f"SELECT * FROM {self.table_name}"
+            if sql.strip():
+                full_sql += f" WHERE {sql}"
+            if order_by:
+                full_sql += f" ORDER BY {order_by}"
+            res = session.execute(text(full_sql), bind_params).mappings().all()
+            return [dict(r) for r in res]
+
+    @property
+    def rows(self):
+        from kb_web.base import db_session
+        with db_session() as session:
+            rows = session.query(self.model_cls).all()
+            res = []
+            for row in rows:
+                r_dict = {}
+                for col in row.__table__.columns:
+                    r_dict[col.name] = getattr(row, col.name)
+                res.append(r_dict)
+            return res
+
+    @property
+    def columns_dict(self):
+        res = {}
+        for col in self.model_cls.__table__.columns:
+            py_type = str
+            if hasattr(col.type, "python_type"):
+                try:
+                    py_type = col.type.python_type
+                except Exception:
+                    pass
+            res[col.name] = py_type
+        return res
+
+class DBAdapter:
+    def __init__(self):
+        pass
+
+    def __getitem__(self, key):
+        return TableAdapter(key, self)
+
+    def table_names(self):
+        return list(TABLE_TO_MODEL.keys())
+
+    def execute(self, sql, params=None):
+        from kb_web.base import db_session
+        from sqlalchemy import text
+        bind_params = {}
+        if params:
+            for idx, val in enumerate(params):
+                bind_params[f"param_{idx}"] = val
+            for idx in range(len(params)):
+                sql = sql.replace("?", f":param_{idx}", 1)
+        with db_session() as session:
+            session.execute(text(sql), bind_params)
+        return self
+
+    def execute_returning_dicts(self, sql, params=None):
+        from kb_web.base import db_session
+        from sqlalchemy import text
+        bind_params = {}
+        if params:
+            for idx, val in enumerate(params):
+                bind_params[f"param_{idx}"] = val
+            for idx in range(len(params)):
+                sql = sql.replace("?", f":param_{idx}", 1)
+        with db_session() as session:
+            res = session.execute(text(sql), bind_params).mappings().all()
+            return [dict(r) for r in res]
+
+    @property
+    def conn(self):
+        class DummyConn:
+            def commit(self):
+                pass
+            def close(self):
+                pass
+        return DummyConn()
 
 @pytest.fixture(autouse=True)
 def setup_temp_db(tmp_path, monkeypatch) -> None:
@@ -20,8 +258,17 @@ def setup_temp_db(tmp_path, monkeypatch) -> None:
     server_config.db_path = temp_db
     server_config.configs_dir = tmp_path / "configs"
 
-    # Ensure schema is preloaded
-    _ = get_db(server_config)
+    # Setup the sqlite database with tables using SQLAlchemy create_all
+    from kb_web.db import init_db
+    from kb_web.base import get_engine
+    Base.metadata.create_all(get_engine())
+    init_db(None)
+
+    # Monkeypatch the get_db helpers to use the SQLAlchemy adapter
+    import sys
+    monkeypatch.setattr(sys.modules[__name__], "get_db", lambda *args, **kwargs: DBAdapter())
+    monkeypatch.setattr("kb_web.db.get_db", lambda *args, **kwargs: DBAdapter())
+    monkeypatch.setattr("kb_web.base._get_db", lambda *args, **kwargs: DBAdapter())
 
     # Mock Ollama Client embeddings, list, and pull globally to keep tests fast and offline
     monkeypatch.setattr(
@@ -615,6 +862,19 @@ def test_get_requests_are_write_free(client: TestClient) -> None:
                 )
         return original_execute(self, sql, *args, **kwargs)
 
+    from sqlalchemy.engine.base import Connection
+    original_execute_sqla = Connection.execute
+
+    def mock_execute_sqla(self, statement, *args, **kwargs):
+        sql_str = str(statement).strip().lower()
+        executed_queries.append(sql_str)
+        for cmd in write_commands:
+            if sql_str.startswith(cmd):
+                raise AssertionError(
+                    f"Write query detected on read-only request: {sql_str}"
+                )
+        return original_execute_sqla(self, statement, *args, **kwargs)
+
     # Insert a page to read
     db = get_db(server_config)
     db["fetched_pages"].insert(
@@ -632,7 +892,8 @@ def test_get_requests_are_write_free(client: TestClient) -> None:
         replace=True,
     )
 
-    with patch.object(sqlite_utils.Database, "execute", mock_execute):
+    with patch.object(sqlite_utils.Database, "execute", mock_execute), \
+         patch.object(Connection, "execute", mock_execute_sqla):
         # 1. Hit the home page
         response = client.get("/")
         assert response.status_code == 200
