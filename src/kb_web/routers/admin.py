@@ -58,6 +58,7 @@ from ..utils import (
 )
 from ..gotify import post_to_gotify
 from .pages import background_video_downloader
+from ..config import DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
 
 from bs4 import BeautifulSoup  # type: ignore
 
