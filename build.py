@@ -5,6 +5,7 @@ from pathlib import Path
 
 from typing import Optional
 
+
 def run_step(cmd: list[str], description: str, cwd: Optional[Path] = None):
     print("\n=========================================")
     print(f"Step: {description}")
@@ -12,7 +13,12 @@ def run_step(cmd: list[str], description: str, cwd: Optional[Path] = None):
     print("=========================================")
     try:
         # Use shell=True on Windows to support running commands correctly in all shell contexts
-        subprocess.run(cmd, check=True, shell=sys.platform == "win32", cwd=str(cwd) if cwd else None)
+        subprocess.run(
+            cmd,
+            check=True,
+            shell=sys.platform == "win32",
+            cwd=str(cwd) if cwd else None,
+        )
     except subprocess.CalledProcessError as e:
         print(f"\n[ERROR] Step failed: {description}")
         print(f"Command returned non-zero exit code: {e.returncode}")
@@ -60,7 +66,7 @@ def clean_previous_builds():
 def bootstrap_database():
     import socket
     import time
-    
+
     print("[INFO] Checking if local PostgreSQL is active...")
     try:
         with socket.create_connection(("localhost", 5432), timeout=2):
@@ -69,19 +75,32 @@ def bootstrap_database():
     except (socket.timeout, ConnectionRefusedError):
         pass
 
-    print("[INFO] Local PostgreSQL is not running. Attempting to start service using docker-compose...")
+    print(
+        "[INFO] Local PostgreSQL is not running. Attempting to start service using docker-compose..."
+    )
     try:
-        res = subprocess.run(["docker", "compose", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=sys.platform == "win32")
+        res = subprocess.run(
+            ["docker", "compose", "version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=sys.platform == "win32",
+        )
         if res.returncode == 0:
             compose_cmd = ["docker", "compose"]
         else:
             compose_cmd = ["docker-compose"]
-        
+
         project_dir = Path(__file__).resolve().parent
         compose_file = project_dir / ".devcontainer" / "docker-compose.yml"
         if compose_file.exists():
-            print(f"[INFO] Booting database stack using: {' '.join(compose_cmd)} -f {compose_file} up -d db")
-            subprocess.run(compose_cmd + ["-f", str(compose_file), "up", "-d", "db"], check=True, shell=sys.platform == "win32")
+            print(
+                f"[INFO] Booting database stack using: {' '.join(compose_cmd)} -f {compose_file} up -d db"
+            )
+            subprocess.run(
+                compose_cmd + ["-f", str(compose_file), "up", "-d", "db"],
+                check=True,
+                shell=sys.platform == "win32",
+            )
             print("[INFO] Waiting for database connection to be established...")
             for _ in range(30):
                 try:
@@ -93,7 +112,9 @@ def bootstrap_database():
             print("[ERROR] Timeout waiting for PostgreSQL database startup.")
             sys.exit(1)
         else:
-            print("[WARNING] docker-compose.yml not found in .devcontainer/ folder. Cannot auto-start database.")
+            print(
+                "[WARNING] docker-compose.yml not found in .devcontainer/ folder. Cannot auto-start database."
+            )
     except Exception as e:
         print(f"[WARNING] Failed to auto-start database container: {e}")
 
@@ -105,7 +126,12 @@ def main():
     # Detect if uv is available
     has_uv = False
     try:
-        res = subprocess.run(["uv", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=sys.platform == "win32")
+        res = subprocess.run(
+            ["uv", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=sys.platform == "win32",
+        )
         if res.returncode == 0:
             has_uv = True
     except FileNotFoundError:
@@ -121,10 +147,14 @@ def main():
 
         # 3. Build packaging artifacts
         run_step(["uv", "build"], "Building source and wheel packages")
-        run_step(["uv", "build"], "Building CLI submodule source and wheel packages", cwd=project_dir / "kb-web-cli")
+        run_step(
+            ["uv", "build"],
+            "Building CLI submodule source and wheel packages",
+            cwd=project_dir / "kb-web-cli",
+        )
     else:
         print("[INFO] 'uv' command not found. Falling back to python/venv tools.")
-        
+
         # Determine executable paths
         python_exe = sys.executable
         if sys.platform == "win32":
@@ -139,24 +169,38 @@ def main():
 
         # 1. Make sure build module is installed if we need to package
         try:
-            from build import ProjectBuilder
+            import build
+            _ = build.ProjectBuilder
         except ImportError:
             print("[INFO] Installing 'build' package for packaging...")
             if Path(pip_exe).exists():
-                subprocess.run([pip_exe, "install", "build"], check=True, shell=sys.platform == "win32")
+                subprocess.run(
+                    [pip_exe, "install", "build"],
+                    check=True,
+                    shell=sys.platform == "win32",
+                )
             else:
-                subprocess.run([python_exe, "-m", "pip", "install", "build"], check=True, shell=sys.platform == "win32")
+                subprocess.run(
+                    [python_exe, "-m", "pip", "install", "build"],
+                    check=True,
+                    shell=sys.platform == "win32",
+                )
 
         # 2. Run unit tests
         run_step([pytest_exe], "Running pytest suite")
 
         # 3. Build packaging artifacts
         build_cmd = [
-            python_exe, "-c",
-            "import sys, os; sys.path = [p for p in sys.path if p != os.getcwd() and p != '']; import build.__main__; build.__main__.main(sys.argv[1:])"
+            python_exe,
+            "-c",
+            "import sys, os; sys.path = [p for p in sys.path if p != os.getcwd() and p != '']; import build.__main__; build.__main__.main(sys.argv[1:])",
         ]
         run_step(build_cmd, "Building source and wheel packages")
-        run_step(build_cmd, "Building CLI submodule source and wheel packages", cwd=project_dir / "kb-web-cli")
+        run_step(
+            build_cmd,
+            "Building CLI submodule source and wheel packages",
+            cwd=project_dir / "kb-web-cli",
+        )
 
     # 4. Copy artifacts to ARTIFACTS_ROOT if set
     copy_artifacts()

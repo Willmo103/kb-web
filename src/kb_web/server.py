@@ -8,33 +8,37 @@ import traceback
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .base import config
 from .gotify import post_error_to_gotify
+
 
 # Setup logging using SQLite database table system_logs
 def setup_logging():
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     logger.handlers = []
-    
+
     # Console Handler
     console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter(
-        "[%(asctime)s] %(levelname)s in %(module)s: %(message)s"
-    ))
+    console_handler.setFormatter(
+        logging.Formatter("[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
+    )
     logger.addHandler(console_handler)
-    
-    # SQLite Database Logging Handler
+
+    # Database Logging Handler
     try:
-        from .base import SQLiteLogHandler
-        db_handler = SQLiteLogHandler(config.db_path)
+        from .base import DatabaseLogHandler
+
+        db_handler = DatabaseLogHandler()
         db_handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(db_handler)
     except Exception as e:
-        print(f"Warning: Failed to setup SQLiteLogHandler: {e}")
-    
+        print(f"Warning: Failed to setup DatabaseLogHandler: {e}")
+
     logging.getLogger("kb_web").setLevel(logging.INFO)
+
 
 setup_logging()
 logger = logging.getLogger("kb_web")
@@ -45,6 +49,7 @@ async def lifespan(app: FastAPI):
     # Run database migrations on startup
     try:
         from scripts.deploy_migrations import deploy
+
         deploy()
     except Exception as e:
         logger.error(f"Failed to run database migrations on startup: {e}")
@@ -59,23 +64,28 @@ app = FastAPI(title="Knowledge Base Web Importer", lifespan=lifespan)
 @app.middleware("http")
 async def log_request_middleware(request: Request, call_next):
     import time
+
     start_time = time.time()
     method = request.method
     url = str(request.url)
     client_host = request.client.host if request.client else "unknown"
-    
+
     logger.info(f"Incoming request: {method} {url} from {client_host}")
-    
+
     try:
         response = await call_next(request)
         duration = time.time() - start_time
-        logger.info(f"Completed request: {method} {url} - Status: {response.status_code} - Duration: {duration:.3f}s")
+        logger.info(
+            f"Completed request: {method} {url} - Status: {response.status_code} - Duration: {duration:.3f}s"
+        )
         return response
     except Exception as e:
         duration = time.time() - start_time
-        logger.error(f"Failed request: {method} {url} - Error: {str(e)} - Duration: {duration:.3f}s", exc_info=True)
+        logger.error(
+            f"Failed request: {method} {url} - Error: {str(e)} - Duration: {duration:.3f}s",
+            exc_info=True,
+        )
         raise e
-
 
 
 # Exception handler posting internal errors to Gotify
@@ -83,24 +93,24 @@ async def log_request_middleware(request: Request, call_next):
 async def gotify_error_logging_handler(request: Request, exc: Exception):
     tb = traceback.format_exc()
     logger.error(f"Uncaught exception: {exc}\n{tb}")
-    
+
     try:
         post_error_to_gotify(config, exc, tb, request)
     except Exception as e:
         logger.error(f"Failed to post traceback to Gotify: {e}")
-        
+
     if "application/json" in request.headers.get("accept", ""):
         return JSONResponse(
-            status_code=500,
-            content={"detail": "An internal server error occurred."}
+            status_code=500, content={"detail": "An internal server error occurred."}
         )
     return HTMLResponse(
         content="<h1>Internal Server Error</h1><p>An unexpected error occurred. Logged to admin console.</p>",
-        status_code=500
+        status_code=500,
     )
 
 
 # --- Public metadata endpoints ---
+
 
 @app.get("/icon.png", response_model=None)
 def get_local_icon() -> FileResponse:
@@ -155,7 +165,7 @@ def get_service_worker() -> HTMLResponse:
 
 
 # Serve media files (e.g. downloaded YouTube videos)
-from fastapi.staticfiles import StaticFiles
+
 media_dir = config.configs_dir.parent / "media"
 media_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(media_dir)), name="media")

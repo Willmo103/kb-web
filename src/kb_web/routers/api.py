@@ -11,11 +11,12 @@ from bs4 import BeautifulSoup  # type: ignore
 from ..base import (
     config,
     _jinja_env,
-    _get_db,
     _get_ollama_client,
     verify_api_key,
+    db_session,
 )
 from ..models import HTMLPage, HTMLImportPayload, extract_youtube_video_id
+from ..models_orm import FetchedPage, PageVersion
 from ..utils import (
     extract_wiki_content,
     extract_tags_content,
@@ -35,23 +36,27 @@ router = APIRouter()
 )
 def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
     """Accepts raw HTML posts directly from browser extensions and processes them."""
-    db = _get_db()
     try:
         url = payload.url
         html_content = payload.html_content
         video_id = extract_youtube_video_id(url)
-        
+
         page_data = None
         if video_id:
             try:
                 page_data = fetch_youtube_video_page(url, video_id)
-                if not page_data.title or page_data.title == f"YouTube Video {video_id}":
+                if (
+                    not page_data.title
+                    or page_data.title == f"YouTube Video {video_id}"
+                ):
                     if payload.title:
                         page_data.title = payload.title
             except Exception as e:
-                print(f"Failed to fetch YouTube page content, falling back to raw payload: {e}")
+                print(
+                    f"Failed to fetch YouTube page content, falling back to raw payload: {e}"
+                )
                 page_data = None
-                
+
         if not page_data:
             h = HTML2Text()
             h.ignore_links = True
@@ -59,7 +64,9 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
 
             soup = BeautifulSoup(html_content, "html5lib")
             links = [a.get("href") for a in soup.find_all("a", href=True)]
-            links = [urljoin(url, link) if link.startswith("/") else link for link in links]
+            links = [
+                urljoin(url, link) if link.startswith("/") else link for link in links
+            ]
 
             title = payload.title
             if not title and soup.title:
@@ -73,7 +80,9 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
                 html_content=html_content,
                 md_content=md_content,
                 links=links,
-                html_content_hash=hashlib.sha256(html_content.encode("utf-8")).hexdigest(),
+                html_content_hash=hashlib.sha256(
+                    html_content.encode("utf-8")
+                ).hexdigest(),
                 md_content_hash=hashlib.sha256(md_content.encode("utf-8")).hexdigest(),
                 fetched_at=datetime_now_str(),
                 description="",
@@ -87,26 +96,32 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
     view_url = f"{base_url}/view/page?url={page_data.safe_url}"
 
     try:
-        existing_rows = list(db["fetched_pages"].rows_where("url = ?", [url]))
-        if existing_rows:
-            existing_row = existing_rows[0]
-            if existing_row.get("html_content_hash") == page_data.html_content_hash:
-                return {"status": "success", "message": "Content unchanged. Skipping ingestion.", "url": url, "view_url": view_url}
-            else:
-                db["page_versions"].insert({
-                    "url": existing_row["url"],
-                    "title": existing_row.get("title"),
-                    "html_content": existing_row.get("html_content"),
-                    "md_content": existing_row.get("md_content"),
-                    "links": existing_row.get("links"),
-                    "html_content_hash": existing_row.get("html_content_hash"),
-                    "md_content_hash": existing_row.get("md_content_hash"),
-                    "fetched_at": existing_row.get("fetched_at"),
-                    "description": existing_row.get("description"),
-                    "keywords": existing_row.get("keywords"),
-                    "tags": existing_row.get("tags"),
-                })
-                db.conn.commit()
+        with db_session() as session:
+            existing = session.query(FetchedPage).filter_by(url=url).first()
+            if existing:
+                if existing.html_content_hash == page_data.html_content_hash:
+                    return {
+                        "status": "success",
+                        "message": "Content unchanged. Skipping ingestion.",
+                        "url": url,
+                        "view_url": view_url,
+                    }
+                else:
+                    session.add(
+                        PageVersion(
+                            url=existing.url,
+                            title=existing.title,
+                            html_content=existing.html_content,
+                            md_content=existing.md_content,
+                            links=existing.links,
+                            html_content_hash=existing.html_content_hash,
+                            md_content_hash=existing.md_content_hash,
+                            fetched_at=existing.fetched_at,
+                            description=existing.description,
+                            keywords=existing.keywords,
+                            tags=existing.tags,
+                        )
+                    )
     except Exception:
         pass
 
@@ -121,17 +136,19 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
     tags = extract_tags_content(page_data, config, client)
     page_data.tags = tags
 
-
-
     serialized, creator = serialize_page_for_db(page_data)
-    db["fetched_pages"].upsert(serialized, pk="url")
-    save_youtube_metadata_helper(db, page_data.url, creator)
-    db.conn.commit()
-    
-    update_article_embedding(db, page_data.url, config, client)
-    generate_gemma_embeddings_for_page(db, page_data.url, config, client)
-    db.conn.commit()
-    
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=page_data.url).first()
+        if page:
+            for k, v in serialized.items():
+                setattr(page, k, v)
+        else:
+            session.add(FetchedPage(**serialized))
+
+    save_youtube_metadata_helper(None, page_data.url, creator)
+    update_article_embedding(None, page_data.url, config, client)
+    generate_gemma_embeddings_for_page(None, page_data.url, config, client)
+
     post_to_gotify(config, _jinja_env, page_data, view_url)
 
     return {"status": "success", "url": url, "view_url": view_url}
@@ -142,8 +159,6 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
 )
 def handle_page_import(payload: HTMLPage, request: Request) -> dict:
     """Accepts full HTMLPage Pydantic payloads (e.g. from kb-rss) and processes/saves them."""
-    db = _get_db()
-
     video_id = extract_youtube_video_id(payload.url)
     if video_id:
         try:
@@ -153,7 +168,9 @@ def handle_page_import(payload: HTMLPage, request: Request) -> dict:
             payload.title = yt_page.title or payload.title
             payload.creator = yt_page.creator
         except Exception as e:
-            print(f"Failed to fetch YouTube page content for import/page, falling back: {e}")
+            print(
+                f"Failed to fetch YouTube page content for import/page, falling back: {e}"
+            )
 
     if not payload.title:
         title = payload.url
@@ -168,26 +185,32 @@ def handle_page_import(payload: HTMLPage, request: Request) -> dict:
     view_url = f"{base_url}/view/page?url={payload.safe_url}"
 
     try:
-        existing_rows = list(db["fetched_pages"].rows_where("url = ?", [payload.url]))
-        if existing_rows:
-            existing_row = existing_rows[0]
-            if existing_row.get("html_content_hash") == payload.html_content_hash:
-                return {"status": "success", "message": "Content unchanged. Skipping ingestion.", "url": payload.url, "view_url": view_url}
-            else:
-                db["page_versions"].insert({
-                    "url": existing_row["url"],
-                    "title": existing_row.get("title"),
-                    "html_content": existing_row.get("html_content"),
-                    "md_content": existing_row.get("md_content"),
-                    "links": existing_row.get("links"),
-                    "html_content_hash": existing_row.get("html_content_hash"),
-                    "md_content_hash": existing_row.get("md_content_hash"),
-                    "fetched_at": existing_row.get("fetched_at"),
-                    "description": existing_row.get("description"),
-                    "keywords": existing_row.get("keywords"),
-                    "tags": existing_row.get("tags"),
-                })
-                db.conn.commit()
+        with db_session() as session:
+            existing = session.query(FetchedPage).filter_by(url=payload.url).first()
+            if existing:
+                if existing.html_content_hash == payload.html_content_hash:
+                    return {
+                        "status": "success",
+                        "message": "Content unchanged. Skipping ingestion.",
+                        "url": payload.url,
+                        "view_url": view_url,
+                    }
+                else:
+                    session.add(
+                        PageVersion(
+                            url=existing.url,
+                            title=existing.title,
+                            html_content=existing.html_content,
+                            md_content=existing.md_content,
+                            links=existing.links,
+                            html_content_hash=existing.html_content_hash,
+                            md_content_hash=existing.md_content_hash,
+                            fetched_at=existing.fetched_at,
+                            description=existing.description,
+                            keywords=existing.keywords,
+                            tags=existing.tags,
+                        )
+                    )
     except Exception:
         pass
 
@@ -203,17 +226,19 @@ def handle_page_import(payload: HTMLPage, request: Request) -> dict:
     if not payload.tags:
         payload.tags = extract_tags_content(payload, config, client)
 
-
-
     serialized, creator = serialize_page_for_db(payload)
-    db["fetched_pages"].upsert(serialized, pk="url")
-    save_youtube_metadata_helper(db, payload.url, creator)
-    db.conn.commit()
-    
-    update_article_embedding(db, payload.url, config, client)
-    generate_gemma_embeddings_for_page(db, payload.url, config, client)
-    db.conn.commit()
-    
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=payload.url).first()
+        if page:
+            for k, v in serialized.items():
+                setattr(page, k, v)
+        else:
+            session.add(FetchedPage(**serialized))
+
+    save_youtube_metadata_helper(None, payload.url, creator)
+    update_article_embedding(None, payload.url, config, client)
+    generate_gemma_embeddings_for_page(None, payload.url, config, client)
+
     post_to_gotify(config, _jinja_env, payload, view_url)
 
     return {"status": "success", "url": payload.url, "view_url": view_url}
@@ -221,4 +246,5 @@ def handle_page_import(payload: HTMLPage, request: Request) -> dict:
 
 def datetime_now_str() -> str:
     from datetime import datetime
+
     return datetime.now().isoformat()

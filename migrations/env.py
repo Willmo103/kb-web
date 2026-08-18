@@ -1,25 +1,27 @@
-from logging.config import fileConfig
-
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
-from alembic import context
-
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
-config = context.config
-
 import sys
 from pathlib import Path
 
 project_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_dir / "src"))
 
-from kb_web.config import Config
+from logging.config import fileConfig  # noqa: E402
+from sqlalchemy import engine_from_config, pool  # noqa: E402
+from alembic import context  # noqa: E402
+from kb_web.config import Config  # noqa: E402
+
+# this is the Alembic Config object, which provides
+# access to the values within the .ini file in use.
+config = context.config
+
 cfg = Config()
 
 # Override Alembic URL dynamically from config
-db_url = f"sqlite:///{cfg.db_path}"
+db_url = cfg.database_url or f"sqlite:///{cfg.db_path}"
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+psycopg2://"):
+    db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.
@@ -27,11 +29,18 @@ config.set_main_option("sqlalchemy.url", db_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-target_metadata = None
+from kb_web.models_orm import Base  # noqa: E402
+target_metadata = Base.metadata
+
+def include_object(object, name, type_, reflected, compare_to):
+    # Ignore read-only views in other packages or views declared in models_orm
+    if name in ("vault_master", "repo_master", "valid_repo_files", "root_items", "valid_vault_files"):
+        return False
+    if type_ == "table":
+        # Only manage tables that belong to the kb-web model definition
+        return name in target_metadata.tables
+    return True
+
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -57,6 +66,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -78,7 +88,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
         )
 
         with context.begin_transaction():

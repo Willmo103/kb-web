@@ -2,13 +2,21 @@
 """
 Parses saved UAT JSON feedback data into actionable agent issues and task specs.
 """
+
 import argparse
 import json
 from pathlib import Path
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Parse UAT JSON feedback into agent issues")
-    parser.add_argument("--json-path", default="scratch/uat_feedback_data.json", help="Path to saved JSON file")
+    parser = argparse.ArgumentParser(
+        description="Parse UAT JSON feedback into agent issues"
+    )
+    parser.add_argument(
+        "--json-path",
+        default="scratch/uat_feedback_data.json",
+        help="Path to saved JSON file",
+    )
     args = parser.parse_args()
 
     json_file = Path(args.json_path)
@@ -35,7 +43,7 @@ def main():
         f"- **Tester**: {tester}",
         f"- **Overall Verdict**: {verdict}",
         f"- **Parsed Issues Count**: {len(issues)}\n",
-        "## Agent Action Items\n"
+        "## Agent Action Items\n",
     ]
 
     for idx, item in enumerate(issues, 1):
@@ -56,7 +64,10 @@ def main():
 
     output_file = json_file.parent / f"{task_name}_parsed_issues.md"
     output_file.write_text("\n".join(output_lines), encoding="utf-8")
-    print(f"[SUCCESS] Parsed {len(issues)} issue(s) into agent task file: {output_file}")
+    print(
+        f"[SUCCESS] Parsed {len(issues)} issue(s) into agent task file: {output_file}"
+    )
+
 
 if __name__ == "__main__":
     main()

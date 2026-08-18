@@ -38,7 +38,6 @@ class YouTubeVideoMetadata(BaseModel):
     updated_at: str
 
 
-
 class ParsedUrl(BaseModel):
     """Pydantic model representing decomposed parts of a URL.
 
@@ -216,4 +215,3 @@ class HTMLImportPayload(BaseModel):
     url: str
     html_content: str
     title: Optional[str] = None
-

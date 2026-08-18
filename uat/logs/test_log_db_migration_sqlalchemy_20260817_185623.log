@@ -1,0 +1,31 @@
+=== PYTEST OUTPUT LOG ===
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\src\kb-web
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collected 94 items
+
+tests\test_server.py ................................................... [ 54%]
+...........................................                              [100%]
+
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\src\kb-web\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+src\kb_web\models_orm.py:6
+  C:\src\kb-web\src\kb_web\models_orm.py:6: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+tests/test_server.py: 74 warnings
+  C:\src\kb-web\.venv\Lib\site-packages\starlette\testclient.py:459: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return super().request(
+
+tests/test_server.py::test_bytes_backup_export_and_import[sqlite]
+tests/test_server.py::test_bytes_backup_export_and_import[postgresql]
+  C:\src\kb-web\.venv\Lib\site-packages\starlette\testclient.py:675: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    super().request("GET", url, **kwargs)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+====================== 94 passed, 78 warnings in 46.03s =======================
