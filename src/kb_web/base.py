@@ -42,33 +42,16 @@ COOKIE_NAME = "kb_session"
 SESSION_EXPIRATION_SECONDS = 3600 * 24  # 24 hours
 
 
-class SQLiteLogHandler(logging.Handler):
-    """Custom logging handler that writes logs to a database table."""
-    def __init__(self, db_path: Optional[str] = None) -> None:
+class DatabaseLogHandler(logging.Handler):
+    """Custom logging handler that writes logs to the database using SQLAlchemy."""
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__()
-        self.db_path = db_path
-        if self.db_path:
-            import sqlite3
-            conn = sqlite3.connect(self.db_path, timeout=15.0)
-            try:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS system_logs (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        timestamp TEXT,
-                        level TEXT,
-                        module TEXT,
-                        message TEXT,
-                        traceback TEXT
-                    )
-                """)
-                conn.commit()
-            except Exception:
-                pass
-            finally:
-                conn.close()
 
     def emit(self, record: logging.LogRecord) -> None:
+        # Skip logging if it is from sqlalchemy engine to avoid infinite recursion/loops
+        if record.name.startswith("sqlalchemy"):
+            return
+
         try:
             from datetime import datetime
             import traceback
@@ -81,41 +64,23 @@ class SQLiteLogHandler(logging.Handler):
             if record.exc_info:
                 tb = "".join(traceback.format_exception(*record.exc_info))
 
-            if self.db_path:
-                import sqlite3
-                conn = sqlite3.connect(self.db_path, timeout=15.0)
-                try:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "INSERT INTO system_logs (timestamp, level, module, message, traceback) VALUES (?, ?, ?, ?, ?)",
-                        (
-                            datetime.now().isoformat(),
-                            record.levelname,
-                            record.module,
-                            msg,
-                            tb
-                        )
-                    )
-                    conn.commit()
-                finally:
-                    conn.close()
-            else:
-                from .models_orm import SystemLog
-                with db_session() as session:
-                    log_entry = SystemLog(
-                        timestamp=datetime.now().isoformat(),
-                        level=record.levelname,
-                        module=record.module,
-                        message=msg,
-                        traceback=tb,
-                    )
-                    session.add(log_entry)
+            from .models_orm import SystemLog
+            with db_session() as session:
+                log_entry = SystemLog(
+                    timestamp=datetime.now().isoformat(),
+                    level=record.levelname,
+                    module=record.module,
+                    message=msg,
+                    traceback=tb,
+                )
+                session.add(log_entry)
         except Exception:
             # Prevent logging errors from crashing the application
             pass
 
 
-DatabaseLogHandler = SQLiteLogHandler
+SQLiteLogHandler = DatabaseLogHandler
+DatabaseLogHandler = DatabaseLogHandler
 
 
 _local = threading.local()

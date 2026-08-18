@@ -27,15 +27,15 @@ def setup_logging():
     )
     logger.addHandler(console_handler)
 
-    # SQLite Database Logging Handler
+    # Database Logging Handler
     try:
-        from .base import SQLiteLogHandler
+        from .base import DatabaseLogHandler
 
-        db_handler = SQLiteLogHandler(config.db_path)
+        db_handler = DatabaseLogHandler()
         db_handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(db_handler)
     except Exception as e:
-        print(f"Warning: Failed to setup SQLiteLogHandler: {e}")
+        print(f"Warning: Failed to setup DatabaseLogHandler: {e}")
 
     logging.getLogger("kb_web").setLevel(logging.INFO)
 

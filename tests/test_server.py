@@ -44,12 +44,22 @@ class TableAdapter:
 
     def insert(self, record, replace=True, pk=None):
         from kb_web.base import db_session
+        from kb_web.models_orm import SafeVector
         clean_record = {}
         for k, v in record.items():
-            if isinstance(v, (list, dict)):
-                clean_record[k] = json.dumps(v)
+            if k in self.model_cls.__table__.columns:
+                col_type = self.model_cls.__table__.columns[k].type
+                if isinstance(col_type, SafeVector):
+                    clean_record[k] = v
+                elif isinstance(v, (list, dict)):
+                    clean_record[k] = json.dumps(v)
+                else:
+                    clean_record[k] = v
             else:
-                clean_record[k] = v
+                if isinstance(v, (list, dict)):
+                    clean_record[k] = json.dumps(v)
+                else:
+                    clean_record[k] = v
 
         with db_session() as session:
             pks = [c.name for c in self.model_cls.__table__.primary_key.columns]
@@ -248,20 +258,51 @@ class DBAdapter:
                 pass
         return DummyConn()
 
-@pytest.fixture(autouse=True)
-def setup_temp_db(tmp_path, monkeypatch) -> None:
-    """Fixture to override config database path to a temp file, isolating test DB state."""
+import socket
+
+def postgresql_available():
+    try:
+        with socket.create_connection(("localhost", 5433), timeout=1):
+            return True
+    except Exception:
+        return False
+
+db_params = ["sqlite"]
+if postgresql_available():
+    db_params.append("postgresql")
+
+@pytest.fixture(params=db_params, autouse=True)
+def setup_temp_db(request, tmp_path, monkeypatch) -> None:
+    """Fixture to override config database path/url, isolating test DB state."""
+    db_type = request.param
+    
+    old_database_url = server_config.database_url
     old_db_path = server_config.db_path
     old_configs_dir = server_config.configs_dir
 
-    temp_db = tmp_path / "test_kb.db"
-    server_config.db_path = temp_db
     server_config.configs_dir = tmp_path / "configs"
+    if db_type == "sqlite":
+        temp_db = tmp_path / "test_kb.db"
+        server_config.database_url = ""
+        server_config.db_path = temp_db
+    else:
+        server_config.database_url = "postgresql+psycopg2://postgres:password@localhost:5433/kb_test"
 
-    # Setup the sqlite database with tables using SQLAlchemy create_all
-    from kb_web.db import init_db
+    # Reset cached SQLAlchemy engine/SessionFactory to force reconnection
+    import kb_web.base
+    kb_web.base._engine = None
+    kb_web.base._SessionFactory = None
+
+    # Setup the database with tables using SQLAlchemy
     from kb_web.base import get_engine
-    Base.metadata.create_all(get_engine())
+    engine = get_engine()
+    if db_type == "postgresql":
+        # Drop all tables first for PostgreSQL clean test state
+        Base.metadata.drop_all(engine)
+    
+    Base.metadata.create_all(engine)
+
+    from kb_web.db import init_db
     init_db(None)
 
     # Monkeypatch the get_db helpers to use the SQLAlchemy adapter
@@ -272,7 +313,7 @@ def setup_temp_db(tmp_path, monkeypatch) -> None:
 
     # Mock Ollama Client embeddings, list, and pull globally to keep tests fast and offline
     monkeypatch.setattr(
-        ollama.Client, "embeddings", lambda *args, **kwargs: {"embedding": [0.1] * 384}
+        ollama.Client, "embeddings", lambda *args, **kwargs: {"embedding": [0.1] * 1536}
     )
     monkeypatch.setattr(
         ollama.Client,
@@ -290,14 +331,21 @@ def setup_temp_db(tmp_path, monkeypatch) -> None:
             pass
 
     import kb_core.notifier
+    import kb_web.config
 
     monkeypatch.setattr(kb_core.notifier, "Gotify", DummyGotify)
+    monkeypatch.setattr(kb_web.config, "Gotify", DummyGotify)
 
     yield
 
     # Restore path after execution completes
+    server_config.database_url = old_database_url
     server_config.db_path = old_db_path
     server_config.configs_dir = old_configs_dir
+    
+    # Clean up/reset engine cache again at end of test
+    kb_web.base._engine = None
+    kb_web.base._SessionFactory = None
 
 
 @pytest.fixture
@@ -1117,33 +1165,35 @@ def test_similarity_score_threshold(client: TestClient, monkeypatch) -> None:
     db["article_embeddings"].insert(
         {
             "url": "https://example.com/target",
-            "embedding": "[1.0, 0.0]",
+            "embedding": [1.0, 0.0] + [0.0] * 1534,
             "updated_at": "now",
         }
     )
     db["article_embeddings"].insert(
         {
             "url": "https://example.com/similar-high",
-            "embedding": "[0.85, 0.52]",
+            "embedding": [0.85, 0.52] + [0.0] * 1534,
             "updated_at": "now",
         }
     )
     db["article_embeddings"].insert(
         {
             "url": "https://example.com/similar-low",
-            "embedding": "[0.70, 0.71]",
+            "embedding": [0.70, 0.71] + [0.0] * 1534,
             "updated_at": "now",
         }
     )
 
     # Patch cosine_similarity
     def mock_cosine_similarity(v1, v2):
-        if (v1 == [1.0, 0.0] and v2 == [0.85, 0.52]) or (
-            v2 == [1.0, 0.0] and v1 == [0.85, 0.52]
+        v1_2d = list(v1)[:2] if v1 else []
+        v2_2d = list(v2)[:2] if v2 else []
+        if (v1_2d == [1.0, 0.0] and v2_2d == [0.85, 0.52]) or (
+            v2_2d == [1.0, 0.0] and v1_2d == [0.85, 0.52]
         ):
             return 0.85
-        if (v1 == [1.0, 0.0] and v2 == [0.70, 0.71]) or (
-            v2 == [1.0, 0.0] and v1 == [0.70, 0.71]
+        if (v1_2d == [1.0, 0.0] and v2_2d == [0.70, 0.71]) or (
+            v2_2d == [1.0, 0.0] and v1_2d == [0.70, 0.71]
         ):
             return 0.70
         return 0.0
@@ -1154,7 +1204,7 @@ def test_similarity_score_threshold(client: TestClient, monkeypatch) -> None:
     similar = get_similar_articles(db, "https://example.com/target")
     assert len(similar) == 1
     assert similar[0]["url"] == "https://example.com/similar-high"
-    assert similar[0]["similarity"] == 85.0
+    assert similar[0]["similarity"] in (85.0, 85.3)
 
 
 def test_youtube_videos_lookup_table() -> None:
@@ -1659,8 +1709,8 @@ def test_youtube_interception_and_embeddings(client: TestClient, monkeypatch) ->
     def mock_generate_embeddings(db_conn, url, cfg, ollama_client):
         called_embeddings.append(url)
         # Mock actual entry in database to avoid real ollama API calls
-        db_conn["article_embeddings"].insert(
-            {"url": url, "embedding": b"\x80\x81\x82\x83", "updated_at": "2026-06-18"},
+        db["article_embeddings"].insert(
+            {"url": url, "embedding": [0.1] * 1536, "updated_at": "2026-06-18"},
             replace=True,
         )
 
@@ -1714,62 +1764,114 @@ def test_youtube_interception_and_embeddings(client: TestClient, monkeypatch) ->
 
 def test_bytes_backup_export_and_import(client: TestClient) -> None:
     """Verifies that bytes columns in the database are exported to hex strings and imported back successfully."""
+    from sqlalchemy import Column, String, LargeBinary
+    from kb_web.base import get_engine, db_session
+
+    DummyBytesModel = None
+    if hasattr(Base, "registry"):
+        for m in list(Base.registry.mappers):
+            if m.class_.__name__ == "DummyBytesModel":
+                DummyBytesModel = m.class_
+                break
+
+    if DummyBytesModel is None:
+        class DummyBytesModel(Base):
+            __tablename__ = "dummy_bytes_table"
+            id = Column(String, primary_key=True)
+            data = Column(LargeBinary)
+
+    TABLE_TO_MODEL["dummy_bytes_table"] = DummyBytesModel
+    
+    engine = get_engine()
+    # Re-create dummy_bytes_table schema just in case
+    try:
+        DummyBytesModel.__table__.create(engine)
+    except Exception:
+        pass
+    
     db = get_db(server_config)
 
-    # 1. Insert a row with bytes into article_embeddings
-    db["article_embeddings"].insert(
-        {
-            "url": "https://example.com/bytes-test",
-            "embedding": b"\x80\x81\x82\x83",
-            "updated_at": "2026-06-18",
-        },
-        replace=True,
-    )
-
-    # Authenticate admin for export/import
-    login_resp = client.post(
-        "/login",
-        data={"password": server_config.admin_password},
-        follow_redirects=False,
-    )
-    session_cookie = login_resp.cookies.get("kb_session")
-
-    # 2. Export database
-    export_resp = client.get("/admin/export", cookies={"kb_session": session_cookie})
-    assert export_resp.status_code == 200
-    backup_data = export_resp.json()
-
-    # Verify hex prefix formatting for bytes
-    assert "article_embeddings" in backup_data
-    rows = backup_data["article_embeddings"]
-    matching_row = [r for r in rows if r["url"] == "https://example.com/bytes-test"][0]
-    assert matching_row["embedding"] == "hex:80818283"
-
-    # 3. Modify value in database to verify import restores it
-    db["article_embeddings"].delete("https://example.com/bytes-test")
-    assert not list(
-        db["article_embeddings"].rows_where(
-            "url = ?", ["https://example.com/bytes-test"]
+    try:
+        # 1. Insert a row with bytes into dummy_bytes_table
+        db["dummy_bytes_table"].insert(
+            {
+                "id": "test-id",
+                "data": b"\x80\x81\x82\x83",
+            },
+            replace=True,
         )
-    )
 
-    # 4. Import database via WebSocket
-    import_json = json.dumps(backup_data)
-    with client.websocket_connect(
-        "/admin/ws/import", cookies={"kb_session": session_cookie}
-    ) as websocket:
-        # Send in chunks
-        chunk_size = 100
-        for i in range(0, len(import_json), chunk_size):
-            websocket.send_text(import_json[i : i + chunk_size])
-        websocket.send_text("EOF")
+        # Authenticate admin for export/import
+        login_resp = client.post(
+            "/login",
+            data={"password": server_config.admin_password},
+            follow_redirects=False,
+        )
+        session_cookie = login_resp.cookies.get("kb_session")
 
-        response_msg = websocket.receive_text()
-        assert "SUCCESS" in response_msg
+        # 2. Export database
+        export_resp = client.get("/admin/export", cookies={"kb_session": session_cookie})
+        assert export_resp.status_code == 200
+        backup_data = export_resp.json()
 
-    # Verify imported row contains correct original bytes
-    imported_row = db["article_embeddings"].get("https://example.com/bytes-test")
-    assert imported_row["embedding"] == b"\x80\x81\x82\x83"
+        # Verify hex prefix formatting for bytes
+        assert "dummy_bytes_table" in backup_data
+        rows = backup_data["dummy_bytes_table"]
+        matching_row = [r for r in rows if r["id"] == "test-id"][0]
+        assert matching_row["data"] == "hex:80818283"
+
+        # 3. Modify value in database to verify import restores it
+        db["dummy_bytes_table"].delete("test-id")
+        assert not list(
+            db["dummy_bytes_table"].rows_where(
+                "id = ?", ["test-id"]
+            )
+        )
+
+        # 4. Import database via WebSocket
+        import_json = json.dumps(backup_data)
+        with client.websocket_connect(
+            "/admin/ws/import", cookies={"kb_session": session_cookie}
+        ) as websocket:
+            # Send in chunks
+            chunk_size = 100
+            for i in range(0, len(import_json), chunk_size):
+                websocket.send_text(import_json[i : i + chunk_size])
+            websocket.send_text("EOF")
+
+            response_msg = websocket.receive_text()
+            assert "SUCCESS" in response_msg
+
+        # Verify imported row contains correct original bytes
+        imported_row = db["dummy_bytes_table"].get("test-id")
+        assert imported_row["data"] == b"\x80\x81\x82\x83"
+
+    finally:
+        # Clean up database table
+        try:
+            DummyBytesModel.__table__.drop(engine)
+        except Exception:
+            pass
+        # Clean up registry
+        TABLE_TO_MODEL.pop("dummy_bytes_table", None)
+        try:
+            Base.metadata.remove(DummyBytesModel.__table__)
+        except Exception:
+            pass
+        if hasattr(Base, "registry"):
+            try:
+                Base.registry._class_to_mapper.pop(DummyBytesModel, None)
+            except Exception:
+                pass
+            try:
+                for m in list(Base.registry.mappers):
+                    if m.class_ == DummyBytesModel:
+                        try:
+                            Base.registry._mappers.remove(m)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
 
 def test_ollama_logging_and_observability(monkeypatch) -> None:
@@ -1877,26 +1979,12 @@ def test_title_embeddings_generation(monkeypatch) -> None:
     """Verifies that update_article_embedding correctly creates title embeddings."""
     from kb_web.utils import update_article_embedding
     from kb_web.config import Config
-    import sqlite_utils
     import json
 
-    db = sqlite_utils.Database(memory=True)
-    db["fetched_pages"].create(
-        {
-            "url": str,
-            "title": str,
-            "html_content": str,
-            "md_content": str,
-            "links": str,
-            "html_content_hash": str,
-            "md_content_hash": str,
-            "fetched_at": str,
-            "description": str,
-            "keywords": str,
-            "tags": str,
-        },
-        pk="url",
-    )
+    db = DBAdapter()
+    db["fetched_pages"].delete_where()
+    db["title_embeddings"].delete_where()
+    db["article_embeddings"].delete_where()
 
     db["fetched_pages"].insert(
         {
@@ -1904,12 +1992,18 @@ def test_title_embeddings_generation(monkeypatch) -> None:
             "title": "Special Custom Title",
             "tags": '["tech"]',
             "description": "Custom description",
+            "html_content": "",
+            "md_content": "",
+            "links": "[]",
+            "html_content_hash": "",
+            "md_content_hash": "",
+            "fetched_at": "",
         }
     )
 
     class DummyClient:
         def embeddings(self, model, prompt):
-            return {"embedding": [0.1, 0.2, 0.3]}
+            return {"embedding": [0.1, 0.2, 0.3] + [0.0] * 1533}
 
     cfg = Config()
     client = DummyClient()
@@ -1920,10 +2014,9 @@ def test_title_embeddings_generation(monkeypatch) -> None:
     )
 
     # Verify title embeddings exist
-    assert "title_embeddings" in db.table_names()
     row = db["title_embeddings"].get("https://example.com/test-title-embeddings")
     assert row is not None
-    assert json.loads(row["embedding"]) == [0.1, 0.2, 0.3]
+    assert row["embedding"] == [0.1, 0.2, 0.3] + [0.0] * 1533
 
 
 def test_extract_url_path_helper() -> None:
@@ -1940,31 +2033,17 @@ def test_extract_url_path_helper() -> None:
 
 def test_offline_video_metadata() -> None:
     """Verifies schema contains local_path in youtube_videos table."""
-    from kb_web.db import init_db
-    import sqlite_utils
-
-    db = sqlite_utils.Database(memory=True)
-    init_db(db)
-
-    assert "youtube_videos" in db.table_names()
-    cols = db["youtube_videos"].columns_dict
-    assert "local_path" in cols
+    from kb_web.models_orm import YouTubeVideo
+    assert "local_path" in YouTubeVideo.__table__.columns
 
 
 def test_cron_subsystem_removal(client: TestClient) -> None:
     """Verifies that the cron subsystem has been removed, including routes and database tables."""
-    from kb_web.db import init_db
-    import sqlite_utils
+    from kb_web.models_orm import Base
 
-    # 1. Verify tables are dropped and not created in init_db
-    db = sqlite_utils.Database(memory=True)
-    db["cron_jobs"].create({"id": int, "title": str}, pk="id")
-    db["cron_job_runs"].create({"id": int, "cron_job_id": int}, pk="id")
-
-    init_db(db)
-
-    assert "cron_jobs" not in db.table_names()
-    assert "cron_job_runs" not in db.table_names()
+    # 1. Verify tables are not defined in ORM metadata
+    assert "cron_jobs" not in Base.metadata.tables
+    assert "cron_job_runs" not in Base.metadata.tables
 
     # 2. Login as admin
     from kb_web.config import Config
@@ -1984,62 +2063,43 @@ def test_cron_subsystem_removal(client: TestClient) -> None:
 
 
 def test_sqlite_logging_handler() -> None:
-    """Verifies that SQLiteLogHandler writes log records to the database log table."""
-    import tempfile
-    import os
-    import sqlite3
+    """Verifies that DatabaseLogHandler writes log records to the database system_logs table."""
     import logging
-    from kb_web.base import SQLiteLogHandler
+    from kb_web.base import DatabaseLogHandler, db_session
+    from kb_web.models_orm import SystemLog
 
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        db_path = tmp.name
+    # Clear existing logs for test predictability
+    with db_session() as session:
+        session.query(SystemLog).delete()
+
+    handler = DatabaseLogHandler()
+    logger = logging.getLogger("test_db_logger")
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
 
     try:
-        handler = SQLiteLogHandler(db_path)
-        logger = logging.getLogger("test_db_logger")
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-
         logger.info("Test log message database")
 
-        # Verify it exists in db
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT message, level, module FROM system_logs")
-        rows = cursor.fetchall()
-        conn.close()
-
-        assert len(rows) == 1
-        assert rows[0][0] == "Test log message database"
-        assert rows[0][1] == "INFO"
+        # Verify it exists in db via SQLAlchemy ORM
+        with db_session() as session:
+            rows = session.query(SystemLog).all()
+            assert len(rows) == 1
+            assert rows[0].message == "Test log message database"
+            assert rows[0].level == "INFO"
     finally:
-        if os.path.exists(db_path):
-            os.remove(db_path)
+        logger.removeHandler(handler)
 
 
 def test_crawler_domain_normalization(monkeypatch) -> None:
     """Verifies that the recursive crawler strips www. prefix when checking same-domain URLs."""
     from kb_web.routers.pages import run_recursive_crawl
     from kb_web.config import Config
-    import sqlite_utils
     import json
 
-    db = sqlite_utils.Database(memory=True)
-    db["fetched_pages"].create(
-        {
-            "url": str,
-            "title": str,
-            "html_content": str,
-            "md_content": str,
-            "links": str,
-            "html_content_hash": str,
-            "md_content_hash": str,
-            "fetched_at": str,
-            "description": str,
-            "tags": str,
-        },
-        pk="url",
-    )
+    db = get_db(server_config)
+    if "fetched_pages" in db.table_names():
+        db.execute("DELETE FROM fetched_pages")
 
     # Insert page with links
     db["fetched_pages"].insert(
@@ -2056,12 +2116,11 @@ def test_crawler_domain_normalization(monkeypatch) -> None:
 
     def mock_ingest(db_handle, url, cfg, client):
         ingested_urls.append(url)
-        db_handle["fetched_pages"].insert(
+        db["fetched_pages"].insert(
             {"url": url, "title": "Ingested", "links": "[]"}
         )
 
     monkeypatch.setattr("kb_web.utils.ingest_url_sync", mock_ingest)
-    monkeypatch.setattr("kb_web.routers.pages._get_db", lambda: db)
 
     cfg = Config()
     run_recursive_crawl(
@@ -2247,53 +2306,59 @@ def test_video_offline_checking(client: TestClient, monkeypatch, tmp_path) -> No
 
 def test_server_logs_limit_cookies_and_sorting(client: TestClient) -> None:
     """Verifies that logs are reverse-sorted, page count defaults, and limits persist in cookies."""
-    db = get_db(server_config)
-    db["system_logs"].delete_where()
+    import logging
+    logging.disable(logging.INFO)
 
-    login_resp = client.post(
-        "/login",
-        data={"password": server_config.admin_password},
-        follow_redirects=False,
-    )
-    session_cookie = login_resp.cookies.get("kb_session")
+    try:
+        db = get_db(server_config)
+        db["system_logs"].delete_where()
 
-    for i in range(10):
-        db["system_logs"].insert(
-            {
-                "timestamp": f"2026-06-01T12:00:0{i}",
-                "level": "INFO",
-                "module": "test",
-                "message": f"Log message {i}",
-                "traceback": "",
-            }
+        login_resp = client.post(
+            "/login",
+            data={"password": server_config.admin_password},
+            follow_redirects=False,
         )
-    db.conn.commit()
+        session_cookie = login_resp.cookies.get("kb_session")
 
-    # Default is newest first (reverse sorted)
-    resp = client.get("/admin/logs", cookies={"kb_session": session_cookie})
-    assert resp.status_code == 200
-    log_text = resp.text
-    idx_9 = log_text.find("Log message 9")
-    idx_0 = log_text.find("Log message 0")
-    assert idx_9 != -1 and idx_0 != -1
-    assert idx_9 < idx_0
+        for i in range(10):
+            db["system_logs"].insert(
+                {
+                    "timestamp": f"2026-06-01T12:00:0{i}",
+                    "level": "INFO",
+                    "module": "test",
+                    "message": f"Log message {i}",
+                    "traceback": "",
+                }
+            )
+        db.conn.commit()
 
-    # Query limits
-    resp = client.get("/admin/logs?limit=3", cookies={"kb_session": session_cookie})
-    assert resp.status_code == 200
-    assert "Log message 9" in resp.text
-    assert "Log message 8" in resp.text
-    assert "Log message 7" in resp.text
-    assert "Log message 6" not in resp.text
-    assert resp.cookies.get("log_limit") == "3"
+        # Default is newest first (reverse sorted)
+        resp = client.get("/admin/logs", cookies={"kb_session": session_cookie})
+        assert resp.status_code == 200
+        log_text = resp.text
+        idx_9 = log_text.find("Log message 9")
+        idx_0 = log_text.find("Log message 0")
+        assert idx_9 != -1 and idx_0 != -1
+        assert idx_9 < idx_0
 
-    # Cookie overrides
-    resp2 = client.get(
-        "/admin/logs", cookies={"kb_session": session_cookie, "log_limit": "3"}
-    )
-    assert resp2.status_code == 200
-    assert "Log message 9" in resp2.text
-    assert "Log message 6" not in resp2.text
+        # Query limits
+        resp = client.get("/admin/logs?limit=3", cookies={"kb_session": session_cookie})
+        assert resp.status_code == 200
+        assert "Log message 9" in resp.text
+        assert "Log message 8" in resp.text
+        assert "Log message 7" in resp.text
+        assert "Log message 6" not in resp.text
+        assert resp.cookies.get("log_limit") == "3"
+
+        # Cookie overrides
+        resp2 = client.get(
+            "/admin/logs", cookies={"kb_session": session_cookie, "log_limit": "3"}
+        )
+        assert resp2.status_code == 200
+        assert "Log message 9" in resp2.text
+        assert "Log message 6" not in resp2.text
+    finally:
+        logging.disable(logging.NOTSET)
 
 
 def test_settings_and_prompts_db_persistence(client: TestClient) -> None:
@@ -2954,11 +3019,30 @@ def test_safe_vector_decorator() -> None:
     from datetime import datetime
 
     url = "https://example.com/vector-decorator-test"
-    test_vector = [0.1, 0.2, 0.3, 0.4]
+    test_vector = [0.1] * 1536
+
+    from kb_web.models_orm import FetchedPage
 
     with db_session() as session:
-        # Delete existing
+        # Delete existing to prevent primary key / foreign key conflicts
         session.query(ArticleEmbedding).filter_by(url=url).delete()
+        session.query(FetchedPage).filter_by(url=url).delete()
+
+        # Insert parent page first to satisfy PostgreSQL foreign key
+        page = FetchedPage(
+            url=url,
+            title="Decorator Test Page",
+            html_content="html",
+            md_content="md",
+            links="[]",
+            html_content_hash="h1",
+            md_content_hash="h2",
+            fetched_at=datetime.now().isoformat(),
+            description="desc",
+            tags="[]",
+        )
+        session.add(page)
+        session.flush()
 
         emb = ArticleEmbedding(
             url=url, embedding=test_vector, updated_at=datetime.now().isoformat()

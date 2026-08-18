@@ -900,69 +900,75 @@ def generate_gemma_embeddings_for_page(
     # 1. Chunk and embed md_content
     chunks = chunk_text_with_overlap(md_content, 1500, 150)
 
+    chunk_vectors = []
+    for idx, chunk in enumerate(chunks):
+        prompt = f"search_document: {chunk}"
+        try:
+            resp = client.embeddings(model=emb_model, prompt=prompt)
+            vector = resp["embedding"]
+            chunk_vectors.append((idx, chunk, vector))
+        except Exception as e:
+            print(
+                f"Failed to generate chunk embedding for {url} chunk {idx}: {e}"
+            )
+
+    # 2. Embed description and save to article_embeddings or video_embeddings
+    vector_desc = None
+    if description.strip():
+        prompt_desc = f"search_document: {description}"
+        try:
+            resp = client.embeddings(model=emb_model, prompt=prompt_desc)
+            vector_desc = resp["embedding"]
+        except Exception as e:
+            print(f"Failed to generate description embedding for {url}: {e}")
+
     with db_session() as session:
         # Delete existing chunks for this url to avoid stale ones
         session.query(ChunkEmbedding).filter_by(
             source_type=source_type, source_id=url
         ).delete()
 
-        for idx, chunk in enumerate(chunks):
-            prompt = f"search_document: {chunk}"
-            try:
-                resp = client.embeddings(model=emb_model, prompt=prompt)
-                vector = resp["embedding"]
-                new_chunk = ChunkEmbedding(
-                    source_type=source_type,
-                    source_id=url,
-                    source_title=title,
-                    chunk_number=idx,
-                    chunk_content=chunk,
-                    chunk_vector=vector,
-                    created_at=datetime.now().isoformat(),
-                )
-                session.add(new_chunk)
-            except Exception as e:
-                print(
-                    f"Failed to generate chunk embedding for {url} chunk {idx}: {e}"
-                )
+        for idx, chunk, vector in chunk_vectors:
+            new_chunk = ChunkEmbedding(
+                source_type=source_type,
+                source_id=url,
+                source_title=title,
+                chunk_number=idx,
+                chunk_content=chunk,
+                chunk_vector=vector,
+                created_at=datetime.now().isoformat(),
+            )
+            session.add(new_chunk)
 
-        # 2. Embed description and save to article_embeddings or video_embeddings
-        if description.strip():
-            prompt_desc = f"search_document: {description}"
-            try:
-                resp = client.embeddings(model=emb_model, prompt=prompt_desc)
-                vector_desc = resp["embedding"]
-                now_str = datetime.now().isoformat()
-
-                if is_video:
-                    vid_emb = (
-                        session.query(VideoEmbedding).filter_by(url=url).first()
-                    )
-                    if vid_emb:
-                        vid_emb.embedding = vector_desc
-                        vid_emb.updated_at = now_str
-                    else:
-                        vid_emb = VideoEmbedding(
-                            url=url, embedding=vector_desc, updated_at=now_str
-                        )
-                        session.add(vid_emb)
+        if vector_desc:
+            now_str = datetime.now().isoformat()
+            if is_video:
+                vid_emb = (
+                    session.query(VideoEmbedding).filter_by(url=url).first()
+                )
+                if vid_emb:
+                    vid_emb.embedding = vector_desc
+                    vid_emb.updated_at = now_str
                 else:
-                    art_emb = (
-                        session.query(ArticleEmbedding).filter_by(url=url).first()
+                    vid_emb = VideoEmbedding(
+                        url=url, embedding=vector_desc, updated_at=now_str
                     )
-                    if art_emb:
-                        art_emb.embedding = vector_desc
-                        art_emb.updated_at = now_str
-                    else:
-                        art_emb = ArticleEmbedding(
-                            url=url, embedding=vector_desc, updated_at=now_str
-                        )
-                        session.add(art_emb)
-                print(
-                    f"Successfully stored gemma embedding of description for {url}"
+                    session.add(vid_emb)
+            else:
+                art_emb = (
+                    session.query(ArticleEmbedding).filter_by(url=url).first()
                 )
-            except Exception as e:
-                print(f"Failed to generate description embedding for {url}: {e}")
+                if art_emb:
+                    art_emb.embedding = vector_desc
+                    art_emb.updated_at = now_str
+                else:
+                    art_emb = ArticleEmbedding(
+                        url=url, embedding=vector_desc, updated_at=now_str
+                    )
+                    session.add(art_emb)
+            print(
+                f"Successfully stored gemma embedding of description for {url}"
+            )
 
 
 def ingest_url_sync(db, url: str, config=None, client=None) -> dict:

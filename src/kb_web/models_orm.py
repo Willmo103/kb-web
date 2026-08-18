@@ -55,6 +55,19 @@ class SafeVector(TypeDecorator):
                 pass
         return value
 
+    class comparator_factory(TypeDecorator.Comparator):
+        def cosine_distance(self, other):
+            from pgvector.sqlalchemy import Vector
+            return Vector.comparator_factory(self.expr).cosine_distance(other)
+
+        def l2_distance(self, other):
+            from pgvector.sqlalchemy import Vector
+            return Vector.comparator_factory(self.expr).l2_distance(other)
+
+        def max_inner_product(self, other):
+            from pgvector.sqlalchemy import Vector
+            return Vector.comparator_factory(self.expr).max_inner_product(other)
+
 
 class FetchedPage(Base):
     __tablename__ = "fetched_pages"

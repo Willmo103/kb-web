@@ -366,7 +366,7 @@ def handle_url_import(
             if resolved_col_id:
                 existing_item = session.query(CollectionItem).filter_by(collection_id=resolved_col_id, source_id=cleaned_url).first()
                 if not existing_item:
-                    is_video = session.query(YouTubeVideo).filter_by(url=cleaned_url).first() is not None
+                    is_video = extract_youtube_video_id(cleaned_url) is not None
                     source_type = "videos" if is_video else "articles"
                     # Determine next item order
                     from sqlalchemy import func

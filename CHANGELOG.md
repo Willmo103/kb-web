@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-08-17
+### Added
+- Migrated core database operations, models, configurations, and logs to SQLAlchemy ORM, providing complete dialect-agnostic support for SQLite and PostgreSQL.
+- Implemented a custom SQLAlchemy TypeDecorator `SafeVector` that dynamically maps to `pgvector.sqlalchemy.Vector` on PostgreSQL and a JSON-encoded Text fallback on SQLite.
+- Added custom comparator support for `SafeVector` (defining `.cosine_distance()`, `.l2_distance()`, and `.max_inner_product()`) that automatically delegates to pgvector's comparators under PostgreSQL.
+- Added automatic PostgreSQL sequence synchronization inside database initialization and seeding routines (specifically resetting `collections_id_seq` after inserting the default private General Collection).
+- Updated the comprehensive automated unit test suite (`pytest`) to run against parameterized sqlite/postgresql dialects, resolving all foreign key constraints, bytes/binary serialization differences, and list dimensions assertions.
+
 ## [0.1.32] - 2026-08-13
 ### Added
 - Implemented duplicate URL import verification across UI, CLI, and REST endpoint pipelines, archiving changed pages to `page_versions` and bypassing LLM processing on identical content (resolving Issue #33).

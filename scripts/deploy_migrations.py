@@ -85,6 +85,42 @@ def seed_database():
                 )
 
 
+def fix_sqlite_collection_actions(engine):
+    from sqlalchemy import inspect, text
+    import sqlalchemy as sa
+    inspector = inspect(engine)
+    if "collection_actions" in inspector.get_table_names():
+        columns = [c["name"] for c in inspector.get_columns("collection_actions")]
+        if "id" not in columns:
+            print("[INFO] Migrating SQLite collection_actions table to include autoincrement ID column...")
+            with engine.begin() as conn:
+                views = [row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='view'")).fetchall()]
+                for v in views:
+                    try:
+                        conn.execute(text(f"DROP VIEW IF EXISTS {v};"))
+                    except Exception as e:
+                        pass
+                conn.execute(text("ALTER TABLE collection_actions RENAME TO collection_actions_old;"))
+                conn.execute(text("""
+                    CREATE TABLE collection_actions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        collection_id INTEGER,
+                        action_type TEXT,
+                        source_type TEXT,
+                        source_id TEXT,
+                        note TEXT,
+                        created_at TEXT
+                    );
+                """))
+                conn.execute(text("""
+                    INSERT INTO collection_actions (collection_id, action_type, source_type, source_id, note, created_at)
+                    SELECT collection_id, action_type, source_type, source_id, note, created_at
+                    FROM collection_actions_old;
+                """))
+                conn.execute(text("DROP TABLE collection_actions_old;"))
+            print("[SUCCESS] Migrated collection_actions table.")
+
+
 def deploy():
     project_dir = Path(__file__).resolve().parent.parent
     ini_path = project_dir / "alembic.ini"
@@ -92,6 +128,10 @@ def deploy():
 
     # Initialize SQLAlchemy connection engine
     engine = get_engine()
+
+    # Apply SQLite collection_actions workaround if needed
+    if engine.dialect.name == "sqlite":
+        fix_sqlite_collection_actions(engine)
 
     # 1. Create all tables if they don't exist (dialect-agnostic)
     print("[INFO] Initializing database schema via SQLAlchemy ORM...")

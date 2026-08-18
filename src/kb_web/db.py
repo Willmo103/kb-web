@@ -24,8 +24,48 @@ def get_db(config: Config):
 
 
 def init_db(db, config: Optional[Config] = None) -> None:
-    """A no-op compatibility helper for legacy sqlite-utils database setup."""
-    pass
+    """Seeds the database with default general collection and default agent prompts if missing."""
+    from .base import db_session
+    from .models_orm import AgentPrompt
+    from .config import DEFAULT_WIKI_PROMPT, DEFAULT_YOUTUBE_WIKI_PROMPT
+    from datetime import datetime
+
+    # 1. Seed general collection
+    try:
+        get_general_collection_id()
+    except Exception as e:
+        print(f"Error seeding General Collection in init_db: {e}")
+
+    # 2. Seed agent prompts
+    try:
+        with db_session() as session:
+            # Seed wiki_prompt
+            wp = session.query(AgentPrompt).filter_by(prompt_type="wiki_prompt").first()
+            if not wp:
+                session.add(
+                    AgentPrompt(
+                        prompt_type="wiki_prompt",
+                        prompt_text=DEFAULT_WIKI_PROMPT,
+                        is_head=1,
+                        version=1,
+                        created_at=datetime.now().isoformat(),
+                    )
+                )
+            
+            # Seed youtube_wiki_prompt
+            ywp = session.query(AgentPrompt).filter_by(prompt_type="youtube_wiki_prompt").first()
+            if not ywp:
+                session.add(
+                    AgentPrompt(
+                        prompt_type="youtube_wiki_prompt",
+                        prompt_text=DEFAULT_YOUTUBE_WIKI_PROMPT,
+                        is_head=1,
+                        version=1,
+                        created_at=datetime.now().isoformat(),
+                    )
+                )
+    except Exception as e:
+        print(f"Error seeding default prompts in init_db: {e}")
 
 
 def get_general_collection_id(db=None) -> int:
@@ -33,6 +73,7 @@ def get_general_collection_id(db=None) -> int:
     from .models_orm import Collection
     from .base import db_session
     from datetime import datetime
+    from sqlalchemy import text
 
     with db_session() as session:
         general = session.query(Collection).filter_by(title="General Collection").first()
@@ -55,6 +96,8 @@ def get_general_collection_id(db=None) -> int:
                 )
                 session.add(general)
                 session.flush()
+                if session.bind and "postgresql" in str(session.bind.url):
+                    session.execute(text("SELECT setval('collections_id_seq', (SELECT MAX(id) FROM collections))"))
                 session.commit()
                 return 1
             else:
