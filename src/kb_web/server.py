@@ -48,7 +48,7 @@ logger = logging.getLogger("kb_web")
 async def lifespan(app: FastAPI):
     # Run database migrations on startup
     try:
-        from scripts.deploy_migrations import deploy
+        from kb_web.scripts.deploy_migrations import deploy
 
         deploy()
     except Exception as e:
