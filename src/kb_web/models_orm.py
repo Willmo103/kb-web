@@ -16,24 +16,29 @@ class SafeVector(TypeDecorator):
     impl = Text
     cache_ok = True
 
-    def __init__(self, dim):
+    def __init__(self, dim=None):
         super().__init__()
         self.dim = dim
 
     def load_dialect_impl(self, dialect):
-        if dialect.name == "postgresql":
+        if dialect and getattr(dialect, "name", None) == "postgresql":
             try:
                 from pgvector.sqlalchemy import Vector
 
-                return dialect.type_descriptor(Vector(self.dim))
+                return dialect.type_descriptor(Vector(self.dim) if self.dim else Vector())
             except ImportError:
                 pass
-        return dialect.type_descriptor(Text)
+        return dialect.type_descriptor(Text) if dialect else Text
 
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
-        if dialect.name == "postgresql":
+        if dialect and getattr(dialect, "name", None) == "postgresql":
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except Exception:
+                    pass
             return value
         if isinstance(value, str):
             return value
@@ -42,7 +47,7 @@ class SafeVector(TypeDecorator):
     def process_result_value(self, value, dialect):
         if value is None:
             return None
-        if dialect.name == "postgresql":
+        if dialect and getattr(dialect, "name", None) == "postgresql":
             # pgvector returns it as array/list of float
             return list(value) if not isinstance(value, list) else value
         if isinstance(value, str):
@@ -108,7 +113,7 @@ class ArticleEmbedding(Base):
     __tablename__ = "article_embeddings"
 
     url = Column(String, ForeignKey("fetched_pages.url"), primary_key=True)
-    embedding = Column(SafeVector(1536))
+    embedding = Column(SafeVector())
     updated_at = Column(String)
 
 
@@ -116,7 +121,7 @@ class TitleEmbedding(Base):
     __tablename__ = "title_embeddings"
 
     url = Column(String, ForeignKey("fetched_pages.url"), primary_key=True)
-    embedding = Column(SafeVector(1536))
+    embedding = Column(SafeVector())
     updated_at = Column(String)
 
 
@@ -200,7 +205,7 @@ class ChunkEmbedding(Base):
     source_title = Column(String)
     chunk_number = Column(Integer)
     chunk_content = Column(Text)
-    chunk_vector = Column(SafeVector(1536))
+    chunk_vector = Column(SafeVector())
     created_at = Column(String)
 
 
@@ -208,7 +213,7 @@ class VideoEmbedding(Base):
     __tablename__ = "video_embeddings"
 
     url = Column(String, ForeignKey("fetched_pages.url"), primary_key=True)
-    embedding = Column(SafeVector(1536))
+    embedding = Column(SafeVector())
     updated_at = Column(String)
 
 

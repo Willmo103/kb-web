@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-08
+### Added
+- Implemented `kb-web db` CLI command suite providing full lifecycle database management:
+  - `migrate-sqlite`: Migrate SQLite database to PostgreSQL environments (`dev`, `test`, `live`) in foreign-key dependency order, sanitizing NUL characters, auto-generating parent stubs for orphaned records, and syncing sequences.
+  - `deploy`: Deploy migrations across targets (`dev`, `test`, `live`, `all`) and ensure PostgreSQL pgvector column compatibility.
+  - `snapshot`: Create point-in-time multi-table JSON snapshots of database tables saved locally in `Config.backups_dir`.
+  - `sync-snapshot`: Synchronize snapshots from live database directly into test database.
+  - `replication-setup`: Automated publisher (`kb_live_pub`) and subscriber (`kb_test_sub`) setup for PostgreSQL logical replication.
+  - `replication-status`: Real-time inspection of PostgreSQL replication slots, publications, and active subscriptions.
+  - `backup-videos`: Automated ZIP archive backup of all local YouTube videos with strict retention of maximum 2 archives.
+  - `restore-videos`: Restores YouTube video files from backup ZIP into `media/videos` with automatic database indexing.
+  - `reindex-videos`: Scans `media/videos` directory, extracts YouTube video IDs, and links them to `youtube_videos.local_path`.
+- Added Alembic migration `b52a19d8c638_setup_pg_publication.py` setting up `CREATE PUBLICATION IF NOT EXISTS kb_live_pub FOR ALL TABLES;` on PostgreSQL.
+- Added video management subsystem (`video_manager.py`) with recursive media scanning, video ID regex parsers, automated 2-backup max ZIP retention, and index repair.
+- Added server-side local backup storage in `Config.backups_dir` (`~/.kb/kb-web_backups`) with full Admin Dashboard UI controls for creating, downloading, restoring, and deleting database JSON and video ZIP archives.
+- Added diagnostic fallback for `/admin/ws/import` on HTTP GET requests when reverse proxies drop WebSocket Upgrade headers, alongside direct HTTP multipart file upload.
+
+### Fixed
+- Resolved `ValueError: expected list or ndarray` in `SafeVector` by deserializing JSON vector strings before binding to `pgvector.sqlalchemy.Vector`.
+- Removed hardcoded dimension restriction from `SafeVector` in `models_orm.py`, allowing 768-dimension `nomic-embed-text` vectors without length mismatch errors.
+- Fixed `AttributeError: 'Config' object has no attribute 'get_db'` by implementing `Config.get_db()` and fixing settings read/write helpers.
+- Resolved `ValueError: A string literal cannot contain NUL (0x00) characters` during PostgreSQL imports by stripping NUL bytes in `clean_record` and `websocket_import`.
+- Resolved `ForeignKeyViolation` on migration from SQLite by synthesizing placeholder parent records in `fetched_pages` for orphaned embeddings and video rows.
+- Fixed `export_database` and snapshot creation when running in SQLite or default target mode.
+
 ## [0.2.0] - 2026-08-17
 ### Added
 - Migrated core database operations, models, configurations, and logs to SQLAlchemy ORM, providing complete dialect-agnostic support for SQLite and PostgreSQL.

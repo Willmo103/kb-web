@@ -65,6 +65,41 @@ Then visit `http://localhost:8050/pages` to view the archive index or `http://lo
 
 ---
 
+## Database & Media CLI Commands (`kb-web db`)
+
+`kb-web` provides a dedicated `db` command suite for database migration, PostgreSQL replication, snapshot backups, and YouTube video management:
+
+```bash
+# Migrate legacy SQLite database to PostgreSQL (targets: 'dev', 'test', or 'live')
+uv run kb-web db migrate-sqlite --target test
+
+# Deploy Alembic migrations across targets ('dev', 'test', 'live', or 'all')
+uv run kb-web db deploy --target all
+
+# Export point-in-time multi-table JSON database snapshot to ~/.kb/kb-web_backups/
+uv run kb-web db snapshot --target live
+
+# Sync live database snapshot directly into test database
+uv run kb-web db sync-snapshot
+
+# Setup PostgreSQL streaming logical publication and subscription
+uv run kb-web db replication-setup
+
+# Inspect PostgreSQL replication slots, publications, and subscription status
+uv run kb-web db replication-status --target test
+
+# Backup all local YouTube videos into a ZIP archive (strict max 2 archives retention)
+uv run kb-web db backup-videos
+
+# Restore YouTube videos from backup ZIP into ~/.kb/media/videos and re-index
+uv run kb-web db restore-videos kb_videos_backup_20260908_120000.zip
+
+# Re-scan ~/.kb/media/videos and associate video files with database records
+uv run kb-web db reindex-videos
+```
+
+---
+
 ## CLI Client Station (kb-cli)
 
 `kb-web` includes a standalone console tool `kb-cli` for managing the LIVE server remotely.

@@ -2,6 +2,7 @@
 FastAPI Router for administrative controls, configuration updates, and maintenance triggers.
 """
 
+import os
 import json
 import logging
 import time
@@ -12,14 +13,16 @@ from fastapi import (
     APIRouter,
     BackgroundTasks,
     Depends,
+    File,
     Form,
     HTTPException,
     Query,
     Request,
+    UploadFile,
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse
 
 from ..base import (
     config,
@@ -38,6 +41,8 @@ from ..models_orm import (
     YouTubeVideo,
     ArticleEmbedding,
     TitleEmbedding,
+    VideoEmbedding,
+    ChunkEmbedding,
     Collection,
     CollectionItem,
     AgentPrompt,
@@ -470,6 +475,35 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
         except Exception as e:
             print(f"Failed to fetch registered clients: {e}")
 
+    # Enumerate local JSON database backups
+    backups = []
+    try:
+        config.backups_dir.mkdir(parents=True, exist_ok=True)
+        for f in config.backups_dir.glob("*.json"):
+            st = f.stat()
+            backups.append({
+                "filename": f.name,
+                "size_mb": round(st.st_size / (1024 * 1024), 2),
+                "created_at": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+            })
+        backups.sort(key=lambda x: x["created_at"], reverse=True)
+    except Exception as e:
+        print(f"Failed to list local backups: {e}")
+
+    # Enumerate local YouTube video backups and count on disk
+    video_backups = []
+    video_files_count = 0
+    try:
+        from ..video_manager import list_video_backups, get_media_dir
+        video_backups = list_video_backups(config)
+        media_dir = get_media_dir(config)
+        video_files_count = len([
+            f for f in media_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in {".mp4", ".webm", ".mkv", ".m4v"}
+        ])
+    except Exception as e:
+        print(f"Failed to list video backups: {e}")
+
     template = _jinja_env.get_template("admin.j2.html")
     return HTMLResponse(
         content=template.render(
@@ -481,6 +515,9 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             youtube_prompts_history=youtube_prompts_history,
             cli_keys=cli_keys,
             registered_clients=registered_clients,
+            backups=backups,
+            video_backups=video_backups,
+            video_files_count=video_files_count,
         )
     )
 
@@ -847,45 +884,249 @@ def trigger_bulk_embeddings(background_tasks: BackgroundTasks) -> RedirectRespon
 
 
 @router.get("/admin/export", dependencies=[Depends(verify_auth)], response_model=None)
-async def export_database() -> StreamingResponse:
-    """Generates and streams out database contents as a downloadable JSON file."""
-    async def generate_json() -> AsyncGenerator[str, None]:
-        yield "{\n"
-        mappers = list(Base.registry.mappers)
-        for idx, mapper in enumerate(mappers):
-            model_cls = mapper.class_
-            table_name = model_cls.__tablename__
-            yield f"  {json.dumps(table_name)}: [\n"
+def export_database() -> FileResponse:
+    """Generates a full database backup JSON file, saves it locally to Config.backups_dir, and returns it for download."""
+    config.backups_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest_file = config.backups_dir / f"kb_backup_{ts}.json"
 
-            clean_rows = []
-            with db_session() as session:
-                rows = session.query(model_cls).all()
-                for row in rows:
-                    clean_row = {}
-                    for col in row.__table__.columns:
-                        val = getattr(row, col.name)
-                        if isinstance(val, bytes):
-                            clean_row[col.name] = f"hex:{val.hex()}"
-                        else:
-                            clean_row[col.name] = val
-                    clean_rows.append(clean_row)
+    from ..scripts.db_snapshot import create_database_snapshot
+    create_database_snapshot(target="default", config=config, out_path=dest_file)
 
-            for idx2, clean_row in enumerate(clean_rows):
-                if idx2 > 0:
-                    yield ",\n"
-                yield "    " + json.dumps(clean_row)
-
-            yield "\n  ]"
-            if idx < len(mappers) - 1:
-                yield ",\n"
-        yield "\n}"
-
-    return StreamingResponse(
-        generate_json(),
+    return FileResponse(
+        path=dest_file,
+        filename=dest_file.name,
         media_type="application/json",
-        headers={
-            "Content-Disposition": f"attachment; filename=kb_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        },
+        headers={"Content-Disposition": f"attachment; filename={dest_file.name}"},
+    )
+
+
+@router.post("/admin/backups/create", dependencies=[Depends(verify_auth)])
+def create_local_backup() -> RedirectResponse:
+    """Creates a local database JSON backup file in Config.backups_dir."""
+    try:
+        config.backups_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest_file = config.backups_dir / f"kb_backup_{ts}.json"
+        from ..scripts.db_snapshot import create_database_snapshot
+        create_database_snapshot(target="default", config=config, out_path=dest_file)
+        return RedirectResponse(
+            url=f"/admin?msg=Backup+{quote_plus(dest_file.name)}+successfully+created+on+server.",
+            status_code=303,
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin?msg=Failed+to+create+backup:+{quote_plus(str(e))}",
+            status_code=303,
+        )
+
+
+@router.get("/admin/backups/download/{filename}", dependencies=[Depends(verify_auth)], response_model=None)
+def download_local_backup(filename: str) -> FileResponse:
+    """Downloads a local database backup JSON from Config.backups_dir."""
+    safe_name = os.path.basename(filename)
+    target = config.backups_dir / safe_name
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Backup file not found on server.")
+    return FileResponse(
+        path=target,
+        filename=safe_name,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={safe_name}"},
+    )
+
+
+@router.post("/admin/backups/restore", dependencies=[Depends(verify_auth)])
+def restore_local_backup(filename: str = Form(...)) -> RedirectResponse:
+    """Restores database contents from a local JSON backup in Config.backups_dir."""
+    try:
+        safe_name = os.path.basename(filename)
+        target = config.backups_dir / safe_name
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail="Selected backup file not found.")
+
+        from ..scripts.db_snapshot import restore_database_snapshot
+        stats = restore_database_snapshot(target, target="default", config=config)
+        total = sum(stats.values())
+        return RedirectResponse(
+            url=f"/admin?msg=Successfully+restored+{total}+records+from+{quote_plus(safe_name)}.",
+            status_code=303,
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin?msg=Failed+to+restore+backup:+{quote_plus(str(e))}",
+            status_code=303,
+        )
+
+
+@router.post("/admin/backups/delete/{filename}", dependencies=[Depends(verify_auth)])
+def delete_local_backup(filename: str) -> RedirectResponse:
+    """Deletes a local backup JSON from Config.backups_dir."""
+    try:
+        safe_name = os.path.basename(filename)
+        target = config.backups_dir / safe_name
+        if target.exists() and target.is_file():
+            target.unlink()
+        return RedirectResponse(
+            url=f"/admin?msg=Backup+file+{quote_plus(safe_name)}+deleted.",
+            status_code=303,
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin?msg=Failed+to+delete+backup:+{quote_plus(str(e))}",
+            status_code=303,
+        )
+
+
+@router.post("/admin/backups/upload", dependencies=[Depends(verify_auth)])
+async def upload_local_backup(
+    file: UploadFile = File(...), restore_now: bool = Form(False)
+) -> RedirectResponse:
+    """Uploads a backup JSON file to Config.backups_dir and optionally restores it immediately."""
+    try:
+        config.backups_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = os.path.basename(file.filename or f"kb_backup_upload_{int(time.time())}.json")
+        dest = config.backups_dir / safe_name
+        content = await file.read()
+        with open(dest, "wb") as f:
+            f.write(content)
+
+        msg = f"Backup+{quote_plus(safe_name)}+successfully+uploaded."
+        if restore_now:
+            from ..scripts.db_snapshot import restore_database_snapshot
+            stats = restore_database_snapshot(dest, target="default", config=config)
+            total = sum(stats.values())
+            msg += f"+Restored+{total}+records."
+
+        return RedirectResponse(url=f"/admin?msg={msg}", status_code=303)
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin?msg=Upload+failed:+{quote_plus(str(e))}",
+            status_code=303,
+        )
+
+
+# --- Video Media Backup Routes ---
+
+
+@router.post("/admin/backups/videos/create", dependencies=[Depends(verify_auth)])
+def create_video_backup() -> RedirectResponse:
+    """Creates a local ZIP backup of all videos in media/videos (retaining max 2 backups)."""
+    try:
+        from ..video_manager import create_video_backup_zip
+        archive = create_video_backup_zip(config, max_backups=2)
+        if archive and archive.exists():
+            return RedirectResponse(
+                url=f"/admin?msg=Video+backup+{quote_plus(archive.name)}+created+successfully.",
+                status_code=303,
+            )
+        return RedirectResponse(
+            url="/admin?msg=No+videos+found+to+backup.",
+            status_code=303,
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin?msg=Failed+to+create+video+backup:+{quote_plus(str(e))}",
+            status_code=303,
+        )
+
+
+@router.get("/admin/backups/videos/download/{filename}", dependencies=[Depends(verify_auth)], response_model=None)
+def download_video_backup(filename: str) -> FileResponse:
+    """Downloads a video ZIP backup file from Config.backups_dir."""
+    safe_name = os.path.basename(filename)
+    target = config.backups_dir / safe_name
+    if not target.exists() or not target.is_file() or not safe_name.startswith("kb_videos_backup_"):
+        raise HTTPException(status_code=404, detail="Video backup archive not found.")
+    return FileResponse(
+        path=target,
+        filename=safe_name,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={safe_name}"},
+    )
+
+
+@router.post("/admin/backups/videos/restore", dependencies=[Depends(verify_auth)])
+def restore_video_backup(filename: str = Form(...)) -> RedirectResponse:
+    """Restores videos from a ZIP backup and updates database index."""
+    try:
+        safe_name = os.path.basename(filename)
+        from ..video_manager import restore_video_backup_zip
+        target = config.backups_dir / safe_name
+        count = restore_video_backup_zip(target, config=config)
+        return RedirectResponse(
+            url=f"/admin?msg=Successfully+restored+{count}+videos+from+{quote_plus(safe_name)}.",
+            status_code=303,
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin?msg=Failed+to+restore+videos:+{quote_plus(str(e))}",
+            status_code=303,
+        )
+
+
+@router.post("/admin/backups/videos/delete/{filename}", dependencies=[Depends(verify_auth)])
+def delete_video_backup(filename: str) -> RedirectResponse:
+    """Deletes a video ZIP backup archive."""
+    try:
+        from ..video_manager import delete_video_backup_zip
+        delete_video_backup_zip(filename, config=config)
+        return RedirectResponse(
+            url=f"/admin?msg=Video+backup+{quote_plus(filename)}+deleted.",
+            status_code=303,
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin?msg=Failed+to+delete+video+backup:+{quote_plus(str(e))}",
+            status_code=303,
+        )
+
+
+@router.post("/admin/backups/videos/reindex", dependencies=[Depends(verify_auth)])
+def reindex_videos_action() -> RedirectResponse:
+    """Re-scans media/videos and updates youtube_videos.local_path in the database."""
+    try:
+        from ..video_manager import index_local_videos
+        res = index_local_videos(config=config)
+        return RedirectResponse(
+            url=f"/admin?msg=Indexed+{res['indexed_count']}+local+videos+({res['total_files']}+files+found).",
+            status_code=303,
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin?msg=Failed+to+reindex+videos:+{quote_plus(str(e))}",
+            status_code=303,
+        )
+
+
+@router.get("/admin/ws/import", response_class=HTMLResponse)
+def websocket_import_diagnostic_fallback() -> HTMLResponse:
+    """Diagnostic fallback for reverse proxies dropping the WebSocket Upgrade header."""
+    return HTMLResponse(
+        content="""
+        <html>
+        <head>
+            <title>WebSocket Import Endpoint</title>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 3rem; line-height: 1.6; max-width: 650px; margin: auto; }
+                .box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.5rem; margin-top: 1rem; }
+                code { background: #e5e7eb; padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
+                .btn { display: inline-block; background: #4f46e5; color: white; padding: 0.6rem 1.2rem; border-radius: 6px; text-decoration: none; margin-top: 1rem; font-weight: 500; }
+            </style>
+        </head>
+        <body>
+            <h2>WebSocket Import Endpoint Notice</h2>
+            <p>This endpoint (<code>/admin/ws/import</code>) is designed for WebSocket connections (<code>ws://</code> or <code>wss://</code>).</p>
+            <div class="box">
+                <p><strong>Why did you see this page?</strong></p>
+                <p>Your connection reached the server as a regular HTTP <code>GET</code> request. This typically happens when a reverse proxy (such as Nginx, Traefik, or Cloudflare) does not forward the <code>Upgrade: websocket</code> and <code>Connection: Upgrade</code> headers.</p>
+                <p>You can use the direct <strong>HTTP File Upload</strong> or <strong>Local Server Backups</strong> on the Admin dashboard without needing WebSockets.</p>
+            </div>
+            <a href="/admin" class="btn">&larr; Return to Admin Dashboard</a>
+        </body>
+        </html>
+        """,
+        status_code=200,
     )
 
 
@@ -927,13 +1168,37 @@ async def websocket_import(websocket: WebSocket) -> None:
                         for r in raw_rows:
                             clean_r = {}
                             for k, v in r.items():
+                                if isinstance(v, str):
+                                    v = v.replace("\x00", "")
                                 if isinstance(v, str) and v.startswith("hex:"):
                                     try:
                                         clean_r[k] = bytes.fromhex(v[4:])
                                     except ValueError:
                                         clean_r[k] = v
+                                elif isinstance(v, str) and (k.endswith("embedding") or k.endswith("vector")):
+                                    if v.startswith("[") and v.endswith("]"):
+                                        try:
+                                            clean_r[k] = json.loads(v)
+                                        except Exception:
+                                            clean_r[k] = v
+                                    else:
+                                        clean_r[k] = v
                                 else:
                                     clean_r[k] = v
+
+                            if model_cls in (ArticleEmbedding, TitleEmbedding, YouTubeVideo, VideoEmbedding):
+                                url_val = clean_r.get("url")
+                                if url_val:
+                                    parent = session.query(FetchedPage).filter_by(url=url_val).first()
+                                    if not parent:
+                                        session.add(
+                                            FetchedPage(
+                                                url=url_val,
+                                                title=f"Archived Item ({url_val})",
+                                                fetched_at=datetime.now().isoformat(),
+                                            )
+                                        )
+                                        session.flush()
 
                             pks = [c.name for c in model_cls.__table__.primary_key.columns]
                             pk_vals = {pk: clean_r[pk] for pk in pks if pk in clean_r}
@@ -951,6 +1216,28 @@ async def websocket_import(websocket: WebSocket) -> None:
                                 success_count += 1
                             except Exception as err:
                                 print(f"WS Import Error in {table_name}: {err}")
+
+                from sqlalchemy import text
+                if session.bind and "postgresql" in str(session.bind.url):
+                    for mapper in Base.registry.mappers:
+                        m_cls = mapper.class_
+                        t_name = m_cls.__tablename__
+                        pks = [c.name for c in m_cls.__table__.primary_key.columns]
+                        if pks and len(pks) == 1:
+                            col_obj = m_cls.__table__.columns[pks[0]]
+                            if hasattr(col_obj.type, "python_type") and col_obj.type.python_type == int:
+                                try:
+                                    session.execute(
+                                        text(
+                                            f"SELECT setval(pg_get_serial_sequence('{t_name}', '{pks[0]}'), "
+                                            f"COALESCE((SELECT MAX({pks[0]}) FROM {t_name}), 1));"
+                                        )
+                                    )
+                                except Exception:
+                                    pass
+
+                from ..video_manager import index_local_videos
+                index_local_videos(config)
 
             msg = f"SUCCESS: Restored database. Imported {success_count} total records across tables."
         elif isinstance(data, list):

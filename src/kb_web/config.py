@@ -72,9 +72,10 @@ class Config:
     environment variables.
     """
 
-    root: Path = Path().home() / ".kb"
-    configs_dir: Path = root / "configs"
-    db_path: Path = root / "kb.db"
+    data_root: Path = Path().home() / ".kb"
+    configs_dir: Path = data_root / "configs"
+    backups_dir: Path = data_root / "kb-web_backups"
+    db_path: Path = data_root / "kb.db"
 
     def __init__(self) -> None:
         """Initializes configuration properties with default values and overlays
@@ -107,6 +108,12 @@ class Config:
         self._qdrant_api_key: Optional[str] = os.getenv("QDRANT_API_KEY")
         self._database_url: str = os.getenv("DATABASE_URL", "")
 
+    def get_db(self):
+        """Returns a sqlite_utils Database connection for the configured SQLite database."""
+        from .db import get_db
+
+        return get_db(self)
+
     def _read_db_setting(self, table: str, key: str, default):
         if self.database_url and (
             "postgresql" in self.database_url or "postgres" in self.database_url
@@ -137,7 +144,9 @@ class Config:
             return default
 
         try:
-            db = self.get_db()
+            from .db import get_db
+
+            db = get_db(self)
             if table in db.table_names():
                 row = db[table].get(key)
                 if row and row.get("value") is not None:
@@ -181,13 +190,33 @@ class Config:
                 return
 
         try:
-            db = self.get_db()
+            from .db import get_db
+
+            db = get_db(self)
             if table in db.table_names():
                 val_str = str(value)
                 db[table].upsert({"key": key, "value": val_str}, pk="key")
                 db.conn.commit()
         except Exception:
             pass
+
+    def get_database_url_for_target(self, target: str) -> str:
+        """Resolves database URL based on environment variables for dev, test, or live."""
+        t = target.lower().strip()
+        if t in ("dev", "development", "kb_dev"):
+            return os.getenv("KB_DEV_DATABASE_URL") or os.getenv("DATABASE_URL", "")
+        elif t in ("test", "testing", "kb_test"):
+            return os.getenv("KB_TEST_DATABASE_URL") or os.getenv("DATABASE_URL", "")
+        elif t in ("live", "prod", "production", "kb_live", "kb_production"):
+            return (
+                os.getenv("KB_LIVE_DATABASE_URL")
+                or os.getenv("KB_PROD_DATABASE_URL")
+                or os.getenv("DATABASE_URL", "")
+            )
+        elif t in ("default", "current", ""):
+            return self.database_url or f"sqlite:///{self.db_path}"
+        return target
+
 
     @property
     def ollama_host(self) -> str:

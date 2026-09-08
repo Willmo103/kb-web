@@ -1,4 +1,6 @@
+import sys
 from pathlib import Path
+from typing import Optional
 from alembic.config import Config as AlembicConfig
 from alembic import command
 from kb_web.base import get_engine, db_session
@@ -121,11 +123,71 @@ def fix_sqlite_collection_actions(engine):
             print("[SUCCESS] Migrated collection_actions table.")
 
 
-def deploy():
-    # Attempt to locate alembic.ini from several logical paths:
-    # 1. Packaged/source folder: src/kb_web/scripts/deploy_migrations.py -> root is 4 parents up.
-    # 2. Legacy scripts directory: scripts/deploy_migrations.py -> root is 2 parents up.
-    # 3. Current working directory.
+def deploy_single(engine, alembic_cfg, target_label: str = "current"):
+    from sqlalchemy import inspect, text
+
+    print(f"\n[INFO] Initializing schema for target: {target_label}...")
+
+    # Apply SQLite collection_actions workaround if needed
+    if engine.dialect.name == "sqlite":
+        fix_sqlite_collection_actions(engine)
+    elif engine.dialect.name == "postgresql":
+        with engine.connect() as conn:
+            with conn.begin():
+                try:
+                    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                except Exception as e:
+                    pass
+
+    # 1. Create all tables if they don't exist
+    Base.metadata.create_all(engine)
+
+    # If PostgreSQL, ensure vector columns are flexible
+    if engine.dialect.name == "postgresql":
+        with engine.connect() as conn:
+            with conn.begin():
+                for tbl, col in [
+                    ("article_embeddings", "embedding"),
+                    ("title_embeddings", "embedding"),
+                    ("chunk_embeddings", "chunk_vector"),
+                    ("video_embeddings", "embedding"),
+                ]:
+                    try:
+                        conn.execute(
+                            text(f"ALTER TABLE {tbl} ALTER COLUMN {col} TYPE vector;")
+                        )
+                    except Exception:
+                        pass
+
+    # 2. Seed database defaults
+    seed_database()
+
+    # 3. Check Alembic status
+    inspector = inspect(engine)
+    if "alembic_version" in inspector.get_table_names():
+        with engine.connect() as conn:
+            res = conn.execute(text("SELECT version_num FROM alembic_version")).first()
+            if res:
+                print(f"[INFO] Existing database revision detected: {res[0]}. Running upgrade to head...")
+                with engine.begin() as connection:
+                    alembic_cfg.attributes["connection"] = connection
+                    command.upgrade(alembic_cfg, "head")
+                print(f"[SUCCESS] Alembic database migrations applied successfully for {target_label}!")
+                return
+
+    # If no revision is recorded, stamp head
+    print(f"[INFO] Fresh database detected for {target_label}. Stamping schema revision to head...")
+    with engine.begin() as connection:
+        alembic_cfg.attributes["connection"] = connection
+        command.stamp(alembic_cfg, "head")
+    print(f"[SUCCESS] Database schema initialized and stamped successfully for {target_label}!")
+
+
+def deploy(target: Optional[str] = None):
+    from kb_web.config import Config
+    from sqlalchemy import create_engine
+    cfg = Config()
+
     ini_path = Path(__file__).resolve().parent.parent / "alembic.ini"
     if not ini_path.exists():
         ini_path = Path(__file__).resolve().parent.parent.parent.parent / "alembic.ini"
@@ -134,41 +196,34 @@ def deploy():
 
     alembic_cfg = AlembicConfig(str(ini_path))
 
-    # Initialize SQLAlchemy connection engine
-    engine = get_engine()
+    if target and target.lower().strip() == "all":
+        targets = ["dev", "test", "live"]
+        for t in targets:
+            url = cfg.get_database_url_for_target(t)
+            if url:
+                if url.startswith("postgres://"):
+                    url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+                elif url.startswith("postgresql://") and not url.startswith("postgresql+psycopg2://"):
+                    url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+                alembic_cfg.set_main_option("sqlalchemy.url", url)
+                eng = create_engine(url)
+                deploy_single(eng, alembic_cfg, target_label=t)
+        return
 
-    # Apply SQLite collection_actions workaround if needed
-    if engine.dialect.name == "sqlite":
-        fix_sqlite_collection_actions(engine)
-
-    # 1. Create all tables if they don't exist (dialect-agnostic)
-    print("[INFO] Initializing database schema via SQLAlchemy ORM...")
-    Base.metadata.create_all(engine)
-
-    # 2. Seed database defaults
-    print("[INFO] Seeding default database templates and collections...")
-    seed_database()
-
-    # 3. Check Alembic status
-    from sqlalchemy import inspect
-    inspector = inspect(engine)
-
-    # Check if alembic_version table exists and has rows
-    if "alembic_version" in inspector.get_table_names():
-        with engine.connect() as conn:
-            from sqlalchemy import text
-            res = conn.execute(text("SELECT version_num FROM alembic_version")).first()
-            if res:
-                print(f"[INFO] Existing database revision detected: {res[0]}. Running upgrade...")
-                command.upgrade(alembic_cfg, "head")
-                print("[SUCCESS] Alembic database migrations applied successfully!")
-                return
-
-    # If no revision is recorded, stamp the database version as head
-    print("[INFO] Fresh database detected. Stamping schema revision to head...")
-    command.stamp(alembic_cfg, "head")
-    print("[SUCCESS] Database schema initialized and stamped successfully!")
+    if target:
+        url = cfg.get_database_url_for_target(target)
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+        elif url.startswith("postgresql://") and not url.startswith("postgresql+psycopg2://"):
+            url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+        alembic_cfg.set_main_option("sqlalchemy.url", url)
+        engine = create_engine(url)
+        deploy_single(engine, alembic_cfg, target_label=target)
+    else:
+        engine = get_engine()
+        deploy_single(engine, alembic_cfg, target_label="default")
 
 
 if __name__ == "__main__":
-    deploy()
+    target_env = sys.argv[1] if len(sys.argv) > 1 else None
+    deploy(target=target_env)

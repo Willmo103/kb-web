@@ -210,20 +210,173 @@
                 <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Database Backup & Recovery</h3>
                 <div>
                     <h4 class="font-semibold text-sm mb-1">Export Knowledge Base</h4>
-                    <p class="text-xs text-gray-500 mb-4">Download a full JSON backup of the `fetched_pages` table.</p>
-                    <a href="/admin/export" target="_blank" class="block text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2 px-4 rounded-lg transition mb-6 shadow-sm">
-                        ⬇️ Download JSON Backup
-                    </a>
+                    <p class="text-xs text-gray-500 mb-3">Download and save a full multi-table JSON database backup on the server.</p>
+                    <div class="flex gap-2 mb-6">
+                        <a href="/admin/export" target="_blank" class="flex-1 text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2 px-3 rounded-lg transition shadow-sm">
+                            ⬇️ Download
+                        </a>
+                        <form action="/admin/backups/create" method="post" class="flex-1">
+                            <button type="submit" class="w-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-2 px-3 rounded-lg transition shadow-sm">
+                                💾 Save Locally
+                            </button>
+                        </form>
+                    </div>
                 </div>
                 <div class="border-t border-gray-200 pt-4">
-                    <h4 class="font-semibold text-sm mb-1">Import JSON Archive</h4>
-                    <p class="text-xs text-gray-500 mb-4">Upload a `.json` backup file. Bypasses Cloudflare limits via chunked WebSockets.</p>
-                    <input type="file" id="backupFile" accept=".json" class="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 mb-3"/>
-                    <button onclick="uploadBackupViaWebSocket()" id="uploadBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
-                        Upload Backup File
-                    </button>
-                    <div id="uploadStatus" class="text-xs font-mono mt-3 hidden text-indigo-600">Uploading chunks...</div>
+                    <h4 class="font-semibold text-sm mb-1">Direct HTTP Backup Upload</h4>
+                    <p class="text-xs text-gray-500 mb-3">Upload a backup <code>.json</code> file to the server folder with optional immediate restore.</p>
+                    <form action="/admin/backups/upload" method="post" enctype="multipart/form-data" class="space-y-3">
+                        <input type="file" name="file" accept=".json" required class="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                        <label class="flex items-center text-xs text-gray-600 gap-2 cursor-pointer">
+                            <input type="checkbox" name="restore_now" value="true" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                            <span>Restore database immediately upon upload</span>
+                        </label>
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-4 rounded-lg transition shadow-sm">
+                            Upload File
+                        </button>
+                    </form>
                 </div>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">WebSocket Import (Chunked)</h3>
+                <div class="space-y-3">
+                    <p class="text-xs text-gray-500">Stream large backups over a WebSocket connection. If proxy errors occur, use direct HTTP upload.</p>
+                    <input type="file" id="backupFile" accept=".json" class="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                    <button onclick="uploadBackupViaWebSocket()" id="uploadBtn" class="w-full bg-gray-800 hover:bg-gray-900 text-white text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
+                        Stream via WebSocket
+                    </button>
+                    <div id="uploadStatus" class="text-xs font-mono hidden text-indigo-600">Uploading chunks...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full width: Local Server Backups & Video Media Backups -->
+        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm md:col-span-2 space-y-6">
+            <div>
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 mb-4 gap-2">
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-900">📁 Local Server Database Backups</h3>
+                        <p class="text-xs text-gray-500">Stored on server in <code>~/.kb/kb-web_backups</code>. You can copy backup JSON files directly into this directory.</p>
+                    </div>
+                    <form action="/admin/backups/create" method="post">
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                            + Create Backup Now
+                        </button>
+                    </form>
+                </div>
+
+                {% if backups %}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-xs text-left">
+                        <thead class="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wider border-b">
+                            <tr>
+                                <th class="py-2.5 px-3">Filename</th>
+                                <th class="py-2.5 px-3">Size</th>
+                                <th class="py-2.5 px-3">Created</th>
+                                <th class="py-2.5 px-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for b in backups %}
+                            <tr class="hover:bg-gray-50">
+                                <td class="py-2 px-3 font-mono font-medium text-gray-800">{{ b.filename }}</td>
+                                <td class="py-2 px-3 text-gray-500">{{ b.size_mb }} MB</td>
+                                <td class="py-2 px-3 text-gray-500">{{ b.created_at }}</td>
+                                <td class="py-2 px-3 text-right">
+                                    <div class="inline-flex gap-2">
+                                        <form action="/admin/backups/restore" method="post" onsubmit="return confirm('Are you sure you want to restore database from {{ b.filename }}? Existing records will be updated.');">
+                                            <input type="hidden" name="filename" value="{{ b.filename }}" />
+                                            <button type="submit" class="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                                🔄 Restore
+                                            </button>
+                                        </form>
+                                        <a href="/admin/backups/download/{{ b.filename }}" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                            ⬇️ Download
+                                        </a>
+                                        <form action="/admin/backups/delete/{{ b.filename }}" method="post" onsubmit="return confirm('Delete backup file {{ b.filename }} from server?');">
+                                            <button type="submit" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                                🗑️ Delete
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-xs text-gray-400 italic py-2">No local database JSON backups found in <code>~/.kb/kb-web_backups</code>.</p>
+                {% endif %}
+            </div>
+
+            <!-- YouTube Video Media Backups & Indexing -->
+            <div class="border-t pt-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 mb-4 gap-2">
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-900">🎬 YouTube Video Media Backups & Indexing</h3>
+                        <p class="text-xs text-gray-500">Local videos in <code>~/.kb/media/videos</code>: <strong>{{ video_files_count }} files</strong>. Video backup ZIP archives are stored in <code>~/.kb/kb-web_backups</code> (max 2 retained).</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <form action="/admin/backups/videos/reindex" method="post">
+                            <button type="submit" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                                🔄 Re-Index Videos
+                            </button>
+                        </form>
+                        <form action="/admin/backups/videos/create" method="post">
+                            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                                🗜️ Backup Videos (ZIP)
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                {% if video_backups %}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-xs text-left">
+                        <thead class="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wider border-b">
+                            <tr>
+                                <th class="py-2.5 px-3">Archive Filename</th>
+                                <th class="py-2.5 px-3">Size</th>
+                                <th class="py-2.5 px-3">Created</th>
+                                <th class="py-2.5 px-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for vb in video_backups %}
+                            <tr class="hover:bg-gray-50">
+                                <td class="py-2 px-3 font-mono font-medium text-gray-800">{{ vb.filename }}</td>
+                                <td class="py-2 px-3 text-gray-500">{{ vb.size_mb }} MB</td>
+                                <td class="py-2 px-3 text-gray-500">{{ vb.created_at }}</td>
+                                <td class="py-2 px-3 text-right">
+                                    <div class="inline-flex gap-2">
+                                        <form action="/admin/backups/videos/restore" method="post" onsubmit="return confirm('Restore videos from {{ vb.filename }} into media/videos and re-index?');">
+                                            <input type="hidden" name="filename" value="{{ vb.filename }}" />
+                                            <button type="submit" class="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                                🔄 Restore
+                                            </button>
+                                        </form>
+                                        <a href="/admin/backups/videos/download/{{ vb.filename }}" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                            ⬇️ Download
+                                        </a>
+                                        <form action="/admin/backups/videos/delete/{{ vb.filename }}" method="post" onsubmit="return confirm('Delete video archive {{ vb.filename }}?');">
+                                            <button type="submit" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                                🗑️ Delete
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-xs text-gray-400 italic py-2">No video backup ZIP archives found (maximum 2 retained automatically).</p>
+                {% endif %}
             </div>
         </div>
 
