@@ -15,7 +15,10 @@ def get_db(config: Config):
 
     This is kept for backward compatibility with base CLI configurations.
     """
-    db = config.get_db()
+    from sqlite_utils import Database
+    from pathlib import Path
+
+    db: Database = Database(config.db_path)
     try:
         db.enable_wal()
     except Exception:
@@ -51,9 +54,13 @@ def init_db(db, config: Optional[Config] = None) -> None:
                         created_at=datetime.now().isoformat(),
                     )
                 )
-            
+
             # Seed youtube_wiki_prompt
-            ywp = session.query(AgentPrompt).filter_by(prompt_type="youtube_wiki_prompt").first()
+            ywp = (
+                session.query(AgentPrompt)
+                .filter_by(prompt_type="youtube_wiki_prompt")
+                .first()
+            )
             if not ywp:
                 session.add(
                     AgentPrompt(
@@ -76,7 +83,9 @@ def get_general_collection_id(db=None) -> int:
     from sqlalchemy import text
 
     with db_session() as session:
-        general = session.query(Collection).filter_by(title="General Collection").first()
+        general = (
+            session.query(Collection).filter_by(title="General Collection").first()
+        )
         if general:
             return general.id
 
@@ -97,7 +106,11 @@ def get_general_collection_id(db=None) -> int:
                 session.add(general)
                 session.flush()
                 if session.bind and "postgresql" in str(session.bind.url):
-                    session.execute(text("SELECT setval('collections_id_seq', (SELECT MAX(id) FROM collections))"))
+                    session.execute(
+                        text(
+                            "SELECT setval('collections_id_seq', (SELECT MAX(id) FROM collections))"
+                        )
+                    )
                 session.commit()
                 return 1
             else:

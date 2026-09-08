@@ -2,12 +2,26 @@
 Configuration for the kb-web application.
 """
 
+from pathlib import Path
 import json
 import os
 from typing import Optional
 
 from kb_core.config import Config as BaseConfig
 from kb_core.notifier import Gotify
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).parent.parent.parent
+ENV_FILE = ROOT_DIR / ".env"
+
+_msg_printed = False
+ENV_LOADED = load_dotenv(ENV_FILE)
+if ENV_LOADED and not _msg_printed:
+    print(f"✅ Environment variables loaded from {ENV_FILE}")
+    _msg_printed = True
+elif not ENV_LOADED and not _msg_printed:
+    print(f"⚠️ Environment variables not loaded from {ENV_FILE}")
+    _msg_printed = True
 
 DEFAULT_WIKI_PROMPT = (
     "You are an expert knowledge-base engineer. Extract the core informational content "
@@ -48,7 +62,7 @@ DEFAULT_TAXONOMY_SYSTEM_PROMPT = (
 )
 
 
-class Config(BaseConfig):
+class Config:
     """Configuration class for the kb-web application.
 
     Inherits from the base kb-core Config class and adds properties for
@@ -58,12 +72,15 @@ class Config(BaseConfig):
     environment variables.
     """
 
+    root: Path = Path().home() / ".kb"
+    configs_dir: Path = root / "configs"
+    db_path: Path = root / "kb.db"
+
     def __init__(self) -> None:
         """Initializes configuration properties with default values and overlays
 
         from the config file (~/.kb/configs/kb-web.json) or environment variables.
         """
-        super().__init__()
         # 1. Apply defaults or environment variables first
         self._ollama_host: str = os.getenv("KB_OLLAMA_HOST", "http://localhost:11434")
         self._ollama_model: str = os.getenv("KB_OLLAMA_MODEL", "gemma4:latest")
@@ -90,48 +107,10 @@ class Config(BaseConfig):
         self._qdrant_api_key: Optional[str] = os.getenv("QDRANT_API_KEY")
         self._database_url: str = os.getenv("DATABASE_URL", "")
 
-        # 2. Overlay values from JSON configuration file if it exists
-        try:
-            config_file = self.configs_dir / "kb-web.json"
-            if config_file.exists():
-                with open(config_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if "database_url" in data:
-                        self._database_url = data["database_url"]
-                    if "ollama_host" in data:
-                        self._ollama_host = data["ollama_host"]
-                    if "ollama_model" in data:
-                        self._ollama_model = data["ollama_model"]
-                    if "ollama_embedding_model" in data:
-                        self._ollama_embedding_model = data["ollama_embedding_model"]
-                    if "admin_password" in data:
-                        self._admin_password = data["admin_password"]
-                    if "api_key" in data:
-                        self._api_key = data["api_key"]
-                    if "wiki_prompt" in data:
-                        self._wiki_prompt = data["wiki_prompt"]
-                    if "youtube_wiki_prompt" in data:
-                        self._youtube_wiki_prompt = data["youtube_wiki_prompt"]
-                    if "similarity_threshold" in data:
-                        self._similarity_threshold = float(data["similarity_threshold"])
-                    if "max_input_length" in data:
-                        self._max_input_length = int(data["max_input_length"])
-                    if "ollama_think" in data:
-                        self._ollama_think = bool(data["ollama_think"])
-                    if "gotify_url" in data:
-                        self._gotify_url = data["gotify_url"]
-                    if "gotify_token" in data:
-                        self._gotify_token = data["gotify_token"]
-                    if "qdrant_host_url" in data:
-                        self._qdrant_host_url = data["qdrant_host_url"]
-                    if "qdrant_api_key" in data:
-                        self._qdrant_api_key = data["qdrant_api_key"]
-        except Exception as e:
-            # Suppress logs or print warning during startup if reading fails
-            print(f"Warning: Failed to load config file 'kb-web.json': {e}")
-
     def _read_db_setting(self, table: str, key: str, default):
-        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+        if self.database_url and (
+            "postgresql" in self.database_url or "postgres" in self.database_url
+        ):
             try:
                 from .models_orm import SettingOllama, SettingExternal
                 from .base import db_session
@@ -175,7 +154,9 @@ class Config(BaseConfig):
         return default
 
     def _write_db_setting(self, table: str, key: str, value) -> None:
-        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+        if self.database_url and (
+            "postgresql" in self.database_url or "postgres" in self.database_url
+        ):
             try:
                 from .models_orm import SettingOllama, SettingExternal
                 from .base import db_session
@@ -351,13 +332,19 @@ class Config(BaseConfig):
 
     @property
     def wiki_prompt(self) -> str:
-        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+        if self.database_url and (
+            "postgresql" in self.database_url or "postgres" in self.database_url
+        ):
             try:
                 from .models_orm import AgentPrompt
                 from .base import db_session
 
                 with db_session() as session:
-                    row = session.query(AgentPrompt).filter_by(prompt_type="wiki_prompt", is_head=1).first()
+                    row = (
+                        session.query(AgentPrompt)
+                        .filter_by(prompt_type="wiki_prompt", is_head=1)
+                        .first()
+                    )
                     if row:
                         return row.prompt_text
             except Exception:
@@ -381,7 +368,9 @@ class Config(BaseConfig):
     @wiki_prompt.setter
     def wiki_prompt(self, value: str) -> None:
         self._wiki_prompt = value
-        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+        if self.database_url and (
+            "postgresql" in self.database_url or "postgres" in self.database_url
+        ):
             try:
                 from .models_orm import AgentPrompt
                 from .base import db_session
@@ -390,13 +379,24 @@ class Config(BaseConfig):
 
                 with db_session() as session:
                     current_head = None
-                    row = session.query(AgentPrompt).filter_by(prompt_type="wiki_prompt", is_head=1).first()
+                    row = (
+                        session.query(AgentPrompt)
+                        .filter_by(prompt_type="wiki_prompt", is_head=1)
+                        .first()
+                    )
                     if row:
                         current_head = row.prompt_text
 
                     if current_head != value:
-                        max_version = session.query(func.max(AgentPrompt.version)).filter_by(prompt_type="wiki_prompt").scalar() or 0
-                        session.query(AgentPrompt).filter_by(prompt_type="wiki_prompt", is_head=1).update({"is_head": 0})
+                        max_version = (
+                            session.query(func.max(AgentPrompt.version))
+                            .filter_by(prompt_type="wiki_prompt")
+                            .scalar()
+                            or 0
+                        )
+                        session.query(AgentPrompt).filter_by(
+                            prompt_type="wiki_prompt", is_head=1
+                        ).update({"is_head": 0})
                         session.add(
                             AgentPrompt(
                                 prompt_type="wiki_prompt",
@@ -453,13 +453,19 @@ class Config(BaseConfig):
 
     @property
     def youtube_wiki_prompt(self) -> str:
-        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+        if self.database_url and (
+            "postgresql" in self.database_url or "postgres" in self.database_url
+        ):
             try:
                 from .models_orm import AgentPrompt
                 from .base import db_session
 
                 with db_session() as session:
-                    row = session.query(AgentPrompt).filter_by(prompt_type="youtube_wiki_prompt", is_head=1).first()
+                    row = (
+                        session.query(AgentPrompt)
+                        .filter_by(prompt_type="youtube_wiki_prompt", is_head=1)
+                        .first()
+                    )
                     if row:
                         return row.prompt_text
             except Exception:
@@ -483,7 +489,9 @@ class Config(BaseConfig):
     @youtube_wiki_prompt.setter
     def youtube_wiki_prompt(self, value: str) -> None:
         self._youtube_wiki_prompt = value
-        if self.database_url and ("postgresql" in self.database_url or "postgres" in self.database_url):
+        if self.database_url and (
+            "postgresql" in self.database_url or "postgres" in self.database_url
+        ):
             try:
                 from .models_orm import AgentPrompt
                 from .base import db_session
@@ -492,13 +500,24 @@ class Config(BaseConfig):
 
                 with db_session() as session:
                     current_head = None
-                    row = session.query(AgentPrompt).filter_by(prompt_type="youtube_wiki_prompt", is_head=1).first()
+                    row = (
+                        session.query(AgentPrompt)
+                        .filter_by(prompt_type="youtube_wiki_prompt", is_head=1)
+                        .first()
+                    )
                     if row:
                         current_head = row.prompt_text
 
                     if current_head != value:
-                        max_version = session.query(func.max(AgentPrompt.version)).filter_by(prompt_type="youtube_wiki_prompt").scalar() or 0
-                        session.query(AgentPrompt).filter_by(prompt_type="youtube_wiki_prompt", is_head=1).update({"is_head": 0})
+                        max_version = (
+                            session.query(func.max(AgentPrompt.version))
+                            .filter_by(prompt_type="youtube_wiki_prompt")
+                            .scalar()
+                            or 0
+                        )
+                        session.query(AgentPrompt).filter_by(
+                            prompt_type="youtube_wiki_prompt", is_head=1
+                        ).update({"is_head": 0})
                         session.add(
                             AgentPrompt(
                                 prompt_type="youtube_wiki_prompt",

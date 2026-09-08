@@ -13,3 +13,4 @@ dling.willmo.dev.openapi.json
 .env
 .data/*
 !.data/.gitkeep
+.vscode/*
