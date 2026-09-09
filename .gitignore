@@ -14,3 +14,4 @@ dling.willmo.dev.openapi.json
 .data/*
 !.data/.gitkeep
 .vscode/*
+uv.lock
