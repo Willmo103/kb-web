@@ -6,7 +6,9 @@ from typing import Optional
 from fastapi import Request
 
 
-def post_error_to_gotify(config, exc: Exception, tb: str, request: Optional[Request] = None) -> None:
+def post_error_to_gotify(
+    config, exc: Exception, tb: str, request: Optional[Request] = None
+) -> None:
     """Sends a formatted Gotify notification detailing an uncaught internal server exception."""
     try:
         notifier = config.get_notifier()
@@ -15,12 +17,12 @@ def post_error_to_gotify(config, exc: Exception, tb: str, request: Optional[Requ
             return
 
         title = f"🚨 Server Error: {type(exc).__name__}"
-        
+
         msg_parts = [
             f"**Error Details:** {str(exc)}",
             "",
         ]
-        
+
         if request:
             msg_parts.append(f"**Request:** `{request.method} {request.url.path}`")
             if request.query_params:
@@ -31,7 +33,7 @@ def post_error_to_gotify(config, exc: Exception, tb: str, request: Optional[Requ
 
         msg_parts.append("**Stack Trace:**")
         msg_parts.append(f"```\n{tb}\n```")
-        
+
         message = "\n".join(msg_parts)
         notifier.send_notification(title, message)
     except Exception as e:
@@ -47,4 +49,3 @@ def post_to_gotify(config, jinja_env, page, view_url: str) -> None:
         notifier.send_notification("Scraped Wiki Ingestion", message)
     except Exception as e:
         print(f"Failed to post success event to Gotify: {e}")
-

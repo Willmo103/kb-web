@@ -8,8 +8,13 @@ import threading
 import jinja2
 import ollama
 import sqlite_utils
-from urllib.parse import quote_plus
+import logging
+from contextlib import contextmanager
+from typing import Optional
+from urllib.parse import quote_plus, urlparse
 from fastapi import Request, HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from .config import Config
 from .db import init_db
@@ -17,7 +22,6 @@ from .db import init_db
 # Instantiate global configuration
 config = Config()
 
-from urllib.parse import urlparse
 
 def extract_url_path(url: str) -> str:
     try:
@@ -29,6 +33,7 @@ def extract_url_path(url: str) -> str:
     except Exception:
         return url
 
+
 # Set up Jinja2 environment utilizing PackageLoader for clean packaging
 _jinja_env = jinja2.Environment(loader=jinja2.PackageLoader("kb_web", "templates"))
 _jinja_env.filters["urlpath"] = extract_url_path
@@ -36,66 +41,46 @@ _jinja_env.filters["urlpath"] = extract_url_path
 COOKIE_NAME = "kb_session"
 SESSION_EXPIRATION_SECONDS = 3600 * 24  # 24 hours
 
-import logging
 
-class SQLiteLogHandler(logging.Handler):
-    """Custom logging handler that writes logs to the SQLite database `system_logs` table."""
-    def __init__(self, db_path: str) -> None:
+class DatabaseLogHandler(logging.Handler):
+    """Custom logging handler that writes logs to the database using SQLAlchemy."""
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__()
-        self.db_path = db_path
-        
-        # Create system_logs table immediately if it doesn't exist
-        import sqlite3
-        conn = sqlite3.connect(self.db_path, timeout=15.0)
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS system_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT,
-                    level TEXT,
-                    module TEXT,
-                    message TEXT,
-                    traceback TEXT
-                )
-            """)
-            conn.commit()
-        finally:
-            conn.close()
 
     def emit(self, record: logging.LogRecord) -> None:
+        # Skip logging if it is from sqlalchemy engine to avoid infinite recursion/loops
+        if record.name.startswith("sqlalchemy"):
+            return
+
         try:
-            import sqlite3
             from datetime import datetime
             import traceback
 
             # Format the message
             msg = self.format(record)
-            
+
             # Format traceback if present
             tb = ""
             if record.exc_info:
                 tb = "".join(traceback.format_exception(*record.exc_info))
 
-            conn = sqlite3.connect(self.db_path, timeout=15.0)
-            try:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO system_logs (timestamp, level, module, message, traceback) VALUES (?, ?, ?, ?, ?)",
-                    (
-                        datetime.now().isoformat(),
-                        record.levelname,
-                        record.module,
-                        msg,
-                        tb
-                    )
+            from .models_orm import SystemLog
+            with db_session() as session:
+                log_entry = SystemLog(
+                    timestamp=datetime.now().isoformat(),
+                    level=record.levelname,
+                    module=record.module,
+                    message=msg,
+                    traceback=tb,
                 )
-                conn.commit()
-            finally:
-                conn.close()
+                session.add(log_entry)
         except Exception:
             # Prevent logging errors from crashing the application
             pass
+
+
+SQLiteLogHandler = DatabaseLogHandler
+DatabaseLogHandler = DatabaseLogHandler
 
 
 _local = threading.local()
@@ -124,11 +109,84 @@ def _get_db() -> sqlite_utils.Database:
     return db
 
 
+# --- SQLAlchemy / ORM Connection Dialect and Engine Setup ---
+
+_engine = None
+_SessionFactory = None
+_db_lock = threading.Lock()
+
+
+def get_engine():
+    global _engine, _SessionFactory
+    if _engine is None:
+        with _db_lock:
+            if _engine is None:
+                db_url = config.database_url
+                if db_url:
+                    # Clean up PostgreSQL URL prefix if necessary
+                    if db_url.startswith("postgres://"):
+                        db_url = db_url.replace(
+                            "postgres://", "postgresql+psycopg2://", 1
+                        )
+                    elif db_url.startswith("postgresql://") and not db_url.startswith(
+                        "postgresql+psycopg2://"
+                    ):
+                        db_url = db_url.replace(
+                            "postgresql://", "postgresql+psycopg2://", 1
+                        )
+
+                    _engine = create_engine(
+                        db_url, pool_size=10, max_overflow=20, pool_pre_ping=True
+                    )
+
+                    # Ensure pgvector extension is created on startup
+                    from sqlalchemy import text
+
+                    with _engine.connect() as conn:
+                        with conn.begin():
+                            try:
+                                conn.execute(
+                                    text("CREATE EXTENSION IF NOT EXISTS vector;")
+                                )
+                            except Exception as e:
+                                print(
+                                    f"Warning: Failed to create pgvector extension: {e}"
+                                )
+                else:
+                    _engine = create_engine(
+                        f"sqlite:///{config.db_path}",
+                        connect_args={"timeout": 30.0, "check_same_thread": False},
+                    )
+
+                # Import models and create all tables if missing
+                from .models_orm import Base
+
+                Base.metadata.create_all(_engine)
+                _SessionFactory = sessionmaker(bind=_engine)
+    return _engine
+
+
+@contextmanager
+def db_session():
+    """Context manager for SQLAlchemy ORM session lifecycle management."""
+    get_engine()
+    session = _SessionFactory()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 class LoggedOllamaClient:
     """A wrapper for ollama.Client that logs call details, duration, and responses/errors
     to the SQLite database table `ollama_logs` and enforces a connection timeout.
     """
-    def __init__(self, host: str, timeout: float = 90.0) -> None:
+
+    def __init__(self, host: str, timeout: float = 300.0) -> None:
         self._client = ollama.Client(host=host, timeout=timeout)
         self.host = host
 
@@ -161,17 +219,21 @@ class LoggedOllamaClient:
 
         model = kwargs.get("model", "")
         options = {k: v for k, v in kwargs.items() if k not in ("model", "messages")}
-        
+
         start_time = time.time()
         try:
             resp = self._client.chat(*args, **kwargs)
             duration = time.time() - start_time
-            
+
             # Retrieve content response safely
             response_content = ""
             if hasattr(resp, "message") and hasattr(resp.message, "content"):
                 response_content = resp.message.content
-            elif isinstance(resp, dict) and "message" in resp and "content" in resp["message"]:
+            elif (
+                isinstance(resp, dict)
+                and "message" in resp
+                and "content" in resp["message"]
+            ):
                 response_content = resp["message"]["content"]
             else:
                 response_content = str(resp)
@@ -183,7 +245,7 @@ class LoggedOllamaClient:
                 options=options,
                 response=response_content,
                 duration=duration,
-                status="success"
+                status="success",
             )
             return resp
         except Exception as e:
@@ -195,7 +257,7 @@ class LoggedOllamaClient:
                 options=options,
                 response=f"Error: {e}\n{traceback.format_exc()}",
                 duration=duration,
-                status="failed"
+                status="failed",
             )
             raise e
 
@@ -206,23 +268,34 @@ class LoggedOllamaClient:
         model = kwargs.get("model", "")
         prompt = kwargs.get("prompt", "")
         options = {k: v for k, v in kwargs.items() if k not in ("model", "prompt")}
-        
+
         start_time = time.time()
         try:
             resp = self._client.embeddings(*args, **kwargs)
             duration = time.time() - start_time
-            
-            emb_vector = resp.get("embedding", []) if isinstance(resp, dict) else getattr(resp, "embedding", [])
+
+            emb_vector = (
+                resp.get("embedding", [])
+                if isinstance(resp, dict)
+                else getattr(resp, "embedding", [])
+            )
             response_content = f"Success (vector dim: {len(emb_vector)})"
-            
+
             self._log_call(
                 prompt_type=prompt_type,
                 model=model,
-                messages=[{"role": "user", "content": prompt[:200] + "..." if len(prompt) > 200 else prompt}],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt[:200] + "..."
+                        if len(prompt) > 200
+                        else prompt,
+                    }
+                ],
                 options=options,
                 response=response_content,
                 duration=duration,
-                status="success"
+                status="success",
             )
             return resp
         except Exception as e:
@@ -230,29 +303,41 @@ class LoggedOllamaClient:
             self._log_call(
                 prompt_type=prompt_type,
                 model=model,
-                messages=[{"role": "user", "content": prompt[:200] + "..." if len(prompt) > 200 else prompt}],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt[:200] + "..."
+                        if len(prompt) > 200
+                        else prompt,
+                    }
+                ],
                 options=options,
                 response=f"Error: {e}\n{traceback.format_exc()}",
                 duration=duration,
-                status="failed"
+                status="failed",
             )
             raise e
 
-    def _log_call(self, prompt_type, model, messages, options, response, duration, status) -> None:
+    def _log_call(
+        self, prompt_type, model, messages, options, response, duration, status
+    ) -> None:
         import json
         from datetime import datetime
+
         try:
             db = _get_db()
-            db["ollama_logs"].insert({
-                "timestamp": datetime.now().isoformat(),
-                "model": model,
-                "prompt_type": prompt_type,
-                "messages": json.dumps(messages),
-                "options": json.dumps(options),
-                "response": response,
-                "duration": duration,
-                "status": status
-            })
+            db["ollama_logs"].insert(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "model": model,
+                    "prompt_type": prompt_type,
+                    "messages": json.dumps(messages),
+                    "options": json.dumps(options),
+                    "response": response,
+                    "duration": duration,
+                    "status": status,
+                }
+            )
             db.conn.commit()
         except Exception as err:
             print(f"Failed to log Ollama call to database: {err}")

@@ -1,6 +1,6 @@
 [project]
 name = "kb-web"
-version = "0.1.29"
+version = "0.2.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -11,7 +11,6 @@ dependencies = [
     "kb-core",
     "brotli>=1.2.0",
     "bs4>=0.0.2",
-    "dotenv>=0.9.9",
     "fastapi>=0.136.1",
     "html2text>=2025.4.15",
     "html5lib>=1.1",
@@ -21,6 +20,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "python-multipart>=0.0.29",
     "sqlite-utils>=3.39",
+    "python-dateutil>=2.9.0",
     "uvicorn>=0.47.0",
     "typer>=0.26.4",
     "markdown>=3.10.2",
@@ -28,6 +28,10 @@ dependencies = [
     "youtube-transcript-api>=0.6.3",
     "yt-dlp>=2025.1.15",
     "mcp>=0.1.0",
+    "alembic>=1.19.1",
+    "sqlalchemy>=2.0.28",
+    "pgvector>=0.2.5",
+    "psycopg2-binary>=2.9.9",
 ]
 
 [project.scripts]

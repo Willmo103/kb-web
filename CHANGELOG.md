@@ -5,6 +5,68 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-09
+### Added
+- **Complete PostgreSQL & SQLAlchemy Migration (Resolves #30)**:
+  - Migrated core database operations, models, configurations, and logs to SQLAlchemy ORM, providing complete dialect-agnostic support for SQLite and PostgreSQL (resolving #43, #46).
+  - Implemented custom SQLAlchemy TypeDecorator `SafeVector` that dynamically maps to `pgvector.sqlalchemy.Vector` on PostgreSQL and a JSON-encoded Text fallback on SQLite (resolving #42).
+  - Added custom comparator support for `SafeVector` (defining `.cosine_distance()`, `.l2_distance()`, and `.max_inner_product()`) that automatically delegates to pgvector comparators under PostgreSQL (resolving #42).
+  - Implemented thread-safe connection pooling, dialect configuration in `Config`, and transaction-managed `db_session` middleware (resolving #44).
+  - Added automatic PostgreSQL sequence synchronization (`setval`) inside database initialization and seeding routines.
+  - Closed Sprint 2 (#41) and Sprint 3 (#45) milestones.
+- **Unified Database CLI Suite (`kb-web db`, Resolves #47)**:
+  - `migrate-sqlite`: Migrate SQLite database to PostgreSQL environments (`dev`, `test`, `live`) in foreign-key dependency order, sanitizing NUL characters, auto-generating parent stubs for orphaned records, and syncing sequences.
+  - `deploy`: Deploy migrations across targets (`dev`, `test`, `live`, `all`) and ensure PostgreSQL pgvector column compatibility.
+  - `snapshot`: Create point-in-time multi-table JSON snapshots of database tables saved locally in `Config.backups_dir`.
+  - `sync-snapshot`: Synchronize snapshots from live database directly into test database.
+  - `replication-setup`: Automated publisher (`kb_live_pub`) and subscriber (`kb_test_sub`) setup for PostgreSQL logical replication.
+  - `replication-status`: Real-time inspection of PostgreSQL replication slots, publications, and active subscriptions.
+  - `backup-videos`: Automated ZIP archive backup of all local YouTube videos with strict retention of maximum 2 archives.
+  - `restore-videos`: Restores YouTube video files from backup ZIP into `media/videos` with automatic database indexing.
+  - `reindex-videos`: Scans `media/videos` directory, extracts YouTube video IDs, and links them to `youtube_videos.local_path`.
+- Added Alembic migration `b52a19d8c638_setup_pg_publication.py` setting up `CREATE PUBLICATION IF NOT EXISTS kb_live_pub FOR ALL TABLES;` on PostgreSQL.
+- Added video management subsystem (`video_manager.py`) with recursive media scanning, video ID regex parsers, automated 2-backup max ZIP retention, and index repair.
+- Added server-side local backup storage in `Config.backups_dir` (`~/.kb/kb-web_backups`) with full Admin Dashboard UI controls for creating, downloading, restoring, and deleting database JSON and video ZIP archives.
+- Added diagnostic fallback for `/admin/ws/import` on HTTP GET requests when reverse proxies drop WebSocket Upgrade headers, alongside direct HTTP multipart file upload.
+
+### Fixed
+- Resolved `ValueError: expected list or ndarray` in `SafeVector` by deserializing JSON vector strings before binding to `pgvector.sqlalchemy.Vector`.
+- Removed hardcoded dimension restriction from `SafeVector` in `models_orm.py`, allowing 768-dimension `nomic-embed-text` vectors without length mismatch errors.
+- Fixed `AttributeError: 'Config' object has no attribute 'get_db'` by implementing `Config.get_db()` and fixing settings read/write helpers.
+- Resolved `ValueError: A string literal cannot contain NUL (0x00) characters` during PostgreSQL imports by stripping NUL bytes in `clean_record` and `websocket_import`.
+- Resolved `ForeignKeyViolation` on migration from SQLite by synthesizing placeholder parent records in `fetched_pages` for orphaned embeddings and video rows.
+- Fixed `export_database` and snapshot creation when running in SQLite or default target mode.
+- Updated automated unit test suite (`pytest`) to run against parameterized sqlite/postgresql dialects, resolving foreign keys, binary serialization, and dimensions assertions.
+
+## [0.1.32] - 2026-08-13
+### Added
+- Implemented duplicate URL import verification across UI, CLI, and REST endpoint pipelines, archiving changed pages to `page_versions` and bypassing LLM processing on identical content (resolving Issue #33).
+- Added parallel background video downloading option to the URL import page, complete with dynamic JavaScript detection of YouTube URLs (resolving Issue #34).
+
+### Fixed
+- Resolved `sqlite3.OperationalError: database is locked` errors during test suite execution by fully consuming streaming responses in test client requests and closing database connections immediately after use.
+- Avoided `sqlite_utils.db.NotFoundError` crashes on duplicate checks for new URLs by using `rows_where` queries instead of `get`.
+
+## [0.1.31] - 2026-08-12
+### Security
+- Added `Depends(verify_auth)` to the `GET /links` and `GET /links/go` endpoints, securing the saved links views and tracking from unauthorized users (resolving Issue #31).
+
+### Fixed
+- Globally mocked `kb_core.notifier.Gotify` in the test suite setup fixture (`tests/test_server.py`) to prevent real alerts and notifications from being fired during automated tests.
+
+### Documented
+- Added documentation under the Running Automated Tests section of `README.md` and init rules of `GEMINI.md` to guide developers on disabling Gotify notifications when running test suites.
+
+## [0.1.30] - 2026-08-10
+### Added
+- Implemented `kb-cli logs` command in CLI tool allowing remote inspection of server system logs with `--limit` parameter persistence.
+- Added `GET /api/cli/logs` endpoint in CLI API router returning database system logs (ordered by most recent first).
+- Added clipboard copy button (`📋 Copy`) next to redacted CLI API keys in Admin Dashboard with HTTPS and HTTP fallback support.
+
+### Changed
+- Converted layout containers across all web templates (`admin`, `collection_editor`, `collections`, `logs`, `pages_list`, `similarity_graph`, `sites_list`, `view_collection`, `view_page`, `view_site`, `base`) from static max-widths (`max-w-4xl`, `max-w-5xl`, `max-w-6xl`, `max-w-7xl`) to reactive full-width `max-w-[95%] w-full` layout containers.
+- Increased default Ollama client connection timeout from 90s to 300s in `src/kb_web/base.py` and CLI HTTP client timeouts to 300s in `kb-web-cli/src/kb_web_cli/main.py` to prevent timeout errors during Ollama cold-starts and heavy model reasoning calls.
+
 ## [0.1.29] - 2026-08-07
 ### Added
 - Implemented regular webpage links saving and cataloging dashboard (`/links`).

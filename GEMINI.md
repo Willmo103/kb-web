@@ -14,7 +14,7 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 > This repository is **PUBLIC**. Never document or commit sensitive configuration details, private credentials, production tokens, or personal environment information.
 >
 > **3. Gated Pre-Commit & Build Verification**
-> Before committing changes or submitting work for User Acceptance Testing (UAT), you MUST run pre-commit verification checks (`uv run pytest`, `uv run python build.py`) to guarantee that all unit tests pass and build artifacts compile cleanly.
+> Before committing changes or submitting work for User Acceptance Testing (UAT), you MUST run pre-commit verification checks (`uv run pytest`, `uv run python build.py`) to guarantee that all unit tests pass and build artifacts compile cleanly. When running tests locally, ensure Gotify alerts are disabled to avoid spamming notification channels (by default, `kb_core.notifier.Gotify` is globally mocked in `tests/test_server.py`, but you can also unset `GOTIFY_URL` and `GOTIFY_TOKEN` in your shell environment).
 >
 > **4. Mandatory Self-Documentation Policy**
 > Before completing any task iteration, feature addition, or bug fix, you MUST:

@@ -90,7 +90,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="container mx-auto px-4 max-w-7xl pb-4">
+<div class="container mx-auto px-4 max-w-[95%] w-full pb-4">
     <div class="workspace-container">
         
         <!-- Left Pane: Virtual File Tree -->
@@ -173,7 +173,7 @@
                         placeholder="Ask the collection agent..." 
                         class="flex-grow text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 bg-white resize-none"
                     ></textarea>
-                    <button onclick="sendChatMessage()" id="chat-send-btn" class="bg-indigo-650 hover:bg-indigo-705 text-white font-bold p-2 px-3 rounded-lg text-xs transition flex-shrink-0">
+                    <button onclick="sendChatMessage()" id="chat-send-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold p-2 px-3 rounded-lg text-xs transition flex-shrink-0">
                         Send
                     </button>
                 </div>

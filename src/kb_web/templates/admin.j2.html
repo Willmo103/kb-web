@@ -3,7 +3,7 @@
 {% block title %}Server Maintenance Admin{% endblock %}
 
 {% block content %}
-<div class="container mx-auto px-4 max-w-4xl">
+<div class="container mx-auto px-4 max-w-[95%] w-full">
 
     {% if completion_message %}
     <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-lg text-sm mb-6 shadow-sm">
@@ -69,12 +69,17 @@
                         <input type="text" name="qdrant_api_key" id="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="Qdrant API Key (leave blank if none)" />
                     </div>
                     <div>
-                        <label for="wiki_prompt" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Wiki Extraction System Prompt</label>
-                        <textarea name="wiki_prompt" id="wiki_prompt" rows="5" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required>{{ config.wiki_prompt }}</textarea>
+                        <div class="flex justify-between items-center mb-1">
+                            <label for="wiki_prompt" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Wiki Extraction System Prompt</label>
+                            <button type="button" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition shadow-sm flex items-center gap-1">
+                                ✏️ Open Prompt Editor Modal
+                            </button>
+                        </div>
+                        <textarea name="wiki_prompt" id="wiki_prompt" rows="4" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 cursor-pointer bg-gray-50 hover:bg-white transition" title="Click to edit in full modal" required>{{ config.wiki_prompt }}</textarea>
                         
                         {% if wiki_prompts_history %}
                         <details class="mt-2 text-xs">
-                            <summary class="cursor-pointer text-indigo-650 hover:underline font-semibold select-none">View Wiki Prompt Version History ({{ wiki_prompts_history | length }})</summary>
+                            <summary class="cursor-pointer text-indigo-600 hover:underline font-semibold select-none">View Wiki Prompt Version History ({{ wiki_prompts_history | length }})</summary>
                             <div class="space-y-3 mt-2 bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-48 overflow-y-auto shadow-inner">
                                 {% for p in wiki_prompts_history %}
                                 <div class="border-b border-gray-200 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
@@ -100,8 +105,13 @@
                         {% endif %}
                     </div>
                     <div>
-                        <label for="youtube_wiki_prompt" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">YouTube Wiki System Prompt</label>
-                        <textarea name="youtube_wiki_prompt" id="youtube_wiki_prompt" rows="5" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required>{{ config.youtube_wiki_prompt }}</textarea>
+                        <div class="flex justify-between items-center mb-1">
+                            <label for="youtube_wiki_prompt" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">YouTube Wiki System Prompt</label>
+                            <button type="button" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition shadow-sm flex items-center gap-1">
+                                ✏️ Open Prompt Editor Modal
+                            </button>
+                        </div>
+                        <textarea name="youtube_wiki_prompt" id="youtube_wiki_prompt" rows="4" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 cursor-pointer bg-gray-50 hover:bg-white transition" title="Click to edit in full modal" required>{{ config.youtube_wiki_prompt }}</textarea>
                         
                         {% if youtube_prompts_history %}
                         <details class="mt-2 text-xs">
@@ -200,20 +210,173 @@
                 <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Database Backup & Recovery</h3>
                 <div>
                     <h4 class="font-semibold text-sm mb-1">Export Knowledge Base</h4>
-                    <p class="text-xs text-gray-500 mb-4">Download a full JSON backup of the `fetched_pages` table.</p>
-                    <a href="/admin/export" target="_blank" class="block text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2 px-4 rounded-lg transition mb-6 shadow-sm">
-                        ⬇️ Download JSON Backup
-                    </a>
+                    <p class="text-xs text-gray-500 mb-3">Download and save a full multi-table JSON database backup on the server.</p>
+                    <div class="flex gap-2 mb-6">
+                        <a href="/admin/export" target="_blank" class="flex-1 text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2 px-3 rounded-lg transition shadow-sm">
+                            ⬇️ Download
+                        </a>
+                        <form action="/admin/backups/create" method="post" class="flex-1">
+                            <button type="submit" class="w-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-2 px-3 rounded-lg transition shadow-sm">
+                                💾 Save Locally
+                            </button>
+                        </form>
+                    </div>
                 </div>
                 <div class="border-t border-gray-200 pt-4">
-                    <h4 class="font-semibold text-sm mb-1">Import JSON Archive</h4>
-                    <p class="text-xs text-gray-500 mb-4">Upload a `.json` backup file. Bypasses Cloudflare limits via chunked WebSockets.</p>
-                    <input type="file" id="backupFile" accept=".json" class="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 mb-3"/>
-                    <button onclick="uploadBackupViaWebSocket()" id="uploadBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
-                        Upload Backup File
-                    </button>
-                    <div id="uploadStatus" class="text-xs font-mono mt-3 hidden text-indigo-600">Uploading chunks...</div>
+                    <h4 class="font-semibold text-sm mb-1">Direct HTTP Backup Upload</h4>
+                    <p class="text-xs text-gray-500 mb-3">Upload a backup <code>.json</code> file to the server folder with optional immediate restore.</p>
+                    <form action="/admin/backups/upload" method="post" enctype="multipart/form-data" class="space-y-3">
+                        <input type="file" name="file" accept=".json" required class="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                        <label class="flex items-center text-xs text-gray-600 gap-2 cursor-pointer">
+                            <input type="checkbox" name="restore_now" value="true" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                            <span>Restore database immediately upon upload</span>
+                        </label>
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-4 rounded-lg transition shadow-sm">
+                            Upload File
+                        </button>
+                    </form>
                 </div>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">WebSocket Import (Chunked)</h3>
+                <div class="space-y-3">
+                    <p class="text-xs text-gray-500">Stream large backups over a WebSocket connection. If proxy errors occur, use direct HTTP upload.</p>
+                    <input type="file" id="backupFile" accept=".json" class="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                    <button onclick="uploadBackupViaWebSocket()" id="uploadBtn" class="w-full bg-gray-800 hover:bg-gray-900 text-white text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
+                        Stream via WebSocket
+                    </button>
+                    <div id="uploadStatus" class="text-xs font-mono hidden text-indigo-600">Uploading chunks...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full width: Local Server Backups & Video Media Backups -->
+        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm md:col-span-2 space-y-6">
+            <div>
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 mb-4 gap-2">
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-900">📁 Local Server Database Backups</h3>
+                        <p class="text-xs text-gray-500">Stored on server in <code>~/.kb/kb-web_backups</code>. You can copy backup JSON files directly into this directory.</p>
+                    </div>
+                    <form action="/admin/backups/create" method="post">
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                            + Create Backup Now
+                        </button>
+                    </form>
+                </div>
+
+                {% if backups %}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-xs text-left">
+                        <thead class="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wider border-b">
+                            <tr>
+                                <th class="py-2.5 px-3">Filename</th>
+                                <th class="py-2.5 px-3">Size</th>
+                                <th class="py-2.5 px-3">Created</th>
+                                <th class="py-2.5 px-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for b in backups %}
+                            <tr class="hover:bg-gray-50">
+                                <td class="py-2 px-3 font-mono font-medium text-gray-800">{{ b.filename }}</td>
+                                <td class="py-2 px-3 text-gray-500">{{ b.size_mb }} MB</td>
+                                <td class="py-2 px-3 text-gray-500">{{ b.created_at }}</td>
+                                <td class="py-2 px-3 text-right">
+                                    <div class="inline-flex gap-2">
+                                        <form action="/admin/backups/restore" method="post" onsubmit="return confirm('Are you sure you want to restore database from {{ b.filename }}? Existing records will be updated.');">
+                                            <input type="hidden" name="filename" value="{{ b.filename }}" />
+                                            <button type="submit" class="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                                🔄 Restore
+                                            </button>
+                                        </form>
+                                        <a href="/admin/backups/download/{{ b.filename }}" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                            ⬇️ Download
+                                        </a>
+                                        <form action="/admin/backups/delete/{{ b.filename }}" method="post" onsubmit="return confirm('Delete backup file {{ b.filename }} from server?');">
+                                            <button type="submit" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                                🗑️ Delete
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-xs text-gray-400 italic py-2">No local database JSON backups found in <code>~/.kb/kb-web_backups</code>.</p>
+                {% endif %}
+            </div>
+
+            <!-- YouTube Video Media Backups & Indexing -->
+            <div class="border-t pt-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 mb-4 gap-2">
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-900">🎬 YouTube Video Media Backups & Indexing</h3>
+                        <p class="text-xs text-gray-500">Local videos in <code>~/.kb/media/videos</code>: <strong>{{ video_files_count }} files</strong>. Video backup ZIP archives are stored in <code>~/.kb/kb-web_backups</code> (max 2 retained).</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <form action="/admin/backups/videos/reindex" method="post">
+                            <button type="submit" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                                🔄 Re-Index Videos
+                            </button>
+                        </form>
+                        <form action="/admin/backups/videos/create" method="post">
+                            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                                🗜️ Backup Videos (ZIP)
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                {% if video_backups %}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-xs text-left">
+                        <thead class="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wider border-b">
+                            <tr>
+                                <th class="py-2.5 px-3">Archive Filename</th>
+                                <th class="py-2.5 px-3">Size</th>
+                                <th class="py-2.5 px-3">Created</th>
+                                <th class="py-2.5 px-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for vb in video_backups %}
+                            <tr class="hover:bg-gray-50">
+                                <td class="py-2 px-3 font-mono font-medium text-gray-800">{{ vb.filename }}</td>
+                                <td class="py-2 px-3 text-gray-500">{{ vb.size_mb }} MB</td>
+                                <td class="py-2 px-3 text-gray-500">{{ vb.created_at }}</td>
+                                <td class="py-2 px-3 text-right">
+                                    <div class="inline-flex gap-2">
+                                        <form action="/admin/backups/videos/restore" method="post" onsubmit="return confirm('Restore videos from {{ vb.filename }} into media/videos and re-index?');">
+                                            <input type="hidden" name="filename" value="{{ vb.filename }}" />
+                                            <button type="submit" class="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                                🔄 Restore
+                                            </button>
+                                        </form>
+                                        <a href="/admin/backups/videos/download/{{ vb.filename }}" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                            ⬇️ Download
+                                        </a>
+                                        <form action="/admin/backups/videos/delete/{{ vb.filename }}" method="post" onsubmit="return confirm('Delete video archive {{ vb.filename }}?');">
+                                            <button type="submit" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
+                                                🗑️ Delete
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-xs text-gray-400 italic py-2">No video backup ZIP archives found (maximum 2 retained automatically).</p>
+                {% endif %}
             </div>
         </div>
 
@@ -255,7 +418,12 @@
                             <div class="flex justify-between items-center bg-white border border-gray-200 rounded p-2 text-xs shadow-sm">
                                 <div>
                                     <div class="font-semibold text-gray-850">{{ k.name }}</div>
-                                    <div class="font-mono text-gray-405 text-[10px]">{{ k.key[:8] }}...{{ k.key[-8:] }}</div>
+                                    <div class="font-mono text-gray-405 text-[10px] flex items-center gap-1.5 mt-0.5">
+                                        <span>{{ k.key[:8] }}...{{ k.key[-8:] }}</span>
+                                        <button type="button" onclick="copyToClipboard('{{ k.key }}', this)" class="text-indigo-600 hover:text-indigo-800 font-bold hover:underline transition text-[10px]" title="Copy full API Key to clipboard">
+                                            📋 Copy
+                                        </button>
+                                    </div>
                                 </div>
                                 <form action="/admin/cli/keys/delete" method="post" onsubmit="return confirm('Are you sure you want to revoke this key?');">
                                     <input type="hidden" name="key" value="{{ k.key }}" />
@@ -462,5 +630,129 @@
         document.getElementById('head_prompt_type').value = type;
         document.getElementById('setPromptHeadForm').submit();
     }
+
+    function copyToClipboard(text, btnEl) {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(function() {
+                showCopySuccess(btnEl);
+            }).catch(function(err) {
+                fallbackCopyText(text, btnEl);
+            });
+        } else {
+            fallbackCopyText(text, btnEl);
+        }
+    }
+
+    function showCopySuccess(btnEl) {
+        const originalText = btnEl.innerHTML;
+        btnEl.innerHTML = "✅ Copied!";
+        btnEl.classList.add("text-emerald-600");
+        setTimeout(function() {
+            btnEl.innerHTML = originalText;
+            btnEl.classList.remove("text-emerald-600");
+        }, 2000);
+    }
+
+    function fallbackCopyText(text, btnEl) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            showCopySuccess(btnEl);
+        } catch (err) {
+            alert("Failed to copy API key to clipboard.");
+        }
+        document.body.removeChild(textArea);
+    }
+
+    let currentEditingTargetId = null;
+
+    function openPromptModal(targetId, titleText) {
+        currentEditingTargetId = targetId;
+        const targetElement = document.getElementById(targetId);
+        const modalTextarea = document.getElementById('modalPromptText');
+        const modalTitle = document.getElementById('promptModalTitle');
+        
+        if (targetElement && modalTextarea) {
+            modalTextarea.value = targetElement.value;
+            if (modalTitle) modalTitle.innerHTML = '✏️ Edit ' + (titleText || 'System Prompt');
+            updateModalCharCount();
+            document.getElementById('promptModal').classList.remove('hidden');
+            modalTextarea.focus();
+        }
+    }
+
+    function updateModalCharCount() {
+        const text = document.getElementById('modalPromptText').value;
+        const charCountEl = document.getElementById('modalCharCount');
+        if (charCountEl) {
+            charCountEl.innerText = text.length.toLocaleString() + ' characters';
+        }
+    }
+
+    document.getElementById('modalPromptText')?.addEventListener('input', updateModalCharCount);
+
+    function closePromptModal() {
+        document.getElementById('promptModal').classList.add('hidden');
+        currentEditingTargetId = null;
+    }
+
+    function savePromptModal() {
+        if (currentEditingTargetId) {
+            const targetElement = document.getElementById(currentEditingTargetId);
+            const modalTextarea = document.getElementById('modalPromptText');
+            if (targetElement && modalTextarea) {
+                targetElement.value = modalTextarea.value;
+            }
+        }
+        closePromptModal();
+    }
 </script>
+
+<!-- Interactive Prompt Editor Modal -->
+<div id="promptModal" class="fixed inset-0 bg-black bg-opacity-60 hidden flex items-center justify-center z-50 p-4 animate-fade-in">
+    <div class="bg-white rounded-2xl border border-gray-200 w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+        <!-- Modal Header -->
+        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+            <div>
+                <h3 id="promptModalTitle" class="text-base font-bold text-gray-900 flex items-center gap-2">
+                    ✏️ Edit System Prompt
+                </h3>
+                <p id="promptModalSubtitle" class="text-xs text-gray-500">Edit multi-paragraph prompt instructions with full spacing and formatting.</p>
+            </div>
+            <button type="button" onclick="closePromptModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold p-1 rounded-lg hover:bg-gray-200 transition">
+                ✕
+            </button>
+        </div>
+        
+        <!-- Modal Body -->
+        <div class="p-6 flex-grow overflow-y-auto space-y-3">
+            <textarea 
+                id="modalPromptText" 
+                rows="16" 
+                oninput="updateModalCharCount()"
+                class="w-full text-xs font-mono border border-gray-300 rounded-xl p-4 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50 focus:bg-white transition shadow-inner leading-relaxed"
+                placeholder="Enter detailed prompt instructions..."
+            ></textarea>
+        </div>
+        
+        <!-- Modal Footer -->
+        <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-between items-center">
+            <span class="text-xs text-gray-400 font-mono" id="modalCharCount">0 characters</span>
+            <div class="flex gap-3">
+                <button type="button" onclick="closePromptModal()" class="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 text-xs font-bold rounded-lg transition shadow-sm">
+                    Cancel
+                </button>
+                <button type="button" onclick="savePromptModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition shadow-sm">
+                    Save Prompt
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

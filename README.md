@@ -65,6 +65,56 @@ Then visit `http://localhost:8050/pages` to view the archive index or `http://lo
 
 ---
 
+## Database & Media CLI Commands (`kb-web db`)
+
+`kb-web` provides a dedicated `db` command suite for database migration, PostgreSQL replication, snapshot backups, and YouTube video management:
+
+```bash
+# Migrate legacy SQLite database to PostgreSQL (targets: 'dev', 'test', or 'live')
+uv run kb-web db migrate-sqlite --target test
+
+# Deploy Alembic migrations across targets ('dev', 'test', 'live', or 'all')
+uv run kb-web db deploy --target all
+
+# Export point-in-time multi-table JSON database snapshot to ~/.kb/kb-web_backups/
+uv run kb-web db snapshot --target live
+
+# Sync live database snapshot directly into test database
+uv run kb-web db sync-snapshot
+
+# Setup PostgreSQL streaming logical publication and subscription
+uv run kb-web db replication-setup
+
+# Inspect PostgreSQL replication slots, publications, and subscription status
+uv run kb-web db replication-status --target test
+
+# Backup all local YouTube videos into a ZIP archive (strict max 2 archives retention)
+uv run kb-web db backup-videos
+
+# Restore YouTube videos from backup ZIP into ~/.kb/media/videos and re-index
+uv run kb-web db restore-videos kb_videos_backup_20260908_120000.zip
+
+# Re-scan ~/.kb/media/videos and associate video files with database records
+uv run kb-web db reindex-videos
+```
+
+---
+
+## CLI Client Station (kb-cli)
+
+`kb-web` includes a standalone console tool `kb-cli` for managing the LIVE server remotely.
+
+- **Installation**: `kb-cli install` (prompts for LIVE server URL and CLI API key generated from Admin Dashboard).
+- **View Server Logs**: `kb-cli logs --limit 100` (inspect server logs remotely; limit choice is saved locally).
+- **Ingest URL**: `kb-cli import <url>`
+- **Query RAG Agent**: `kb-cli query "<prompt>"`
+- **List Items**: `kb-cli list`
+- **Actions**: `kb-cli action <action> <url>`
+- **Collections**: `kb-cli collections --list`
+- **Tags**: `kb-cli tags --list`
+
+---
+
 ## Chrome Browser Extension Setup
 
 To load the manual sync browser extension on your local machine:
@@ -86,6 +136,11 @@ Run the test suite to verify route parsing and model constraints:
 ```bash
 uv run pytest
 ```
+
+> [!NOTE]
+> Gotify alerts are globally mocked during automated test runs via `tests/test_server.py` to prevent spamming notification channels. However, if you are running tests in an environment where you want to be completely sure no notifications leak, you should unset the `GOTIFY_URL` and `GOTIFY_TOKEN` environment variables:
+> - **Windows (PowerShell)**: `$env:GOTIFY_URL=""; $env:GOTIFY_TOKEN=""`
+> - **Linux/macOS**: `GOTIFY_URL="" GOTIFY_TOKEN="" uv run pytest`
 
 ---
 

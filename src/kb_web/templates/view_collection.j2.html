@@ -26,21 +26,21 @@
 {% endblock %}
 
 {% block content %}
-<div class="container mx-auto px-4 max-w-6xl pb-12">
+<div class="container mx-auto px-4 max-w-[95%] w-full pb-12">
     <!-- Header Section -->
     <div class="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center border-b border-gray-200 pb-4 gap-4">
         <div>
             <div class="flex items-center gap-2">
-                <span class="text-xs font-bold text-indigo-650 uppercase tracking-wider">📁 Collection Profile</span>
-                <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded {% if collection.visibility == 'private' %}bg-red-100 text-red-700 border border-red-200{% else %}bg-green-100 text-green-700 border border-green-200{% endif %}">
-                    {{ collection.visibility }}
+                <span class="text-xs font-bold text-indigo-600 uppercase tracking-wider">📁 Collection Profile</span>
+                <span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded {% if collection.visibility == 'private' %}bg-red-100 text-red-700 border border-red-200{% elif collection.visibility == 'public' %}bg-emerald-100 text-emerald-800 border border-emerald-300{% else %}bg-gray-100 text-gray-700 border border-gray-300{% endif %}">
+                    {{ collection.visibility or 'NONE' }}
                 </span>
             </div>
             <h1 class="text-3xl font-extrabold text-gray-900 mt-1">{{ collection.title }}</h1>
             <p class="text-xs text-gray-500 font-medium">Created: {{ collection.created_at[:16] | replace('T', ' ') }}</p>
         </div>
         <div class="flex items-center gap-3">
-            <a href="/collections/view/{{ collection.id }}/editor" class="bg-indigo-650 hover:bg-indigo-705 text-white text-xs font-bold py-2.5 px-4 rounded-lg shadow-sm transition">
+            <a href="/collections/view/{{ collection.id }}/editor" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-lg shadow-sm transition">
                 📝 Open Notes Workspace
             </a>
             <a href="/collections" class="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold py-2.5 px-4 rounded-lg shadow-sm transition">
@@ -129,7 +129,7 @@
                             placeholder="Filter library pages..." 
                             class="flex-grow text-xs border border-gray-300 rounded-lg p-2 focus:ring focus:ring-indigo-200 focus:border-indigo-500 bg-white"
                         />
-                        <button onclick="addSelected()" class="bg-indigo-650 hover:bg-indigo-705 text-white text-xs font-bold py-2 px-3 rounded-lg shadow-sm transition whitespace-nowrap">
+                        <button onclick="addSelected()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-3 rounded-lg shadow-sm transition whitespace-nowrap">
                             Add Selected
                         </button>
                     </div>
@@ -183,7 +183,7 @@
             <span class="text-3xl animate-spin">🔄</span>
         </div>
         <div class="hidden flex justify-end" id="modal-close-btn-container">
-            <button onclick="closeStatusModal()" class="bg-indigo-650 hover:bg-indigo-705 text-white text-xs font-bold py-1.5 px-4 rounded-lg">Close</button>
+            <button onclick="closeStatusModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 px-4 rounded-lg">Close</button>
         </div>
     </div>
 </div>

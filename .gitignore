@@ -9,4 +9,9 @@ wheels/
 # Virtual environments
 .venv
 deploy.sh
-
+dling.willmo.dev.openapi.json
+.env
+.data/*
+!.data/.gitkeep
+.vscode/*
+uv.lock
