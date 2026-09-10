@@ -16,13 +16,13 @@ This document serves as the master checklist and progress tracker for the planne
 * **Sub-Issues to Resolve**:
   - `[x]` Sub-Issue 3: pgvector Extension & Embeddings Refactor (Issue #42)
   - `[x]` Sub-Issue 4: SQLAlchemy ORM Schema mapping (Issue #43)
-  - `[x]` Sub-Issue 5: Database Session & Driver Abstraction (Issue #51)
+  - `[x]` Sub-Issue 5: Database Session & Driver Abstraction (Issue #44)
 
-### [ ] Sprint 3: Core Database Access Refactoring & Migration Utility (Issue #45) -> [Details](./sprint_3_core_refactor.md)
+### [x] Sprint 3: Core Database Access Refactoring & Migration Utility (Issue #45) -> [Details](./sprint_3_core_refactor.md)
 * **Goal**: Replace direct `sqlite_utils` table queries with ORM queries and implement a sqlite-to-postgres migrator.
 * **Sub-Issues to Resolve**:
-  - `[ ]` Sub-Issue 6: Database Access Refactoring (Issue #46)
-  - `[ ]` Sub-Issue 7: SQLite-to-PostgreSQL Data Ingest Utility (Issue #47)
+  - `[x]` Sub-Issue 6: Database Access Refactoring (Issue #46)
+  - `[x]` Sub-Issue 7: SQLite-to-PostgreSQL Data Ingest Utility (Issue #47)
 
 ### [ ] Sprint 4: Unified Ingestion Sources Schema & Queue Processor (Issue #48) -> [Details](./sprint_4_job_queue.md)
 * **Goal**: Refactor the linear ingestion flow into a database-driven queue processor driven by a top-level `sources` schema.

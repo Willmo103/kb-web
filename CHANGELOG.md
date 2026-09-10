@@ -5,9 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.1] - 2026-09-08
+## [0.2.0] - 2026-09-09
 ### Added
-- Implemented `kb-web db` CLI command suite providing full lifecycle database management:
+- **Complete PostgreSQL & SQLAlchemy Migration (Resolves #30)**:
+  - Migrated core database operations, models, configurations, and logs to SQLAlchemy ORM, providing complete dialect-agnostic support for SQLite and PostgreSQL (resolving #43, #46).
+  - Implemented custom SQLAlchemy TypeDecorator `SafeVector` that dynamically maps to `pgvector.sqlalchemy.Vector` on PostgreSQL and a JSON-encoded Text fallback on SQLite (resolving #42).
+  - Added custom comparator support for `SafeVector` (defining `.cosine_distance()`, `.l2_distance()`, and `.max_inner_product()`) that automatically delegates to pgvector comparators under PostgreSQL (resolving #42).
+  - Implemented thread-safe connection pooling, dialect configuration in `Config`, and transaction-managed `db_session` middleware (resolving #44).
+  - Added automatic PostgreSQL sequence synchronization (`setval`) inside database initialization and seeding routines.
+  - Closed Sprint 2 (#41) and Sprint 3 (#45) milestones.
+- **Unified Database CLI Suite (`kb-web db`, Resolves #47)**:
   - `migrate-sqlite`: Migrate SQLite database to PostgreSQL environments (`dev`, `test`, `live`) in foreign-key dependency order, sanitizing NUL characters, auto-generating parent stubs for orphaned records, and syncing sequences.
   - `deploy`: Deploy migrations across targets (`dev`, `test`, `live`, `all`) and ensure PostgreSQL pgvector column compatibility.
   - `snapshot`: Create point-in-time multi-table JSON snapshots of database tables saved locally in `Config.backups_dir`.
@@ -29,14 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resolved `ValueError: A string literal cannot contain NUL (0x00) characters` during PostgreSQL imports by stripping NUL bytes in `clean_record` and `websocket_import`.
 - Resolved `ForeignKeyViolation` on migration from SQLite by synthesizing placeholder parent records in `fetched_pages` for orphaned embeddings and video rows.
 - Fixed `export_database` and snapshot creation when running in SQLite or default target mode.
-
-## [0.2.0] - 2026-08-17
-### Added
-- Migrated core database operations, models, configurations, and logs to SQLAlchemy ORM, providing complete dialect-agnostic support for SQLite and PostgreSQL.
-- Implemented a custom SQLAlchemy TypeDecorator `SafeVector` that dynamically maps to `pgvector.sqlalchemy.Vector` on PostgreSQL and a JSON-encoded Text fallback on SQLite.
-- Added custom comparator support for `SafeVector` (defining `.cosine_distance()`, `.l2_distance()`, and `.max_inner_product()`) that automatically delegates to pgvector's comparators under PostgreSQL.
-- Added automatic PostgreSQL sequence synchronization inside database initialization and seeding routines (specifically resetting `collections_id_seq` after inserting the default private General Collection).
-- Updated the comprehensive automated unit test suite (`pytest`) to run against parameterized sqlite/postgresql dialects, resolving all foreign key constraints, bytes/binary serialization differences, and list dimensions assertions.
+- Updated automated unit test suite (`pytest`) to run against parameterized sqlite/postgresql dialects, resolving foreign keys, binary serialization, and dimensions assertions.
 
 ## [0.1.32] - 2026-08-13
 ### Added

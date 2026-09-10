@@ -64,7 +64,7 @@ we will create a local backup every time a backup is requested and then the user
    - Support downloading, restoring (unzipping and auto-reindexing), and deleting video backup ZIPs via both Admin UI and CLI (`kb-web db backup-videos`, `kb-web db restore-videos`, `kb-web db reindex-videos`).
 
 ## User Feedback (Turn 3)
-"@[c:\src\kb-web\tests\test_db_cli.py:L219-L285] I need to disable this test in my github ci process when it runs. Everything is working and I have fully migrated the production data and we are now running on postgresql."
+@[c:\src\kb-web\tests\test_db_cli.py:L219-L285] I need to disable this test in my github ci process when it runs. Everything is working and I have fully migrated the production data and we are now running on postgresql.
 
 - **Resolution**:
   - Decorated `test_admin_backups_and_diagnostic_routes` in `tests/test_db_cli.py` with `@pytest.mark.skipif(os.getenv("GITHUB_ACTIONS") == "true" or os.getenv("CI") == "true", reason="Skipped in GitHub CI environment")`.
@@ -72,3 +72,12 @@ we will create a local backup every time a backup is requested and then the user
   - Verified local run executes and passes all 7 tests.
   - Verified simulated CI run (`GITHUB_ACTIONS=true`) cleanly skips `test_admin_backups_and_diagnostic_routes`.
 
+## User Feedback (Turn 4)
+"Goal: Merge pr `Production- #28` into `master`.
+
+## Steps
+1. Move the PR from draft to ready to review 
+2. comment on and close the issues associated with the draft PR. update the project documentation, updating the internal documentation and cicd atrifacts
+    2.1. Update the PR for each issue closed as you commit the changed artifacts
+    2.2 Once the all of the associated issues have been closed and documented in the sprint progress report that is a part of this project, update the PR comments for the merge to master
+3. Merge the pr to master and create a new release"

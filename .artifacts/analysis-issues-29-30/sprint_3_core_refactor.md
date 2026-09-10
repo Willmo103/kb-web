@@ -9,17 +9,17 @@
 ## Detailed Task List
 
 ### 1. Database Access Refactoring (Sub-Issue #46)
-- [ ] Scan the entire repository (`pages.py`, `admin.py`, `links.py`, `collections.py`, `cli_api.py`, `api.py`) for direct SQLite dictionary operations:
+- [x] Scan the entire repository (`pages.py`, `admin.py`, `links.py`, `collections.py`, `cli_api.py`, `api.py`) for direct SQLite dictionary operations:
   - e.g. `db["fetched_pages"].get(url)` or `db["fetched_pages"].upsert(serialized, pk="url")`.
-- [ ] Refactor database operations to query ORM models through the `db_session` middleware.
-- [ ] Ensure all router updates, insertions, and deletions execute transactional session operations (`session.add()`, `session.commit()`, `session.rollback()`).
-- [ ] Modify read-only dashboard tables views to query and paginate via SQLAlchemy pagination filters.
+- [x] Refactor database operations to query ORM models through the `db_session` middleware.
+- [x] Ensure all router updates, insertions, and deletions execute transactional session operations (`session.add()`, `session.commit()`, `session.rollback()`).
+- [x] Modify read-only dashboard tables views to query and paginate via SQLAlchemy pagination filters.
 
 ### 2. SQLite-to-PostgreSQL Data Ingest Utility (Sub-Issue #47)
-- [ ] Add the database migration sub-command handler structure to `kb-web-cli`:
-  - Command: `kb-cli db migrate-to-postgres`.
-- [ ] Implement the migration reader and writer pipeline:
+- [x] Add the database migration sub-command handler structure to `kb-web-cli`:
+  - Command: `kb-cli db migrate-to-postgres` / `kb-web db migrate-sqlite`.
+- [x] Implement the migration reader and writer pipeline:
   - Read SQLite tables iteratively utilizing Python `sqlite3`.
   - Validate column names, convert SQLite datetime strings to ISO formats.
   - Perform bulk inserts using SQLAlchemy Core bulk insert operations to optimize load speed and resolve constraints conflicts.
-- [ ] Write integration unit tests in `tests/test_server.py` verifying that migrating a sample sqlite database dump to postgresql maps all rows and values correctly.
+- [x] Write integration unit tests in `tests/test_server.py` verifying that migrating a sample sqlite database dump to postgresql maps all rows and values correctly.
