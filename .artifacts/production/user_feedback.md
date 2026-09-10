@@ -62,3 +62,13 @@ we will create a local backup every time a backup is requested and then the user
    - Implement `index_local_videos()` to scan `~/.kb/media/videos`, match video IDs against `youtube_videos`, and update `local_path` so offline video playback is indexed and consistent.
    - Implement video ZIP backup process: zips `~/.kb/media/videos` into `Config.backups_dir / kb_videos_backup_*.zip`, enforcing a strict **maximum of 2 video backups** (auto-pruning older archives).
    - Support downloading, restoring (unzipping and auto-reindexing), and deleting video backup ZIPs via both Admin UI and CLI (`kb-web db backup-videos`, `kb-web db restore-videos`, `kb-web db reindex-videos`).
+
+## User Feedback (Turn 3)
+"@[c:\src\kb-web\tests\test_db_cli.py:L219-L285] I need to disable this test in my github ci process when it runs. Everything is working and I have fully migrated the production data and we are now running on postgresql."
+
+- **Resolution**:
+  - Decorated `test_admin_backups_and_diagnostic_routes` in `tests/test_db_cli.py` with `@pytest.mark.skipif(os.getenv("GITHUB_ACTIONS") == "true" or os.getenv("CI") == "true", reason="Skipped in GitHub CI environment")`.
+  - Fixed dependencies in `pyproject.toml` (removed redundant `dotenv`, added `python-dateutil>=2.9.0`) so `pytest` and `uv` execute cleanly without missing module errors.
+  - Verified local run executes and passes all 7 tests.
+  - Verified simulated CI run (`GITHUB_ACTIONS=true`) cleanly skips `test_admin_backups_and_diagnostic_routes`.
+

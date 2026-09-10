@@ -217,6 +217,10 @@ def test_db_cli_reindex_and_backup_execution(tmp_path, monkeypatch):
     assert "Indexed" in r_res.stdout
 
 
+@pytest.mark.skipif(
+    os.getenv("GITHUB_ACTIONS") == "true" or os.getenv("CI") == "true",
+    reason="Skipped in GitHub CI environment",
+)
 def test_admin_backups_and_diagnostic_routes(client: TestClient, tmp_path, monkeypatch):
     """Verifies Admin routes for backup creation, download, deletion, restoration, and WS fallback."""
     # 1. Test WebSocket diagnostic HTTP fallback
