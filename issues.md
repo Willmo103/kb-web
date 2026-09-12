@@ -1,6 +1,6 @@
 # Open Issues
 
-## 9. Web UI Performance Latency, Pagination, & REST API Overhaul
+## 9. Web UI Performance Latency, Pagination, & REST API Overhaul (Issue #56)
 @performance @ui @api
 
 ### Description
