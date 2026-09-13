@@ -305,3 +305,59 @@ def test_ghost_stub_exclusion(client: TestClient):
     with db_session() as session:
         session.query(FetchedPage).filter_by(url=ghost_url).delete()
 
+
+def test_get_collections_api(client: TestClient) -> None:
+    """Verifies that GET /api/collections returns paginated collections with metadata."""
+    from kb_web.base import db_session
+    from kb_web.models_orm import Collection
+
+    with db_session() as session:
+        test_col = Collection(
+            title="REST API Test Collection",
+            visibility="public",
+            created_at="2026-09-13T16:00:00",
+        )
+        session.add(test_col)
+
+    res = client.get("/api/collections")
+    assert res.status_code == 200
+    data = res.json()
+    assert "items" in data
+    assert "total" in data
+    assert any(c["title"] == "REST API Test Collection" for c in data["items"])
+
+    # Test filtering by query
+    res_filtered = client.get("/api/collections?q=REST+API+Test")
+    assert res_filtered.status_code == 200
+    assert len(res_filtered.json()["items"]) >= 1
+
+    # Cleanup
+    with db_session() as session:
+        session.query(Collection).filter_by(title="REST API Test Collection").delete()
+
+
+def test_get_ungrouped_pages_api(client: TestClient) -> None:
+    """Verifies that GET /api/collections/ungrouped returns lightweight unassigned pages."""
+    from kb_web.base import db_session
+    from kb_web.models_orm import FetchedPage
+
+    url = "https://example.com/ungrouped-test-page"
+    with db_session() as session:
+        page = FetchedPage(
+            url=url,
+            title="Ungrouped Test Page",
+            fetched_at="2026-09-13T16:00:00",
+        )
+        session.add(page)
+
+    res = client.get("/api/collections/ungrouped")
+    assert res.status_code == 200
+    data = res.json()
+    assert "items" in data
+    assert any(p["url"] == url for p in data["items"])
+
+    # Cleanup
+    with db_session() as session:
+        session.query(FetchedPage).filter_by(url=url).delete()
+
+

@@ -20,13 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added responsive UI pagination and dynamic reactive search controls to `src/kb_web/templates/pages_list.j2.html`:
     - Responsive pagination bar with Previous/Next buttons, active page pills, item counters, and limit selector.
     - Client-side reactive JavaScript controller with 300ms search input debouncing, animated skeleton loading placeholders (`animate-pulse`), and seamless URL address bar state synchronization (`history.pushState`).
-    - Added comprehensive unit test suite in `tests/test_rest_api.py` covering pagination bounds, query filtering, transcript segment extraction, cascade deletion, and HTML shell responses.
+    - Added comprehensive unit test suite in `tests/test_rest_api.py` covering pagination bounds, query filtering, transcript segment extraction, cascade deletion, collections endpoints, and HTML shell responses.
   - **REST API Cascade Deletion (`DELETE /api/articles`)**:
     - Added `DELETE /api/articles` endpoint for external agents and client apps, supporting cascading removal of articles, YouTube video metadata, vector embeddings, collection memberships, and history revisions.
+  - **Collections REST API Endpoints (`GET /api/collections`, `GET /api/collections/ungrouped`)**:
+    - Added paginated endpoints for collections and ungrouped items with query filtering for client applications and agent tools.
   - **Dismissible Toast Flash Banners**:
     - Added responsive green success (`?msg=...`) and red error (`?error=...`) alert banners to `src/kb_web/templates/base.j2.html` with SVG icons and dismiss triggers.
   - **Ghost Stub Purge Routine**:
     - Added automated ghost stub cleanup in `ensure_views_and_indexes()` and database view definition to eliminate orphaned `Archived Item (...)` placeholders resurrected during migration.
+  - **Database Compound Indexing for Collections**:
+    - Added compound performance index `idx_collection_items_col_source` on `collection_items (collection_id, source_id)` in Alembic migration `e81c74291a23_add_collection_items_compound_index.py` and `ensure_views_and_indexes()`.
 
 ### Changed
 - **Phasing out SQLite in favor of PostgreSQL as Primary Storage Engine**:
@@ -35,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Optimized virtual site domain extraction in `view_all_pages` to project only `(url, title)` instead of full table scans.
 
 ### Fixed
+- **Severe 11+ Second Latency on `/collections` and `/collections/view/{id}` (Resolves #58)**:
+  - Eliminated full-table scans that eagerly loaded multi-megabyte `html_content`, `md_content`, and `text_content` across all 286 database pages on admin loads.
+  - Replaced Pydantic `HTMLPage` model inflation on ungrouped pages and admin dropdown lists with lightweight column projections `(FetchedPage.url, FetchedPage.title)` and dictionaries, reducing query execution time from 11.33s to 0.028s (~400x speedup).
+  - Replaced N+1 query loop in `view_collection` with a single grouped subquery for other collection memberships.
+  - Projected only required fields in `view_collection_editor`, excluding heavy raw HTML payloads.
 - **PostgreSQL Cascade Deletion & Foreign Key Violations (Resolves #56)**:
   - Fixed `ForeignKeyViolation` and 404 failure in `handle_delete_page` (`/admin/delete/page`) by cascading deletions across `article_embeddings`, `title_embeddings`, `video_embeddings`, `chunk_embeddings`, `collection_items`, `collection_actions`, `youtube_videos`, `page_versions`, `links`, and `fetched_pages`.
   - Replaced unhandled HTTP 404 raw JSON exceptions on deletion with user-friendly redirects to `/?error=...` toast banners.

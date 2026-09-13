@@ -384,6 +384,7 @@ def ensure_views_and_indexes(engine):
                 try:
                     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fetched_pages_fetched_at ON fetched_pages (fetched_at DESC);"))
                     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_source_id ON collection_items (source_id);"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_col_source ON collection_items (collection_id, source_id);"))
                     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_youtube_videos_creator ON youtube_videos (creator);"))
                 except Exception as e:
                     print(f"Warning creating PostgreSQL indexes: {e}")

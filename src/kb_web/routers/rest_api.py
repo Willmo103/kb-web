@@ -462,3 +462,112 @@ def list_tags() -> Dict[str, Any]:
             "total": len(sorted_tags),
             "tags": sorted_tags,
         }
+
+
+# --- 5. Collections Endpoints ---
+
+@router.get("/collections")
+def list_collections_api(
+    q: Optional[str] = Query(None, description="Optional search term to filter collections by title"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+) -> Dict[str, Any]:
+    """Returns paginated list of knowledge collections with page counts and metadata."""
+    with db_session() as session:
+        query = (
+            session.query(
+                Collection.id,
+                Collection.title,
+                Collection.visibility,
+                Collection.created_at,
+                func.count(CollectionItem.id).label("pages_count"),
+            )
+            .outerjoin(CollectionItem, Collection.id == CollectionItem.collection_id)
+            .group_by(Collection.id)
+        )
+
+        if q:
+            query = query.filter(Collection.title.ilike(f"%{q.strip()}%"))
+
+        query = query.order_by(Collection.title.asc())
+
+        total = query.count()
+        offset = (page - 1) * limit
+        rows = query.offset(offset).limit(limit).all()
+
+        items = [
+            {
+                "id": r.id,
+                "title": r.title,
+                "visibility": r.visibility or "public",
+                "created_at": r.created_at,
+                "pages_count": r.pages_count,
+            }
+            for r in rows
+        ]
+
+        total_pages = math.ceil(total / limit) if limit > 0 else 1
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages,
+            "has_next": (page * limit) < total,
+            "has_prev": page > 1,
+        }
+
+
+@router.get("/collections/ungrouped")
+def list_ungrouped_pages_api(
+    q: Optional[str] = Query(None, description="Search query across title or url"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    limit: int = Query(25, ge=1, le=100, description="Items per page"),
+) -> Dict[str, Any]:
+    """Returns lightweight paginated list of ungrouped pages not yet assigned to specific collections."""
+    from ..db import get_general_collection_id
+    from urllib.parse import quote_plus
+
+    with db_session() as session:
+        general_id = get_general_collection_id()
+        subq = session.query(CollectionItem.source_id).filter(CollectionItem.collection_id != general_id)
+
+        query = (
+            session.query(FetchedPage.url, FetchedPage.title, FetchedPage.fetched_at)
+            .filter(~FetchedPage.url.in_(subq))
+            .filter(~FetchedPage.title.like("Archived Item (%"))
+        )
+
+        if q:
+            q_clean = f"%{q.strip()}%"
+            query = query.filter(or_(FetchedPage.title.ilike(q_clean), FetchedPage.url.ilike(q_clean)))
+
+        query = query.order_by(FetchedPage.fetched_at.desc())
+
+        total = query.count()
+        offset = (page - 1) * limit
+        rows = query.offset(offset).limit(limit).all()
+
+        items = [
+            {
+                "url": r.url,
+                "title": r.title or r.url,
+                "safe_url": quote_plus(r.url),
+                "fetched_at": r.fetched_at,
+            }
+            for r in rows
+        ]
+
+        total_pages = math.ceil(total / limit) if limit > 0 else 1
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages,
+            "has_next": (page * limit) < total,
+            "has_prev": page > 1,
+        }
+

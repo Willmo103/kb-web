@@ -10,7 +10,9 @@ import uuid
 import httpx
 from datetime import datetime
 from typing import Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
+from types import SimpleNamespace
+from collections import defaultdict
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
 from fastapi.responses import (
     HTMLResponse,
@@ -230,20 +232,20 @@ def list_collections(request: Request) -> HTMLResponse:
 
         try:
             general_id = get_general_collection_id()
-            subq = session.query(CollectionItem.source_id).filter(CollectionItem.collection_id != general_id).subquery()
-            rows = session.query(FetchedPage).filter(~FetchedPage.url.in_(subq)).order_by(FetchedPage.fetched_at.desc()).all()
+            subq = session.query(CollectionItem.source_id).filter(CollectionItem.collection_id != general_id)
+            rows = (
+                session.query(FetchedPage.url, FetchedPage.title)
+                .filter(~FetchedPage.url.in_(subq))
+                .filter(~FetchedPage.title.like("Archived Item (%"))
+                .order_by(FetchedPage.fetched_at.desc())
+                .all()
+            )
             for r in rows:
-                p_dict = {col.name: getattr(r, col.name) for col in r.__table__.columns}
-                # Deserialize array fields to match Pydantic model expectations in Jinja template rendering
-                for fld in ("links", "keywords", "tags"):
-                    if p_dict.get(fld):
-                        try:
-                            p_dict[fld] = json.loads(p_dict[fld])
-                        except Exception:
-                            p_dict[fld] = []
-                    else:
-                        p_dict[fld] = []
-                ungrouped_pages.append(HTMLPage(**p_dict))
+                ungrouped_pages.append({
+                    "url": r.url,
+                    "title": r.title or r.url,
+                    "safe_url": quote_plus(r.url),
+                })
         except Exception as e:
             print(f"Error fetching ungrouped pages: {e}")
 
@@ -251,18 +253,16 @@ def list_collections(request: Request) -> HTMLResponse:
         all_pages_list = []
         if is_admin:
             try:
-                all_pages = session.query(FetchedPage).all()
-                for r in all_pages:
-                    p_dict = {col.name: getattr(r, col.name) for col in r.__table__.columns}
-                    for fld in ("links", "keywords", "tags"):
-                        if p_dict.get(fld):
-                            try:
-                                p_dict[fld] = json.loads(p_dict[fld])
-                            except Exception:
-                                p_dict[fld] = []
-                        else:
-                            p_dict[fld] = []
-                    all_pages_list.append(HTMLPage(**p_dict))
+                all_pages = (
+                    session.query(FetchedPage.url, FetchedPage.title)
+                    .filter(~FetchedPage.title.like("Archived Item (%"))
+                    .order_by(FetchedPage.title.asc())
+                    .all()
+                )
+                all_pages_list = [
+                    {"url": r.url, "title": r.title or r.url}
+                    for r in all_pages
+                ]
             except Exception:
                 pass
 
@@ -322,43 +322,49 @@ def view_collection(request: Request, collection_id: int) -> HTMLResponse:
         pages = []
         try:
             results = (
-                session.query(FetchedPage, CollectionItem)
+                session.query(
+                    FetchedPage.url,
+                    FetchedPage.title,
+                    FetchedPage.fetched_at,
+                    CollectionItem.item_note,
+                    CollectionItem.taxonomy_path,
+                    CollectionItem.item_order,
+                )
                 .join(CollectionItem, FetchedPage.url == CollectionItem.source_id)
                 .filter(CollectionItem.collection_id == collection_id)
                 .order_by(CollectionItem.item_order.asc(), CollectionItem.id.desc())
                 .all()
             )
 
-            for page_obj, item in results:
-                p_dict = {col.name: getattr(page_obj, col.name) for col in page_obj.__table__.columns}
-                p_dict["item_note"] = item.item_note
-                p_dict["taxonomy_path"] = item.taxonomy_path
-                p_dict["item_order"] = item.item_order
+            # Find all other collections for items in a single query (replaces N+1 queries)
+            other_colls = (
+                session.query(CollectionItem.source_id, Collection.id, Collection.title)
+                .join(Collection, Collection.id == CollectionItem.collection_id)
+                .filter(Collection.id != 1)
+                .all()
+            )
+            coll_titles_by_url = defaultdict(list)
+            coll_id_by_url = {}
+            for src_id, c_id, c_title in other_colls:
+                coll_titles_by_url[src_id].append(c_title)
+                if src_id not in coll_id_by_url:
+                    coll_id_by_url[src_id] = c_id
 
-                for fld in ("links", "keywords", "tags"):
-                    if p_dict.get(fld):
-                        try:
-                            p_dict[fld] = json.loads(p_dict[fld])
-                        except Exception:
-                            p_dict[fld] = []
-                    else:
-                        p_dict[fld] = []
+            coll_title_map = {src: ", ".join(titles) for src, titles in coll_titles_by_url.items()}
 
-                # Find other collections this page belongs to
-                coll_rows = (
-                    session.query(Collection)
-                    .join(CollectionItem, Collection.id == CollectionItem.collection_id)
-                    .filter(CollectionItem.source_id == page_obj.url, Collection.id != 1)
-                    .all()
-                )
-                if coll_rows:
-                    p_dict["collection_title"] = ", ".join([c.title for c in coll_rows])
-                    p_dict["collection_id"] = coll_rows[0].id
-                else:
-                    p_dict["collection_title"] = None
-                    p_dict["collection_id"] = None
-
-                pages.append(HTMLPage(**p_dict))
+            for r in results:
+                pages.append({
+                    "url": r.url,
+                    "title": r.title or r.url,
+                    "parsed_url": SimpleNamespace(hostname=urlparse(r.url).hostname or "Source"),
+                    "fetched_at": (r.fetched_at or "")[:16].replace("T", " "),
+                    "safe_url": quote_plus(r.url),
+                    "collection_title": coll_title_map.get(r.url),
+                    "collection_id": coll_id_by_url.get(r.url),
+                    "item_note": r.item_note,
+                    "taxonomy_path": r.taxonomy_path,
+                    "item_order": r.item_order,
+                })
         except Exception as e:
             print(f"Failed to fetch collection pages: {e}")
 
@@ -366,32 +372,22 @@ def view_collection(request: Request, collection_id: int) -> HTMLResponse:
         all_pages_list = []
         if is_admin:
             try:
-                all_pages = session.query(FetchedPage).all()
-                for page_obj in all_pages:
-                    p_dict = {col.name: getattr(page_obj, col.name) for col in page_obj.__table__.columns}
-                    for fld in ("links", "keywords", "tags"):
-                        if p_dict.get(fld):
-                            try:
-                                p_dict[fld] = json.loads(p_dict[fld])
-                            except Exception:
-                                p_dict[fld] = []
-                        else:
-                            p_dict[fld] = []
-
-                    coll_rows = (
-                        session.query(Collection)
-                        .join(CollectionItem, Collection.id == CollectionItem.collection_id)
-                        .filter(CollectionItem.source_id == page_obj.url, Collection.id != 1)
-                        .all()
-                    )
-                    if coll_rows:
-                        p_dict["collection_title"] = ", ".join([c.title for c in coll_rows])
-                        p_dict["collection_id"] = coll_rows[0].id
-                    else:
-                        p_dict["collection_title"] = None
-                        p_dict["collection_id"] = None
-
-                    all_pages_list.append(HTMLPage(**p_dict))
+                all_pages_rows = (
+                    session.query(FetchedPage.url, FetchedPage.title, FetchedPage.fetched_at)
+                    .filter(~FetchedPage.title.like("Archived Item (%"))
+                    .order_by(FetchedPage.title.asc())
+                    .all()
+                )
+                for r in all_pages_rows:
+                    all_pages_list.append({
+                        "url": r.url,
+                        "title": r.title or r.url,
+                        "parsed_url": SimpleNamespace(hostname=urlparse(r.url).hostname or "Source"),
+                        "fetched_at": (r.fetched_at or "")[:16].replace("T", " "),
+                        "safe_url": quote_plus(r.url),
+                        "collection_title": coll_title_map.get(r.url),
+                        "collection_id": coll_id_by_url.get(r.url),
+                    })
             except Exception:
                 pass
 
@@ -1110,23 +1106,32 @@ def view_collection_editor(request: Request, collection_id: int) -> HTMLResponse
         items = []
         try:
             results = (
-                session.query(FetchedPage, CollectionItem)
+                session.query(
+                    FetchedPage.url,
+                    FetchedPage.title,
+                    FetchedPage.md_content,
+                    FetchedPage.description,
+                    CollectionItem.item_note,
+                    CollectionItem.taxonomy_path,
+                    CollectionItem.item_order,
+                    CollectionItem.source_type,
+                )
                 .join(CollectionItem, FetchedPage.url == CollectionItem.source_id)
                 .filter(CollectionItem.collection_id == collection_id)
                 .order_by(CollectionItem.item_order.asc(), CollectionItem.id.desc())
                 .all()
             )
-            for page_obj, item in results:
+            for r in results:
                 items.append(
                     {
-                        "url": page_obj.url,
-                        "title": page_obj.title,
-                        "md_content": page_obj.md_content,
-                        "description": page_obj.description,
-                        "item_note": item.item_note,
-                        "taxonomy_path": item.taxonomy_path,
-                        "item_order": item.item_order,
-                        "source_type": item.source_type,
+                        "url": r.url,
+                        "title": r.title,
+                        "md_content": r.md_content,
+                        "description": r.description,
+                        "item_note": r.item_note,
+                        "taxonomy_path": r.taxonomy_path,
+                        "item_order": r.item_order,
+                        "source_type": r.source_type,
                     }
                 )
         except Exception as e:

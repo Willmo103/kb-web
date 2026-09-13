@@ -3091,3 +3091,54 @@ def test_session_dialect_config(monkeypatch) -> None:
     # Restore config to fallback
     monkeypatch.setattr(kb_web.base.config, "_database_url", "")
     monkeypatch.setattr(kb_web.base, "_engine", None)
+
+
+def test_collections_page_and_view_performance(client: TestClient) -> None:
+    """Verifies that /collections and /collections/view/{id} load quickly without heavy model inflation."""
+    from kb_web.base import db_session
+    from kb_web.models_orm import Collection, FetchedPage
+
+    with db_session() as session:
+        col = Collection(
+            title="Fast Dashboard Test Collection",
+            visibility="public",
+            created_at="2026-09-13T16:00:00",
+        )
+        session.add(col)
+        session.flush()
+        col_id = col.id
+
+        page = FetchedPage(
+            url="https://example.com/fast-col-page",
+            title="Fast Col Page",
+            fetched_at="2026-09-13T16:00:00",
+        )
+        session.add(page)
+
+    # 1. Anonymous GET /collections
+    res_anon = client.get("/collections")
+    assert res_anon.status_code == 200
+    assert "Knowledge Collections" in res_anon.text
+    assert "Fast Dashboard Test Collection" in res_anon.text
+
+    # 2. Admin GET /collections
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    res_admin = client.get("/collections")
+    assert res_admin.status_code == 200
+    assert "Assign to Collection" in res_admin.text
+    assert "New Collection" in res_admin.text
+
+    # 3. GET /collections/view/{col_id}
+    res_view = client.get(f"/collections/view/{col_id}")
+    assert res_view.status_code == 200
+    assert "Fast Dashboard Test Collection" in res_view.text
+
+    # Clean up
+    with db_session() as session:
+        session.query(Collection).filter_by(id=col_id).delete()
+        session.query(FetchedPage).filter_by(url="https://example.com/fast-col-page").delete()
+
