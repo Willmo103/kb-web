@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-12
+### Added
+- **UI Performance & Latency Overhaul with Database View (Resolves #56)**:
+  - Created pre-aggregated PostgreSQL database view `vw_page_cards` joining `fetched_pages`, `youtube_videos`, and `collections` with `string_agg(c.title, ', ')`, completely eliminating N+1 collection queries on index feeds.
+  - Added targeted database performance indexes on `fetched_pages.fetched_at DESC`, `collection_items.source_id`, and `youtube_videos.creator` in Alembic migration `c72b89d412e1_add_page_card_view_and_indexes.py` and `ensure_views_and_indexes()`.
+  - Added dedicated, high-performance REST API router `src/kb_web/routers/rest_api.py` serving lightweight JSON payloads for web frontends and external client agents:
+    - `GET /api/articles`: Paginated article cards with search (`q`), tag filtering (`tag`), sort order, and metadata.
+    - `GET /api/articles/detail`: Full article details with markdown and raw HTML (on-demand only).
+    - `GET /api/videos`: Paginated YouTube video profiles with creator aggregation and duration/view counts.
+    - `GET /api/videos/transcript`: Timestamped subtitle transcript extraction and segment parsing (`[MM:SS]` formatting).
+    - `GET /api/sites`: Virtual domain directory grouped by hostname and article counts.
+    - `GET /api/tags`: Tag cloud index with frequency counts.
+  - Added responsive UI pagination and dynamic reactive search controls to `src/kb_web/templates/pages_list.j2.html`:
+    - Responsive pagination bar with Previous/Next buttons, active page pills, item counters, and limit selector.
+    - Client-side reactive JavaScript controller with 300ms search input debouncing, animated skeleton loading placeholders (`animate-pulse`), and seamless URL address bar state synchronization (`history.pushState`).
+    - Added comprehensive unit test suite in `tests/test_rest_api.py` covering pagination bounds, query filtering, transcript segment extraction, and HTML shell responses.
+
+### Changed
+- **Phasing out SQLite in favor of PostgreSQL as Primary Storage Engine**:
+  - Initiated deprecation of SQLite as primary production storage engine; optimized database queries, views, and indexes specifically for PostgreSQL.
+  - Excluded heavy `html_content` and `md_content` fields from default article hydration queries to minimize network transfer overhead.
+  - Optimized virtual site domain extraction in `view_all_pages` to project only `(url, title)` instead of full table scans.
+
+### Fixed
+- Fixed `AttributeError` / `OperationalError` during database snapshot export by ignoring database views in `db_snapshot.py`.
+- Excluded view models from `Base.metadata.create_all()` to prevent accidental table creation before view instantiation.
+- Resolved `NameError: name 'func' is not defined` in `src/kb_web/routers/pages.py`.
+- Replaced deprecated `regex` parameter with `pattern` in FastAPI Query annotations across `rest_api.py`.
+
 ## [0.2.0] - 2026-09-09
 ### Added
 - **Complete PostgreSQL & SQLAlchemy Migration (Resolves #30)**:

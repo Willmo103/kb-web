@@ -84,7 +84,7 @@ class FetchedPage(Base):
     links = Column(Text)  # JSON-encoded array of URLs
     html_content_hash = Column(String)
     md_content_hash = Column(String)
-    fetched_at = Column(String)
+    fetched_at = Column(String, index=True)
     description = Column(Text)
     keywords = Column(Text)  # JSON-encoded array of strings
     tags = Column(Text)  # JSON-encoded array of tags/labels
@@ -138,7 +138,7 @@ class YouTubeVideo(Base):
 
     url = Column(String, ForeignKey("fetched_pages.url"), primary_key=True)
     video_id = Column(String)
-    creator = Column(String)
+    creator = Column(String, index=True)
     channel_id = Column(String)
     duration = Column(Integer)
     view_count = Column(Integer)
@@ -165,7 +165,7 @@ class CollectionItem(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     collection_id = Column(Integer, ForeignKey("collections.id"))
     source_type = Column(String)  # "articles" or "videos"
-    source_id = Column(String)  # URL
+    source_id = Column(String, index=True)  # URL
     item_note = Column(Text)
     taxonomy_path = Column(String)
     item_order = Column(Integer)
@@ -342,3 +342,123 @@ valid_repo_files = Table(
     Column("file_path", String),
     Column("repo_path", String),
 )
+
+
+class PageCardView(Base):
+    """Declarative model mapped to the vw_page_cards pre-processed view.
+
+    Excludes heavy html_content and md_content fields, and pre-aggregates
+    collections to prevent N+1 queries.
+    """
+    __tablename__ = "vw_page_cards"
+    __table_args__ = {"info": dict(is_view=True)}
+
+    url = Column(String, primary_key=True)
+    title = Column(String)
+    description = Column(Text)
+    tags = Column(Text)
+    fetched_at = Column(String)
+    collection_id = Column(Integer)
+    exclude_from_general = Column(Integer, default=0)
+    creator = Column(String)
+    video_id = Column(String)
+    duration = Column(Integer)
+    view_count = Column(Integer)
+    thumbnail_url = Column(String)
+    collection_title = Column(String)
+    collection_first_id = Column(Integer)
+
+
+# Remove PageCardView from Base.metadata tables to avoid CREATE TABLE vw_page_cards during Base.metadata.create_all
+if PageCardView.__table__ in Base.metadata.tables.values():
+    Base.metadata.remove(PageCardView.__table__)
+
+
+def ensure_views_and_indexes(engine):
+    """Ensures that the vw_page_cards view and performance indexes exist on the target database."""
+    from sqlalchemy import text
+    dialect = getattr(engine.dialect, "name", "sqlite")
+    with engine.connect() as conn:
+        with conn.begin():
+            if dialect == "postgresql":
+                try:
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fetched_pages_fetched_at ON fetched_pages (fetched_at DESC);"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_source_id ON collection_items (source_id);"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_youtube_videos_creator ON youtube_videos (creator);"))
+                except Exception as e:
+                    print(f"Warning creating PostgreSQL indexes: {e}")
+
+                try:
+                    conn.execute(text("""
+                        DO $$
+                        BEGIN
+                            IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'vw_page_cards') THEN
+                                EXECUTE 'DROP TABLE vw_page_cards CASCADE';
+                            ELSIF EXISTS (SELECT 1 FROM pg_views WHERE schemaname = 'public' AND viewname = 'vw_page_cards') THEN
+                                EXECUTE 'DROP VIEW vw_page_cards CASCADE';
+                            END IF;
+                        END $$;
+                    """))
+                    conn.execute(text("""
+                        CREATE VIEW vw_page_cards AS
+                        SELECT 
+                            f.url,
+                            f.title,
+                            f.description,
+                            f.tags,
+                            f.fetched_at,
+                            f.collection_id,
+                            f.exclude_from_general,
+                            y.creator,
+                            y.video_id,
+                            y.duration,
+                            y.view_count,
+                            y.thumbnail_url,
+                            string_agg(c.title, ', ') AS collection_title,
+                            MIN(c.id) AS collection_first_id
+                        FROM fetched_pages f
+                        LEFT JOIN youtube_videos y ON f.url = y.url
+                        LEFT JOIN collection_items ci ON f.url = ci.source_id AND ci.collection_id != 1
+                        LEFT JOIN collections c ON ci.collection_id = c.id
+                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general,
+                                 y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
+                    """))
+                except Exception as e:
+                    print(f"Warning creating PostgreSQL view: {e}")
+            else:
+                try:
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fetched_pages_fetched_at ON fetched_pages (fetched_at DESC);"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_source_id ON collection_items (source_id);"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_youtube_videos_creator ON youtube_videos (creator);"))
+                except Exception:
+                    pass
+                try:
+                    conn.execute(text("DROP TABLE IF EXISTS vw_page_cards;"))
+                    conn.execute(text("DROP VIEW IF EXISTS vw_page_cards;"))
+                    conn.execute(text("""
+                        CREATE VIEW vw_page_cards AS
+                        SELECT 
+                            f.url,
+                            f.title,
+                            f.description,
+                            f.tags,
+                            f.fetched_at,
+                            f.collection_id,
+                            f.exclude_from_general,
+                            y.creator,
+                            y.video_id,
+                            y.duration,
+                            y.view_count,
+                            y.thumbnail_url,
+                            group_concat(c.title, ', ') AS collection_title,
+                            MIN(c.id) AS collection_first_id
+                        FROM fetched_pages f
+                        LEFT JOIN youtube_videos y ON f.url = y.url
+                        LEFT JOIN collection_items ci ON f.url = ci.source_id AND ci.collection_id != 1
+                        LEFT JOIN collections c ON ci.collection_id = c.id
+                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general,
+                                 y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
+                    """))
+                except Exception:
+                    pass
+

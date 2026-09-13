@@ -159,9 +159,10 @@ def get_engine():
                     )
 
                 # Import models and create all tables if missing
-                from .models_orm import Base
+                from .models_orm import Base, ensure_views_and_indexes
 
                 Base.metadata.create_all(_engine)
+                ensure_views_and_indexes(_engine)
                 _SessionFactory = sessionmaker(bind=_engine)
     return _engine
 
