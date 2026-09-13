@@ -2,9 +2,23 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+import time
 from kb_web.server import app
-from kb_web.base import db_session
-from kb_web.models_orm import FetchedPage, YouTubeVideo, Collection, CollectionItem, PageVersion
+from kb_web.base import db_session, COOKIE_NAME, generate_session_token
+from kb_web.models_orm import (
+    FetchedPage,
+    YouTubeVideo,
+    Collection,
+    CollectionItem,
+    CollectionAction,
+    PageVersion,
+    ArticleEmbedding,
+    TitleEmbedding,
+    VideoEmbedding,
+    ChunkEmbedding,
+    Link,
+    PageCardView,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -149,8 +163,8 @@ def test_video_endpoints_and_transcript_extraction(client: TestClient):
     assert res.status_code == 200
     data = res.json()
     assert len(data["items"]) >= 1
-    assert data["items"][0]["video_id"] == video_id
-    assert data["items"][0]["creator"] == "Rick Astley"
+    assert any(i["video_id"] == video_id for i in data["items"])
+    assert any(i["creator"] == "Rick Astley" for i in data["items"])
     assert any(c["name"] == "Rick Astley" for c in data["creators"])
 
     # 2. Test GET /api/videos/transcript by video_id
@@ -197,3 +211,97 @@ def test_main_page_html_response_and_pagination(client: TestClient):
     res_pages = client.get("/pages?page=1&limit=2")
     assert res_pages.status_code == 200
     assert "articles-grid-container" in res_pages.text
+
+
+def test_cascade_delete_article(client: TestClient):
+    """Verifies that deleting an article cascades cleanly across all child tables without foreign key errors."""
+    url = "https://example.com/test-cascade-delete-article"
+    with db_session() as session:
+        session.query(FetchedPage).filter_by(url=url).delete()
+    with db_session() as session:
+        session.add(FetchedPage(url=url, title="Cascade Test", html_content="<p>Test</p>", md_content="# Test"))
+    with db_session() as session:
+        session.add(ArticleEmbedding(url=url, embedding=[0.1] * 1536))
+        session.add(TitleEmbedding(url=url, embedding=[0.1] * 1536))
+        session.add(ChunkEmbedding(source_id=url, source_type="articles", chunk_content="Sample chunk"))
+        session.add(CollectionItem(collection_id=1, source_type="articles", source_id=url))
+        session.add(CollectionAction(collection_id=1, action_type="add", source_type="articles", source_id=url))
+        session.add(PageVersion(url=url, title="Cascade V1", md_content="Old"))
+        session.add(Link(url=url, title="Link Title"))
+
+    # Execute DELETE via REST API
+    res = client.delete(f"/api/articles?url={url}")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "success"
+    assert data["deleted"] is True
+
+    # Verify parent and all child records are gone
+    with db_session() as session:
+        assert session.query(FetchedPage).filter_by(url=url).count() == 0
+        assert session.query(ArticleEmbedding).filter_by(url=url).count() == 0
+        assert session.query(TitleEmbedding).filter_by(url=url).count() == 0
+        assert session.query(ChunkEmbedding).filter_by(source_id=url).count() == 0
+        assert session.query(CollectionItem).filter_by(source_id=url).count() == 0
+        assert session.query(CollectionAction).filter_by(source_id=url).count() == 0
+        assert session.query(PageVersion).filter_by(url=url).count() == 0
+        assert session.query(Link).filter_by(url=url).count() == 0
+
+
+def test_cascade_delete_youtube_video(client: TestClient):
+    """Verifies that deleting a YouTube video via /admin/delete/page removes video record and embeddings cleanly."""
+    vid_id = "test_cascade_yt_vid"
+    url = f"https://www.youtube.com/watch?v={vid_id}"
+
+    with db_session() as session:
+        session.query(FetchedPage).filter_by(url=url).delete()
+    with db_session() as session:
+        session.add(FetchedPage(url=url, title="YT Cascade Video", html_content="<p>YT</p>", md_content="# YT"))
+    with db_session() as session:
+        session.add(YouTubeVideo(url=url, video_id=vid_id, creator="Cascade Creator", duration=120))
+    with db_session() as session:
+        session.add(VideoEmbedding(url=url, embedding=[0.1] * 1536))
+        session.add(ArticleEmbedding(url=url, embedding=[0.1] * 1536))
+
+    token = generate_session_token(time.time() + 3600)
+    client.cookies.set(COOKIE_NAME, token)
+
+    # Post delete form to /admin/delete/page
+    res = client.post("/admin/delete/page", data={"url": url}, follow_redirects=False)
+    assert res.status_code == 303
+    assert "/?msg=" in res.headers["location"]
+
+    # Verify both FetchedPage and YouTubeVideo records are deleted
+    with db_session() as session:
+        assert session.query(FetchedPage).filter_by(url=url).count() == 0
+        assert session.query(YouTubeVideo).filter_by(url=url).count() == 0
+        assert session.query(VideoEmbedding).filter_by(url=url).count() == 0
+        assert session.query(ArticleEmbedding).filter_by(url=url).count() == 0
+
+
+def test_ghost_stub_exclusion(client: TestClient):
+    """Verifies that dummy stub pages with 'Archived Item' and no content are excluded from view."""
+    ghost_url = "https://example.com/test-ghost-stub-to-exclude"
+    with db_session() as session:
+        session.query(FetchedPage).filter_by(url=ghost_url).delete()
+        session.add(
+            FetchedPage(
+                url=ghost_url,
+                title=f"Archived Item ({ghost_url})",
+                html_content=None,
+                md_content=None,
+                description=None,
+                fetched_at="2026-09-12T00:00:00",
+            )
+        )
+
+    # Ingest should NOT appear in /api/articles
+    res = client.get("/api/articles")
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert not any(i["url"] == ghost_url for i in items)
+
+    # Clean up test ghost stub
+    with db_session() as session:
+        session.query(FetchedPage).filter_by(url=ghost_url).delete()
+

@@ -246,16 +246,8 @@ def migrate_sqlite_to_postgres(
                         if url_val:
                             parent = target_session.query(FetchedPage).filter_by(url=url_val).first()
                             if not parent:
-                                from datetime import datetime
-
-                                target_session.add(
-                                    FetchedPage(
-                                        url=url_val,
-                                        title=f"Archived Item ({url_val})",
-                                        fetched_at=datetime.now().isoformat(),
-                                    )
-                                )
-                                target_session.commit()
+                                # Skip orphaned child record for already-deleted parent page
+                                continue
 
                     if pk_cols:
                         pk_vals = {pk: cleaned[pk] for pk in pk_cols if pk in cleaned}

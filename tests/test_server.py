@@ -550,7 +550,7 @@ def test_admin_only_features_and_deletion(client: TestClient) -> None:
         follow_redirects=False,
     )
     assert del_success.status_code == 303
-    assert del_success.headers["location"] == "/"
+    assert del_success.headers["location"].startswith("/?msg=") or del_success.headers["location"] == "/"
 
     # Verify deleted
     import sqlite_utils

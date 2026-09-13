@@ -1,142 +1,95 @@
-# Architecture Plan: UI Performance Speedup, Pagination, & REST API Overhaul
+# Cascade Deletion Fix, Ghost Stub Purge, & Graceful Error Handling
 
-## Problem & Background
-
-Following the v0.2.0 database migration to PostgreSQL and SQLAlchemy ORM, the web UI experienced significant latency, particularly on the root page (`/` and `/pages`).
-
-Root causes:
-1. **Model Hydration of Heavy Content**: `session.query(FetchedPage)` eagerly loads `html_content` (full raw HTML files, 100KB–5MB+ each) and `md_content` for every row, pulling tens to hundreds of megabytes across the wire into Python RAM on every request.
-2. **Catastrophic N+1 Query Loop**: In `pages.py`, for every single page in the database, a separate SQL query is executed sequentially to check collection membership (`session.query(Collection).join(CollectionItem)...filter(CollectionItem.source_id == page_obj.url)`). For 500 pages, this triggers 500 individual round-trip queries over the database connection.
-3. **Duplicate Full Table Scan**: The entire `FetchedPage` table is loaded a second time (`session.query(FetchedPage).all()`) to calculate site hostnames and counts.
-4. **Unindexed Tables & No Pagination**: `fetched_pages.fetched_at` and `collection_items.source_id` lack database indexes, and queries lack `LIMIT`/`OFFSET`.
-
-Per user guidance:
-- SQLite support is being phased out in favor of PostgreSQL as the primary database engine.
-- All work must be documented in an issue on the `master` branch before development starts.
-- A new DRAFT PR will be opened from `production` into `master` and linked with the issues.
-- Development will take place on a dedicated feature branch off `production`: `feature/ui-performance-api`.
+Resolves Issue #56: Fixes the database foreign key violation preventing deletion of articles and YouTube videos, purges resurrected dummy stubs (`Archived Item`), and handles deletion errors gracefully in the UI.
 
 ---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **SQLite Deprecation & Native PostgreSQL Database View**:
-> Since SQLite support is being phased out, we can use native PostgreSQL features in our database view:
-> - Use `string_agg(c.title, ', ')` to aggregate multiple collections into a single string directly in SQL.
-> - Exclude heavy columns (`html_content`, `md_content`) from the view.
-> - Pre-index `fetched_pages(fetched_at DESC)`, `collection_items(source_id)`, and `youtube_videos(creator)`.
-> This reduces the main page query from `1 + 500` queries down to **1 single index-backed query** executing in under 10ms.
-
----
-
-## Step-by-Step Execution Plan
-
-### Step 1: Document Issue on `master` Branch & GitHub Issue Creation
-1. Switch to `master` branch: `git checkout master && git pull origin master`.
-2. Add the new issue to `issues.md` on `master` documenting:
-   - UI Performance regression post-migration.
-   - Database view creation and indexing for page summaries.
-   - Standardized REST API endpoints (`/api/articles`, `/api/videos`, `/api/videos/transcript`, `/api/sites`, `/api/tags`).
-   - Frontend pagination and reactive client overhaul.
-   - Phasing out SQLite support.
-3. Commit and push the updated `issues.md` on `master`.
-4. Create the corresponding GitHub issue via `gh issue create`.
-
-### Step 2: Branch Creation & Draft Pull Request
-1. Checkout `production` and pull latest: `git checkout production && git pull origin production`.
-2. Create feature branch off `production`: `git checkout -b feature/ui-performance-api`.
-3. Open a DRAFT PR from `production` into `master`:
-   `gh pr create --draft --base master --head production --title "Release v0.3.0: UI Performance Speedup, Pagination, & REST API Overhaul" --body "..."`
-4. Associate the new issue with the draft PR.
-
-### Step 3: Database View & Index Migration (PostgreSQL)
-1. Add an Alembic migration creating:
-   - Index `idx_fetched_pages_fetched_at` on `fetched_pages (fetched_at DESC)`.
-   - Index `idx_collection_items_source_id` on `collection_items (source_id)`.
-   - View `vw_page_cards`:
-     ```sql
-     CREATE OR REPLACE VIEW vw_page_cards AS
-     SELECT 
-         f.url,
-         f.title,
-         f.description,
-         f.tags,
-         f.fetched_at,
-         f.collection_id,
-         y.creator,
-         y.video_id,
-         y.duration,
-         y.view_count,
-         y.thumbnail_url,
-         string_agg(c.title, ', ') AS collection_title,
-         MIN(c.id) AS collection_first_id
-     FROM fetched_pages f
-     LEFT JOIN youtube_videos y ON f.url = y.url
-     LEFT JOIN collection_items ci ON f.url = ci.source_id AND ci.collection_id != 1
-     LEFT JOIN collections c ON ci.collection_id = c.id
-     GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id,
-              y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
-     ```
-2. Update `models_orm.py`:
-   - Map declarative model `PageCardView` to `vw_page_cards`.
-   - Add index declarations on `FetchedPage` and `CollectionItem`.
-
-### Step 4: Standardized REST API Endpoints
-Create `src/kb_web/routers/rest_api.py` exposing:
-- `GET /api/articles`: Paginated (`page`, `limit`), search (`q`), tag filter (`tag`), sorting.
-- `GET /api/articles/detail`: Full article details with markdown and wiki summary.
-- `GET /api/videos`: Paginated video cards (`creator`, `tag`, `page`, `limit`).
-- `GET /api/videos/transcript`: Video transcript segments, plain text transcript, and chapter breakdown.
-- `GET /api/sites`: Aggregated domain list with page counts and sample URLs.
-- `GET /api/tags`: Unique tags list with item counts.
-Register router in `server.py`.
-
-### Step 5: Frontend Pagination & Reactive UI Overhaul
-1. Refactor `src/kb_web/routers/pages.py`:
-   - Use `PageCardView` with pagination (`limit`, `offset`) on `/` and `/pages`.
-   - Optimize site domain aggregation query using `session.query(FetchedPage.url).all()`.
-2. Update `src/kb_web/templates/pages_list.j2.html`:
-   - Add responsive pagination controls (Previous, Next, Page Numbers, Page Size selector).
-   - Add reactive JavaScript client controller:
-     - 300ms debounced search without page reloads.
-     - Instant tab switching between Articles, Videos, and Sites.
-     - Deep-linkable URL parameters (`history.pushState`).
-     - Skeleton loading placeholders for cards.
+> - **Cascade Deletion Across Child Tables**:
+>   When an administrator deletes an article or YouTube video via `/admin/delete/page` or `DELETE /api/articles`, the handler will delete records from dependent tables in correct dependency order before deleting `fetched_pages`:
+>   1. `article_embeddings` (`url`)
+>   2. `title_embeddings` (`url`)
+>   3. `video_embeddings` (`url`)
+>   4. `chunk_embeddings` (`source_id`)
+>   5. `youtube_videos` (`url`)
+>   6. `collection_items` (`source_id`)
+>   7. `collection_actions` (`source_id`)
+>   8. `page_versions` (`url`)
+>   9. `links` (`url`)
+>   10. `fetched_pages` (`url`)
+>   This eliminates PostgreSQL `ForeignKeyViolation` exceptions completely.
+>
+> - **Purging Resurrected "Archived Item" Ghost Stubs**:
+>   The 22 items appearing in Screenshot #1 titled `Archived Item (<url>)` were synthesized during migration because orphaned embeddings existed in SQLite from previously deleted pages. We will:
+>   1. Update `vw_page_cards` view to exclude stubs with no HTML and no markdown content.
+>   2. Provide automated database cleanup in `ensure_views_and_indexes()` to purge orphaned stubs where `title LIKE 'Archived Item (%'` and both `html_content` and `md_content` are NULL.
+>   3. Update `db_migrate_sqlite.py` and `admin.py` WebSocket import to prune orphaned child records rather than synthesizing dummy parent pages.
+>
+> - **Graceful Deletion Feedback**:
+>   Eliminates raw JSON responses (`{"detail":"Target page profile not found."}`) on form submissions. On failure, redirects to `/?error=...` with a visible, dismissible UI banner. On success, redirects to `/?msg=...`.
 
 ---
 
 ## Proposed Changes
 
-### Database Layer
-- **[NEW]** `migrations/versions/c72b89d412e1_add_page_card_view_and_indexes.py`
-- **[MODIFY]** `src/kb_web/models_orm.py`
+### 1. Administrative Delete Handler & REST API
 
-### Backend REST API Layer
-- **[NEW]** `src/kb_web/routers/rest_api.py`
-- **[MODIFY]** `src/kb_web/server.py`
-- **[MODIFY]** `src/kb_web/routers/pages.py`
+#### [MODIFY] [admin.py](file:///c:/src/kb-web/src/kb_web/routers/admin.py)
+- Refactor `handle_delete_page`:
+  - Handle URL decoding (`unquote_plus(url)`).
+  - Delete child rows across `article_embeddings`, `title_embeddings`, `video_embeddings`, `chunk_embeddings`, `youtube_videos`, `collection_items`, `collection_actions`, `page_versions`, `links`, and finally `fetched_pages`.
+  - Replace `raise HTTPException(status_code=404, detail="Target page profile not found.")` with graceful redirect:
+    `RedirectResponse(url=f"/?error={quote_plus('Failed to delete entry: ' + str(err))}", status_code=303)`.
+  - On success, redirect to `/?msg=Entry+successfully+deleted.`
 
-### Frontend UI Layer
-- **[MODIFY]** `src/kb_web/templates/pages_list.j2.html`
+#### [MODIFY] [rest_api.py](file:///c:/src/kb-web/src/kb_web/routers/rest_api.py)
+- Add `DELETE /api/articles`:
+  - Accepts `url: str = Query(...)`.
+  - Performs clean cascade deletion and returns `{ "status": "success", "url": url }`.
 
-### Tests & Documentation
-- **[NEW]** `tests/test_rest_api.py`
-- **[MODIFY]** `issues.md` (on `master`)
-- **[MODIFY]** `CHANGELOG.md`
+---
+
+### 2. Database View & Migration Cleanup
+
+#### [MODIFY] [models_orm.py](file:///c:/src/kb-web/src/kb_web/models_orm.py)
+- Update `vw_page_cards` definition in `ensure_views_and_indexes()`:
+  - Add `WHERE (f.title NOT LIKE 'Archived Item (%' OR (f.html_content IS NOT NULL AND f.html_content != '') OR (f.md_content IS NOT NULL AND f.md_content != '') OR (y.video_id IS NOT NULL AND y.duration IS NOT NULL))`
+- In `ensure_views_and_indexes(engine)`:
+  - Add routine to clean up orphaned ghost records where `f.title LIKE 'Archived Item (%'` and `html_content IS NULL` and `md_content IS NULL`.
+
+#### [MODIFY] [db_migrate_sqlite.py](file:///c:/src/kb-web/src/kb_web/scripts/db_migrate_sqlite.py)
+- Remove synthesis of `Archived Item ({url_val})` stubs. If `parent` does not exist in `fetched_pages`, skip importing orphaned child records to prevent resurrecting deleted pages.
+
+---
+
+### 3. UI Template Enhancements
+
+#### [MODIFY] [pages_list.j2.html](file:///c:/src/kb-web/src/kb_web/templates/pages_list.j2.html)
+- Ensure both `msg` and `error` query parameters render styled dismissible alert toasts at the top of the dashboard.
+
+---
+
+### 4. Verification & Testing
+
+#### [NEW / MODIFY] [test_server.py](file:///c:/src/kb-web/tests/test_server.py) & [test_rest_api.py](file:///c:/src/kb-web/tests/test_rest_api.py)
+- Add regression tests:
+  - Cascade deletion of page associated with YouTube video and embeddings.
+  - Deletion failure graceful redirect without raw JSON.
+  - Ghost stub exclusion from `vw_page_cards`.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-- `uv run pytest`: Run full test suite ensuring all 54 existing tests pass.
-- Run new tests in `tests/test_rest_api.py` for API pagination, transcripts, and filtering.
-- Run pre-commit UI template verification: `python scripts/verify_ui_templates.py`.
+- Run `uv run pytest tests/test_rest_api.py`
+- Run `uv run pytest tests/test_server.py`
+- Run full pytest suite `uv run pytest` (59+ tests passing)
+- Run `uv run python build.py`
 
-### Manual & Performance Verification
-- Benchmark query execution time on `GET /` and `GET /api/articles`.
-- Test UI via browser subagent:
-  - Page navigation and items-per-page selector.
-  - Debounced search filtering.
-  - Video transcript extraction API endpoint.
+### Manual / Browser Verification
+- Test deletion of YouTube video page and article page.
+- Verify `/?error=...` displays clean alert banner in UI instead of raw JSON.
+- Verify `vw_page_cards` no longer shows ghost `Archived Item` cards.

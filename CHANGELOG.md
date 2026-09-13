@@ -20,7 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added responsive UI pagination and dynamic reactive search controls to `src/kb_web/templates/pages_list.j2.html`:
     - Responsive pagination bar with Previous/Next buttons, active page pills, item counters, and limit selector.
     - Client-side reactive JavaScript controller with 300ms search input debouncing, animated skeleton loading placeholders (`animate-pulse`), and seamless URL address bar state synchronization (`history.pushState`).
-    - Added comprehensive unit test suite in `tests/test_rest_api.py` covering pagination bounds, query filtering, transcript segment extraction, and HTML shell responses.
+    - Added comprehensive unit test suite in `tests/test_rest_api.py` covering pagination bounds, query filtering, transcript segment extraction, cascade deletion, and HTML shell responses.
+  - **REST API Cascade Deletion (`DELETE /api/articles`)**:
+    - Added `DELETE /api/articles` endpoint for external agents and client apps, supporting cascading removal of articles, YouTube video metadata, vector embeddings, collection memberships, and history revisions.
+  - **Dismissible Toast Flash Banners**:
+    - Added responsive green success (`?msg=...`) and red error (`?error=...`) alert banners to `src/kb_web/templates/base.j2.html` with SVG icons and dismiss triggers.
+  - **Ghost Stub Purge Routine**:
+    - Added automated ghost stub cleanup in `ensure_views_and_indexes()` and database view definition to eliminate orphaned `Archived Item (...)` placeholders resurrected during migration.
 
 ### Changed
 - **Phasing out SQLite in favor of PostgreSQL as Primary Storage Engine**:
@@ -29,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Optimized virtual site domain extraction in `view_all_pages` to project only `(url, title)` instead of full table scans.
 
 ### Fixed
+- **PostgreSQL Cascade Deletion & Foreign Key Violations (Resolves #56)**:
+  - Fixed `ForeignKeyViolation` and 404 failure in `handle_delete_page` (`/admin/delete/page`) by cascading deletions across `article_embeddings`, `title_embeddings`, `video_embeddings`, `chunk_embeddings`, `collection_items`, `collection_actions`, `youtube_videos`, `page_versions`, `links`, and `fetched_pages`.
+  - Replaced unhandled HTTP 404 raw JSON exceptions on deletion with user-friendly redirects to `/?error=...` toast banners.
+  - Fixed migration script `db_migrate_sqlite.py` and WebSocket import to skip orphaned child records rather than synthesizing empty `Archived Item (<url>)` dummy cards.
+  - Filtered out hollow ghost stubs in PostgreSQL view `vw_page_cards`.
 - Fixed `AttributeError` / `OperationalError` during database snapshot export by ignoring database views in `db_snapshot.py`.
 - Excluded view models from `Base.metadata.create_all()` to prevent accidental table creation before view instantiation.
 - Resolved `NameError: name 'func' is not defined` in `src/kb_web/routers/pages.py`.

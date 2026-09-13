@@ -9,14 +9,27 @@ import json
 import math
 import re
 from typing import Optional, List, Dict, Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote_plus
 
 from fastapi import APIRouter, Query, HTTPException, Depends
 from sqlalchemy import or_, func, desc, asc
 
 from ..base import db_session, config
 from ..models import extract_youtube_video_id
-from ..models_orm import FetchedPage, YouTubeVideo, Collection, CollectionItem, PageVersion, PageCardView
+from ..models_orm import (
+    FetchedPage,
+    YouTubeVideo,
+    Collection,
+    CollectionItem,
+    CollectionAction,
+    PageVersion,
+    PageCardView,
+    ArticleEmbedding,
+    TitleEmbedding,
+    VideoEmbedding,
+    ChunkEmbedding,
+    Link,
+)
 from ..utils import get_url_basename
 
 router = APIRouter(prefix="/api", tags=["REST API"])
@@ -172,6 +185,46 @@ def get_article_detail(
             "collections": collections,
             "versions_count": versions_count,
         }
+
+
+@router.delete("/articles")
+def delete_article(url: str = Query(..., description="URL of the page to delete")) -> Dict[str, Any]:
+    """Deletes an article and cascades removal across all dependent embeddings,
+    videos, chunks, collection items, and version records cleanly.
+    """
+    raw_url = url.strip()
+    decoded_url = unquote_plus(raw_url).strip()
+    urls_to_remove = list({raw_url, decoded_url})
+
+    with db_session() as session:
+        deleted_count = 0
+        for u in urls_to_remove:
+            session.query(ArticleEmbedding).filter_by(url=u).delete()
+            session.query(TitleEmbedding).filter_by(url=u).delete()
+            session.query(VideoEmbedding).filter_by(url=u).delete()
+            session.query(ChunkEmbedding).filter_by(source_id=u).delete()
+            session.query(CollectionItem).filter_by(source_id=u).delete()
+            session.query(CollectionAction).filter_by(source_id=u).delete()
+
+            vid_id = extract_youtube_video_id(u)
+            if vid_id:
+                session.query(YouTubeVideo).filter(
+                    or_(YouTubeVideo.url == u, YouTubeVideo.video_id == vid_id)
+                ).delete()
+            else:
+                session.query(YouTubeVideo).filter_by(url=u).delete()
+
+            session.query(PageVersion).filter_by(url=u).delete()
+            session.query(Link).filter_by(url=u).delete()
+            c = session.query(FetchedPage).filter_by(url=u).delete()
+            deleted_count += c
+
+    return {
+        "status": "success",
+        "message": "Article and associated records deleted successfully.",
+        "url": raw_url,
+        "deleted": deleted_count > 0,
+    }
 
 
 # --- 2. Videos Endpoints ---

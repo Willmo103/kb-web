@@ -50,6 +50,7 @@ def upgrade() -> None:
             LEFT JOIN youtube_videos y ON f.url = y.url
             LEFT JOIN collection_items ci ON f.url = ci.source_id AND ci.collection_id != 1
             LEFT JOIN collections c ON ci.collection_id = c.id
+            WHERE (f.title NOT LIKE 'Archived Item (%%' OR (f.html_content IS NOT NULL AND f.html_content != '') OR (f.md_content IS NOT NULL AND f.md_content != '') OR (y.video_id IS NOT NULL))
             GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general,
                      y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
         """))
@@ -86,6 +87,7 @@ def upgrade() -> None:
                 LEFT JOIN youtube_videos y ON f.url = y.url
                 LEFT JOIN collection_items ci ON f.url = ci.source_id AND ci.collection_id != 1
                 LEFT JOIN collections c ON ci.collection_id = c.id
+                WHERE (f.title NOT LIKE 'Archived Item (%%' OR (f.html_content IS NOT NULL AND f.html_content != '') OR (f.md_content IS NOT NULL AND f.md_content != '') OR (y.video_id IS NOT NULL))
                 GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general,
                          y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
             """))
