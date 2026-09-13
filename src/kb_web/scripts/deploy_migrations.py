@@ -141,6 +141,8 @@ def deploy_single(engine, alembic_cfg, target_label: str = "current"):
 
     # 1. Create all tables if they don't exist
     Base.metadata.create_all(engine)
+    from kb_web.models_orm import ensure_views_and_indexes
+    ensure_views_and_indexes(engine)
 
     # If PostgreSQL, ensure vector columns are flexible
     if engine.dialect.name == "postgresql":
