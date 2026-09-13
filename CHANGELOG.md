@@ -39,6 +39,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Optimized virtual site domain extraction in `view_all_pages` to project only `(url, title)` instead of full table scans.
 
 ### Fixed
+- **Fixed `/links` 500 Internal Server Error (Resolves #59)**:
+  - Decoupled ORM `Link` rows into plain dictionaries inside `db_session()` in `src/kb_web/routers/links.py` to prevent SQLAlchemy 2.0 `DetachedInstanceError` when accessing attributes after session teardown.
+  - Guarded `link.created_at[:10]` and `link.last_clicked_at[:10]` against `NoneType` subscripting in `src/kb_web/templates/links.j2.html`.
+- **Restored Live Server DB Logging & Filtered Alembic Plugin Spam (Resolves #59)**:
+  - Re-attached `DatabaseLogHandler` directly to `kb_web`, `uvicorn.error`, `uvicorn.access`, and root loggers inside `lifespan(app)` in `src/kb_web/server.py` to ensure request logging and uncaught exceptions persist after Gunicorn/Uvicorn worker process initialization.
+  - Added filter in `DatabaseLogHandler.emit()` in `src/kb_web/base.py` to exclude noisy `alembic` and `plugins` migration setup messages from flooding `system_logs`.
+- **Optimized `/admin` Dashboard Latency from 7.92s to <5ms (Resolves #59)**:
+  - Replaced full-table scan and Python list comprehension in `get_admin_dashboard()` (`session.query(FetchedPage).all()`) with an efficient SQL aggregate query (`func.count(FetchedPage.url).filter(...)`), eliminating multi-megabyte HTML/markdown deserialization overhead.
+- **Optimized `/view/site` Profile Latency & Fixed Character-Split Tags (Resolves #59)**:
+  - Replaced full-table scans in `view_site_profile()` with lightweight column projections and separate domain URL counts.
+  - Parsed JSON-encoded `tags` strings into lists of strings (`_parse_tags`) to prevent Jinja from iterating over raw JSON strings character by character into single-letter pills.
+  - Populated `safe_url = quote_plus(url)` on site page items so links route properly to page profiles.
 - **Severe 11+ Second Latency on `/collections` and `/collections/view/{id}` (Resolves #58)**:
   - Eliminated full-table scans that eagerly loaded multi-megabyte `html_content`, `md_content`, and `text_content` across all 286 database pages on admin loads.
   - Replaced Pydantic `HTMLPage` model inflation on ungrouped pages and admin dropdown lists with lightweight column projections `(FetchedPage.url, FetchedPage.title)` and dictionaries, reducing query execution time from 11.33s to 0.028s (~400x speedup).

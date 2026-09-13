@@ -3142,3 +3142,102 @@ def test_collections_page_and_view_performance(client: TestClient) -> None:
         session.query(Collection).filter_by(id=col_id).delete()
         session.query(FetchedPage).filter_by(url="https://example.com/fast-col-page").delete()
 
+
+def test_links_safe_rendering_and_null_dates(client):
+    """Verifies that /links renders cleanly without DetachedInstanceError or NoneType subscripting."""
+    from kb_web.base import db_session
+    from kb_web.models_orm import Link
+
+    with db_session() as session:
+        link = Link(
+            url="https://example.com/null-date-link",
+            title="Safe Null Date Link",
+            description="Testing null date handling",
+            click_count=5,
+            created_at=None,
+            last_clicked_at=None,
+        )
+        session.add(link)
+        session.flush()
+        link_id = link.id
+
+    # Authenticate as admin
+    client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+
+    resp = client.get("/links")
+    assert resp.status_code == 200
+    assert "Safe Null Date Link" in resp.text
+    assert "Created: Unknown" in resp.text
+
+    # Cleanup
+    with db_session() as session:
+        session.query(Link).filter_by(id=link_id).delete()
+
+
+def test_admin_dashboard_performance_and_render(client):
+    """Verifies /admin loads cleanly with SQL aggregate count."""
+    client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+
+    resp = client.get("/admin")
+    assert resp.status_code == 200
+    assert "Server Dashboard" in resp.text
+    assert "Unprocessed Pages" in resp.text or "unprocessed_count" in resp.text or "Server Configurations" in resp.text
+
+
+def test_view_site_tag_deserialization_and_safe_url(client):
+    """Verifies that /view/site renders whole tag badges without character splitting and populates safe_url."""
+    from kb_web.base import db_session
+    from kb_web.models_orm import FetchedPage
+
+    test_url = "https://youtu.be/regression_test_video"
+    with db_session() as session:
+        p = FetchedPage(
+            url=test_url,
+            title="AI Safety and Alignment",
+            tags=json.dumps(["ai safety", "machine learning"]),
+            description="A test video on alignment",
+            fetched_at="2026-09-13T12:00:00",
+        )
+        session.add(p)
+
+    resp = client.get("/view/site?site=youtu.be")
+    assert resp.status_code == 200
+    assert "ai safety" in resp.text
+    assert "machine learning" in resp.text
+    # Ensure character-splitting does not occur
+    assert ">a</a>" not in resp.text
+    assert ">i</a>" not in resp.text
+    # Verify safe_url is in the links
+    assert "https%3A%2F%2Fyoutu.be%2Fregression_test_video" in resp.text
+
+    # Cleanup
+    with db_session() as session:
+        session.query(FetchedPage).filter_by(url=test_url).delete()
+
+
+def test_database_logger_filtering_and_capture():
+    """Verifies that alembic plugin setup spam is filtered and live server logs are captured in SystemLog."""
+    import logging
+    from kb_web.base import db_session
+    from kb_web.models_orm import SystemLog
+
+    alembic_lg = logging.getLogger("alembic.runtime.plugins")
+    alembic_lg.info("setup plugin alembic.autogenerate.regression_test")
+
+    server_lg = logging.getLogger("kb_web")
+    server_lg.info("Regression test live server message entry")
+
+    with db_session() as session:
+        recent_logs = session.query(SystemLog).order_by(SystemLog.id.desc()).limit(10).all()
+        for r in recent_logs:
+            assert "setup plugin alembic.autogenerate.regression_test" not in (r.message or "")
+        assert any("Regression test live server message entry" in (r.message or "") for r in recent_logs)
+

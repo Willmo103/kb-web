@@ -52,7 +52,7 @@ from ..models_orm import (
     RegisteredClient,
     SystemLog,
 )
-from sqlalchemy import or_, text
+from sqlalchemy import or_, text, func
 from ..utils import (
     fetch_url,
     extract_first_url,
@@ -434,12 +434,17 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
     registered_clients = []
 
     with db_session() as session:
-        all_pages = session.query(FetchedPage).all()
-        count = sum(
-            1
-            for r in all_pages
-            if not r.description
-            or "AI Processing skipped" in r.description
+        count = (
+            session.query(func.count(FetchedPage.url))
+            .filter(
+                or_(
+                    FetchedPage.description.is_(None),
+                    FetchedPage.description == "",
+                    FetchedPage.description.like("%AI Processing skipped%"),
+                )
+            )
+            .scalar()
+            or 0
         )
 
         try:
