@@ -104,6 +104,47 @@ class Source(Base):
     metadata_json = Column(Text, nullable=True)
 
 
+class UploadedDocument(Base):
+    __tablename__ = "uploaded_documents"
+
+    file_hash = Column(String(64), primary_key=True)
+    filename = Column(String, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    mime_type = Column(String, nullable=True)
+    file_path = Column(Text, nullable=False)
+    docling_json_path = Column(Text, nullable=True)
+    status = Column(String, default="uploaded", index=True)  # "uploaded", "parsed", "failed", "purged"
+    error_message = Column(Text, nullable=True)
+    uploaded_at = Column(String, nullable=False)
+    source_id = Column(String(36), ForeignKey("sources.id"), nullable=True, index=True)
+
+    def __init__(self, **kwargs):
+        if "storage_path" in kwargs and "file_path" not in kwargs:
+            kwargs["file_path"] = kwargs.pop("storage_path")
+        if "created_at" in kwargs and "uploaded_at" not in kwargs:
+            val = kwargs.pop("created_at")
+            kwargs["uploaded_at"] = val.isoformat() if hasattr(val, "isoformat") else str(val)
+        elif "uploaded_at" not in kwargs:
+            kwargs["uploaded_at"] = datetime.now().isoformat()
+        super().__init__(**kwargs)
+
+    @property
+    def storage_path(self):
+        return self.file_path
+
+    @storage_path.setter
+    def storage_path(self, val):
+        self.file_path = val
+
+    @property
+    def created_at(self):
+        return self.uploaded_at
+
+    @created_at.setter
+    def created_at(self, val):
+        self.uploaded_at = val.isoformat() if hasattr(val, "isoformat") else str(val)
+
+
 class FetchedPage(Base):
     __tablename__ = "fetched_pages"
 
@@ -262,6 +303,80 @@ class OllamaLog(Base):
     response = Column(Text)
     duration = Column(Float)
     status = Column(String)
+
+
+class OllamaChatCache(Base):
+    __tablename__ = "ollama_chat_cache"
+
+    prompt_hash = Column(String(64), primary_key=True)
+    model_used = Column(String, nullable=False, index=True)
+    settings_applied = Column(Text, nullable=True)
+    raw_prompt = Column(Text, nullable=False)
+    raw_response_json = Column(Text, nullable=False)
+    created_at = Column(String, nullable=False)
+    hit_count = Column(Integer, default=1)
+    last_accessed_at = Column(String, nullable=False)
+
+    def __init__(self, **kwargs):
+        if "cache_key" in kwargs and "prompt_hash" not in kwargs:
+            kwargs["prompt_hash"] = kwargs.pop("cache_key")
+        if "model" in kwargs and "model_used" not in kwargs:
+            kwargs["model_used"] = kwargs.pop("model")
+        if "prompt_text" in kwargs and "raw_prompt" not in kwargs:
+            kwargs["raw_prompt"] = kwargs.pop("prompt_text")
+        if "response_text" in kwargs and "raw_response_json" not in kwargs:
+            val = kwargs.pop("response_text")
+            resp_dict = {"model": kwargs.get("model_used", ""), "message": {"role": "assistant", "content": val}}
+            kwargs["raw_response_json"] = json.dumps(resp_dict)
+        if "created_at" not in kwargs:
+            kwargs["created_at"] = datetime.now().isoformat()
+        elif hasattr(kwargs["created_at"], "isoformat"):
+            kwargs["created_at"] = kwargs["created_at"].isoformat()
+        if "last_accessed_at" not in kwargs:
+            kwargs["last_accessed_at"] = kwargs["created_at"]
+        elif hasattr(kwargs["last_accessed_at"], "isoformat"):
+            kwargs["last_accessed_at"] = kwargs["last_accessed_at"].isoformat()
+        super().__init__(**kwargs)
+
+    @property
+    def cache_key(self):
+        return self.prompt_hash
+
+    @cache_key.setter
+    def cache_key(self, val):
+        self.prompt_hash = val
+
+    @property
+    def model(self):
+        return self.model_used
+
+    @model.setter
+    def model(self, val):
+        self.model_used = val
+
+    @property
+    def prompt_text(self):
+        return self.raw_prompt
+
+    @prompt_text.setter
+    def prompt_text(self, val):
+        self.raw_prompt = val
+
+    @property
+    def response_text(self):
+        try:
+            data = json.loads(self.raw_response_json)
+            return data.get("message", {}).get("content", self.raw_response_json)
+        except Exception:
+            return self.raw_response_json
+
+    @response_text.setter
+    def response_text(self, val):
+        resp_dict = {
+            "model": self.model_used or "",
+            "message": {"role": "assistant", "content": val}
+        }
+        self.raw_response_json = json.dumps(resp_dict)
 
 
 class SettingOllama(Base):

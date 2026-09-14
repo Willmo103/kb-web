@@ -6,8 +6,10 @@ import hashlib
 import json
 import math
 import re
+import time
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Dict, Any, List, Union
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -407,6 +409,123 @@ def ensure_model_available(client: ollama.Client, model_name: str) -> None:
         print(f"Failed to automatically pull Ollama model '{model_name}': {e}")
 
 
+class _CachedChatMessage:
+    def __init__(self, role: str, content: str):
+        self.role = role
+        self.content = content
+
+
+class _CachedChatResponse:
+    def __init__(self, data: dict):
+        msg_data = data.get("message", {})
+        self.message = _CachedChatMessage(
+            role=msg_data.get("role", "assistant"),
+            content=msg_data.get("content", ""),
+        )
+        self.model = data.get("model", "")
+        self.created_at = data.get("created_at", "")
+        self._raw = data
+
+    def model_dump(self):
+        return self._raw
+
+
+def cached_ollama_chat(
+    client: ollama.Client,
+    model: str,
+    messages: list,
+    options: Optional[dict] = None,
+    think: Optional[bool] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    **kwargs,
+) -> Any:
+    """Dispatches chat request to Ollama with caching in the ollama_chat_cache table."""
+    from .models_orm import OllamaChatCache
+    from .base import db_session
+
+    if options is None:
+        options = {}
+    else:
+        options = dict(options)
+    if temperature is not None:
+        options["temperature"] = temperature
+    if top_p is not None:
+        options["top_p"] = top_p
+    for k, v in kwargs.items():
+        options[k] = v
+
+    settings_dict = {}
+    if options:
+        settings_dict["options"] = options
+    if think is not None:
+        settings_dict["think"] = think
+
+    settings_json = json.dumps(settings_dict, sort_keys=True)
+    prompt_str = json.dumps(messages, sort_keys=True)
+    cache_key_raw = f"{model}:{settings_json}:{prompt_str}"
+    prompt_hash = hashlib.sha256(cache_key_raw.encode("utf-8")).hexdigest()
+
+    # 1. Check cache for hit
+    try:
+        with db_session() as session:
+            entry = session.query(OllamaChatCache).filter_by(prompt_hash=prompt_hash).first()
+            if entry:
+                entry.hit_count = (entry.hit_count or 0) + 1
+                entry.last_accessed_at = datetime.now().isoformat()
+                session.commit()
+
+                resp_data = json.loads(entry.raw_response_json)
+                return _CachedChatResponse(resp_data)
+    except Exception:
+        pass
+
+    # 2. Invoke remote client
+    chat_kwargs = {"model": model, "messages": messages}
+    if options:
+        chat_kwargs["options"] = options
+    if think is not None:
+        chat_kwargs["think"] = think
+
+    resp = client.chat(**chat_kwargs)
+
+    # 3. Store response in cache
+    try:
+        raw_msg = getattr(resp, "message", None)
+        raw_content = ""
+        raw_role = "assistant"
+        if raw_msg:
+            rc = getattr(raw_msg, "content", "")
+            raw_content = str(rc) if rc is not None else ""
+            rr = getattr(raw_msg, "role", "assistant")
+            if isinstance(rr, str):
+                raw_role = rr
+        now_str = datetime.now().isoformat()
+        resp_dict = {
+            "model": str(model),
+            "created_at": now_str,
+            "message": {"role": raw_role, "content": raw_content},
+        }
+
+        with db_session() as session:
+            new_cache = OllamaChatCache(
+                prompt_hash=prompt_hash,
+                model_used=model,
+                settings_applied=settings_json,
+                raw_prompt=prompt_str,
+                raw_response_json=json.dumps(resp_dict, default=str),
+                created_at=now_str,
+                hit_count=0,
+                last_accessed_at=now_str,
+            )
+            session.merge(new_cache)
+            session.commit()
+    except Exception:
+        pass
+
+    return resp
+
+
 def extract_wiki_content(
     html_page: HTMLPage, config=None, client: Optional[ollama.Client] = None
 ) -> str:
@@ -439,7 +558,16 @@ def extract_wiki_content(
             }
             if getattr(config, "ollama_think", False):
                 chat_kwargs["think"] = True
-            response = client.chat(**chat_kwargs)
+
+            opts = {}
+            if hasattr(config, "ollama_temperature") and config.ollama_temperature is not None:
+                opts["temperature"] = config.ollama_temperature
+            if hasattr(config, "ollama_top_p") and config.ollama_top_p is not None:
+                opts["top_p"] = config.ollama_top_p
+            if opts:
+                chat_kwargs["options"] = opts
+
+            response = cached_ollama_chat(client, **chat_kwargs)
             return response.message.content
         else:
             chunks = chunk_text(raw_content, max_len)
@@ -538,7 +666,16 @@ def extract_tags_content(
         }
         if getattr(config, "ollama_think", False):
             chat_kwargs["think"] = True
-        response = client.chat(**chat_kwargs)
+
+        opts = {}
+        if hasattr(config, "ollama_temperature") and config.ollama_temperature is not None:
+            opts["temperature"] = config.ollama_temperature
+        if hasattr(config, "ollama_top_p") and config.ollama_top_p is not None:
+            opts["top_p"] = config.ollama_top_p
+        if opts:
+            chat_kwargs["options"] = opts
+
+        response = cached_ollama_chat(client, **chat_kwargs)
         tags_str = response.message.content
         tags = [t.strip().lower() for t in tags_str.split(",") if t.strip()]
         return [t for t in tags if t]
@@ -1138,3 +1275,145 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
         return str(first_file)
 
     raise RuntimeError(f"Failed to download video {video_id} with yt-dlp.")
+
+
+# ---------------------------------------------------------------------------
+# Docling-Serve Client & Document Ingestion Utilities (Issue #36)
+# ---------------------------------------------------------------------------
+
+_BASE_DOCLING_EXTS = {
+    "docx", "doc", "pptx", "ppt", "html", "htm", "image", "pdf", "asciidoc", "adoc",
+    "md", "markdown", "csv", "xlsx", "xls", "odt", "ods", "odp", "xml", "dclx",
+    "latex", "tex", "epub", "txt", "json"
+}
+DOCLING_SUPPORTED_EXTENSIONS = _BASE_DOCLING_EXTS | {f".{ext}" for ext in _BASE_DOCLING_EXTS}
+
+
+class DoclingClient:
+    """Client for interacting with docling-serve API or local fallback for document conversion."""
+
+    def __init__(
+        self,
+        docling_serve_url: Optional[str] = None,
+        serve_url: Optional[str] = None,
+        ocr_enabled: Optional[bool] = None,
+    ):
+        url = docling_serve_url or serve_url or default_config.docling_serve_url or "http://localhost:5001"
+        self.serve_url = url.rstrip("/")
+        self.ocr_enabled = default_config.docling_ocr_enabled if ocr_enabled is None else ocr_enabled
+
+    def is_alive(self) -> bool:
+        """Checks if the docling-serve HTTP service is reachable and ready."""
+        try:
+            with httpx.Client(timeout=2.0) as client:
+                resp = client.get(f"{self.serve_url}/ready")
+                if resp.status_code == 200:
+                    return True
+                resp2 = client.get(f"{self.serve_url}/health")
+                return resp2.status_code == 200
+        except Exception:
+            return False
+
+    def convert_file(self, file_path: Path | str) -> Dict[str, Any]:
+        """Converts a local file to markdown and docling JSON."""
+        p = Path(file_path)
+
+        # 1. Try docling-serve endpoint if online
+        if self.is_alive():
+            try:
+                with open(p, "rb") as f:
+                    files = {"file": (p.name, f)}
+                    data = {"to_formats": ["md", "json"], "do_ocr": self.ocr_enabled}
+                    with httpx.Client(timeout=60.0) as client:
+                        resp = client.post(f"{self.serve_url}/v1alpha/convert/source", files=files, data=data)
+                        if resp.status_code in (200, 201):
+                            res_json = resp.json()
+                            doc = res_json.get("document", {})
+                            md_text = (
+                                doc.get("markdown")
+                                or doc.get("export_to_markdown")
+                                or res_json.get("markdown", "")
+                            )
+                            doc_json = doc.get("json") or res_json.get("json", doc)
+                            return {
+                                "markdown": md_text,
+                                "docling_json": doc_json,
+                                "engine": "docling-serve",
+                            }
+            except Exception as e:
+                print(f"Warning: docling-serve request failed ({e}), attempting local fallback.")
+
+        # 2. Local python docling package fallback
+        try:
+            from docling.document_converter import DocumentConverter
+            converter = DocumentConverter()
+            result = converter.convert(str(p))
+            md_content = result.document.export_to_markdown()
+            try:
+                json_content = result.document.export_to_dict()
+            except Exception:
+                json_content = {}
+            return {
+                "markdown": md_content,
+                "docling_json": json_content,
+                "engine": "docling-local",
+            }
+        except Exception:
+            pass
+
+        # 3. Plain text fallback for text/markdown formats
+        ext = p.suffix.lstrip(".").lower()
+        if ext in ("md", "markdown", "txt", "csv", "json", "html", "htm"):
+            with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            return {
+                "markdown": content,
+                "docling_json": {"method": "plaintext_fallback"},
+                "engine": "text-fallback",
+            }
+
+        raise RuntimeError(f"Unable to convert document {p.name}: Docling service and local engine unavailable.")
+
+    def convert_document(self, file_path: Path | str) -> tuple[str, dict]:
+        """Convenience helper returning (markdown_content, docling_json)."""
+        res = self.convert_file(file_path)
+        return res.get("markdown", ""), res.get("docling_json", {})
+
+
+def purge_expired_uploads(
+    uploads_dir: Optional[Path] = None,
+    days: int = 7,
+    max_age_days: Optional[int] = None,
+) -> int:
+    """Purges unprocessable or failed file uploads older than days (default 7 days)."""
+    effective_days = max_age_days if max_age_days is not None else days
+    if uploads_dir is None:
+        uploads_dir = default_config.uploads_dir
+
+    from .models_orm import UploadedDocument
+    from .base import db_session
+
+    cutoff = time.time() - (effective_days * 86400)
+    purged_count = 0
+
+    with db_session() as session:
+        expired_docs = session.query(UploadedDocument).filter(
+            UploadedDocument.status.in_(["uploaded", "failed"])
+        ).all()
+
+        for doc in expired_docs:
+            try:
+                up_dt = datetime.fromisoformat(doc.uploaded_at)
+                if up_dt.timestamp() < cutoff:
+                    if doc.file_path and Path(doc.file_path).exists():
+                        Path(doc.file_path).unlink(missing_ok=True)
+                    if doc.docling_json_path and Path(doc.docling_json_path).exists():
+                        Path(doc.docling_json_path).unlink(missing_ok=True)
+                    session.delete(doc)
+                    purged_count += 1
+            except Exception:
+                pass
+        session.commit()
+
+    return purged_count
+

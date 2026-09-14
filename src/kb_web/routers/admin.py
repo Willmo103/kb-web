@@ -7,6 +7,7 @@ import json
 import logging
 import time
 from datetime import datetime
+import httpx
 from typing import AsyncGenerator, Optional
 from pydantic import BaseModel, Field
 from urllib.parse import unquote_plus, quote_plus, urlparse
@@ -52,6 +53,8 @@ from ..models_orm import (
     CliApiKey,
     RegisteredClient,
     SystemLog,
+    OllamaChatCache,
+    UploadedDocument,
 )
 from sqlalchemy import or_, text, func
 from ..utils import (
@@ -564,6 +567,28 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
         except Exception as e:
             print(f"Failed to fetch registered clients: {e}")
 
+        ollama_cache_entries = []
+        ollama_cache_count = 0
+        try:
+            ollama_cache_entries = [
+                {
+                    "cache_key": c.prompt_hash,
+                    "model": c.model_used,
+                    "hit_count": c.hit_count,
+                    "created_at": str(c.created_at)[:19].replace('T', ' ') if c.created_at else "",
+                    "last_accessed_at": str(c.last_accessed_at)[:19].replace('T', ' ') if c.last_accessed_at else "",
+                    "prompt_preview": (c.raw_prompt[:120] + "...") if c.raw_prompt and len(c.raw_prompt) > 120 else (c.raw_prompt or ""),
+                    "response_preview": (c.raw_response_json[:120] + "...") if c.raw_response_json and len(c.raw_response_json) > 120 else (c.raw_response_json or ""),
+                }
+                for c in session.query(OllamaChatCache)
+                .order_by(OllamaChatCache.last_accessed_at.desc())
+                .limit(50)
+                .all()
+            ]
+            ollama_cache_count = session.query(func.count(OllamaChatCache.prompt_hash)).scalar() or 0
+        except Exception as e:
+            print(f"Failed to fetch ollama cache entries: {e}")
+
     # Enumerate local JSON database backups
     backups = []
     try:
@@ -607,6 +632,8 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             backups=backups,
             video_backups=video_backups,
             video_files_count=video_files_count,
+            ollama_cache_entries=ollama_cache_entries,
+            ollama_cache_count=ollama_cache_count,
         )
     )
 
@@ -655,12 +682,16 @@ def handle_config_update(
     gotify_token: str = Form(None),
     qdrant_host_url: str = Form(None),
     qdrant_api_key: str = Form(None),
+    docling_serve_url: Optional[str] = Form(None),
+    docling_ocr_enabled: bool = Form(False),
+    ollama_temperature: Optional[float] = Form(None),
+    ollama_top_p: Optional[float] = Form(None),
     wiki_prompt: str = Form(...),
     youtube_wiki_prompt: str = Form(...),
     max_input_length: int = Form(20000),
     ollama_think: bool = Form(False),
 ) -> RedirectResponse:
-    """Saves updated server settings (Ollama, Gotify, and Qdrant parameters) to config file."""
+    """Saves updated server settings (Ollama, Gotify, Qdrant, and Docling parameters) to config file."""
     config.ollama_host = ollama_host
     config.ollama_model = ollama_model
     config.ollama_embedding_model = ollama_embedding_model
@@ -669,6 +700,12 @@ def handle_config_update(
     config.gotify_token = gotify_token or None
     config.qdrant_host_url = qdrant_host_url or None
     config.qdrant_api_key = qdrant_api_key or None
+    config.docling_serve_url = docling_serve_url.strip() if docling_serve_url and docling_serve_url.strip() else None
+    config.docling_ocr_enabled = docling_ocr_enabled
+    if ollama_temperature is not None:
+        config.ollama_temperature = ollama_temperature
+    if ollama_top_p is not None:
+        config.ollama_top_p = ollama_top_p
     config.wiki_prompt = wiki_prompt
     config.youtube_wiki_prompt = youtube_wiki_prompt
     config.max_input_length = max_input_length
@@ -723,6 +760,59 @@ def test_ollama() -> dict:
             "status": "error",
             "message": f"Failed to connect to Ollama server: {str(e)}",
         }
+
+
+@router.post("/admin/test-docling", dependencies=[Depends(verify_auth)])
+def test_docling(docling_serve_url: Optional[str] = Form(None)) -> dict:
+    """Tests connectivity to the docling-serve endpoint or configured URL."""
+    target_url = docling_serve_url or config.docling_serve_url or "http://localhost:5001"
+    from ..utils import DoclingClient
+    client = DoclingClient(docling_serve_url=target_url)
+    if client.is_alive():
+        return {
+            "status": "success",
+            "message": f"Successfully connected to docling-serve at {target_url}.",
+        }
+    else:
+        return {
+            "status": "error",
+            "message": f"Could not connect to docling-serve at {target_url}. Ensure docling-serve container/process is running.",
+        }
+
+
+@router.get("/admin/ollama/cache", dependencies=[Depends(verify_auth)])
+def get_ollama_cache_json(limit: int = 100) -> dict:
+    """Returns stored Ollama chat prompt response cache records."""
+    with db_session() as session:
+        rows = session.query(OllamaChatCache).order_by(OllamaChatCache.last_accessed_at.desc()).limit(limit).all()
+        items = [
+            {
+                "cache_key": r.cache_key,
+                "model": r.model,
+                "hit_count": r.hit_count,
+                "created_at": str(r.created_at) if r.created_at else None,
+                "last_accessed_at": str(r.last_accessed_at) if r.last_accessed_at else None,
+                "prompt_preview": (r.prompt_text[:150] + "...") if r.prompt_text and len(r.prompt_text) > 150 else (r.prompt_text or ""),
+                "response_preview": (r.response_text[:150] + "...") if r.response_text and len(r.response_text) > 150 else (r.response_text or ""),
+            }
+            for r in rows
+        ]
+        total = session.query(func.count(OllamaChatCache.prompt_hash)).scalar() or 0
+    return {"status": "success", "total": total, "items": items}
+
+
+@router.post("/admin/ollama/cache/clear", dependencies=[Depends(verify_auth)], response_model=None)
+def clear_ollama_cache(request: Request) -> RedirectResponse | dict:
+    """Clears all stored entries from the Ollama chat prompt response cache."""
+    with db_session() as session:
+        count = session.query(OllamaChatCache).delete()
+        session.commit()
+    if "application/json" in request.headers.get("accept", ""):
+        return {"status": "success", "message": f"Cleared {count} cached Ollama chat responses.", "count": count}
+    return RedirectResponse(
+        url=f"/admin?msg=Ollama+chat+cache+cleared+({count}+entries+removed).",
+        status_code=303,
+    )
 
 
 @router.post(

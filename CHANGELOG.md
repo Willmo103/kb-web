@@ -5,8 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-09-12
+## [0.3.0] - 2026-09-14
 ### Added
+- **WebSocket Document Ingestion & Drag-and-Drop UI (Sprint 5, Resolves #51, #52)**:
+  - Added Tab 3 "📁 Document Upload (Docling)" to `/import` (`src/kb_web/templates/url_import.j2.html`) featuring an interactive drag-and-drop dropzone, live upload progress bars, transfer speed estimation, and supported format pills.
+  - Implemented real-time chunked streaming WebSocket endpoint `@router.websocket("/api/import/file/upload")` in `src/kb_web/routers/uploads.py` supporting binary chunk accumulation, status feedback, and automatic error handling.
+  - Implemented HTTP multipart upload fallback endpoint `@router.post("/api/import/file")`.
+  - Added SHA-256 file deduplication and structured disk storage vectors (`originals/{hash}.{ext}` and `docling_json/{hash}.json`), generating matching `FetchedPage` records (`file://{path}`) and dispatching ingestion queue pipeline jobs.
+  - Added automated 7-day cleanup policy (`purge_expired_uploads`) for purging uncompleted or failed document uploads.
+- **Docling Server & Conversion Engine Integration (Sprint 5, Resolves #51, #36)**:
+  - Added `DoclingClient` in `src/kb_web/utils.py` connecting to `docling-serve` HTTP services with configurable OCR (`docling_ocr_enabled`), local docling package fallback, and robust plain-text fallback.
+  - Supported document formats: `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.html`, `.asciidoc`, `.md`, and `.csv`.
+  - Added admin connection check endpoint `@router.post("/admin/test-docling")` with live status feedback in `/admin`.
+- **Ollama Chat Prompt Cache & Advanced Model Settings (Sprint 5, Resolves #51, #53)**:
+  - Added `OllamaChatCache` declarative model mapped to `ollama_chat_cache` table with deterministic SHA-256 cache keys (`model:settings_json:prompt_str`), hit counters, and timestamps.
+  - Implemented `cached_ollama_chat()` helper wrapping LLM calls with cache lookup, hit tracking, and automatic response persistence.
+  - Added `/admin` prompt cache management table with live search filtering, preview modals, and clear trigger (`POST /admin/ollama/cache/clear`).
+  - Added admin configuration settings for `docling_serve_url`, `docling_ocr_enabled`, `ollama_temperature`, and `ollama_top_p` with database synchronization.
+  - Created Alembic database migration `f92d84291a25_add_ollama_cache_and_uploads.py`.
+  - Added test suite in `tests/test_sprint_5_docling_ollama.py` with 12 comprehensive unit tests covering client status, mock conversions, text fallback, cache hits/misses, upload purging, admin controls, and upload endpoints.
 - **Unified Ingestion Sources Schema & Processing Registry (Sprint 4, Resolves #48, #49)**:
   - Added `ProcessorXref` declarative model mapped to `_processor_xref` registry table with dynamic callback paths, pipeline stages (`pre`, `process`, `post`), and self-referential `next_processor_id` chains.
   - Added `Source` declarative model mapped to `sources` table with UUID primary key, status tracking (`pending`, `processing`, `completed`, `failed`), retry counting, error logging, and metadata JSON.

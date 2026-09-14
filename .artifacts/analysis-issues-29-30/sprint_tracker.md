@@ -30,9 +30,9 @@ This document serves as the master checklist and progress tracker for the planne
   - `[x]` Sub-Issue 8: Top-Level Ingestion Sources & Processing Registry Schema (Issue #49)
   - `[x]` Sub-Issue 9: State-Driven Job Queue Processor Daemon (Issue #50)
 
-### [ ] Sprint 5: WebSocket Ingestion, Docling, & Cache Settings (Issue #51) -> [Details](./sprint_5_docling_ollama.md)
+### [x] Sprint 5: WebSocket Ingestion, Docling, & Cache Settings (Issue #51) -> [Details](./sprint_5_docling_ollama.md)
 * **Goal**: Add WebSocket file upload chunking, integrate `docling-serve` parsing, and cache Ollama chats.
 * **Issues & Sub-Issues to Resolve**:
-  - `[ ]` Issue #36: Add `docling-serve` Support and File Imports
-  - `[ ]` Sub-Issue 10: WebSocket File Ingestion & Drag-and-Drop Ingestion UI (Issue #52)
-  - `[ ]` Sub-Issue 11: Standalone Ollama Chat Caching, Prompts Logs, & Settings Management (Issue #53)
+  - `[x]` Issue #36: Add `docling-serve` Support and File Imports
+  - `[x]` Sub-Issue 10: WebSocket File Ingestion & Drag-and-Drop Ingestion UI (Issue #52)
+  - `[x]` Sub-Issue 11: Standalone Ollama Chat Caching, Prompts Logs, & Settings Management (Issue #53)

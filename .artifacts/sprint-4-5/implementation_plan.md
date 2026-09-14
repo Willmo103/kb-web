@@ -1,112 +1,162 @@
-# Implementation Plan - Sprint 4: Unified Ingestion Sources Schema & Queue Processor
+# Implementation Plan: Sprint 5 - WebSocket Ingestion, Docling Integration, & Cache Settings
 
-Execute Sprint 4 encompassing Issue #48, Sub-Issue #49, and Sub-Issue #50:
-1. **Sub-Issue #49**: Implement top-level `sources` schema and `_processor_xref` service callback registry, relating child entities (`fetched_pages`, `youtube_videos`, `chunk_embeddings`) to sources via foreign key constraints, and seeding default pipeline stages.
-2. **Sub-Issue #50**: Implement `IngestionWorker` state-driven queue processor daemon in `src/kb_web/queue_processor.py`, managing dynamic callback execution, stage transitions, retries, error logging, and Gotify alerts.
+Sprint 5 addresses:
+- **Parent Issue #51**: Sprint 5: WebSocket Ingestion, Docling Integration, & Cache Settings
+- **Issue #36**: Add `docling-serve` Support and File Imports
+- **Sub-Issue 10 (#52)**: WebSocket File Ingestion & Drag-and-Drop Ingestion UI
+- **Sub-Issue 11 (#53)**: Standalone Ollama Chat Caching, Prompts Logs, & Settings Management
+
+---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Non-Breaking Schema Extensions**: Existing tables (`fetched_pages`, `youtube_videos`, `chunk_embeddings`) remain fully operational with their existing primary keys, while gaining an optional `source_id` foreign key referencing `sources.id`.
-> - **Background Daemon Lifecycle**: The `IngestionWorker` runs in a daemon thread managed by FastAPI's `lifespan` context manager, automatically polling for pending jobs with configurable intervals and graceful shutdown.
-> - **Extensible Processor Registry**: `_processor_xref` allows registering new pipeline stages (such as Docling file converters in Sprint 5) simply by adding a record pointing to a Python module callback without modifying the core queue daemon.
+> **Key Architecture Decisions for Sprint 5:**
+> 1. **WebSocket File Ingestion (`/api/import/file/upload`)**:
+>    - Large document files (PDF, DOCX, PPTX, XLSX, etc.) are sliced client-side into 1MB chunks and streamed via WebSocket.
+>    - Provides real-time byte-level transfer progress percentage, SHA-256 checksum verification, and error notifications.
+> 2. **Docling Storage Vectors & Deduplication (Issue #36)**:
+>    - Primary storage vectors:
+>      - `media/uploads/originals/{file_hash}.{ext}` (raw uploaded file)
+>      - `media/uploads/docling_json/{file_hash}.json` (structured Docling AST/JSON)
+>      - `FetchedPage` entry with markdown content and `file://` URI so existing vector embedding, Qdrant export, and semantic search seamlessly index uploaded documents.
+>    - File content SHA-256 serves as primary key/index for deduplication.
+>    - Files failing conversion or flagged as unprocessable will be retained for at most 7 days before automated cleanup.
+> 3. **`DoclingClient` & `docling-serve` Integration**:
+>    - Configurable `DOCLING_SERVE_URL` (default `http://localhost:5001`).
+>    - If `docling-serve` is unreachable, `DoclingClient` gracefully falls back to local Python `docling` library or clean text extraction without crashing.
+> 4. **`OllamaChatCache` Table & Prompt Caching (Sub-Issue #53)**:
+>    - New table `ollama_chat_cache` (`prompt_hash` PK, `model_used`, `settings_applied`, `raw_prompt`, `raw_response_json`, `created_at`, `hit_count`, `last_accessed_at`).
+>    - Transparently caches all LLM extraction calls (`extract_wiki_content`, `extract_tags_content`, `ai_curate_candidate_links`), eliminating duplicate Ollama queries and drastically lowering latency on repeated scrapes and crawls.
+> 5. **Admin Dashboard Settings**:
+>    - Advanced Ollama parameters: `temperature`, `top_p`, `num_ctx`, `think`.
+>    - Docling settings: `docling_serve_url`, `enable_ocr`, `max_file_size_mb`.
+>    - Interactive prompt cache inspection table with search and cache flush triggers.
 
 ---
 
 ## Proposed Changes
 
-### Database & ORM Layer
+### 1. Database Schema & ORM (`src/kb_web/models_orm.py`, `migrations/`)
+
 #### [MODIFY] [models_orm.py](file:///c:/src/kb-web/src/kb_web/models_orm.py)
-- Define `ProcessorXref`:
-  - `__tablename__ = "_processor_xref"`
-  - `id`: Integer primary key, autoincrement
-  - `service_name`: String (e.g. `fetcher`, `wiki_summary`, `tagger`, `embeddings`)
-  - `callback_path`: String (e.g. `kb_web.queue_processor:process_fetch`)
-  - `stage`: String (e.g. `pre`, `process`, `post`)
-  - `next_processor_id`: Integer, ForeignKey(`_processor_xref.id`), nullable=True
-  - `is_active`: Boolean, default=True
-  - `description`: Text, nullable=True
-- Define `Source`:
-  - `__tablename__ = "sources"`
-  - `id`: String(36) UUID primary key (default uuid4)
-  - `url`: Text, nullable=True, index=True
-  - `file_hash`: String, nullable=True, index=True
-  - `type`: String, nullable=False (`html`, `youtube`, `file`, `docling`)
-  - `processor_id`: Integer, ForeignKey(`_processor_xref.id`), nullable=True, index=True
-  - `path`: Text, nullable=True
-  - `status`: String, default="pending" (`pending`, `processing`, `completed`, `failed`)
-  - `retry_count`: Integer, default=0
-  - `error_log`: Text, nullable=True
-  - `timestamp`: String, default datetime isoformat
-  - `metadata_json`: Text, nullable=True
-- Add `source_id = Column(String(36), ForeignKey("sources.id"), nullable=True, index=True)` to `FetchedPage`, `YouTubeVideo`, and `ChunkEmbedding`.
-- In `ensure_views_and_indexes()`:
-  - Call `seed_default_processors(engine)` to pre-populate default pipeline stages in `_processor_xref`.
+- Define `OllamaChatCache`:
+  ```python
+  class OllamaChatCache(Base):
+      __tablename__ = "ollama_chat_cache"
 
-#### [NEW] [migrations/versions/e81c74291a24_add_sources_and_processor_xref.py](file:///c:/src/kb-web/migrations/versions/e81c74291a24_add_sources_and_processor_xref.py)
-- Alembic migration creating `_processor_xref` and `sources` tables and adding `source_id` foreign keys.
+      prompt_hash = Column(String(64), primary_key=True)
+      model_used = Column(String, nullable=False, index=True)
+      settings_applied = Column(Text, nullable=True)
+      raw_prompt = Column(Text, nullable=False)
+      raw_response_json = Column(Text, nullable=False)
+      created_at = Column(String, nullable=False)
+      hit_count = Column(Integer, default=1)
+      last_accessed_at = Column(String, nullable=False)
+  ```
+- Define `UploadedDocument`:
+  ```python
+  class UploadedDocument(Base):
+      __tablename__ = "uploaded_documents"
 
----
+      file_hash = Column(String(64), primary_key=True)
+      filename = Column(String, nullable=False)
+      file_size = Column(Integer, nullable=False)
+      mime_type = Column(String, nullable=True)
+      file_path = Column(Text, nullable=False)
+      docling_json_path = Column(Text, nullable=True)
+      status = Column(String, default="uploaded", index=True)  # uploaded, parsed, failed, purged
+      error_message = Column(Text, nullable=True)
+      uploaded_at = Column(String, nullable=False)
+      source_id = Column(String(36), ForeignKey("sources.id"), nullable=True, index=True)
+  ```
 
-### Queue Processor Daemon
-#### [NEW] [queue_processor.py](file:///c:/src/kb-web/src/kb_web/queue_processor.py)
-- Implement `IngestionWorker`:
-  - Thread loop with `running` event and polling interval (default 2s).
-  - `process_next_job()`: Atomically fetches next pending `Source` with an active `processor_id`.
-  - Dynamic callback routing: resolves `callback_path` using `importlib` and calls handler.
-  - Stage progression: on success, advances `source.processor_id` to `processor.next_processor_id` (or marks `status = "completed"` when `next_processor_id` is None).
-  - Retry & Error handling: catches exceptions, increments `retry_count`, logs traceback in `error_log`, marks `status = "failed"` after max retries (3), and sends Gotify alert.
-- Implement built-in callback handlers:
-  - `process_fetch`: Fetches content via `httpx` or existing ingest sync.
-  - `process_summary`: Invokes Ollama wiki summary.
-  - `process_tags`: Invokes Ollama taxonomist.
-  - `process_embeddings`: Invokes `generate_gemma_embeddings_for_page`.
-  - `process_youtube_metadata`: Extracts video metadata and transcript.
-  - `process_youtube_wiki`: Generates YouTube markdown wiki article.
-- Implement helper `enqueue_source(url_or_path, source_type="html", collection_id=None, custom_instructions=None) -> str`.
+#### [NEW] [migrations/versions/f92d84291a25_add_ollama_cache_and_uploads.py](file:///c:/src/kb-web/migrations/versions/f92d84291a25_add_ollama_cache_and_uploads.py)
+- Create `ollama_chat_cache` and `uploaded_documents` tables with performance indexes.
 
 ---
 
-### Application Lifecycle & Server
+### 2. Configuration & Docling Client (`src/kb_web/config.py`, `src/kb_web/utils.py`)
+
+#### [MODIFY] [config.py](file:///c:/src/kb-web/src/kb_web/config.py)
+- Add properties with DB persistence (`settings_external` / `settings_ollama`):
+  - `docling_serve_url: str` (default `"http://localhost:5001"`)
+  - `docling_ocr_enabled: bool` (default `False`)
+  - `ollama_temperature: float` (default `0.2`)
+  - `ollama_top_p: float` (default `0.9`)
+  - `uploads_dir: Path` (`~/.kb/uploads` or configured project media directory)
+
+#### [MODIFY] [utils.py](file:///c:/src/kb-web/src/kb_web/utils.py)
+- Add `DoclingClient` class:
+  - Methods: `is_alive()`, `convert_file(file_path: Path) -> dict` returning markdown, docling JSON, and document metadata.
+  - Graceful fallback: attempts HTTP request to `docling-serve` first; if unavailable, attempts Python `docling` package; falls back to text reader for plain text/md/csv.
+- Add `cached_ollama_chat(client, model, messages, options=None, think=None)`:
+  - Hashes input arguments with SHA-256.
+  - Checks `OllamaChatCache`; returns cached response on hit; writes to cache on miss.
+- Integrate `cached_ollama_chat` into `extract_wiki_content`, `extract_tags_content`, and `ai_curate_candidate_links`.
+- Add `purge_expired_uploads(uploads_dir: Path, max_age_days: int = 7) -> int` to remove unprocessable uploads older than 7 days.
+
+---
+
+### 3. WebSocket Upload & API Router (`src/kb_web/routers/uploads.py`, `src/kb_web/server.py`)
+
+#### [NEW] [src/kb_web/routers/uploads.py](file:///c:/src/kb-web/src/kb_web/routers/uploads.py)
+- WebSocket endpoint `@router.websocket("/api/import/file/upload")`:
+  - Receives JSON handshake with metadata: `filename`, `file_size`, `collection_id`.
+  - Validates non-blacklisted file extensions (`.pdf`, `.docx`, `.pptx`, `.xlsx`, `.md`, `.csv`, `.epub`, etc.).
+  - Receives binary or base64 chunks, writes to disk under `media/uploads/originals/`, tracks bytes received, and calculates SHA-256.
+  - Sends WebSocket progress updates: `{"status": "uploading", "progress": 45, "received": 450000, "total": 1000000}`.
+  - Upon completion:
+    - Verifies file integrity.
+    - Runs `DoclingClient.convert_file()`.
+    - Creates `UploadedDocument` record.
+    - Enqueues into `sources` table via `enqueue_source(file_path, source_type="docling", collection_id=...)` to advance pipeline (tagger $\rightarrow$ embeddings).
+    - Sends WebSocket completion event: `{"status": "completed", "file_hash": hash, "source_id": id, "url": view_url}`.
+  - Error handling: catches conversion exceptions, marks status as `failed`, and retains for 7-day purge window.
+
 #### [MODIFY] [server.py](file:///c:/src/kb-web/src/kb_web/server.py)
-- Start `IngestionWorker` background daemon thread during `lifespan(app)` startup.
-- Stop `IngestionWorker` cleanly during `lifespan(app)` shutdown.
-
-#### [MODIFY] [rest_api.py](file:///c:/src/kb-web/src/kb_web/routers/rest_api.py)
-- Expose `GET /api/queue/jobs`: Returns paginated/filtered list of queue sources.
-- Expose `POST /api/queue/enqueue`: Allows enqueuing new sources via REST API.
+- Register `uploads.router` in FastAPI application.
 
 ---
 
-### Documentation & Sprint Tracker
-#### [MODIFY] [sprint_4_job_queue.md](file:///c:/src/kb-web/.artifacts/analysis-issues-29-30/sprint_4_job_queue.md)
-- Check off all task items.
-#### [MODIFY] [sprint_tracker.md](file:///c:/src/kb-web/.artifacts/analysis-issues-29-30/sprint_tracker.md)
-- Mark Sprint 4 as `[x]`.
+### 4. UI: Drag-and-Drop Uploader & Admin Settings (`src/kb_web/templates/`)
 
----
+#### [MODIFY] [url_import.j2.html](file:///c:/src/kb-web/src/kb_web/templates/url_import.j2.html)
+- Add Tab 3: "📁 Document Upload (Docling)".
+- Implement drag-and-drop zone with animated border and file icon.
+- File selector with supported file types badge list.
+- Reactive client-side JavaScript streaming files in 1MB chunks to `ws://.../api/import/file/upload`.
+- Visual progress bar, transfer speed / bytes counter, and completion toast linking to the created wiki entry.
 
-### Tests
-#### [NEW] [test_queue_processor.py](file:///c:/src/kb-web/tests/test_queue_processor.py)
-- Test `Source` and `ProcessorXref` ORM models and relationships.
-- Test `seed_default_processors` idempotency.
-- Test `IngestionWorker` job processing:
-  - Single stage execution.
-  - Full pipeline progression (`pre` -> `process` -> `post` -> `completed`).
-  - Failure handling, retry increments, and `failed` status transition.
-  - Dynamic callback resolution and error trapping.
-- Test queue REST API endpoints (`/api/queue/jobs`, `/api/queue/enqueue`).
+#### [MODIFY] [admin.j2.html](file:///c:/src/kb-web/src/kb_web/templates/admin.j2.html) & [admin.py](file:///c:/src/kb-web/src/kb_web/routers/admin.py)
+- Add Docling Settings card:
+  - Docling-Serve URL input with "Test Docling Connection" trigger.
+  - OCR toggle.
+- Add Ollama Advanced Settings card:
+  - Temperature, Top-P, Reasoning Think Mode toggles.
+- Add Ollama Cache & History section:
+  - Table of recent cached prompts with hit counters, timestamps, and "Clear Cache" action.
+  - Endpoint `POST /admin/ollama/cache/clear`.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-- `uv run pytest tests/test_queue_processor.py`
-- Full test suite: `uv run pytest`
-- Template verification: `uv run python .agents/skills/ui-component-uat-check/scripts/verify_ui_templates.py`
-- Build pipeline: `uv run python build.py`
+1. **New Test Suite `tests/test_sprint_5_docling_ollama.py`**:
+   - `test_ollama_cache_hit_and_miss`: Tests that identical prompts hit cache without sending Ollama network calls.
+   - `test_docling_client_mock_convert`: Tests `DoclingClient` parsing markdown and JSON output.
+   - `test_websocket_chunked_file_upload`: Tests `/api/import/file/upload` streaming chunks, computing SHA-256, and saving original file.
+   - `test_file_type_validation_and_blacklist`: Tests rejection of invalid/executable file types.
+   - `test_purge_expired_uploads`: Tests 7-day retention purge of unprocessable files.
+   - `test_admin_docling_and_cache_settings`: Tests settings persistence and cache clearance.
+2. **Full Repository Checks**:
+   - `uv run pytest`: 100% pass across all tests.
+   - `uv run python build.py`: Clean build packaging.
+   - `verify_ui_templates.py`: 0 template warnings.
+   - `generate_uat_report.py`: Generate VCS UAT testing report for Sprint 5.
 
-### Manual / Integration Verification
-- Enqueue a test source URL and observe `IngestionWorker` advance it through `_processor_xref` stages to `completed`.
-- Verify database state in PostgreSQL.
+### Manual Verification
+- Test drag-and-drop file upload on `/import` tab 3 with a PDF/markdown file.
+- Inspect upload progress bar and verify wiki card appears on `/` and `/collections`.
+- Check `/admin` to verify Docling settings and prompt cache table.

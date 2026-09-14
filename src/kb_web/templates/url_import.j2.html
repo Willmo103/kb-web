@@ -14,11 +14,14 @@
 
     <!-- Navigation Tabs -->
     <div class="flex border-b border-gray-200 mb-6 space-x-4">
-        <button type="button" id="tabSingleBtn" onclick="switchTab('single')" class="py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-660 focus:outline-none transition flex items-center gap-2">
+        <button type="button" id="tabSingleBtn" onclick="switchTab('single')" class="py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-600 focus:outline-none transition flex items-center gap-2">
             <span>📄</span> Single Page Ingest
         </button>
         <button type="button" id="tabCrawlBtn" onclick="switchTab('crawl')" class="py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2">
             <span>🕷️</span> Crawl & Discover URLs
+        </button>
+        <button type="button" id="tabUploadBtn" onclick="switchTab('upload')" class="py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2">
+            <span>📁</span> Document Upload (Docling)
         </button>
     </div>
 
@@ -251,6 +254,142 @@
 
     </div>
 
+    <!-- TAB 3: Document Upload (Docling Parser & WebSocket Streaming) -->
+    <div id="uploadIngestView" class="hidden space-y-6">
+        <div class="bg-white p-8 rounded-xl border border-gray-200 shadow-sm">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="text-2xl">📁</span>
+                <h1 class="text-2xl font-extrabold text-gray-900">Document Upload & Docling Ingest</h1>
+            </div>
+            <p class="text-sm text-gray-500 mb-4">
+                Upload PDFs, office documents, or markdown files with live chunked streaming. Content is converted to clean Markdown via Docling, deduplicated by SHA-256 hash, and queued for AI tag and embedding generation.
+            </p>
+
+            <!-- Supported formats pill badges -->
+            <div class="flex flex-wrap items-center gap-1.5 mb-6 text-[11px] font-semibold text-gray-600">
+                <span class="text-gray-400 mr-1">Supported:</span>
+                <span class="bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded">PDF</span>
+                <span class="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded">DOCX</span>
+                <span class="bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded">PPTX</span>
+                <span class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded">XLSX</span>
+                <span class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded">HTML</span>
+                <span class="bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded">Markdown</span>
+                <span class="bg-gray-100 text-gray-700 border border-gray-200 px-2 py-0.5 rounded">TXT/CSV/JSON</span>
+            </div>
+
+            <!-- Drag & Drop Dropzone -->
+            <div id="uploadDropzone" onclick="document.getElementById('doclingFileInput').click()"
+                 class="border-2 border-dashed border-indigo-300 hover:border-indigo-500 bg-indigo-50/30 hover:bg-indigo-50/60 rounded-2xl p-8 text-center cursor-pointer transition-all duration-200 mb-6">
+                <input type="file" id="doclingFileInput" class="hidden" accept=".pdf,.docx,.pptx,.xlsx,.html,.htm,.md,.markdown,.txt,.csv,.json" onchange="handleFileSelected(this.files[0])" />
+                <div class="flex flex-col items-center justify-center space-y-3">
+                    <div class="w-14 h-14 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-2xl shadow-inner">
+                        📄
+                    </div>
+                    <div>
+                        <p class="text-sm font-bold text-gray-800">
+                            Drag and drop your document here, or <span class="text-indigo-600 underline">browse files</span>
+                        </p>
+                        <p class="text-xs text-gray-400 mt-1">Maximum file size: 50MB per document</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Selected File Information Preview -->
+            <div id="selectedFileInfo" class="hidden bg-gray-50 border border-gray-200 rounded-xl p-4 mb-6 flex items-center justify-between">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <span class="text-2xl" id="fileTypeIcon">📄</span>
+                    <div class="truncate">
+                        <p class="text-sm font-bold text-gray-800 truncate" id="selectedFileName">filename.pdf</p>
+                        <p class="text-xs text-gray-400" id="selectedFileSize">0 KB</p>
+                    </div>
+                </div>
+                <button type="button" onclick="clearSelectedFile()" class="text-gray-400 hover:text-red-500 font-bold p-1 rounded transition text-sm" title="Remove file">
+                    ✕
+                </button>
+            </div>
+
+            <!-- Collection & Custom Instructions -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label for="upload_collection_id" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">Assign to Collection:</label>
+                    <select id="upload_collection_id" onchange="toggleNewCollectionInput(this.value, 'uploadNewCollectionDiv', 'upload_new_collection_title')"
+                            class="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-sm">
+                        <option value="">None (General Library)</option>
+                        {% for col in collections %}
+                        <option value="{{ col.id }}">{{ col.title }}</option>
+                        {% endfor %}
+                        <option value="new_collection">+ Create New Collection...</option>
+                    </select>
+                </div>
+                <div id="uploadNewCollectionDiv" class="hidden">
+                    <label for="upload_new_collection_title" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">New Collection Title:</label>
+                    <input type="text" id="upload_new_collection_title" placeholder="My Research Topic"
+                           class="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-sm">
+                </div>
+            </div>
+
+            <div class="mb-6">
+                <label for="uploadCustomInstructions" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
+                    Custom Curation / Summary Instructions (Optional):
+                </label>
+                <input type="text" id="uploadCustomInstructions" placeholder="e.g., Focus summary on key conclusions and financial data"
+                       class="w-full px-3.5 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-xs">
+            </div>
+
+            <!-- Action Button -->
+            <div class="pt-2">
+                <button type="button" id="btnStartUpload" onclick="startDocumentUpload()" disabled
+                        class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white font-semibold text-sm px-6 py-2.5 rounded-lg shadow-sm transition flex items-center gap-2">
+                    <span>🚀</span>
+                    <span id="btnUploadText">Upload & Parse Document</span>
+                </button>
+            </div>
+
+            <!-- Upload Progress Section -->
+            <div id="uploadProgressSection" class="hidden mt-6 bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-3">
+                <div class="flex justify-between items-center text-xs font-semibold">
+                    <span id="uploadStatusText" class="text-indigo-700 flex items-center gap-2">
+                        <span class="animate-spin">🔄</span> Initializing WebSocket upload stream...
+                    </span>
+                    <span id="uploadPercentText" class="font-mono text-gray-600">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                    <div id="uploadProgressBar" class="bg-gradient-to-r from-indigo-500 to-emerald-500 h-3 rounded-full transition-all duration-200 w-0"></div>
+                </div>
+                <div class="flex justify-between text-[11px] text-gray-400 font-mono">
+                    <span id="uploadBytesTransferred">0 MB / 0 MB</span>
+                    <span id="uploadTransferSpeed">0 MB/s</span>
+                </div>
+            </div>
+
+            <!-- Upload Success Banner -->
+            <div id="uploadSuccessBanner" class="hidden mt-6 bg-emerald-50 border border-emerald-200 text-emerald-900 p-5 rounded-xl text-sm shadow-sm space-y-2">
+                <div class="flex items-center gap-2">
+                    <span class="text-xl">🎉</span>
+                    <h4 class="font-bold text-base">Document Ingested Successfully!</h4>
+                </div>
+                <p id="uploadSuccessMessage" class="text-xs text-emerald-800"></p>
+                <div class="pt-2 flex items-center gap-3">
+                    <a id="uploadViewPageBtn" href="#" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition shadow-sm">
+                        📖 View Ingested Article
+                    </a>
+                    <button type="button" onclick="resetUploadForm()" class="bg-white border border-emerald-300 text-emerald-800 text-xs font-bold px-4 py-2 rounded-lg hover:bg-emerald-100 transition shadow-sm">
+                        Upload Another Document
+                    </button>
+                </div>
+            </div>
+
+            <!-- Upload Error Banner -->
+            <div id="uploadErrorBanner" class="hidden mt-6 bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-xl text-sm space-y-1">
+                <div class="flex items-center gap-2">
+                    <span class="text-lg">❌</span>
+                    <h4 class="font-bold">Upload Failed</h4>
+                </div>
+                <p id="uploadErrorMessage" class="text-xs"></p>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <script>
@@ -258,18 +397,29 @@
     function switchTab(tab) {
         const singleBtn = document.getElementById('tabSingleBtn');
         const crawlBtn = document.getElementById('tabCrawlBtn');
+        const uploadBtn = document.getElementById('tabUploadBtn');
         const singleView = document.getElementById('singleIngestView');
         const crawlView = document.getElementById('crawlIngestView');
+        const uploadView = document.getElementById('uploadIngestView');
+
+        const activeClasses = "py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-600 focus:outline-none transition flex items-center gap-2";
+        const inactiveClasses = "py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2";
+
+        singleBtn.className = inactiveClasses;
+        crawlBtn.className = inactiveClasses;
+        uploadBtn.className = inactiveClasses;
+        singleView.classList.add('hidden');
+        crawlView.classList.add('hidden');
+        uploadView.classList.add('hidden');
 
         if (tab === 'crawl') {
-            singleBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2";
-            crawlBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-660 focus:outline-none transition flex items-center gap-2";
-            singleView.classList.add('hidden');
+            crawlBtn.className = activeClasses;
             crawlView.classList.remove('hidden');
+        } else if (tab === 'upload') {
+            uploadBtn.className = activeClasses;
+            uploadView.classList.remove('hidden');
         } else {
-            crawlBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2";
-            singleBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-660 focus:outline-none transition flex items-center gap-2";
-            crawlView.classList.add('hidden');
+            singleBtn.className = activeClasses;
             singleView.classList.remove('hidden');
         }
     }
@@ -636,16 +786,327 @@
             .replace(/'/g, "&#039;");
     }
 
-    // URL parameter detection to auto-open Crawl tab if requested
+    // ==========================================
+    // Document Upload & WebSocket Streaming Logic
+    // ==========================================
+    let currentUploadFile = null;
+    let uploadStartTime = null;
+
+    function handleFileSelected(file) {
+        if (!file) return;
+
+        // Size check (50MB)
+        if (file.size > 50 * 1024 * 1024) {
+            alert("File size exceeds 50MB limit.");
+            clearSelectedFile();
+            return;
+        }
+
+        currentUploadFile = file;
+
+        // Determine icon based on extension
+        const ext = file.name.split('.').pop().toLowerCase();
+        let icon = "📄";
+        if (ext === 'pdf') icon = "📕";
+        else if (ext === 'docx' || ext === 'doc') icon = "📘";
+        else if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') icon = "📗";
+        else if (ext === 'pptx' || ext === 'ppt') icon = "📙";
+        else if (ext === 'html' || ext === 'htm') icon = "🌐";
+        else if (ext === 'md' || ext === 'markdown') icon = "📝";
+
+        document.getElementById('fileTypeIcon').innerText = icon;
+        document.getElementById('selectedFileName').innerText = file.name;
+        document.getElementById('selectedFileSize').innerText = formatBytes(file.size);
+
+        document.getElementById('selectedFileInfo').classList.remove('hidden');
+        document.getElementById('uploadDropzone').classList.add('opacity-60');
+
+        const btn = document.getElementById('btnStartUpload');
+        btn.disabled = false;
+
+        // Hide any previous result banners
+        document.getElementById('uploadSuccessBanner').classList.add('hidden');
+        document.getElementById('uploadErrorBanner').classList.add('hidden');
+    }
+
+    function clearSelectedFile() {
+        currentUploadFile = null;
+        document.getElementById('doclingFileInput').value = '';
+        document.getElementById('selectedFileInfo').classList.add('hidden');
+        document.getElementById('uploadDropzone').classList.remove('opacity-60');
+        document.getElementById('btnStartUpload').disabled = true;
+    }
+
+    function resetUploadForm() {
+        clearSelectedFile();
+        document.getElementById('uploadProgressSection').classList.add('hidden');
+        document.getElementById('uploadSuccessBanner').classList.add('hidden');
+        document.getElementById('uploadErrorBanner').classList.add('hidden');
+        document.getElementById('uploadProgressBar').style.width = '0%';
+        document.getElementById('uploadPercentText').innerText = '0%';
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+        if (!+bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    }
+
+    // Drag and Drop Event Listeners
+    const dropzone = document.getElementById('uploadDropzone');
+    if (dropzone) {
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropzone.classList.add('border-indigo-600', 'bg-indigo-100/50', 'scale-[1.01]');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropzone.classList.remove('border-indigo-600', 'bg-indigo-100/50', 'scale-[1.01]');
+            }, false);
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files && files.length > 0) {
+                handleFileSelected(files[0]);
+            }
+        }, false);
+    }
+
+    async function startDocumentUpload() {
+        if (!currentUploadFile) return;
+
+        const file = currentUploadFile;
+        const colSelect = document.getElementById('upload_collection_id');
+        const colVal = colSelect.value;
+        const newColTitle = (document.getElementById('upload_new_collection_title').value || '').trim();
+        const customInstructions = (document.getElementById('uploadCustomInstructions').value || '').trim();
+
+        let collectionId = null;
+        let finalNewTitle = null;
+
+        if (colVal === 'new_collection') {
+            if (!newColTitle) {
+                alert("Please specify a title for the new collection.");
+                document.getElementById('upload_new_collection_title').focus();
+                return;
+            }
+            finalNewTitle = newColTitle;
+        } else if (colVal) {
+            collectionId = parseInt(colVal, 10);
+        }
+
+        const btn = document.getElementById('btnStartUpload');
+        const btnText = document.getElementById('btnUploadText');
+        btn.disabled = true;
+        btnText.innerText = "Streaming File...";
+
+        const progressSection = document.getElementById('uploadProgressSection');
+        const progressBar = document.getElementById('uploadProgressBar');
+        const percentText = document.getElementById('uploadPercentText');
+        const statusText = document.getElementById('uploadStatusText');
+        const bytesText = document.getElementById('uploadBytesTransferred');
+        const speedText = document.getElementById('uploadTransferSpeed');
+
+        progressSection.classList.remove('hidden');
+        progressBar.style.width = '0%';
+        percentText.innerText = '0%';
+        statusText.innerHTML = '<span class="animate-spin">🔄</span> Connecting WebSocket...';
+
+        document.getElementById('uploadSuccessBanner').classList.add('hidden');
+        document.getElementById('uploadErrorBanner').classList.add('hidden');
+
+        uploadStartTime = Date.now();
+
+        // WebSocket Stream Connection with HTTP fallback
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/api/import/file/upload`;
+        let ws;
+
+        try {
+            ws = new WebSocket(wsUrl);
+        } catch (e) {
+            console.warn("WebSocket initialization failed, falling back to HTTP upload:", e);
+            fallbackHttpUpload(file, collectionId, finalNewTitle, customInstructions);
+            return;
+        }
+
+        const CHUNK_SIZE = 1024 * 512; // 512 KB chunks for smooth progress
+        let offset = 0;
+        let bytesSent = 0;
+
+        ws.onopen = () => {
+            statusText.innerHTML = '<span class="animate-pulse">📤</span> Negotiating file handshake...';
+            ws.send(JSON.stringify({
+                type: "start",
+                filename: file.name,
+                file_size: file.size,
+                collection_id: collectionId,
+                new_collection_title: finalNewTitle,
+                custom_instructions: customInstructions
+            }));
+        };
+
+        ws.onmessage = async (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+
+                if (msg.status === 'ready' || msg.status === 'uploading') {
+                    if (offset < file.size) {
+                        const slice = file.slice(offset, offset + CHUNK_SIZE);
+                        offset += CHUNK_SIZE;
+                        bytesSent += slice.size;
+
+                        const percent = Math.min(100, Math.round((bytesSent / file.size) * 100));
+                        progressBar.style.width = `${percent}%`;
+                        percentText.innerText = `${percent}%`;
+                        bytesText.innerText = `${formatBytes(bytesSent)} / ${formatBytes(file.size)}`;
+
+                        const elapsed = (Date.now() - uploadStartTime) / 1000;
+                        if (elapsed > 0) {
+                            const speed = bytesSent / elapsed;
+                            speedText.innerText = `${formatBytes(speed)}/s`;
+                        }
+
+                        statusText.innerHTML = `<span class="animate-pulse">📤</span> Uploading chunks (${percent}%)...`;
+
+                        const buffer = await slice.arrayBuffer();
+                        ws.send(buffer);
+                    } else {
+                        statusText.innerHTML = '<span class="animate-spin">⚙️</span> Finalizing upload & hashing SHA-256...';
+                        ws.send(JSON.stringify({ type: "done" }));
+                    }
+                } else if (msg.status === 'processing') {
+                    progressBar.style.width = '85%';
+                    percentText.innerText = '85%';
+                    statusText.innerHTML = `<span class="animate-spin">⚙️</span> ${escapeHtml(msg.message || 'Parsing document with Docling & OCR...')}`;
+                } else if (msg.status === 'completed') {
+                    progressBar.style.width = '100%';
+                    percentText.innerText = '100%';
+                    statusText.innerHTML = '✅ Ingestion Complete!';
+
+                    // Show success banner
+                    const successBanner = document.getElementById('uploadSuccessBanner');
+                    const successMsg = document.getElementById('uploadSuccessMessage');
+                    const viewPageBtn = document.getElementById('uploadViewPageBtn');
+
+                    successMsg.innerText = msg.message || 'Document parsed and saved to wiki repository.';
+                    if (msg.page_url) {
+                        viewPageBtn.href = `/page?url=${encodeURIComponent(msg.page_url)}`;
+                        viewPageBtn.classList.remove('hidden');
+                    } else {
+                        viewPageBtn.classList.add('hidden');
+                    }
+
+                    successBanner.classList.remove('hidden');
+                    successBanner.scrollIntoView({ behavior: 'smooth' });
+
+                    btn.disabled = false;
+                    btnText.innerText = "Upload & Parse Document";
+                    ws.close();
+                } else if (msg.status === 'error') {
+                    showUploadError(msg.message || "Upload failed on server.");
+                    btn.disabled = false;
+                    btnText.innerText = "Upload & Parse Document";
+                    ws.close();
+                }
+            } catch (err) {
+                console.error("Error processing websocket message:", err);
+            }
+        };
+
+        ws.onerror = (err) => {
+            console.warn("WebSocket error during upload, trying fallback HTTP:", err);
+            ws.close();
+            fallbackHttpUpload(file, collectionId, finalNewTitle, customInstructions);
+        };
+    }
+
+    async function fallbackHttpUpload(file, collectionId, newColTitle, customInstructions) {
+        const statusText = document.getElementById('uploadStatusText');
+        const progressBar = document.getElementById('uploadProgressBar');
+        const percentText = document.getElementById('uploadPercentText');
+        const btn = document.getElementById('btnStartUpload');
+        const btnText = document.getElementById('btnUploadText');
+
+        statusText.innerHTML = '<span class="animate-spin">🔄</span> Uploading via HTTP multipart fallback...';
+        progressBar.style.width = '50%';
+        percentText.innerText = '50%';
+
+        const formData = new FormData();
+        formData.append('file', file);
+        if (collectionId) formData.append('collection_id', collectionId);
+        if (newColTitle) formData.append('new_collection_title', newColTitle);
+        if (customInstructions) formData.append('custom_instructions', customInstructions);
+
+        try {
+            const resp = await fetch('/api/import/file', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await resp.json();
+
+            if (data.status === 'success' || data.status === 'completed') {
+                progressBar.style.width = '100%';
+                percentText.innerText = '100%';
+                statusText.innerHTML = '✅ Ingestion Complete!';
+
+                const successBanner = document.getElementById('uploadSuccessBanner');
+                const successMsg = document.getElementById('uploadSuccessMessage');
+                const viewPageBtn = document.getElementById('uploadViewPageBtn');
+
+                successMsg.innerText = data.message || 'Document uploaded and converted to wiki.';
+                if (data.page_url) {
+                    viewPageBtn.href = `/page?url=${encodeURIComponent(data.page_url)}`;
+                    viewPageBtn.classList.remove('hidden');
+                }
+                successBanner.classList.remove('hidden');
+                successBanner.scrollIntoView({ behavior: 'smooth' });
+            } else {
+                showUploadError(data.message || data.detail || 'Upload failed.');
+            }
+        } catch (err) {
+            showUploadError("Network error: " + err.message);
+        } finally {
+            btn.disabled = false;
+            btnText.innerText = "Upload & Parse Document";
+        }
+    }
+
+    function showUploadError(msg) {
+        const banner = document.getElementById('uploadErrorBanner');
+        const errText = document.getElementById('uploadErrorMessage');
+        errText.innerText = msg;
+        banner.classList.remove('hidden');
+        banner.scrollIntoView({ behavior: 'smooth' });
+
+        const progressSection = document.getElementById('uploadProgressSection');
+        progressSection.classList.add('hidden');
+    }
+
+    // URL parameter detection to auto-open Crawl or Upload tab if requested
     document.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('mode') === 'crawl' || urlParams.get('tab') === 'crawl') {
+        const mode = urlParams.get('mode') || urlParams.get('tab');
+        if (mode === 'crawl') {
             switchTab('crawl');
             const seed = urlParams.get('seed') || urlParams.get('url');
             if (seed) {
                 document.getElementById('crawlSeedUrl').value = seed;
                 handleCrawlDiscovery();
             }
+        } else if (mode === 'upload' || mode === 'docling') {
+            switchTab('upload');
         }
     });
 </script>

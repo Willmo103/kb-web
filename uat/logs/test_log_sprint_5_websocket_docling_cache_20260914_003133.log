@@ -1,0 +1,47 @@
+=== PYTEST OUTPUT LOG ===
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\src\kb-web
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collected 95 items
+
+tests\test_crawler.py ....                                               [  4%]
+tests\test_db_cli.py .......                                             [ 11%]
+tests\test_qdrant_sync.py ...                                            [ 14%]
+tests\test_queue_processor.py .......                                    [ 22%]
+tests\test_rest_api.py ..........                                        [ 32%]
+tests\test_server.py ................................................... [ 86%]
+.                                                                        [ 87%]
+tests\test_sprint_5_docling_ollama.py ............                       [100%]
+
+============================== warnings summary ===============================
+.venv\Lib\site-packages\starlette\testclient.py:53
+  C:\src\kb-web\.venv\Lib\site-packages\starlette\testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+src\kb_web\models_orm.py:8
+  C:\src\kb-web\src\kb_web\models_orm.py:8: MovedIn20Warning: The ``declarative_base()`` function is now available as sqlalchemy.orm.declarative_base(). (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    Base = declarative_base()
+
+tests/test_crawler.py::test_api_crawl_endpoints
+tests/test_sprint_5_docling_ollama.py::test_admin_docling_and_ollama_settings
+tests/test_sprint_5_docling_ollama.py::test_admin_test_docling_endpoint
+tests/test_sprint_5_docling_ollama.py::test_admin_ollama_cache_management
+tests/test_sprint_5_docling_ollama.py::test_http_multipart_file_upload
+tests/test_sprint_5_docling_ollama.py::test_http_file_upload_blacklisted_extension
+tests/test_sprint_5_docling_ollama.py::test_websocket_chunked_file_upload
+  C:\src\kb-web\.venv\Lib\site-packages\alembic\config.py:604: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+tests/test_db_cli.py: 8 warnings
+tests/test_server.py: 37 warnings
+  C:\src\kb-web\.venv\Lib\site-packages\starlette\testclient.py:455: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return super().request(
+
+tests/test_server.py::test_bytes_backup_export_and_import[sqlite]
+  C:\src\kb-web\.venv\Lib\site-packages\starlette\testclient.py:671: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    super().request("GET", url, **kwargs)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 95 passed, 55 warnings in 69.28s (0:01:09) ==================

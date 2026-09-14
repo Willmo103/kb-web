@@ -107,6 +107,11 @@ class Config:
         self._qdrant_host_url: Optional[str] = os.getenv("QDRANT_HOST_URL")
         self._qdrant_api_key: Optional[str] = os.getenv("QDRANT_API_KEY")
         self._database_url: str = os.getenv("DATABASE_URL", "")
+        self._docling_serve_url: str = os.getenv("DOCLING_SERVE_URL", "http://localhost:5001")
+        self._docling_ocr_enabled: bool = os.getenv("DOCLING_OCR_ENABLED", "false").lower() in ("true", "1")
+        self._ollama_temperature: float = float(os.getenv("KB_OLLAMA_TEMPERATURE", "0.2"))
+        self._ollama_top_p: float = float(os.getenv("KB_OLLAMA_TOP_P", "0.9"))
+        self._uploads_dir: Path = self.data_root / "uploads"
 
     def get_db(self):
         """Returns a sqlite_utils Database connection for the configured SQLite database."""
@@ -347,6 +352,62 @@ class Config:
     def qdrant_api_key(self, value: Optional[str]) -> None:
         self._qdrant_api_key = value
         self._write_db_setting("settings_external", "qdrant_api_key", value or "")
+
+    @property
+    def uploads_dir(self) -> Path:
+        self._uploads_dir.mkdir(parents=True, exist_ok=True)
+        return self._uploads_dir
+
+    @property
+    def docling_serve_url(self) -> str:
+        return self._read_db_setting(
+            "settings_external", "docling_serve_url", self._docling_serve_url
+        )
+
+    @docling_serve_url.setter
+    def docling_serve_url(self, value: str) -> None:
+        self._docling_serve_url = value
+        self._write_db_setting("settings_external", "docling_serve_url", value)
+
+    @property
+    def docling_ocr_enabled(self) -> bool:
+        return self._read_db_setting(
+            "settings_external", "docling_ocr_enabled", self._docling_ocr_enabled
+        )
+
+    @docling_ocr_enabled.setter
+    def docling_ocr_enabled(self, value: bool) -> None:
+        self._docling_ocr_enabled = bool(value)
+        self._write_db_setting("settings_external", "docling_ocr_enabled", str(value).lower())
+
+    @property
+    def ollama_temperature(self) -> float:
+        return self._read_db_setting(
+            "settings_ollama", "ollama_temperature", self._ollama_temperature
+        )
+
+    @ollama_temperature.setter
+    def ollama_temperature(self, value: Optional[float]) -> None:
+        if value is None:
+            self._ollama_temperature = 0.7
+        else:
+            self._ollama_temperature = float(value)
+        self._write_db_setting("settings_ollama", "ollama_temperature", str(self._ollama_temperature))
+
+    @property
+    def ollama_top_p(self) -> float:
+        return self._read_db_setting(
+            "settings_ollama", "ollama_top_p", self._ollama_top_p
+        )
+
+    @ollama_top_p.setter
+    def ollama_top_p(self, value: Optional[float]) -> None:
+        if value is None:
+            self._ollama_top_p = 0.9
+        else:
+            self._ollama_top_p = float(value)
+        self._write_db_setting("settings_ollama", "ollama_top_p", str(self._ollama_top_p))
+
 
     @property
     def similarity_threshold(self) -> float:

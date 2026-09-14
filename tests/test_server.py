@@ -11,12 +11,15 @@ from kb_web.server import config as server_config
 from kb_web.models_orm import (
     Base, FetchedPage, PageVersion, YouTubeVideo, Collection, CollectionItem, CollectionNote, CollectionAction,
     ChunkEmbedding, ArticleEmbedding, VideoEmbedding, TitleEmbedding, OllamaLog, SettingOllama, SettingExternal,
-    AgentPrompt, CliApiKey, RegisteredClient, SystemLog, Link, ProcessorXref, Source
+    AgentPrompt, CliApiKey, RegisteredClient, SystemLog, Link, ProcessorXref, Source,
+    OllamaChatCache, UploadedDocument
 )
 
 TABLE_TO_MODEL = {
     "sources": Source,
     "_processor_xref": ProcessorXref,
+    "uploaded_documents": UploadedDocument,
+    "ollama_chat_cache": OllamaChatCache,
     "fetched_pages": FetchedPage,
     "page_versions": PageVersion,
     "youtube_videos": YouTubeVideo,
@@ -3064,35 +3067,33 @@ def test_safe_vector_decorator() -> None:
 
 def test_session_dialect_config(monkeypatch) -> None:
     """Verifies that configuring a postgres database_url initializes the postgres engine."""
-    from kb_web.base import get_engine
+    from unittest.mock import MagicMock
     import kb_web.base
 
-    # Mock create_engine to verify parameters without establishing a real postgres connection
-    created_engines = []
-    from sqlalchemy import create_engine as real_create_engine
+    orig_db_url = getattr(kb_web.base.config, "_database_url", None)
+    orig_engine = kb_web.base._engine
+    orig_session_factory = kb_web.base._SessionFactory
 
-    def mock_create_engine(url, **kwargs):
-        created_engines.append((url, kwargs))
-        # Fall back to sqlite in memory to avoid real postgres connection error during test
-        return real_create_engine("sqlite:///:memory:")
+    mock_engine = MagicMock()
+    mock_create = MagicMock(return_value=mock_engine)
+    monkeypatch.setattr(kb_web.base, "create_engine", mock_create)
+    monkeypatch.setattr("kb_web.models_orm.ensure_views_and_indexes", MagicMock())
+    monkeypatch.setattr("kb_web.models_orm.Base.metadata.create_all", MagicMock())
 
-    monkeypatch.setattr(kb_web.base, "create_engine", mock_create_engine)
+    try:
+        kb_web.base._engine = None
+        kb_web.base._SessionFactory = None
+        kb_web.base.config._database_url = "postgres://user:password@localhost/db"
 
-    # 1. Test postgres conversion
-    monkeypatch.setattr(
-        kb_web.base.config, "_database_url", "postgres://user:password@localhost/db"
-    )
-    # Reset engine cache to force re-initialization
-    monkeypatch.setattr(kb_web.base, "_engine", None)
-
-    get_engine()
-    assert len(created_engines) == 1
-    assert created_engines[0][0] == "postgresql+psycopg2://user:password@localhost/db"
-    assert created_engines[0][1].get("pool_size") == 10
-
-    # Restore config to fallback
-    monkeypatch.setattr(kb_web.base.config, "_database_url", "")
-    monkeypatch.setattr(kb_web.base, "_engine", None)
+        kb_web.base.get_engine()
+        assert mock_create.call_count == 1
+        call_args, call_kwargs = mock_create.call_args
+        assert call_args[0] == "postgresql+psycopg2://user:password@localhost/db"
+        assert call_kwargs.get("pool_size") == 10
+    finally:
+        kb_web.base.config._database_url = orig_db_url
+        kb_web.base._engine = orig_engine
+        kb_web.base._SessionFactory = orig_session_factory
 
 
 def test_collections_page_and_view_performance(client: TestClient) -> None:
