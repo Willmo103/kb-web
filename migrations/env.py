@@ -27,7 +27,7 @@ config.set_main_option("sqlalchemy.url", db_url)
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 from kb_web.models_orm import Base  # noqa: E402
 target_metadata = Base.metadata

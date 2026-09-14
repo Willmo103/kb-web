@@ -1,9 +1,9 @@
 {% extends "base.j2.html" %}
 
-{% block title %}Wiki Importer{% endblock %}
+{% block title %}Wiki Importer & Web Crawler{% endblock %}
 
 {% block content %}
-<div class="container mx-auto px-4 max-w-2xl mt-4">
+<div class="container mx-auto px-4 max-w-4xl mt-4 pb-12">
 
     {% if error_message %}
     <div class="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-lg text-sm mb-6 shadow-sm">
@@ -12,15 +12,26 @@
     </div>
     {% endif %}
 
-    <div class="bg-white p-8 rounded-lg border border-gray-200 shadow-sm">
-        <h1 class="text-2xl font-bold text-gray-900 mb-2">📚 Scrape Clean Wiki Entry</h1>
+    <!-- Navigation Tabs -->
+    <div class="flex border-b border-gray-200 mb-6 space-x-4">
+        <button type="button" id="tabSingleBtn" onclick="switchTab('single')" class="py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-660 focus:outline-none transition flex items-center gap-2">
+            <span>📄</span> Single Page Ingest
+        </button>
+        <button type="button" id="tabCrawlBtn" onclick="switchTab('crawl')" class="py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2">
+            <span>🕷️</span> Crawl & Discover URLs
+        </button>
+    </div>
+
+    <!-- TAB 1: Single Page Ingest (Existing Pipeline) -->
+    <div id="singleIngestView" class="bg-white p-8 rounded-xl border border-gray-200 shadow-sm">
+        <h1 class="text-2xl font-extrabold text-gray-900 mb-2">📚 Scrape Clean Wiki Entry</h1>
         <p class="text-sm text-gray-500 mb-6">Submits targets to pipeline engine to strip headers, footers, sidebars, and trackers.</p>
 
         <form id="ingestForm" action="/import/url" method="post" onsubmit="showSpinner()" class="space-y-4">
             <div>
                 <label for="url" class="block text-sm font-semibold text-gray-700 mb-2">URL to Import:</label>
                 <input type="text" id="url" name="url" required value="{{ prefilled_url or '' }}" placeholder="https://example.com/article"
-                       class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900">
+                       class="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-sm">
             </div>
 
             <div id="videoDownloadDiv" class="hidden border border-gray-200 bg-gray-50 p-4 rounded-lg space-y-2 mt-2">
@@ -40,8 +51,8 @@
 
             <div>
                 <label for="collection_id" class="block text-sm font-semibold text-gray-700 mb-2">Assign to Collection:</label>
-                <select id="collection_id" name="collection_id" onchange="toggleNewCollectionInput(this.value)"
-                        class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900">
+                <select id="collection_id" name="collection_id" onchange="toggleNewCollectionInput(this.value, 'newCollectionDiv', 'new_collection_title')"
+                        class="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-sm">
                     <option value="">None (General Library)</option>
                     {% for col in collections %}
                     <option value="{{ col.id }}">{{ col.title }}</option>
@@ -53,11 +64,11 @@
             <div id="newCollectionDiv" class="hidden">
                 <label for="new_collection_title" class="block text-sm font-semibold text-gray-700 mb-2">New Collection Title:</label>
                 <input type="text" id="new_collection_title" name="new_collection_title" placeholder="My New Collection"
-                       class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900">
+                       class="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-sm">
             </div>
 
-            <div id="formActions">
-                <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 font-medium shadow-sm transition">
+            <div id="formActions" class="pt-2">
+                <button type="submit" class="bg-indigo-600 text-white px-5 py-2.5 rounded-lg hover:bg-indigo-700 font-semibold shadow-sm transition">
                     Run Scrape & Ingest Pipeline
                 </button>
             </div>
@@ -68,17 +79,209 @@
             <div class="text-sm text-gray-600 font-medium animate-pulse">Running HTML2Text conversion and prompt extraction hooks...</div>
         </div>
     </div>
+
+    <!-- TAB 2: Crawl & Discover URLs (Interactive Selection & AI Pre-Checking) -->
+    <div id="crawlIngestView" class="hidden space-y-6">
+
+        <!-- Discovery Query Card -->
+        <div class="bg-white p-8 rounded-xl border border-gray-200 shadow-sm">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="text-2xl">🕷️</span>
+                <h1 class="text-2xl font-extrabold text-gray-900">Webpage Link Discovery & Smart Crawl</h1>
+            </div>
+            <p class="text-sm text-gray-500 mb-6">
+                Discover candidate links on a webpage first, inspect and curate the target URLs, optionally use AI to pre-select substantive documentation, and add selected links to the scraping queue.
+            </p>
+
+            <form id="crawlDiscoverForm" onsubmit="handleCrawlDiscovery(event)" class="space-y-4">
+                <div>
+                    <label for="crawlSeedUrl" class="block text-sm font-semibold text-gray-700 mb-2">Seed Webpage URL to Crawl:</label>
+                    <input type="text" id="crawlSeedUrl" required placeholder="https://docs.example.com/getting-started"
+                           class="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-sm">
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-4 pt-1">
+                    <label class="inline-flex items-center cursor-pointer select-none">
+                        <input type="checkbox" id="crawlSameDomain" checked class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                        <span class="ml-2 text-sm text-gray-700 font-medium">Restrict to Same Domain Only</span>
+                    </label>
+
+                    <div class="flex items-center gap-2">
+                        <label for="crawlMaxLinks" class="text-xs text-gray-500 font-semibold uppercase">Max Links:</label>
+                        <input type="number" id="crawlMaxLinks" value="250" min="10" max="500" class="w-20 px-2.5 py-1 border border-gray-300 rounded text-xs font-mono">
+                    </div>
+                </div>
+
+                <!-- Custom AI Driving Instructions (Optional) -->
+                <div>
+                    <label for="crawlCustomInstructions" class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">
+                        Custom AI Curation Instructions (Optional):
+                    </label>
+                    <input type="text" id="crawlCustomInstructions" placeholder="e.g., Prioritize technical tutorials and API references; avoid release changelogs"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-xs">
+                    <span class="text-[11px] text-gray-400">By default, AI prioritizes core documentation/articles and automatically filters out sitemaps, other languages (/zh/, /es/), and boilerplate.</span>
+                </div>
+
+                <div class="pt-2">
+                    <button type="submit" id="btnDiscover" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-5 py-2.5 rounded-lg shadow-sm transition flex items-center gap-2">
+                        <span id="discoverIcon">🔍</span>
+                        <span id="discoverText">Discover Candidate URLs</span>
+                    </button>
+                </div>
+            </form>
+
+            <div id="crawlDiscoverLoading" class="hidden mt-6 flex items-center gap-3 p-4 bg-indigo-50 border border-indigo-100 text-indigo-850 rounded-lg">
+                <div class="animate-spin rounded-full h-5 w-5 border-2 border-indigo-600 border-t-transparent"></div>
+                <div class="text-sm font-medium animate-pulse">Fetching webpage and extracting hyperlinks...</div>
+            </div>
+
+            <div id="crawlDiscoverError" class="hidden mt-6 bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-sm">
+                <!-- Error text -->
+            </div>
+        </div>
+
+        <!-- Discovered Links Workspace (Populated dynamically) -->
+        <div id="crawlWorkspace" class="hidden bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
+
+            <!-- Summary Header -->
+            <div class="border-b border-gray-200 pb-4">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                        <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Crawl Target Profile</span>
+                        <h2 class="text-lg font-bold text-gray-900 truncate mt-0.5" id="workspacePageTitle">-</h2>
+                        <p class="text-xs text-gray-400 font-mono truncate" id="workspacePageUrl">-</p>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="px-2.5 py-1 bg-gray-100 text-gray-700 text-xs font-bold rounded-full" id="statBadgeTotal">0 Found</span>
+                        <span class="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full border border-emerald-200" id="statBadgeNew">0 New</span>
+                        <span class="px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-bold rounded-full border border-amber-200" id="statBadgeInDb">0 In Library</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toolbar: Multi-Selection & AI Pre-Check -->
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button type="button" onclick="selectAllCandidates(true)" class="px-3 py-1.5 bg-white hover:bg-gray-100 border border-gray-300 text-gray-700 text-xs font-bold rounded shadow-sm transition">
+                        Select All
+                    </button>
+                    <button type="button" onclick="selectAllCandidates(false)" class="px-3 py-1.5 bg-white hover:bg-gray-100 border border-gray-300 text-gray-700 text-xs font-bold rounded shadow-sm transition">
+                        Deselect All
+                    </button>
+                    <button type="button" onclick="selectNewCandidatesOnly()" class="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold rounded shadow-sm transition">
+                        Select New Only
+                    </button>
+                    
+                    <!-- AI Pre-Select Button -->
+                    <button type="button" id="btnAiPreselect" onclick="triggerAiCuration()" class="px-4 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold rounded shadow transition flex items-center gap-1.5">
+                        <span id="aiIcon">🤖</span>
+                        <span id="aiText">AI Pre-Select</span>
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <input type="text" id="candidateSearchInput" oninput="filterCandidateRows()" placeholder="Filter candidate links..."
+                           class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white w-full md:w-56 font-medium">
+                    <span class="text-xs font-bold text-gray-600 whitespace-nowrap" id="selectionCountBadge">
+                        0 selected
+                    </span>
+                </div>
+            </div>
+
+            <!-- AI Explanation Banner -->
+            <div id="aiExplanationBanner" class="hidden bg-purple-50 border border-purple-200 text-purple-900 p-4 rounded-lg text-xs leading-relaxed shadow-sm">
+                <div class="font-bold mb-1 flex items-center gap-1.5">
+                    <span>🤖</span> AI Curation Summary
+                </div>
+                <div id="aiExplanationText" class="text-purple-800"></div>
+            </div>
+
+            <!-- Candidate Links List -->
+            <div class="border border-gray-200 rounded-lg overflow-hidden max-h-[500px] overflow-y-auto">
+                <div class="divide-y divide-gray-100" id="candidateLinksContainer">
+                    <!-- Dynamic Rows -->
+                </div>
+            </div>
+
+            <!-- Ingestion Submission Form -->
+            <div class="bg-gray-50 p-5 rounded-lg border border-gray-200 space-y-4">
+                <h4 class="text-xs font-bold text-gray-700 uppercase tracking-wider">Queue Ingestion Settings</h4>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="crawl_collection_id" class="block text-xs font-semibold text-gray-700 mb-1">Target Collection:</label>
+                        <select id="crawl_collection_id" onchange="toggleNewCollectionInput(this.value, 'crawlNewCollectionDiv', 'crawl_new_collection_title')"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white text-gray-900 focus:ring-indigo-500 focus:border-indigo-500">
+                            <option value="">None (General Library)</option>
+                            {% for col in collections %}
+                            <option value="{{ col.id }}">{{ col.title }}</option>
+                            {% endfor %}
+                            <option value="new_collection">+ Create New Collection...</option>
+                        </select>
+                    </div>
+
+                    <div id="crawlNewCollectionDiv" class="hidden">
+                        <label for="crawl_new_collection_title" class="block text-xs font-semibold text-gray-700 mb-1">New Collection Title:</label>
+                        <input type="text" id="crawl_new_collection_title" placeholder="e.g. FastAPI Complete Guide"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white text-gray-900">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between pt-2">
+                    <div class="text-xs text-gray-500">
+                        URLs will be processed asynchronously in the background.
+                    </div>
+                    <button type="button" id="btnEnqueueScrape" onclick="submitEnqueuedScrapes()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-5 py-2.5 rounded-lg shadow-sm transition flex items-center gap-2">
+                        <span>🚀</span>
+                        <span id="btnEnqueueText">Scrape Selected URLs (0)</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Queue Notification Banner -->
+            <div id="queueNotificationBanner" class="hidden bg-emerald-50 border border-emerald-200 text-emerald-850 p-4 rounded-lg text-xs font-medium shadow-sm flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span>✅</span>
+                    <span id="queueNotificationText"></span>
+                </div>
+                <button type="button" onclick="document.getElementById('queueNotificationBanner').classList.add('hidden')" class="text-emerald-700 hover:text-emerald-900 font-bold ml-4">✕</button>
+            </div>
+
+        </div>
+
+    </div>
+
 </div>
 
 <script>
+    // Tab Switcher
+    function switchTab(tab) {
+        const singleBtn = document.getElementById('tabSingleBtn');
+        const crawlBtn = document.getElementById('tabCrawlBtn');
+        const singleView = document.getElementById('singleIngestView');
+        const crawlView = document.getElementById('crawlIngestView');
+
+        if (tab === 'crawl') {
+            singleBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2";
+            crawlBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-660 focus:outline-none transition flex items-center gap-2";
+            singleView.classList.add('hidden');
+            crawlView.classList.remove('hidden');
+        } else {
+            crawlBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2";
+            singleBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-660 focus:outline-none transition flex items-center gap-2";
+            crawlView.classList.add('hidden');
+            singleView.classList.remove('hidden');
+        }
+    }
+
     function showSpinner() {
         document.getElementById('formActions').classList.add('hidden');
         document.getElementById('loadingIndicator').classList.remove('hidden');
     }
 
-    function toggleNewCollectionInput(val) {
-        const div = document.getElementById('newCollectionDiv');
-        const input = document.getElementById('new_collection_title');
+    function toggleNewCollectionInput(val, divId, inputId) {
+        const div = document.getElementById(divId);
+        const input = document.getElementById(inputId);
         if (val === 'new_collection') {
             div.classList.remove('hidden');
             input.required = true;
@@ -90,10 +293,12 @@
         }
     }
 
+    // Video URL check for Single Page Ingest
     const urlInput = document.getElementById('url');
     const videoDownloadDiv = document.getElementById('videoDownloadDiv');
 
     function checkVideoUrl() {
+        if (!urlInput) return;
         const val = urlInput.value.trim();
         let isYt = false;
         try {
@@ -118,8 +323,330 @@
         }
     }
 
-    urlInput.addEventListener('input', checkVideoUrl);
-    urlInput.addEventListener('change', checkVideoUrl);
-    checkVideoUrl();
+    if (urlInput) {
+        urlInput.addEventListener('input', checkVideoUrl);
+        urlInput.addEventListener('change', checkVideoUrl);
+        checkVideoUrl();
+    }
+
+    // ==========================================
+    // Crawl & Discover State & Logic
+    // ==========================================
+    let discoveredData = null;
+    let selectedUrls = new Set();
+
+    async function handleCrawlDiscovery(event) {
+        if (event) event.preventDefault();
+        const seedUrl = document.getElementById('crawlSeedUrl').value.trim();
+        if (!seedUrl) return;
+
+        const sameDomain = document.getElementById('crawlSameDomain').checked;
+        const maxLinks = parseInt(document.getElementById('crawlMaxLinks').value, 10) || 250;
+
+        const loadingDiv = document.getElementById('crawlDiscoverLoading');
+        const errorDiv = document.getElementById('crawlDiscoverError');
+        const workspace = document.getElementById('crawlWorkspace');
+        const btnDiscover = document.getElementById('btnDiscover');
+
+        loadingDiv.classList.remove('hidden');
+        errorDiv.classList.add('hidden');
+        btnDiscover.disabled = true;
+        btnDiscover.classList.add('opacity-50');
+
+        try {
+            const resp = await fetch('/api/crawl/discover', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: seedUrl, same_domain: sameDomain, max_links: maxLinks })
+            });
+            const data = await resp.json();
+
+            if (data.status !== 'success') {
+                errorDiv.innerText = "Discovery error: " + (data.message || "Failed to discover links.");
+                errorDiv.classList.remove('hidden');
+                workspace.classList.add('hidden');
+                return;
+            }
+
+            discoveredData = data;
+            selectedUrls.clear();
+
+            // Default selection: select all new links
+            discoveredData.links.forEach(l => {
+                if (!l.already_ingested) {
+                    selectedUrls.add(l.url);
+                }
+            });
+
+            renderWorkspace();
+            workspace.classList.remove('hidden');
+            workspace.scrollIntoView({ behavior: 'smooth' });
+        } catch (err) {
+            errorDiv.innerText = "Network or server error during discovery: " + err.message;
+            errorDiv.classList.remove('hidden');
+            workspace.classList.add('hidden');
+        } finally {
+            loadingDiv.classList.add('hidden');
+            btnDiscover.disabled = false;
+            btnDiscover.classList.remove('opacity-50');
+        }
+    }
+
+    function renderWorkspace() {
+        if (!discoveredData) return;
+
+        document.getElementById('workspacePageTitle').innerText = discoveredData.page_title || discoveredData.seed_url;
+        document.getElementById('workspacePageUrl').innerText = discoveredData.seed_url;
+
+        const total = discoveredData.links.length;
+        const inDb = discoveredData.links.filter(l => l.already_ingested).length;
+        const newCount = total - inDb;
+
+        document.getElementById('statBadgeTotal').innerText = `${total} Found`;
+        document.getElementById('statBadgeNew').innerText = `${newCount} New`;
+        document.getElementById('statBadgeInDb').innerText = `${inDb} In Library`;
+
+        renderCandidateRows();
+        updateSelectionState();
+    }
+
+    function renderCandidateRows() {
+        const container = document.getElementById('candidateLinksContainer');
+        container.innerHTML = '';
+
+        const filterQuery = (document.getElementById('candidateSearchInput').value || '').toLowerCase();
+
+        discoveredData.links.forEach((item, index) => {
+            const isMatch = !filterQuery || 
+                            item.title.toLowerCase().includes(filterQuery) || 
+                            item.url.toLowerCase().includes(filterQuery);
+
+            if (!isMatch) return;
+
+            const isChecked = selectedUrls.has(item.url);
+            const row = document.createElement('div');
+            row.className = `flex items-center justify-between p-3.5 hover:bg-gray-50 transition text-xs ${isChecked ? 'bg-indigo-50/40' : ''}`;
+            row.id = `candidate-row-${index}`;
+
+            row.innerHTML = `
+                <div class="flex items-center gap-3 min-w-0 pr-4">
+                    <input type="checkbox" 
+                           id="chk-${index}" 
+                           value="${encodeURIComponent(item.url)}" 
+                           ${isChecked ? 'checked' : ''} 
+                           onchange="toggleCandidateSelection('${encodeURIComponent(item.url)}', this.checked, ${index})"
+                           class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded cursor-pointer flex-shrink-0">
+                    <div class="truncate">
+                        <label for="chk-${index}" class="font-bold text-gray-900 truncate block cursor-pointer select-none">
+                            ${escapeHtml(item.title)}
+                        </label>
+                        <div class="flex items-center gap-2 mt-0.5 font-mono text-[11px] text-gray-400 truncate">
+                            <span class="truncate">${escapeHtml(item.url)}</span>
+                            <a href="${item.url}" target="_blank" class="text-indigo-500 hover:text-indigo-700 flex-shrink-0" title="Open in new tab">↗️</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <span class="px-2 py-0.5 bg-gray-100 text-gray-600 font-mono text-[10px] rounded border border-gray-200">
+                        ${escapeHtml(item.domain)}
+                    </span>
+                    ${item.already_ingested ? 
+                        '<span class="px-2 py-0.5 bg-gray-100 text-gray-500 font-semibold text-[10px] rounded">In Library</span>' : 
+                        '<span class="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-[10px] rounded">New</span>'
+                    }
+                </div>
+            `;
+            container.appendChild(row);
+        });
+    }
+
+    function toggleCandidateSelection(encodedUrl, isChecked, index) {
+        const url = decodeURIComponent(encodedUrl);
+        if (isChecked) {
+            selectedUrls.add(url);
+        } else {
+            selectedUrls.delete(url);
+        }
+        const row = document.getElementById(`candidate-row-${index}`);
+        if (row) {
+            if (isChecked) {
+                row.classList.add('bg-indigo-50/40');
+            } else {
+                row.classList.remove('bg-indigo-50/40');
+            }
+        }
+        updateSelectionState();
+    }
+
+    function selectAllCandidates(status) {
+        if (!discoveredData) return;
+        discoveredData.links.forEach(l => {
+            if (status) {
+                selectedUrls.add(l.url);
+            } else {
+                selectedUrls.delete(l.url);
+            }
+        });
+        renderCandidateRows();
+        updateSelectionState();
+    }
+
+    function selectNewCandidatesOnly() {
+        if (!discoveredData) return;
+        selectedUrls.clear();
+        discoveredData.links.forEach(l => {
+            if (!l.already_ingested) {
+                selectedUrls.add(l.url);
+            }
+        });
+        renderCandidateRows();
+        updateSelectionState();
+    }
+
+    function filterCandidateRows() {
+        renderCandidateRows();
+    }
+
+    function updateSelectionState() {
+        const count = selectedUrls.size;
+        const total = discoveredData ? discoveredData.links.length : 0;
+        document.getElementById('selectionCountBadge').innerText = `${count} of ${total} selected`;
+        document.getElementById('btnEnqueueText').innerText = `Scrape Selected URLs (${count})`;
+        document.getElementById('btnEnqueueScrape').disabled = count === 0;
+        if (count === 0) {
+            document.getElementById('btnEnqueueScrape').classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            document.getElementById('btnEnqueueScrape').classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+    }
+
+    // AI Pre-Select Action
+    async function triggerAiCuration() {
+        if (!discoveredData || !discoveredData.links.length) return;
+
+        const btn = document.getElementById('btnAiPreselect');
+        const aiIcon = document.getElementById('aiIcon');
+        const aiText = document.getElementById('aiText');
+        const banner = document.getElementById('aiExplanationBanner');
+        const explanationText = document.getElementById('aiExplanationText');
+        const customInstructions = (document.getElementById('crawlCustomInstructions').value || '').trim();
+
+        btn.disabled = true;
+        aiIcon.className = "animate-spin";
+        aiText.innerText = "Analyzing with AI...";
+
+        try {
+            const resp = await fetch('/api/crawl/ai-filter', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    seed_url: discoveredData.seed_url,
+                    page_title: discoveredData.page_title,
+                    links: discoveredData.links,
+                    custom_instructions: customInstructions || null
+                })
+            });
+            const data = await resp.json();
+
+            if (data.status === 'success') {
+                selectedUrls.clear();
+                (data.selected_urls || []).forEach(u => selectedUrls.add(u));
+
+                explanationText.innerText = data.explanation || `AI selected ${data.selected_urls.length} relevant content links.`;
+                banner.classList.remove('hidden');
+
+                renderCandidateRows();
+                updateSelectionState();
+            } else {
+                alert("AI Curation error: " + (data.message || "Failed to curate links."));
+            }
+        } catch (err) {
+            alert("Error communicating with AI service: " + err.message);
+        } finally {
+            btn.disabled = false;
+            aiIcon.className = "";
+            aiIcon.innerText = "🤖";
+            aiText.innerText = "AI Pre-Select";
+        }
+    }
+
+    // Enqueue Batch Ingestion
+    async function submitEnqueuedScrapes() {
+        if (selectedUrls.size === 0) return;
+
+        const colSelect = document.getElementById('crawl_collection_id');
+        const colVal = colSelect.value;
+        const newColTitle = (document.getElementById('crawl_new_collection_title').value || '').trim();
+
+        let collectionId = null;
+        let finalNewTitle = null;
+
+        if (colVal === 'new_collection') {
+            if (!newColTitle) {
+                alert("Please specify a title for the new collection.");
+                document.getElementById('crawl_new_collection_title').focus();
+                return;
+            }
+            finalNewTitle = newColTitle;
+        } else if (colVal) {
+            collectionId = parseInt(colVal, 10);
+        }
+
+        const btn = document.getElementById('btnEnqueueScrape');
+        const origText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<span class="animate-spin">🔄</span> Enqueueing ${selectedUrls.size} URLs...`;
+
+        try {
+            const resp = await fetch('/api/crawl/enqueue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    urls: Array.from(selectedUrls),
+                    collection_id: collectionId,
+                    new_collection_title: finalNewTitle
+                })
+            });
+            const data = await resp.json();
+
+            if (data.status === 'success') {
+                const notif = document.getElementById('queueNotificationBanner');
+                const notifText = document.getElementById('queueNotificationText');
+                notifText.innerText = `Enqueued ${data.enqueued_count} pages for background scraping! You can track live progress in the Admin Logs.`;
+                notif.classList.remove('hidden');
+                notif.scrollIntoView({ behavior: 'smooth' });
+            } else {
+                alert("Failed to enqueue crawl scrapes: " + (data.message || "Unknown error"));
+            }
+        } catch (err) {
+            alert("Network error: " + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = origText;
+        }
+    }
+
+    function escapeHtml(text) {
+        if (!text) return "";
+        return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    // URL parameter detection to auto-open Crawl tab if requested
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('mode') === 'crawl' || urlParams.get('tab') === 'crawl') {
+            switchTab('crawl');
+            const seed = urlParams.get('seed') || urlParams.get('url');
+            if (seed) {
+                document.getElementById('crawlSeedUrl').value = seed;
+                handleCrawlDiscovery();
+            }
+        }
+    });
 </script>
 {% endblock %}

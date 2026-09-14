@@ -29,6 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Added responsive green success (`?msg=...`) and red error (`?error=...`) alert banners to `src/kb_web/templates/base.j2.html` with SVG icons and dismiss triggers.
   - **Ghost Stub Purge Routine**:
     - Added automated ghost stub cleanup in `ensure_views_and_indexes()` and database view definition to eliminate orphaned `Archived Item (...)` placeholders resurrected during migration.
+  - **Webpage Crawl Link Discovery, Interactive Multi-Selection, and AI Pre-Checking (Resolves #60)**:
+    - Added modular crawler engine in `src/kb_web/crawler.py` featuring robust URL normalization (`normalize_url`), anchor/tracking parameter stripping (`utm_*`, `ref`), same-domain link discovery (`extract_candidate_links`), already-ingested status detection, Ollama LLM structured curation (`ai_curate_candidate_links`), and background batch ingestion with Gotify notifications (`run_batch_crawl_ingestion`).
+    - Added structured AI pre-checking system prompt prioritizing substantive technical documentation, articles, and guides while strictly filtering out foreign language variants (`/zh/`, `/ja/`, `/es/`, etc.), sitemaps, RSS feeds, legal/privacy boilerplate, authentication links, and social channels; supports user-defined custom driving instructions.
+    - Added administrative REST endpoints in `src/kb_web/routers/admin.py`:
+      - `POST /api/crawl/discover`: Extracts same-domain candidate URLs from seed page.
+      - `POST /api/crawl/ai-filter`: Runs structured LLM curation with explanation.
+      - `POST /api/crawl/enqueue`: Dispatches background scraping task for selected URLs into designated collections.
+    - Added interactive "🕷️ Crawl & Discover URLs" tab to `/import` (`src/kb_web/templates/url_import.j2.html`) with candidate search filter, Select All / None / New Only toggles, dynamic selection counter badge, AI Pre-Select button, target collection selector with inline collection creation modal, and background enqueue toast alert.
+    - Added direct deep crawl discovery shortcut on page profile view (`src/kb_web/templates/view_page.j2.html`).
+    - Added comprehensive unit tests in `tests/test_crawler.py` covering URL normalization, HTML link parsing, AI structured JSON response handling, and API endpoints.
   - **Database Compound Indexing for Collections**:
     - Added compound performance index `idx_collection_items_col_source` on `collection_items (collection_id, source_id)` in Alembic migration `e81c74291a23_add_collection_items_compound_index.py` and `ensure_views_and_indexes()`.
 
@@ -45,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Restored Live Server DB Logging & Filtered Alembic Plugin Spam (Resolves #59)**:
   - Re-attached `DatabaseLogHandler` directly to `kb_web`, `uvicorn.error`, `uvicorn.access`, and root loggers inside `lifespan(app)` in `src/kb_web/server.py` to ensure request logging and uncaught exceptions persist after Gunicorn/Uvicorn worker process initialization.
   - Added filter in `DatabaseLogHandler.emit()` in `src/kb_web/base.py` to exclude noisy `alembic` and `plugins` migration setup messages from flooding `system_logs`.
+  - Configured `fileConfig(..., disable_existing_loggers=False)` in `migrations/env.py` and set `lg.disabled = False` in `setup_logging()` to prevent Alembic startup migrations from muting runtime server and application loggers.
 - **Optimized `/admin` Dashboard Latency from 7.92s to <5ms (Resolves #59)**:
   - Replaced full-table scan and Python list comprehension in `get_admin_dashboard()` (`session.query(FetchedPage).all()`) with an efficient SQL aggregate query (`func.count(FetchedPage.url).filter(...)`), eliminating multi-megabyte HTML/markdown deserialization overhead.
 - **Optimized `/view/site` Profile Latency & Fixed Character-Split Tags (Resolves #59)**:

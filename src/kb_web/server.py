@@ -41,6 +41,7 @@ def setup_logging():
         # Attach directly to application and server loggers to survive worker process resets
         for logger_name in ("kb_web", "uvicorn", "uvicorn.error", "uvicorn.access"):
             lg = logging.getLogger(logger_name)
+            lg.disabled = False
             lg.setLevel(logging.INFO)
             if not any(isinstance(h, DatabaseLogHandler) for h in lg.handlers):
                 lg.addHandler(db_handler)

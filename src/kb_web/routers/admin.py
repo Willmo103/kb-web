@@ -8,6 +8,7 @@ import logging
 import time
 from datetime import datetime
 from typing import AsyncGenerator, Optional
+from pydantic import BaseModel, Field
 from urllib.parse import unquote_plus, quote_plus, urlparse
 from fastapi import (
     APIRouter,
@@ -422,6 +423,86 @@ def handle_url_import(
             "Expires": "0",
         },
     )
+
+
+# --- Interactive Link Discovery & Crawl API Endpoints ---
+
+
+class DiscoverRequest(BaseModel):
+    url: str
+    same_domain: bool = True
+    max_links: int = Field(default=250, ge=1, le=500)
+
+
+class AiFilterRequest(BaseModel):
+    seed_url: str
+    page_title: str
+    links: list[dict]
+    custom_instructions: Optional[str] = None
+
+
+class EnqueueCrawlRequest(BaseModel):
+    urls: list[str]
+    collection_id: Optional[int] = None
+    new_collection_title: Optional[str] = None
+
+
+@router.post("/api/crawl/discover", dependencies=[Depends(verify_auth)])
+def api_crawl_discover(payload: DiscoverRequest) -> dict:
+    """Extracts, normalizes, and filters hyperlinks from a seed URL, marking already ingested pages."""
+    from ..crawler import extract_candidate_links
+
+    try:
+        data = extract_candidate_links(
+            payload.url, same_domain=payload.same_domain, max_links=payload.max_links
+        )
+        return {"status": "success", **data}
+    except Exception as e:
+        logger.error(f"Error in crawl discovery for {payload.url}: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/api/crawl/ai-filter", dependencies=[Depends(verify_auth)])
+def api_crawl_ai_filter(payload: AiFilterRequest) -> dict:
+    """Uses LLM with structured JSON output to prioritize documentation/articles and filter noise."""
+    from ..crawler import ai_curate_candidate_links
+
+    try:
+        curated = ai_curate_candidate_links(
+            payload.seed_url,
+            payload.page_title,
+            payload.links,
+            custom_instructions=payload.custom_instructions,
+        )
+        return {"status": "success", **curated}
+    except Exception as e:
+        logger.error(f"Error in AI crawl curation: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/api/crawl/enqueue", dependencies=[Depends(verify_auth)])
+def api_crawl_enqueue(
+    payload: EnqueueCrawlRequest,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Dispatches a background worker to sequentially scrape and ingest the selected URLs."""
+    from ..crawler import run_batch_crawl_ingestion
+
+    if not payload.urls:
+        return {"status": "error", "message": "No URLs provided to enqueue."}
+
+    background_tasks.add_task(
+        run_batch_crawl_ingestion,
+        payload.urls,
+        collection_id=payload.collection_id,
+        new_collection_title=payload.new_collection_title,
+        config_obj=config,
+    )
+    return {
+        "status": "success",
+        "message": f"Enqueued {len(payload.urls)} page(s) for background scraping.",
+        "enqueued_count": len(payload.urls),
+    }
 
 
 @router.get("/admin", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])

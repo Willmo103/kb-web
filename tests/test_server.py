@@ -3226,8 +3226,11 @@ def test_view_site_tag_deserialization_and_safe_url(client):
 def test_database_logger_filtering_and_capture():
     """Verifies that alembic plugin setup spam is filtered and live server logs are captured in SystemLog."""
     import logging
+    from kb_web.server import setup_logging
     from kb_web.base import db_session
     from kb_web.models_orm import SystemLog
+
+    setup_logging()
 
     alembic_lg = logging.getLogger("alembic.runtime.plugins")
     alembic_lg.info("setup plugin alembic.autogenerate.regression_test")
