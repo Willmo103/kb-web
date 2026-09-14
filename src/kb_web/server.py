@@ -65,7 +65,22 @@ async def lifespan(app: FastAPI):
         deploy()
     except Exception as e:
         logger.error(f"Failed to run database migrations on startup: {e}")
+
+    # Start background ingestion worker daemon
+    try:
+        from kb_web.queue_processor import start_worker, stop_worker
+        start_worker()
+    except Exception as e:
+        logger.error(f"Failed to start IngestionWorker on startup: {e}")
+
     yield
+
+    # Stop background ingestion worker daemon on shutdown
+    try:
+        from kb_web.queue_processor import stop_worker
+        stop_worker()
+    except Exception as e:
+        logger.error(f"Failed to stop IngestionWorker on shutdown: {e}")
 
 
 # Instantiate core application

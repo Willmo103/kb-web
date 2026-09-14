@@ -1,5 +1,7 @@
 import json
-from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Table
+import uuid
+from datetime import datetime
+from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Table, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.types import TypeDecorator
 
@@ -74,6 +76,34 @@ class SafeVector(TypeDecorator):
             return Vector.comparator_factory(self.expr).max_inner_product(other)
 
 
+class ProcessorXref(Base):
+    __tablename__ = "_processor_xref"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    service_name = Column(String, nullable=False, unique=True)
+    callback_path = Column(String, nullable=False)
+    stage = Column(String, nullable=False)  # "pre", "process", "post"
+    next_processor_id = Column(Integer, ForeignKey("_processor_xref.id"), nullable=True)
+    is_active = Column(Boolean, default=True)
+    description = Column(Text, nullable=True)
+
+
+class Source(Base):
+    __tablename__ = "sources"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    url = Column(Text, nullable=True, index=True)
+    file_hash = Column(String, nullable=True, index=True)
+    type = Column(String, nullable=False)  # "html", "youtube", "file", "docling"
+    processor_id = Column(Integer, ForeignKey("_processor_xref.id"), nullable=True, index=True)
+    path = Column(Text, nullable=True)
+    status = Column(String, default="pending", index=True)  # "pending", "processing", "completed", "failed"
+    retry_count = Column(Integer, default=0)
+    error_log = Column(Text, nullable=True)
+    timestamp = Column(String, default=lambda: datetime.now().isoformat())
+    metadata_json = Column(Text, nullable=True)
+
+
 class FetchedPage(Base):
     __tablename__ = "fetched_pages"
 
@@ -90,6 +120,7 @@ class FetchedPage(Base):
     tags = Column(Text)  # JSON-encoded array of tags/labels
     collection_id = Column(Integer)
     exclude_from_general = Column(Integer, default=0)
+    source_id = Column(String(36), ForeignKey("sources.id"), nullable=True, index=True)
 
 
 class PageVersion(Base):
@@ -145,6 +176,7 @@ class YouTubeVideo(Base):
     thumbnail_url = Column(String)
     local_path = Column(String)
     updated_at = Column(String)
+    source_id = Column(String(36), ForeignKey("sources.id"), nullable=True, index=True)
 
 
 class Collection(Base):
@@ -207,6 +239,7 @@ class ChunkEmbedding(Base):
     chunk_content = Column(Text)
     chunk_vector = Column(SafeVector())
     created_at = Column(String)
+    source_uuid = Column(String(36), ForeignKey("sources.id"), nullable=True, index=True)
 
 
 class VideoEmbedding(Base):
@@ -484,4 +517,133 @@ def ensure_views_and_indexes(engine):
                     """))
                 except Exception:
                     pass
+
+    seed_default_processors(engine)
+
+
+DEFAULT_PROCESSORS = [
+    {
+        "id": 1,
+        "service_name": "fetcher",
+        "callback_path": "kb_web.queue_processor:process_fetch",
+        "stage": "pre",
+        "next_processor_id": 2,
+        "is_active": True,
+        "description": "Scrapes and cleans raw web HTML into markdown.",
+    },
+    {
+        "id": 2,
+        "service_name": "wiki_summary",
+        "callback_path": "kb_web.queue_processor:process_summary",
+        "stage": "process",
+        "next_processor_id": 3,
+        "is_active": True,
+        "description": "Generates structured wiki markdown summary and key points via LLM.",
+    },
+    {
+        "id": 3,
+        "service_name": "tagger",
+        "callback_path": "kb_web.queue_processor:process_tags",
+        "stage": "process",
+        "next_processor_id": 4,
+        "is_active": True,
+        "description": "Extracts semantic tags and classification labels via LLM.",
+    },
+    {
+        "id": 4,
+        "service_name": "embeddings",
+        "callback_path": "kb_web.queue_processor:process_embeddings",
+        "stage": "post",
+        "next_processor_id": None,
+        "is_active": True,
+        "description": "Generates vector embeddings and chunks for vector search index.",
+    },
+    {
+        "id": 5,
+        "service_name": "youtube_metadata",
+        "callback_path": "kb_web.queue_processor:process_youtube_metadata",
+        "stage": "pre",
+        "next_processor_id": 6,
+        "is_active": True,
+        "description": "Extracts YouTube video metadata and transcripts via yt-dlp.",
+    },
+    {
+        "id": 6,
+        "service_name": "youtube_wiki",
+        "callback_path": "kb_web.queue_processor:process_youtube_wiki",
+        "stage": "process",
+        "next_processor_id": 4,
+        "is_active": True,
+        "description": "Generates structured wiki summary from video transcript.",
+    },
+    {
+        "id": 7,
+        "service_name": "docling_parser",
+        "callback_path": "kb_web.queue_processor:process_docling_file",
+        "stage": "process",
+        "next_processor_id": 3,
+        "is_active": True,
+        "description": "Parses document files (PDF/DOCX/etc.) via Docling into markdown.",
+    },
+]
+
+
+def seed_default_processors(engine_or_session):
+    """Seeds the _processor_xref table with default pipeline processors if empty or missing."""
+    from sqlalchemy.orm import Session
+    from sqlalchemy import select
+
+    if isinstance(engine_or_session, Session):
+        session = engine_or_session
+        should_close = False
+    else:
+        session = Session(bind=engine_or_session)
+        should_close = True
+
+    try:
+        # First pass: ensure all rows exist without foreign key references to uninserted rows
+        for proc_data in DEFAULT_PROCESSORS:
+            existing = session.execute(
+                select(ProcessorXref).where(ProcessorXref.service_name == proc_data["service_name"])
+            ).scalars().first()
+            if not existing:
+                proc = ProcessorXref(
+                    id=proc_data["id"],
+                    service_name=proc_data["service_name"],
+                    callback_path=proc_data["callback_path"],
+                    stage=proc_data["stage"],
+                    next_processor_id=None,
+                    is_active=proc_data["is_active"],
+                    description=proc_data["description"],
+                )
+                session.add(proc)
+        session.commit()
+
+        # Second pass: wire up next_processor_id
+        for proc_data in DEFAULT_PROCESSORS:
+            if proc_data.get("next_processor_id"):
+                existing = session.execute(
+                    select(ProcessorXref).where(ProcessorXref.service_name == proc_data["service_name"])
+                ).scalars().first()
+                if existing and existing.next_processor_id != proc_data["next_processor_id"]:
+                    existing.next_processor_id = proc_data["next_processor_id"]
+        session.commit()
+
+        # In PostgreSQL, advance the autoincrement sequence past the max explicit ID
+        bind = session.get_bind()
+        if bind and getattr(bind.dialect, "name", None) == "postgresql":
+            from sqlalchemy import text
+            try:
+                session.execute(text("SELECT setval(pg_get_serial_sequence('_processor_xref', 'id'), COALESCE((SELECT MAX(id) FROM _processor_xref), 1));"))
+                session.commit()
+            except Exception:
+                pass
+    except Exception as e:
+        session.rollback()
+        # Non-fatal if table doesn't exist yet prior to migration
+        print(f"Warning seeding default processors: {e}")
+    finally:
+        if should_close:
+            session.close()
+
 

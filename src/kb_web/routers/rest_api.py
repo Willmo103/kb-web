@@ -571,3 +571,91 @@ def list_ungrouped_pages_api(
             "has_prev": page > 1,
         }
 
+
+from pydantic import BaseModel
+
+
+class EnqueueJobRequest(BaseModel):
+    url_or_path: str
+    source_type: str = "html"
+    collection_id: Optional[int] = None
+    custom_instructions: Optional[str] = None
+    initial_processor_id: Optional[int] = None
+
+
+@router.get("/queue/jobs")
+def list_queue_jobs(
+    status: Optional[str] = Query(None, description="Filter by status ('pending', 'processing', 'completed', 'failed')"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    limit: int = Query(25, ge=1, le=100, description="Items per page"),
+) -> Dict[str, Any]:
+    """Returns paginated list of pipeline jobs in the sources table."""
+    from ..models_orm import Source, ProcessorXref
+
+    with db_session() as session:
+        query = session.query(
+            Source,
+            ProcessorXref.service_name.label("processor_name"),
+            ProcessorXref.stage.label("processor_stage"),
+        ).outerjoin(ProcessorXref, Source.processor_id == ProcessorXref.id)
+
+        if status:
+            query = query.filter(Source.status == status)
+
+        query = query.order_by(Source.timestamp.desc())
+
+        total = query.count()
+        offset = (page - 1) * limit
+        rows = query.offset(offset).limit(limit).all()
+
+        items = [
+            {
+                "id": s.id,
+                "url": s.url,
+                "path": s.path,
+                "type": s.type,
+                "processor_id": s.processor_id,
+                "processor_name": proc_name,
+                "processor_stage": proc_stage,
+                "status": s.status,
+                "retry_count": s.retry_count or 0,
+                "error_log": s.error_log,
+                "timestamp": s.timestamp,
+                "metadata": json.loads(s.metadata_json) if s.metadata_json else None,
+            }
+            for s, proc_name, proc_stage in rows
+        ]
+
+        total_pages = math.ceil(total / limit) if limit > 0 else 1
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages,
+            "has_next": (page * limit) < total,
+            "has_prev": page > 1,
+        }
+
+
+@router.post("/queue/enqueue")
+def enqueue_job(req: EnqueueJobRequest) -> Dict[str, Any]:
+    """Enqueues a new source job for background pipeline processing."""
+    from ..queue_processor import enqueue_source
+
+    source_id = enqueue_source(
+        url_or_path=req.url_or_path,
+        source_type=req.source_type,
+        collection_id=req.collection_id,
+        custom_instructions=req.custom_instructions,
+        initial_processor_id=req.initial_processor_id,
+    )
+
+    return {
+        "status": "queued",
+        "source_id": source_id,
+        "message": f"Source successfully enqueued with ID {source_id}",
+    }
+
+

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0] - 2026-09-12
 ### Added
+- **Unified Ingestion Sources Schema & Processing Registry (Sprint 4, Resolves #48, #49)**:
+  - Added `ProcessorXref` declarative model mapped to `_processor_xref` registry table with dynamic callback paths, pipeline stages (`pre`, `process`, `post`), and self-referential `next_processor_id` chains.
+  - Added `Source` declarative model mapped to `sources` table with UUID primary key, status tracking (`pending`, `processing`, `completed`, `failed`), retry counting, error logging, and metadata JSON.
+  - Related child entities (`fetched_pages.source_id`, `youtube_videos.source_id`, `chunk_embeddings.source_uuid`) to `sources.id` via foreign key constraints.
+  - Added default processor pipeline seeding in `models_orm.py` pre-populating: `fetcher` (pre), `wiki_summary` (process), `tagger` (process), `embeddings` (post), `youtube_metadata` (pre), `youtube_wiki` (process), and `docling_parser` (process).
+  - Added Alembic migration `e81c74291a24_add_sources_and_processor_xref.py` creating the tables, indexes, child FK columns, and sequence synchronization.
+- **State-Driven Job Queue Processor Daemon & REST Endpoints (Sprint 4, Resolves #48, #50)**:
+  - Added `IngestionWorker` background daemon thread in `src/kb_web/queue_processor.py` polling `sources` for pending tasks, executing dynamic module callbacks, advancing pipeline stages, and recording traceback errors.
+  - Added automated retry handling up to configurable `max_retries` with Gotify alert integration on terminal pipeline failure.
+  - Integrated worker lifecycle (`start_worker()` / `stop_worker()`) into FastAPI `lifespan` context manager in `src/kb_web/server.py`.
+  - Added REST queue endpoints:
+    - `GET /api/queue/jobs`: Paginated job queue listing with status filtering and processor metadata.
+    - `POST /api/queue/enqueue`: Programmatic job submission endpoint returning queued status and source ID.
+  - Added comprehensive test suite in `tests/test_queue_processor.py` covering model seeding, dynamic callback invocation, stage progression, retry handling, failure marking, worker thread lifecycle, and REST endpoints.
 - **UI Performance & Latency Overhaul with Database View (Resolves #56)**:
   - Created pre-aggregated PostgreSQL database view `vw_page_cards` joining `fetched_pages`, `youtube_videos`, and `collections` with `string_agg(c.title, ', ')`, completely eliminating N+1 collection queries on index feeds.
   - Added targeted database performance indexes on `fetched_pages.fetched_at DESC`, `collection_items.source_id`, and `youtube_videos.creator` in Alembic migration `c72b89d412e1_add_page_card_view_and_indexes.py` and `ensure_views_and_indexes()`.

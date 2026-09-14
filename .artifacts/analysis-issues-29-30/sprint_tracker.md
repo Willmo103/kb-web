@@ -24,11 +24,11 @@ This document serves as the master checklist and progress tracker for the planne
   - `[x]` Sub-Issue 6: Database Access Refactoring (Issue #46)
   - `[x]` Sub-Issue 7: SQLite-to-PostgreSQL Data Ingest Utility (Issue #47)
 
-### [ ] Sprint 4: Unified Ingestion Sources Schema & Queue Processor (Issue #48) -> [Details](./sprint_4_job_queue.md)
+### [x] Sprint 4: Unified Ingestion Sources Schema & Queue Processor (Issue #48) -> [Details](./sprint_4_job_queue.md)
 * **Goal**: Refactor the linear ingestion flow into a database-driven queue processor driven by a top-level `sources` schema.
 * **Sub-Issues to Resolve**:
-  - `[ ]` Sub-Issue 8: Top-Level Ingestion Sources & Processing Registry Schema (Issue #49)
-  - `[ ]` Sub-Issue 9: State-Driven Job Queue Processor Daemon (Issue #50)
+  - `[x]` Sub-Issue 8: Top-Level Ingestion Sources & Processing Registry Schema (Issue #49)
+  - `[x]` Sub-Issue 9: State-Driven Job Queue Processor Daemon (Issue #50)
 
 ### [ ] Sprint 5: WebSocket Ingestion, Docling, & Cache Settings (Issue #51) -> [Details](./sprint_5_docling_ollama.md)
 * **Goal**: Add WebSocket file upload chunking, integrate `docling-serve` parsing, and cache Ollama chats.

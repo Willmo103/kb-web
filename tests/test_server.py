@@ -11,10 +11,12 @@ from kb_web.server import config as server_config
 from kb_web.models_orm import (
     Base, FetchedPage, PageVersion, YouTubeVideo, Collection, CollectionItem, CollectionNote, CollectionAction,
     ChunkEmbedding, ArticleEmbedding, VideoEmbedding, TitleEmbedding, OllamaLog, SettingOllama, SettingExternal,
-    AgentPrompt, CliApiKey, RegisteredClient, SystemLog, Link
+    AgentPrompt, CliApiKey, RegisteredClient, SystemLog, Link, ProcessorXref, Source
 )
 
 TABLE_TO_MODEL = {
+    "sources": Source,
+    "_processor_xref": ProcessorXref,
     "fetched_pages": FetchedPage,
     "page_versions": PageVersion,
     "youtube_videos": YouTubeVideo,
