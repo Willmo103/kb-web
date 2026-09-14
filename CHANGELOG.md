@@ -39,6 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Added interactive "🕷️ Crawl & Discover URLs" tab to `/import` (`src/kb_web/templates/url_import.j2.html`) with candidate search filter, Select All / None / New Only toggles, dynamic selection counter badge, AI Pre-Select button, target collection selector with inline collection creation modal, and background enqueue toast alert.
     - Added direct deep crawl discovery shortcut on page profile view (`src/kb_web/templates/view_page.j2.html`).
     - Added comprehensive unit tests in `tests/test_crawler.py` covering URL normalization, HTML link parsing, AI structured JSON response handling, and API endpoints.
+  - **Qdrant Collection Export & Automatic Vector Synchronization (Resolves #61)**:
+    - Added `@router.post("/collections/view/{collection_id}/sync")` in `src/kb_web/routers/collections.py` matching the collection view sync trigger.
+    - Added automated collection creation on the server if a collection with the requested identifier or name does not already exist in the database.
+    - Added automated collection creation on the Qdrant vector server (`PUT /collections/{name}`) with Cosine distance and correct vector dimensions (`768` for `nomic-embed-text` or dynamically inferred from vectors).
+    - Added on-demand chunk embedding generation for collection items lacking vectors prior to Qdrant export.
+    - Applied URL quote encoding for collection names in Qdrant API requests to safely support spaces, commas, and special characters.
+    - Added graceful handling of unauthenticated or local Qdrant servers when `QDRANT_API_KEY` is not provided.
+    - Added comprehensive unit tests in `tests/test_qdrant_sync.py` verifying collection creation, vector point uploads, unconfigured URLs, and error states.
   - **Database Compound Indexing for Collections**:
     - Added compound performance index `idx_collection_items_col_source` on `collection_items (collection_id, source_id)` in Alembic migration `e81c74291a23_add_collection_items_compound_index.py` and `ensure_views_and_indexes()`.
 
@@ -49,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Optimized virtual site domain extraction in `view_all_pages` to project only `(url, title)` instead of full table scans.
 
 ### Fixed
+- **Fixed Qdrant Sync 404 & Undefined Error Modal (Resolves #61)**:
+  - Resolved 404 Not Found error caused by missing `@router.post("/collections/view/{collection_id}/sync")` route.
+  - Updated status modal JavaScript in `src/kb_web/templates/view_collection.j2.html` to parse `data.message`, `data.detail`, and HTTP status codes, preventing `'undefined'` messages from displaying.
 - **Fixed `/links` 500 Internal Server Error (Resolves #59)**:
   - Decoupled ORM `Link` rows into plain dictionaries inside `db_session()` in `src/kb_web/routers/links.py` to prevent SQLAlchemy 2.0 `DetachedInstanceError` when accessing attributes after session teardown.
   - Guarded `link.created_at[:10]` and `link.last_clicked_at[:10]` against `NoneType` subscripting in `src/kb_web/templates/links.j2.html`.

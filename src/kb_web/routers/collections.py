@@ -9,7 +9,7 @@ import re
 import uuid
 import httpx
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from urllib.parse import quote_plus, urlparse
 from types import SimpleNamespace
 from collections import defaultdict
@@ -71,13 +71,16 @@ def flush_local_syncs(qdrant_url: str, headers: dict) -> None:
                 points = data["points"]
                 vector_size = len(points[0]["vector"]) if points else 768
 
+                from urllib.parse import quote
+                quoted_col_name = quote(col_name)
+
                 # Check/create collection
                 res = client.get(
-                    f"{qdrant_url}/collections/{col_name}", headers=headers
+                    f"{qdrant_url}/collections/{quoted_col_name}", headers=headers
                 )
                 if res.status_code == 404:
                     client.put(
-                        f"{qdrant_url}/collections/{col_name}",
+                        f"{qdrant_url}/collections/{quoted_col_name}",
                         headers=headers,
                         json={"vectors": {"size": vector_size, "distance": "Cosine"}},
                     ).raise_for_status()
@@ -87,7 +90,7 @@ def flush_local_syncs(qdrant_url: str, headers: dict) -> None:
                 for i in range(0, len(points), batch_size):
                     batch = points[i : i + batch_size]
                     client.put(
-                        f"{qdrant_url}/collections/{col_name}/points",
+                        f"{qdrant_url}/collections/{quoted_col_name}/points",
                         headers=headers,
                         json={"points": batch},
                     ).raise_for_status()
@@ -99,7 +102,7 @@ def flush_local_syncs(qdrant_url: str, headers: dict) -> None:
                 print(f"Failed to flush offline sync file {filepath}: {e}")
 
 
-def sync_collection_to_qdrant(db, collection_id: int) -> tuple[bool, str]:
+def sync_collection_to_qdrant(db, collection_id: Union[int, str]) -> tuple[bool, str]:
     qdrant_url = config.qdrant_host_url
     qdrant_key = config.qdrant_api_key
 
@@ -107,12 +110,28 @@ def sync_collection_to_qdrant(db, collection_id: int) -> tuple[bool, str]:
         return False, "Qdrant Host URL is not configured."
 
     with db_session() as session:
-        collection = session.query(Collection).filter_by(id=collection_id).first()
+        collection = None
+        if isinstance(collection_id, int) or (isinstance(collection_id, str) and collection_id.isdigit()):
+            collection = session.query(Collection).filter_by(id=int(collection_id)).first()
         if not collection:
-            return False, "Collection not found."
+            collection = session.query(Collection).filter(Collection.title.ilike(str(collection_id).strip())).first()
 
-        col_name = re.sub(r"[^a-zA-Z0-9_-]", "_", collection.title).lower()
-        items = session.query(CollectionItem).filter_by(collection_id=collection_id).all()
+        # If not found on the server, create collection on server
+        if not collection:
+            new_title = f"Collection {collection_id}" if str(collection_id).isdigit() else str(collection_id).strip()
+            collection = Collection(
+                title=new_title,
+                visibility="public",
+                created_at=datetime.now().isoformat(),
+            )
+            session.add(collection)
+            session.flush()
+
+        col_id = collection.id
+        col_title = collection.title
+        col_name = collection.title.strip()
+
+        items = session.query(CollectionItem).filter_by(collection_id=col_id).all()
 
         points = []
         for item in items:
@@ -122,6 +141,18 @@ def sync_collection_to_qdrant(db, collection_id: int) -> tuple[bool, str]:
                 .filter_by(source_type=item.source_type, source_id=item.source_id)
                 .all()
             )
+            # If no chunks exist, attempt on-demand embedding generation
+            if not chunks:
+                try:
+                    generate_gemma_embeddings_for_page(None, item.source_id, config)
+                    chunks = (
+                        session.query(ChunkEmbedding)
+                        .filter_by(source_type=item.source_type, source_id=item.source_id)
+                        .all()
+                    )
+                except Exception as err:
+                    print(f"Warning: Failed on-demand embedding generation for {item.source_id}: {err}")
+
             for chunk in chunks:
                 if not chunk.chunk_vector:
                     continue
@@ -136,32 +167,33 @@ def sync_collection_to_qdrant(db, collection_id: int) -> tuple[bool, str]:
                             "source_title": chunk.source_title,
                             "chunk_number": chunk.chunk_number,
                             "chunk_content": chunk.chunk_content,
-                            "collection_id": collection_id,
-                            "collection_title": collection.title,
+                            "collection_id": col_id,
+                            "collection_title": col_title,
                             "item_note": item.item_note or "",
                             "taxonomy_path": item.taxonomy_path or "",
                         },
                     }
                 )
 
-    if not points:
-        return True, "Collection has no vector-indexed items. Sync skipped."
-
     headers = {}
-    if qdrant_key:
-        headers["api-key"] = qdrant_key
+    if qdrant_key and qdrant_key.strip():
+        headers["api-key"] = qdrant_key.strip()
+
+    vector_size = len(points[0]["vector"]) if points else 768
+
+    from urllib.parse import quote
+    quoted_col_name = quote(col_name)
 
     try:
         with httpx.Client(timeout=10.0) as client:
-            vector_size = len(points[0]["vector"])
-
             # Check if Qdrant collection exists
             res = client.get(
-                f"{qdrant_url}/collections/{col_name}", headers=headers
+                f"{qdrant_url}/collections/{quoted_col_name}", headers=headers
             )
             if res.status_code == 404:
+                # Create collection on Qdrant server
                 client.put(
-                    f"{qdrant_url}/collections/{col_name}",
+                    f"{qdrant_url}/collections/{quoted_col_name}",
                     headers=headers,
                     json={
                         "vectors": {
@@ -171,29 +203,35 @@ def sync_collection_to_qdrant(db, collection_id: int) -> tuple[bool, str]:
                     },
                 ).raise_for_status()
             elif res.status_code != 200:
-                save_sync_locally(col_name, points)
+                if points:
+                    save_sync_locally(col_name, points)
                 return (
                     False,
                     f"Qdrant returned unexpected status {res.status_code}. Saved sync locally.",
                 )
 
-            # Upload points
-            batch_size = 100
-            for i in range(0, len(points), batch_size):
-                batch = points[i : i + batch_size]
-                client.put(
-                    f"{qdrant_url}/collections/{col_name}/points",
-                    headers=headers,
-                    json={"points": batch},
-                ).raise_for_status()
+            # Upload points if available
+            if points:
+                batch_size = 100
+                for i in range(0, len(points), batch_size):
+                    batch = points[i : i + batch_size]
+                    client.put(
+                        f"{qdrant_url}/collections/{quoted_col_name}/points",
+                        headers=headers,
+                        json={"points": batch},
+                    ).raise_for_status()
 
             # Flush any other offline queues
             flush_local_syncs(qdrant_url, headers)
 
-        return True, f"Successfully synchronized {len(points)} points to Qdrant."
+        if points:
+            return True, f"Successfully synchronized {len(points)} points to Qdrant collection '{col_name}'."
+        else:
+            return True, f"Collection '{col_name}' verified/created on Qdrant server. (0 vector items to sync)"
     except Exception as e:
-        save_sync_locally(col_name, points)
-        return False, f"Failed to sync with Qdrant: {e}. Saved sync locally."
+        if points:
+            save_sync_locally(col_name, points)
+        return False, f"Failed to sync with Qdrant: {e}"
 
 
 # --- Collections View & Management Endpoints ---
@@ -583,6 +621,16 @@ def edit_collection(
 @router.post("/collections/action/sync-qdrant", dependencies=[Depends(verify_auth)])
 def sync_qdrant_endpoint(collection_id: int = Form(...)) -> JSONResponse:
     """Invokes Qdrant sync process for a collection."""
+    success, msg = sync_collection_to_qdrant(None, collection_id)
+    if success:
+        return JSONResponse(content={"status": "success", "message": msg})
+    else:
+        return JSONResponse(status_code=500, content={"status": "error", "message": msg})
+
+
+@router.post("/collections/view/{collection_id}/sync", dependencies=[Depends(verify_auth)])
+def sync_collection_view_endpoint(collection_id: str) -> JSONResponse:
+    """Invokes Qdrant sync process for a collection from the collection view."""
     success, msg = sync_collection_to_qdrant(None, collection_id)
     if success:
         return JSONResponse(content={"status": "success", "message": msg})
