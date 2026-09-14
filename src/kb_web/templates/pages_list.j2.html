@@ -335,17 +335,19 @@
 
                 <!-- Search Form -->
                 <div class="mb-6">
-                    <form method="GET" action="/" class="flex gap-2">
+                    <form id="search-form" method="GET" action="/" class="flex gap-2">
                         <input type="hidden" name="view" value="articles">
                         <input 
+                            id="search-input"
                             type="text" 
                             name="q" 
-                            placeholder="Search by title or tag..." 
+                            placeholder="Search by title, tags, or wiki summary..." 
                             value="{{ q }}" 
-                            class="flex-grow px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm shadow-sm bg-white"
+                            autocomplete="off"
+                            class="flex-grow px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm shadow-sm bg-white transition"
                         >
-                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 px-5 rounded-lg text-sm transition duration-150 shadow-sm">
-                            Search
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 px-5 rounded-lg text-sm transition duration-150 shadow-sm flex items-center gap-1.5">
+                            <span>🔍</span> Search
                         </button>
                         {% if q %}
                         <a href="/?view=articles" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 px-4 rounded-lg text-sm transition duration-150 flex items-center border border-gray-200 shadow-sm">
@@ -356,11 +358,12 @@
                 </div>
 
                 {% if not pages %}
-                <div class="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
+                <div id="no-articles-notice" class="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
                     <p class="text-gray-500 text-sm">No wiki articles inside system. Submit items to populate table context indices.</p>
                 </div>
+                <div id="articles-grid-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 hidden"></div>
                 {% else %}
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                <div id="articles-grid-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                     {% for page in pages %}
                     <div class="relative bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm min-h-52">
                         <a href="/view/page?url={{ page.safe_url }}" class="absolute inset-0 z-0"></a>
@@ -412,7 +415,204 @@
                 </div>
                 {% endif %}
             {% endif %}
+
+            <!-- Unified Responsive Pagination Controls -->
+            {% if total_pages and total_pages > 1 %}
+            <div id="pagination-controls" class="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                <div class="text-xs text-gray-500 font-medium">
+                    Showing <span class="font-bold text-gray-900">{{ (page - 1) * limit + 1 }}</span> to <span class="font-bold text-gray-900">{{ [page * limit, total] | min }}</span> of <span class="font-bold text-gray-900">{{ total }}</span> items
+                </div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                    {% if has_prev %}
+                    <a href="?view={{ view }}&page={{ page - 1 }}&limit={{ limit }}{% if q %}&q={{ q | urlencode }}{% endif %}{% if selected_tag %}&tag={{ selected_tag | urlencode }}{% endif %}{% if selected_creator %}&creator={{ selected_creator | urlencode }}{% endif %}" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 shadow-sm transition">
+                        &larr; Prev
+                    </a>
+                    {% else %}
+                    <span class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 text-gray-300 bg-gray-50 cursor-not-allowed">
+                        &larr; Prev
+                    </span>
+                    {% endif %}
+
+                    {% set start_page = [1, page - 2] | max %}
+                    {% set end_page = [total_pages, page + 2] | min %}
+
+                    {% if start_page > 1 %}
+                    <a href="?view={{ view }}&page=1&limit={{ limit }}{% if q %}&q={{ q | urlencode }}{% endif %}{% if selected_tag %}&tag={{ selected_tag | urlencode }}{% endif %}{% if selected_creator %}&creator={{ selected_creator | urlencode }}{% endif %}" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition">1</a>
+                    {% if start_page > 2 %}<span class="px-1 text-xs text-gray-400">...</span>{% endif %}
+                    {% endif %}
+
+                    {% for p_num in range(start_page, end_page + 1) %}
+                    {% if p_num == page %}
+                    <span class="px-3 py-1.5 text-xs font-bold rounded-lg border border-indigo-600 bg-indigo-600 text-white shadow-sm">{{ p_num }}</span>
+                    {% else %}
+                    <a href="?view={{ view }}&page={{ p_num }}&limit={{ limit }}{% if q %}&q={{ q | urlencode }}{% endif %}{% if selected_tag %}&tag={{ selected_tag | urlencode }}{% endif %}{% if selected_creator %}&creator={{ selected_creator | urlencode }}{% endif %}" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition">{{ p_num }}</a>
+                    {% endif %}
+                    {% endfor %}
+
+                    {% if end_page < total_pages %}
+                    {% if end_page < total_pages - 1 %}<span class="px-1 text-xs text-gray-400">...</span>{% endif %}
+                    <a href="?view={{ view }}&page={{ total_pages }}&limit={{ limit }}{% if q %}&q={{ q | urlencode }}{% endif %}{% if selected_tag %}&tag={{ selected_tag | urlencode }}{% endif %}{% if selected_creator %}&creator={{ selected_creator | urlencode }}{% endif %}" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition">{{ total_pages }}</a>
+                    {% endif %}
+
+                    {% if has_next %}
+                    <a href="?view={{ view }}&page={{ page + 1 }}&limit={{ limit }}{% if q %}&q={{ q | urlencode }}{% endif %}{% if selected_tag %}&tag={{ selected_tag | urlencode }}{% endif %}{% if selected_creator %}&creator={{ selected_creator | urlencode }}{% endif %}" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 shadow-sm transition">
+                        Next &rarr;
+                    </a>
+                    {% else %}
+                    <span class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 text-gray-300 bg-gray-50 cursor-not-allowed">
+                        Next &rarr;
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
         </div>
     </div>
 </div>
+
+<!-- Reactive Client-Side Controller -->
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const searchInput = document.getElementById("search-input");
+    const container = document.getElementById("articles-grid-container");
+    const emptyNotice = document.getElementById("no-articles-notice");
+    if (!searchInput || !container) return;
+
+    let debounceTimer = null;
+    let currentController = null;
+
+    searchInput.addEventListener("input", function(e) {
+        clearTimeout(debounceTimer);
+        const query = e.target.value.trim();
+        debounceTimer = setTimeout(() => {
+            fetchArticles(query, 1);
+        }, 300);
+    });
+
+    async function fetchArticles(q, page) {
+        if (currentController) {
+            currentController.abort();
+        }
+        currentController = new AbortController();
+
+        renderSkeleton();
+        try {
+            const params = new URLSearchParams({
+                page: page || 1,
+                limit: {{ limit or 24 }},
+            });
+            if (q) params.set("q", q);
+            {% if selected_tag %}params.set("tag", "{{ selected_tag }}");{% endif %}
+
+            const res = await fetch(`/api/articles?${params.toString()}`, {
+                signal: currentController.signal,
+                headers: { "Accept": "application/json" }
+            });
+            if (!res.ok) throw new Error("API request failed");
+            const data = await res.json();
+            renderArticles(data);
+
+            // Sync URL in address bar without reload
+            const url = new URL(window.location);
+            if (q) url.searchParams.set("q", q);
+            else url.searchParams.delete("q");
+            url.searchParams.set("page", page || 1);
+            window.history.pushState({}, "", url);
+        } catch (err) {
+            if (err.name !== "AbortError") {
+                console.error("Reactive search failed:", err);
+            }
+        }
+    }
+
+    function renderSkeleton() {
+        if (emptyNotice) emptyNotice.classList.add("hidden");
+        container.classList.remove("hidden");
+        container.innerHTML = Array(6).fill(0).map(() => `
+            <div class="bg-white border border-gray-200 rounded-xl p-5 shadow-sm min-h-52 animate-pulse flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-center mb-3">
+                        <div class="h-4 bg-gray-200 rounded w-24"></div>
+                        <div class="h-3 bg-gray-200 rounded w-16"></div>
+                    </div>
+                    <div class="h-6 bg-gray-200 rounded w-3/4 mb-2"></div>
+                    <div class="h-4 bg-gray-200 rounded w-1/2 mb-3"></div>
+                    <div class="h-3 bg-gray-100 rounded w-full mb-1"></div>
+                    <div class="h-3 bg-gray-100 rounded w-4/5"></div>
+                </div>
+                <div class="flex gap-1 mt-4 pt-2 border-t border-gray-100">
+                    <div class="h-4 bg-gray-200 rounded-full w-12"></div>
+                    <div class="h-4 bg-gray-200 rounded-full w-14"></div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderArticles(data) {
+        if (!data.items || data.items.length === 0) {
+            container.innerHTML = `
+                <div class="col-span-full bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
+                    <p class="text-gray-500 text-sm">No wiki articles found matching your search.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = data.items.map(page => `
+            <div class="relative bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm min-h-52">
+                <a href="/view/page?url=${encodeURIComponent(page.url)}" class="absolute inset-0 z-0"></a>
+                <div>
+                    <div class="flex items-center justify-between gap-1 mb-2">
+                        <span class="px-2 py-0.5 bg-gray-100 text-gray-700 text-[11px] font-mono rounded border border-gray-200 truncate max-w-[140px]">
+                            ${escapeHtml(page.domain || "Source")}
+                        </span>
+                        <span class="text-[10px] text-gray-400 font-medium whitespace-nowrap">${escapeHtml((page.fetched_at || "").substring(0, 10))}</span>
+                    </div>
+                    <h2 class="text-base sm:text-lg font-extrabold text-gray-900 leading-tight line-clamp-3 mb-2">
+                        <a href="/view/page?url=${encodeURIComponent(page.url)}" class="hover:text-indigo-600 relative z-10">
+                            ${escapeHtml(page.title || page.url)}
+                        </a>
+                    </h2>
+                    <div class="mb-2 flex items-center gap-1.5 flex-wrap">
+                        ${page.collection_title ? `
+                            <span class="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-semibold rounded border border-indigo-100 inline-block">
+                                📁 ${escapeHtml(page.collection_title)}
+                            </span>
+                        ` : `
+                            <span class="px-1.5 py-0.5 bg-gray-50 text-gray-400 text-[10px] font-medium rounded border border-gray-200 italic inline-block">
+                                None
+                            </span>
+                        `}
+                    </div>
+                    ${page.title && page.title !== page.url ? `
+                        <p class="text-[11px] text-gray-400 truncate mt-1">
+                            <a href="${escapeHtml(page.url)}" target="_blank" class="hover:underline font-mono text-indigo-600 relative z-10">${escapeHtml(page.url)}</a>
+                        </p>
+                    ` : ''}
+                </div>
+                ${page.tags && page.tags.length ? `
+                    <div class="flex flex-wrap gap-1 mt-3 pt-2.5 border-t border-gray-100">
+                        ${page.tags.slice(0, 4).map(t => `
+                            <a href="/?tag=${encodeURIComponent(t)}" class="px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-[10px] font-semibold rounded-full border border-indigo-100 transition relative z-10">
+                                ${escapeHtml(t)}
+                            </a>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        `).join('');
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+});
+</script>
 {% endblock %}

@@ -48,8 +48,13 @@ class DatabaseLogHandler(logging.Handler):
         super().__init__()
 
     def emit(self, record: logging.LogRecord) -> None:
-        # Skip logging if it is from sqlalchemy engine to avoid infinite recursion/loops
-        if record.name.startswith("sqlalchemy"):
+        # Skip logging if it is from sqlalchemy engine to avoid infinite recursion/loops,
+        # or alembic/plugins to avoid startup migration spam in system logs.
+        if (
+            record.name.startswith("sqlalchemy")
+            or record.name.startswith("alembic")
+            or record.module == "plugins"
+        ):
             return
 
         try:
@@ -159,9 +164,10 @@ def get_engine():
                     )
 
                 # Import models and create all tables if missing
-                from .models_orm import Base
+                from .models_orm import Base, ensure_views_and_indexes
 
                 Base.metadata.create_all(_engine)
+                ensure_views_and_indexes(_engine)
                 _SessionFactory = sessionmaker(bind=_engine)
     return _engine
 

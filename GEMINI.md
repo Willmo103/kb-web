@@ -40,7 +40,8 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 3. **Vector & Semantic Search**: Index and search web knowledge using Qdrant vector database and EmbeddingGemma models.
 4. **Virtual Sites & Links**: Group related ingested URLs into virtual domain portals and custom link collections.
 5. **YouTube & Media Tools**: Extract metadata, transcripts, and video details using `yt-dlp` and `ffmpeg`.
-6. **MCP & REST Endpoints**: Expose Model Context Protocol (MCP) server endpoints (`kb-web-mcp.service`) and REST endpoints for external AI agents.
+6. **MCP & REST Endpoints**: Expose Model Context Protocol (MCP) server endpoints (`kb-web-mcp.service`) and standardized REST endpoints (`/api/articles`, `/api/videos`, `/api/sites`, `/api/tags`) for external AI agents and frontend consuming.
+7. **Database View & Pagination**: Serve indexed web cards via pre-aggregated PostgreSQL view `vw_page_cards` with responsive UI pagination. Note: SQLite is being phased out in favor of PostgreSQL.
 
 ---
 

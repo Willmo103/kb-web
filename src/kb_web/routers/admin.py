@@ -8,6 +8,7 @@ import logging
 import time
 from datetime import datetime
 from typing import AsyncGenerator, Optional
+from pydantic import BaseModel, Field
 from urllib.parse import unquote_plus, quote_plus, urlparse
 from fastapi import (
     APIRouter,
@@ -45,11 +46,14 @@ from ..models_orm import (
     ChunkEmbedding,
     Collection,
     CollectionItem,
+    CollectionAction,
+    Link,
     AgentPrompt,
     CliApiKey,
     RegisteredClient,
     SystemLog,
 )
+from sqlalchemy import or_, text, func
 from ..utils import (
     fetch_url,
     extract_first_url,
@@ -421,6 +425,86 @@ def handle_url_import(
     )
 
 
+# --- Interactive Link Discovery & Crawl API Endpoints ---
+
+
+class DiscoverRequest(BaseModel):
+    url: str
+    same_domain: bool = True
+    max_links: int = Field(default=250, ge=1, le=500)
+
+
+class AiFilterRequest(BaseModel):
+    seed_url: str
+    page_title: str
+    links: list[dict]
+    custom_instructions: Optional[str] = None
+
+
+class EnqueueCrawlRequest(BaseModel):
+    urls: list[str]
+    collection_id: Optional[int] = None
+    new_collection_title: Optional[str] = None
+
+
+@router.post("/api/crawl/discover", dependencies=[Depends(verify_auth)])
+def api_crawl_discover(payload: DiscoverRequest) -> dict:
+    """Extracts, normalizes, and filters hyperlinks from a seed URL, marking already ingested pages."""
+    from ..crawler import extract_candidate_links
+
+    try:
+        data = extract_candidate_links(
+            payload.url, same_domain=payload.same_domain, max_links=payload.max_links
+        )
+        return {"status": "success", **data}
+    except Exception as e:
+        logger.error(f"Error in crawl discovery for {payload.url}: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/api/crawl/ai-filter", dependencies=[Depends(verify_auth)])
+def api_crawl_ai_filter(payload: AiFilterRequest) -> dict:
+    """Uses LLM with structured JSON output to prioritize documentation/articles and filter noise."""
+    from ..crawler import ai_curate_candidate_links
+
+    try:
+        curated = ai_curate_candidate_links(
+            payload.seed_url,
+            payload.page_title,
+            payload.links,
+            custom_instructions=payload.custom_instructions,
+        )
+        return {"status": "success", **curated}
+    except Exception as e:
+        logger.error(f"Error in AI crawl curation: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/api/crawl/enqueue", dependencies=[Depends(verify_auth)])
+def api_crawl_enqueue(
+    payload: EnqueueCrawlRequest,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Dispatches a background worker to sequentially scrape and ingest the selected URLs."""
+    from ..crawler import run_batch_crawl_ingestion
+
+    if not payload.urls:
+        return {"status": "error", "message": "No URLs provided to enqueue."}
+
+    background_tasks.add_task(
+        run_batch_crawl_ingestion,
+        payload.urls,
+        collection_id=payload.collection_id,
+        new_collection_title=payload.new_collection_title,
+        config_obj=config,
+    )
+    return {
+        "status": "success",
+        "message": f"Enqueued {len(payload.urls)} page(s) for background scraping.",
+        "enqueued_count": len(payload.urls),
+    }
+
+
 @router.get("/admin", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
 def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
     """Serves the admin page containing DB backups, imports, and maintenance triggers."""
@@ -431,12 +515,17 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
     registered_clients = []
 
     with db_session() as session:
-        all_pages = session.query(FetchedPage).all()
-        count = sum(
-            1
-            for r in all_pages
-            if not r.description
-            or "AI Processing skipped" in r.description
+        count = (
+            session.query(func.count(FetchedPage.url))
+            .filter(
+                or_(
+                    FetchedPage.description.is_(None),
+                    FetchedPage.description == "",
+                    FetchedPage.description.like("%AI Processing skipped%"),
+                )
+            )
+            .scalar()
+            or 0
         )
 
         try:
@@ -848,19 +937,55 @@ def handle_refetch_page(
     "/admin/delete/page", dependencies=[Depends(verify_auth)], response_model=None
 )
 def handle_delete_page(url: str = Form(...)) -> RedirectResponse:
-    """Deletes an ingested page profile and all its archived versions from the database."""
+    """Deletes an ingested page profile and all its archived versions, embeddings,
+    videos, and collection references cleanly from the database using cascade deletion.
+    """
+    raw_url = url.strip()
+    decoded_url = unquote_plus(raw_url).strip()
+    urls_to_remove = list({raw_url, decoded_url})
+
     try:
         with db_session() as session:
-            session.query(FetchedPage).filter_by(url=url).delete()
-            session.query(PageVersion).filter_by(url=url).delete()
-            session.query(ArticleEmbedding).filter_by(url=url).delete()
-            session.query(TitleEmbedding).filter_by(url=url).delete()
+            for u in urls_to_remove:
+                # 1. Child embeddings and chunks
+                session.query(ArticleEmbedding).filter_by(url=u).delete()
+                session.query(TitleEmbedding).filter_by(url=u).delete()
+                session.query(VideoEmbedding).filter_by(url=u).delete()
+                session.query(ChunkEmbedding).filter_by(source_id=u).delete()
+
+                # 2. Collections and actions
+                session.query(CollectionItem).filter_by(source_id=u).delete()
+                session.query(CollectionAction).filter_by(source_id=u).delete()
+
+                # 3. YouTube video records (both by URL and by extracted video ID)
+                vid_id = extract_youtube_video_id(u)
+                if vid_id:
+                    session.query(YouTubeVideo).filter(
+                        or_(YouTubeVideo.url == u, YouTubeVideo.video_id == vid_id)
+                    ).delete()
+                else:
+                    session.query(YouTubeVideo).filter_by(url=u).delete()
+
+                # 4. Archived versions and links
+                session.query(PageVersion).filter_by(url=u).delete()
+                session.query(Link).filter_by(url=u).delete()
+
+                # 5. Finally delete the parent page record
+                session.query(FetchedPage).filter_by(url=u).delete()
+
         print(
-            f"Administrative Delete: Removed {url} and all archived versions from database."
+            f"Administrative Delete: Removed {raw_url} and all associated records from database."
         )
-    except Exception:
-        raise HTTPException(status_code=404, detail="Target page profile not found.")
-    return RedirectResponse(url="/", status_code=303)
+        return RedirectResponse(
+            url=f"/?msg={quote_plus('Entry successfully deleted.')}",
+            status_code=303,
+        )
+    except Exception as err:
+        print(f"Administrative Delete Error for {raw_url}: {err}")
+        return RedirectResponse(
+            url=f"/?error={quote_plus(f'Failed to delete entry: {err}')}",
+            status_code=303,
+        )
 
 
 @router.post("/admin/trigger-describe", dependencies=[Depends(verify_auth)])
@@ -1191,14 +1316,8 @@ async def websocket_import(websocket: WebSocket) -> None:
                                 if url_val:
                                     parent = session.query(FetchedPage).filter_by(url=url_val).first()
                                     if not parent:
-                                        session.add(
-                                            FetchedPage(
-                                                url=url_val,
-                                                title=f"Archived Item ({url_val})",
-                                                fetched_at=datetime.now().isoformat(),
-                                            )
-                                        )
-                                        session.flush()
+                                        # Skip orphaned child record for already-deleted parent page
+                                        continue
 
                             pks = [c.name for c in model_cls.__table__.primary_key.columns]
                             pk_vals = {pk: clean_r[pk] for pk in pks if pk in clean_r}

@@ -82,12 +82,12 @@ class HTMLPage(BaseModel):
 
     url: str
     title: Optional[str] = None  # Page Title assigned during wiki extraction
-    html_content: str
-    md_content: str
-    links: list[str]
-    html_content_hash: str
-    md_content_hash: str
-    fetched_at: str
+    html_content: Optional[str] = ""
+    md_content: Optional[str] = ""
+    links: Optional[list[str]] = []
+    html_content_hash: Optional[str] = ""
+    md_content_hash: Optional[str] = ""
+    fetched_at: Optional[str] = ""
     description: Optional[str] = None
     keywords: Optional[list[str]] = None
     tags: Optional[list[str]] = (

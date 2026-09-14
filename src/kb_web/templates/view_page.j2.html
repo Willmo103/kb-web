@@ -385,9 +385,21 @@
 <div id="crawl-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4">
     <div class="bg-white rounded-lg p-6 max-w-md w-full shadow-2xl border border-gray-200 animate-fade-in">
         <h3 class="text-lg font-bold text-gray-950 mb-2 flex items-center">
-            <span class="mr-2">🕷️</span> Recursive Web Crawl
+            <span class="mr-2">🕷️</span> Webpage Crawler
         </h3>
-        <p class="text-sm text-gray-600 mb-4">Set recursive crawler settings to fetch and catalog same-domain links starting from this page.</p>
+        <p class="text-sm text-gray-600 mb-4">Discover candidate links to curate and select with AI, or launch a recursive crawler in the background.</p>
+
+        <a href="/import?mode=crawl&seed={{ page.safe_url }}" 
+           class="w-full mb-4 flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm transition">
+            <span>🔍</span> Interactive Link Discovery & AI Selection ↗️
+        </a>
+
+        <div class="relative flex py-1 items-center mb-3">
+            <div class="flex-grow border-t border-gray-200"></div>
+            <span class="flex-shrink mx-2 text-gray-400 text-[10px] uppercase font-bold">or background recursive crawl</span>
+            <div class="flex-grow border-t border-gray-200"></div>
+        </div>
+
         <form id="crawl-form" onsubmit="submitCrawl(event)" class="space-y-4">
             <input type="hidden" name="url" id="crawl-form-url" value="{{ page.url }}" />
             <div>

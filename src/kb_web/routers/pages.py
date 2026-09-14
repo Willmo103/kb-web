@@ -9,7 +9,7 @@ from typing import Optional
 from urllib.parse import unquote_plus, urlparse, urljoin
 from fastapi import APIRouter, Query, Request, BackgroundTasks, Form, Depends
 from fastapi.responses import HTMLResponse
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 
 from ..base import (
     config,
@@ -19,8 +19,9 @@ from ..base import (
     verify_auth,
     db_session,
 )
+import math
 from ..models import HTMLPage, extract_youtube_video_id
-from ..models_orm import FetchedPage, YouTubeVideo, Collection, CollectionItem, PageVersion
+from ..models_orm import FetchedPage, YouTubeVideo, Collection, CollectionItem, PageVersion, PageCardView
 from ..utils import (
     get_url_basename,
     preprocess_markdown,
@@ -40,116 +41,132 @@ def view_all_pages(
     q: Optional[str] = Query(None),
     view: str = Query("articles"),
     tag: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(24, ge=1, le=100),
 ) -> HTMLResponse:
     """Lists historically captured records or grouped sites with a left-hand navigation menu."""
     pages_list = []
     videos_list = []
     creators_counts = {}
     selected_creator = request.query_params.get("creator")
+    total_count = 0
 
     with db_session() as session:
-        # Fetch pages joined with YouTube videos
-        query = (
-            session.query(
-                FetchedPage,
-                YouTubeVideo.creator,
-                YouTubeVideo.video_id,
-                YouTubeVideo.duration,
-                YouTubeVideo.view_count,
-                YouTubeVideo.thumbnail_url,
-            )
-            .outerjoin(YouTubeVideo, FetchedPage.url == YouTubeVideo.url)
-        )
+        # Base query from pre-aggregated view PageCardView (avoids loading html_content/md_content and eliminates N+1 queries)
+        base_query = session.query(PageCardView)
 
         if q:
-            query = query.filter(
+            term = f"%{q.strip()}%"
+            base_query = base_query.filter(
                 or_(
-                    FetchedPage.title.like(f"%{q}%"),
-                    FetchedPage.tags.like(f"%{q}%"),
+                    PageCardView.title.ilike(term),
+                    PageCardView.tags.ilike(term),
+                    PageCardView.description.ilike(term),
                 )
             )
 
-        query = query.order_by(FetchedPage.fetched_at.desc())
-        rows = query.all()
+        if tag:
+            base_query = base_query.filter(PageCardView.tags.ilike(f"%{tag.strip()}%"))
 
-        for page_obj, creator, video_id, duration, view_count, thumbnail_url in rows:
-            try:
-                # Parse tags
-                tags_list = []
-                tags_json = page_obj.tags
-                if tags_json:
-                    try:
-                        tags_list = json.loads(tags_json)
-                        if not isinstance(tags_list, list):
-                            tags_list = []
-                    except Exception:
-                        pass
+        # Fetch creators list from videos for sidebar/filter
+        creator_rows = (
+            session.query(PageCardView.creator, func.count(PageCardView.url))
+            .filter(PageCardView.video_id.isnot(None))
+            .group_by(PageCardView.creator)
+            .all()
+        )
+        creators_counts = {c[0] or "Unknown Creator": c[1] for c in creator_rows if c[0]}
 
-                # Check tag filter
-                if tag:
-                    tag_lower = tag.strip().lower()
-                    if not any(t.strip().lower() == tag_lower for t in tags_list):
-                        continue
+        offset = (page - 1) * limit
 
-                # Fetch collection details
-                coll_title = None
-                coll_id = None
-                coll_rows = (
-                    session.query(Collection)
-                    .join(CollectionItem, Collection.id == CollectionItem.collection_id)
-                    .filter(CollectionItem.source_id == page_obj.url, Collection.id != 1)
-                    .all()
-                )
-                if coll_rows:
-                    coll_title = ", ".join([c.title for c in coll_rows])
-                    coll_id = coll_rows[0].id
+        if tag:
+            # When tag is selected, show both articles and videos matching the tag
+            vids_query = base_query.filter(PageCardView.video_id.isnot(None)).order_by(PageCardView.fetched_at.desc())
+            pages_query = base_query.filter(PageCardView.video_id.is_(None)).order_by(PageCardView.fetched_at.desc())
 
-                # Build dictionary for HTMLPage matching models expectations
-                p_dict = {col.name: getattr(page_obj, col.name) for col in page_obj.__table__.columns}
-                # Ensure JSON strings are converted back to list/dict for Pydantic/Jinja
-                for fld in ("links", "keywords", "tags"):
-                    if p_dict.get(fld):
-                        try:
-                            p_dict[fld] = json.loads(p_dict[fld])
-                        except Exception:
-                            p_dict[fld] = []
-                    else:
-                        p_dict[fld] = []
+            total_count = vids_query.count() + pages_query.count()
 
-                actual_video_id = video_id or extract_youtube_video_id(page_obj.url)
-                if actual_video_id:
-                    actual_creator = creator or "Unknown Creator"
-                    creators_counts[actual_creator] = creators_counts.get(actual_creator, 0) + 1
+            for r in vids_query.limit(limit).all():
+                p_dict = {
+                    "url": r.url,
+                    "title": r.title or r.url,
+                    "description": r.description or "",
+                    "tags": r.tags,
+                    "fetched_at": r.fetched_at or "",
+                    "collection_id": r.collection_first_id or r.collection_id,
+                    "collection_title": r.collection_title,
+                    "creator": r.creator or "YouTube",
+                    "video_id": r.video_id,
+                    "duration": r.duration,
+                    "view_count": r.view_count,
+                    "thumbnail_url": r.thumbnail_url,
+                }
+                videos_list.append(HTMLPage(**p_dict))
 
-                    if tag or view == "videos":
-                        if not selected_creator or actual_creator == selected_creator:
-                            html_page = HTMLPage(**p_dict)
-                            html_page.creator = actual_creator
-                            html_page.video_id = actual_video_id
-                            html_page.duration = duration
-                            html_page.view_count = view_count
-                            html_page.thumbnail_url = thumbnail_url
-                            html_page.collection_title = coll_title
-                            html_page.collection_id = coll_id
-                            videos_list.append(html_page)
-                else:
-                    if tag or view != "videos":
-                        html_page = HTMLPage(**p_dict)
-                        html_page.collection_title = coll_title
-                        html_page.collection_id = coll_id
-                        pages_list.append(html_page)
-            except Exception as e:
-                print(f"Database row validation error: {e}")
-                continue
+            for r in pages_query.limit(limit).all():
+                p_dict = {
+                    "url": r.url,
+                    "title": r.title or r.url,
+                    "description": r.description or "",
+                    "tags": r.tags,
+                    "fetched_at": r.fetched_at or "",
+                    "collection_id": r.collection_first_id or r.collection_id,
+                    "collection_title": r.collection_title,
+                }
+                pages_list.append(HTMLPage(**p_dict))
 
-        # Fetch and compute sites
+        elif view == "videos":
+            query = base_query.filter(PageCardView.video_id.isnot(None))
+            if selected_creator:
+                query = query.filter(PageCardView.creator == selected_creator)
+            total_count = query.count()
+            rows = query.order_by(PageCardView.fetched_at.desc()).offset(offset).limit(limit).all()
+            for r in rows:
+                p_dict = {
+                    "url": r.url,
+                    "title": r.title or r.url,
+                    "description": r.description or "",
+                    "tags": r.tags,
+                    "fetched_at": r.fetched_at or "",
+                    "collection_id": r.collection_first_id or r.collection_id,
+                    "collection_title": r.collection_title,
+                    "creator": r.creator or "YouTube",
+                    "video_id": r.video_id,
+                    "duration": r.duration,
+                    "view_count": r.view_count,
+                    "thumbnail_url": r.thumbnail_url,
+                }
+                videos_list.append(HTMLPage(**p_dict))
+
+        elif view == "sites":
+            pass  # Computed below
+
+        else:
+            # Default articles view
+            query = base_query.filter(PageCardView.video_id.is_(None))
+            total_count = query.count()
+            rows = query.order_by(PageCardView.fetched_at.desc()).offset(offset).limit(limit).all()
+            for r in rows:
+                p_dict = {
+                    "url": r.url,
+                    "title": r.title or r.url,
+                    "description": r.description or "",
+                    "tags": r.tags,
+                    "fetched_at": r.fetched_at or "",
+                    "collection_id": r.collection_first_id or r.collection_id,
+                    "collection_title": r.collection_title,
+                }
+                pages_list.append(HTMLPage(**p_dict))
+
+        # Fetch and compute sites efficiently without loading raw HTML or markdown
         sites_dict = {}
-        all_pages = session.query(FetchedPage).all()
-        for page_obj in all_pages:
-            url = page_obj.url
+        all_urls_tuples = session.query(FetchedPage.url, FetchedPage.title).all()
+        for url, title in all_urls_tuples:
             if extract_youtube_video_id(url):
                 continue
             basename = get_url_basename(url)
+            if not basename:
+                continue
             if basename not in sites_dict:
                 sites_dict[basename] = {
                     "name": basename,
@@ -157,16 +174,24 @@ def view_all_pages(
                     "pages": [],
                 }
             sites_dict[basename]["pages_count"] += 1
-            p_dict = {col.name: getattr(page_obj, col.name) for col in page_obj.__table__.columns}
-            sites_dict[basename]["pages"].append(p_dict)
+            if len(sites_dict[basename]["pages"]) < 5:
+                sites_dict[basename]["pages"].append({
+                    "url": url,
+                    "title": title or url,
+                })
 
     sorted_sites = sorted(
         sites_dict.values(), key=lambda x: (-x["pages_count"], x["name"])
     )
+    if view == "sites":
+        total_count = len(sorted_sites)
+        sorted_sites = sorted_sites[offset : offset + limit]
+
     sorted_creators = sorted(creators_counts.items(), key=lambda x: (-x[1], x[0]))
 
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))
+    total_pages = math.ceil(total_count / limit) if limit > 0 else 1
 
     template = _jinja_env.get_template("pages_list.j2.html")
     return HTMLResponse(
@@ -180,6 +205,12 @@ def view_all_pages(
             view=view,
             is_admin=is_admin,
             q=q or "",
+            page=page,
+            limit=limit,
+            total=total_count,
+            total_pages=total_pages,
+            has_next=(page * limit) < total_count,
+            has_prev=page > 1,
         )
     )
 

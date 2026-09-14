@@ -15,15 +15,19 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - **Administrative Settings Portal**: Prefills and updates Ollama hosts/models, system prompts, API keys, and Gotify details directly from the Web UI.
 - **Chunked WS Ingest**: Supports uploading JSON database backups over WebSockets.
 - **JSON Streams**: Streams database records out as downloadable files.
+- **Standardized REST API Suite**: High-performance JSON endpoints (`/api/articles`, `/api/videos`, `/api/sites`, `/api/tags`) for external AI agents and frontend consuming.
+- **PostgreSQL & Database View Optimization**: Pre-aggregated database view (`vw_page_cards`) and indexes to eliminate latency and N+1 queries. Note: SQLite is being phased out in favor of PostgreSQL as the primary production engine.
 
 ---
 
 ## Codebase Structure
 
 - `src/kb_web/config.py`: Configuration class extending the base `kb_core` configuration to support LLM, API keys, and web UI variables.
-- `src/kb_web/db.py`: Database helper setting up and migrating `title` and `tags` columns in the shared SQLite database.
+- `src/kb_web/models_orm.py`: SQLAlchemy ORM models, pgvector type decorator, and `vw_page_cards` view schema.
 - `src/kb_web/models.py`: Pydantic validation schemas (`ParsedUrl` and `HTMLPage`) representing stored pages.
 - `src/kb_web/server.py`: FastAPI application routing, route guards, and background tasks.
+- `src/kb_web/routers/rest_api.py`: Public JSON REST API endpoints (`/api/articles`, `/api/videos`, `/api/sites`, `/api/tags`).
+- `src/kb_web/routers/pages.py`: Web UI page controller with pagination and virtual site indexing.
 - `src/kb_web/cli.py`: Typer command launcher.
 - `src/kb_web/templates/`: Jinja2 templates for login, dashboard lists, configuration inputs, and profile views.
 - `browser_extension/`: Source directory containing manifest, options menu, and background worker for Chrome imports.
