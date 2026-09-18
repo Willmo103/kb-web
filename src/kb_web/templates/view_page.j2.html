@@ -305,6 +305,32 @@
                     {{ rendered_md_html | safe }}
                 </div>
             </details>
+
+            <!-- Collapsible Document Chunks & Vector Segments -->
+            {% if chunks %}
+            <details id="document-chunks-details" class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden group mb-6">
+                <summary class="bg-gray-100 px-6 py-3 font-semibold text-sm text-gray-700 cursor-pointer select-none group-hover:bg-gray-200 transition flex justify-between items-center">
+                    <span class="flex items-center gap-2">
+                        <span>🧩 Document Chunks & Embeddings</span>
+                        <span class="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-[10px] font-mono font-bold rounded-full">{{ chunks | length }} chunks</span>
+                    </span>
+                    <span class="text-xs text-gray-400 font-normal">click to expand</span>
+                </summary>
+                <div class="p-6 border-t border-gray-200 bg-gray-50 space-y-4 max-h-160 overflow-y-auto">
+                    {% for c in chunks %}
+                    <div id="chunk-{{ c.chunk_number }}" class="chunk-card bg-white p-4 rounded-lg border border-gray-200 shadow-sm transition duration-300">
+                        <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-gray-100">
+                            <span class="text-xs font-bold text-indigo-700 font-mono">Chunk #{{ c.chunk_number + 1 }}</span>
+                            <span class="text-[10px] font-mono text-gray-400">Model: {{ c.model_name }}</span>
+                        </div>
+                        <div class="text-xs text-gray-800 font-sans whitespace-pre-wrap leading-relaxed">
+                            {{ c.chunk_content }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endif %}
         </main>
 
         <!-- Right Sidebar (Actions) -->
@@ -312,12 +338,21 @@
             <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
                 <h3 class="text-xs font-bold text-gray-450 uppercase tracking-wider mb-4 border-b pb-2">⚡ Actions</h3>
                 <div class="flex flex-col gap-2.5">
+                    <button type="button" onclick="openChatDrawer()" class="w-full text-left text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-3 rounded-lg transition shadow flex items-center gap-2">
+                        <span>💬</span> Chat About Article
+                    </button>
+                    {% if page.url and page.url.startswith('note://') %}
+                    <a href="/notes/edit?url={{ page.safe_url }}" class="w-full text-left text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold py-2 px-3 border border-emerald-200 rounded transition shadow-sm flex items-center gap-2">
+                        <span>✏️</span> Edit in Monaco Editor
+                    </a>
+                    {% endif %}
                     {% if is_admin %}
                     <form action="/admin/regenerate/wiki?url={{ page.safe_url }}" method="post" class="m-0">
                         <button type="submit" class="w-full text-left text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm flex items-center gap-2">
                             <span>🔄</span> Regenerate Wiki
                         </button>
                     </form>
+
                     <form action="/admin/regenerate/tags?url={{ page.safe_url }}" method="post" class="m-0">
                         <button type="submit" class="w-full text-left text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold py-2 px-3 border border-amber-200 rounded transition shadow-sm flex items-center gap-2">
                             <span>🏷️</span> Regenerate Tags
@@ -526,5 +561,218 @@
             alert("An error occurred starting download: " + err);
         });
     }
+
+    // --- Article Chat Drawer Controller ---
+    let currentConversationId = null;
+    const chatDrawer = document.getElementById("chat-drawer");
+    const chatBackdrop = document.getElementById("chat-drawer-backdrop");
+    const chatContainer = document.getElementById("chat-messages-container");
+    const chatInput = document.getElementById("chat-user-input");
+    const chatSubmitBtn = document.getElementById("chat-submit-btn");
+
+    function openChatDrawer() {
+        if (!chatDrawer || !chatBackdrop) return;
+        chatBackdrop.classList.remove("hidden");
+        chatDrawer.classList.remove("translate-x-full");
+        loadArticleChatHistory();
+        if (chatInput) setTimeout(() => chatInput.focus(), 300);
+    }
+
+    function closeChatDrawer() {
+        if (!chatDrawer || !chatBackdrop) return;
+        chatDrawer.classList.add("translate-x-full");
+        chatBackdrop.classList.add("hidden");
+    }
+
+    async function loadArticleChatHistory() {
+        if (!chatContainer) return;
+        try {
+            const pageUrl = "{{ page.url }}";
+            const res = await fetch(`/api/conversations/by-source?url=${encodeURIComponent(pageUrl)}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            currentConversationId = data.conversation_id;
+            renderChatMessages(data.messages || []);
+        } catch (err) {
+            console.error("Failed to load chat history:", err);
+        }
+    }
+
+    function renderChatMessages(messages) {
+        if (!chatContainer) return;
+        if (!messages.length) {
+            chatContainer.innerHTML = `
+                <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-indigo-900 leading-relaxed text-xs">
+                    👋 Ask me anything about <strong class="font-semibold">{{ page.title or 'this document' }}</strong>. I have direct access to its summary wiki and embeddings chunks!
+                </div>
+            `;
+            return;
+        }
+
+        chatContainer.innerHTML = messages.map(m => {
+            const isUser = m.role === "user";
+            return `
+                <div class="flex ${isUser ? 'justify-end' : 'justify-start'}">
+                    <div class="max-w-[85%] rounded-2xl px-4 py-2.5 shadow-sm text-xs ${
+                        isUser 
+                            ? 'bg-indigo-600 text-white rounded-br-none' 
+                            : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none prose-sm leading-relaxed whitespace-pre-wrap'
+                    }">
+                        ${isUser ? escapeHtml(m.content) : m.content}
+                    </div>
+                </div>
+            `;
+        }).join('');
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    async function sendChatMessage(e) {
+        if (e) e.preventDefault();
+        const text = chatInput ? chatInput.value.trim() : "";
+        if (!text) return;
+
+        chatInput.value = "";
+        if (chatSubmitBtn) chatSubmitBtn.disabled = true;
+
+        // Optimistically append user message
+        const tempMsg = document.createElement("div");
+        tempMsg.className = "flex justify-end";
+        tempMsg.innerHTML = `
+            <div class="max-w-[85%] bg-indigo-600 text-white rounded-2xl rounded-br-none px-4 py-2.5 shadow-sm text-xs">
+                ${escapeHtml(text)}
+            </div>
+        `;
+        chatContainer.appendChild(tempMsg);
+
+        // Typing indicator
+        const typingIndicator = document.createElement("div");
+        typingIndicator.id = "chat-typing-indicator";
+        typingIndicator.className = "flex justify-start";
+        typingIndicator.innerHTML = `
+            <div class="bg-white border border-gray-200 text-gray-500 rounded-2xl rounded-bl-none px-4 py-2 text-xs shadow-sm flex items-center gap-1.5 animate-pulse">
+                <span>🤖 Thinking with Ollama...</span>
+            </div>
+        `;
+        chatContainer.appendChild(typingIndicator);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        try {
+            const res = await fetch('/api/conversations/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: text,
+                    source_id: "{{ page.url }}",
+                    conversation_id: currentConversationId,
+                })
+            });
+            const data = await res.json();
+            const indicator = document.getElementById("chat-typing-indicator");
+            if (indicator) indicator.remove();
+
+            if (res.ok) {
+                currentConversationId = data.conversation_id;
+                const asstMsg = document.createElement("div");
+                asstMsg.className = "flex justify-start";
+                asstMsg.innerHTML = `
+                    <div class="max-w-[85%] bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-bl-none px-4 py-2.5 shadow-sm text-xs prose-sm leading-relaxed whitespace-pre-wrap">
+                        ${escapeHtml(data.content)}
+                    </div>
+                `;
+                chatContainer.appendChild(asstMsg);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            } else {
+                alert("Ollama chat error: " + (data.detail || "Request failed"));
+            }
+        } catch (err) {
+            console.error(err);
+            const indicator = document.getElementById("chat-typing-indicator");
+            if (indicator) indicator.remove();
+            alert("Network error sending chat message.");
+        } finally {
+            if (chatSubmitBtn) chatSubmitBtn.disabled = false;
+        }
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    // Auto-scroll on hash anchors or open chat
+    window.addEventListener("DOMContentLoaded", () => {
+        if (window.location.hash === "#open-chat") {
+            openChatDrawer();
+        } else if (window.location.hash && window.location.hash.startsWith("#chunk-")) {
+            const chunkId = window.location.hash.substring(1);
+            const chunkElem = document.getElementById(chunkId);
+            const details = document.getElementById("document-chunks-details");
+            if (details) details.open = true;
+            if (chunkElem) {
+                setTimeout(() => {
+                    chunkElem.scrollIntoView({ behavior: "smooth", block: "center" });
+                    chunkElem.classList.add("ring-4", "ring-indigo-400", "bg-indigo-50");
+                    setTimeout(() => {
+                        chunkElem.classList.remove("bg-indigo-50");
+                    }, 3000);
+                }, 200);
+            }
+        }
+
+        if (chatInput) {
+            chatInput.addEventListener("keydown", function(e) {
+                if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChatMessage();
+                }
+            });
+        }
+    });
 </script>
+
+<!-- Slide-Out Chat Drawer Modal -->
+<div id="chat-drawer-backdrop" class="hidden fixed inset-0 bg-black bg-opacity-40 z-40 backdrop-blur-sm transition-opacity" onclick="closeChatDrawer()"></div>
+<div id="chat-drawer" class="fixed top-0 right-0 h-full w-full sm:w-[460px] bg-white shadow-2xl z-50 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col border-l border-gray-200">
+    <div class="p-4 border-b border-gray-200 bg-indigo-600 text-white flex items-center justify-between shadow-sm">
+        <div class="flex items-center gap-2 truncate pr-2">
+            <span class="text-xl">💬</span>
+            <div class="truncate">
+                <h3 class="font-bold text-sm leading-tight truncate">Chat: {{ page.title or page.url }}</h3>
+                <p class="text-[10px] text-indigo-200 font-mono">In-context assistant powered by Ollama</p>
+            </div>
+        </div>
+        <button onclick="closeChatDrawer()" class="p-1.5 rounded-lg text-indigo-200 hover:text-white hover:bg-indigo-700 transition" title="Close chat">
+            ✕
+        </button>
+    </div>
+
+    <div id="chat-messages-container" class="flex-grow p-4 overflow-y-auto space-y-3 bg-gray-50 text-xs">
+        <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-indigo-900 leading-relaxed text-xs">
+            👋 Ask me anything about <strong class="font-semibold">{{ page.title or 'this document' }}</strong>. I have direct access to its summary wiki and embeddings chunks!
+        </div>
+    </div>
+
+    <div class="p-3 bg-white border-t border-gray-200">
+        <form id="chat-send-form" onsubmit="sendChatMessage(event)" class="flex flex-col gap-2">
+            <textarea 
+                id="chat-user-input" 
+                rows="2" 
+                placeholder="Ask about this article... (Press Enter to send)"
+                class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none resize-none font-sans"
+            ></textarea>
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] text-gray-400 font-mono">History saved automatically</span>
+                <button type="submit" id="chat-submit-btn" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition shadow-sm flex items-center gap-1">
+                    <span>Send</span> <span>↗</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
 {% endblock %}
+

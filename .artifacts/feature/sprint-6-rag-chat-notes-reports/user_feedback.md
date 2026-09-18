@@ -64,3 +64,16 @@
 | **#66** | UI/UX | UX/UI: Admin Portal Modernization & Space-Efficient Tabbed Layout | OPEN |
 | **#67** | Feature | Feature: Custom Report & Data Grid Builder with Dynamic Joins, Filters, & Scheduled Exports | OPEN |
 | **#68** | Sprint | Sprint 6: RAG Search, Multi-Model Embeddings, Article Chat, Notes/Obsidian, Admin Redesign, & Custom Reports | OPEN |
+
+---
+
+## 4. Turn 2 Plan Review & Design Directives (2026-09-18)
+
+* **Plan Approved**: User reviewed and approved `implementation_plan.md`.
+* **Data Grid Optimization Directive**:
+  > *"We can represent the fields like HTML, Markdown and vectors as placeholders and not load them"*
+* **Architectural Action**:
+  - In the dynamic ERP data grid query engine (`/api/reports/query`), heavy textual content columns (`html_content`, `md_content`, `transcript_segments`) and embedding vector columns (`chunk_vector`, `embedding`) will NOT be loaded over the wire during standard grid rendering.
+  - Instead, they are projected as metadata placeholders (e.g. `[HTML: 14.2 KB]`, `[Markdown: 3.1 KB]`, `[Vector: 768-dim]`).
+  - Full payloads are only fetched on explicit user drilldown or when specifically selected during file export (`.xlsx`/`.csv`/`.json`).
+

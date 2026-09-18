@@ -21,7 +21,7 @@ from ..base import (
 )
 import math
 from ..models import HTMLPage, extract_youtube_video_id
-from ..models_orm import FetchedPage, YouTubeVideo, Collection, CollectionItem, PageVersion, PageCardView
+from ..models_orm import FetchedPage, YouTubeVideo, Collection, CollectionItem, PageVersion, PageCardView, ChunkEmbedding
 from ..utils import (
     get_url_basename,
     preprocess_markdown,
@@ -372,6 +372,26 @@ def view_saved_page(
             {"url": link, "ingested": link in ingested_urls} for link in scraped_links
         ]
 
+        chunks = []
+        try:
+            chunk_rows = (
+                session.query(ChunkEmbedding)
+                .filter_by(source_id=decoded_url)
+                .order_by(ChunkEmbedding.chunk_number.asc())
+                .all()
+            )
+            chunks = [
+                {
+                    "id": c.id,
+                    "chunk_number": c.chunk_number if c.chunk_number is not None else 0,
+                    "chunk_content": c.chunk_content or "",
+                    "model_name": getattr(c, "model_name", "embeddinggemma"),
+                }
+                for c in chunk_rows
+            ]
+        except Exception:
+            pass
+
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))
 
@@ -405,8 +425,10 @@ def view_saved_page(
             local_video_url=local_video_url,
             assigned_collections=assigned_collections,
             assigned_collection_ids=assigned_collection_ids,
+            chunks=chunks,
         )
     )
+
 
 
 def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):

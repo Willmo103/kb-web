@@ -27,7 +27,7 @@ Sprint 6 is developed on a dedicated branch branched directly from `production`:
 > **Component Libraries & Dependencies**:
 > - **Monaco Editor**: Will be embedded in the browser via CDN/AMD loader (lightweight, standard VS Code editor core) for note editing and markdown preview.
 > - **Excel Exports**: Backend export using `openpyxl` / `xlsxwriter` for `.xlsx` generation.
-> - **Data Grid**: High-performance vanilla JS data grid with sorting, filtering, and grouping, adhering to our Vanilla CSS / modern web app design standards.
+> - **Data Grid**: High-performance vanilla JS data grid with sorting, filtering, and grouping, adhering to our Vanilla CSS / modern web app design standards. Heavy fields (`html_content`, `md_content`, `chunk_vector`, embeddings) are rendered as lightweight placeholders (e.g. `[HTML: 14KB]`, `[Vector: 768-dim]`) rather than loaded over the wire during standard grid rendering.
 
 ---
 

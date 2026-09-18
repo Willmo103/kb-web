@@ -215,3 +215,76 @@ class HTMLImportPayload(BaseModel):
     url: str
     html_content: str
     title: Optional[str] = None
+
+
+class RAGSearchRequest(BaseModel):
+    query: str
+    top_k: int = 10
+    source_type: Optional[str] = None
+    model: Optional[str] = None
+
+
+class RAGChunkItem(BaseModel):
+    id: int
+    source_id: str
+    source_type: str
+    source_title: str
+    chunk_number: int
+    chunk_content: str
+    similarity: float
+    url: str
+    jump_url: str
+
+
+class RAGSearchResponse(BaseModel):
+    query: str
+    model: str
+    count: int
+    results: list[RAGChunkItem]
+
+
+class NoteCreateRequest(BaseModel):
+    title: Optional[str] = None
+    content: str
+    syntax: str = "markdown"
+    folder_path: str = ""
+    vault_name: str = "Personal"
+
+
+class NoteUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    content: str
+    syntax: Optional[str] = None
+    folder_path: Optional[str] = None
+
+
+class ChatMessageRequest(BaseModel):
+    message: str
+    source_id: Optional[str] = None
+    source_type: str = "article"
+    conversation_id: Optional[int] = None
+    model: Optional[str] = None
+
+
+class ReportQueryRequest(BaseModel):
+    base_table: str
+    selected_columns: list[str]
+    joins: list[dict] = []
+    filters: list[dict] = []
+    sort_by: Optional[str] = None
+    sort_order: str = "asc"
+    group_by: list[str] = []
+    page: int = 1
+    page_size: int = 50
+
+
+class SavedReportCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    base_table: str
+    selected_columns: list[str]
+    joins_config: list[dict] = []
+    sort_config: dict = {}
+    filter_config: list[dict] = []
+    group_config: list[str] = []
+

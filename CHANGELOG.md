@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-18
+### Added
+- **Main Page Semantic RAG Chunk Search Across Articles & Videos (Resolves #62)**:
+  - Added semantic chunk search endpoint `POST /api/rag/search` using high-dimensional cosine similarity across chunk vectors stored in PostgreSQL `chunk_embeddings` with SQLite fallback.
+  - Added dedicated RAG search bar, model selector dropdown, result count slider, and real-time similarity score indicator directly on the home page (`src/kb_web/templates/pages_list.j2.html`).
+  - Added chunk anchor hydration and jump-link support to article view (`src/kb_web/templates/view_page.j2.html`), displaying discrete chunk boundaries with direct anchor highlighting (`#chunk-N`) and semantic proximity badges.
+- **Multi-Model Embedding Reindexing, Model Comparison & Vector Source Toggle (Resolves #63)**:
+  - Added `ChunkEmbedding.model_name` tracking column to support indexing the same documents across multiple embedding models (e.g. `embeddinggemma`, `nomic-embed-text`, `bge-m3`, `all-minilm`).
+  - Added multi-model management endpoints in `src/kb_web/routers/embeddings.py`:
+    - `GET /api/embeddings/models`: Discovers installed Ollama models and per-model chunk index statistics.
+    - `GET /api/embeddings/active-model` & `POST /api/embeddings/active-model`: Dynamically reads and toggles the active embedding model source used throughout the app.
+    - `POST /api/embeddings/reindex`: Background worker for re-embedding all stored knowledge base pages with any selected model.
+    - `POST /api/embeddings/compare`: Executes queries across multiple models simultaneously and compares ranked chunk similarity side-by-side.
+  - Added visual model comparison explorer UI at `/similarity/compare` (`src/kb_web/templates/embedding_comparison.j2.html`) with dual-column ranked chunk preview, similarity percentage dials, and reindex triggers.
+- **Persistent Article-Level Ollama Chat & Dedicated Conversations Dashboard (Resolves #64)**:
+  - Added ORM models `ChatConversation` and `ChatMessage` to `src/kb_web/models_orm.py` to persist conversational threads, message roles (`user`, `assistant`, `system`), and associated article links.
+  - Added conversation API endpoints in `src/kb_web/routers/conversations.py`:
+    - `GET /api/conversations`: Lists conversations filtered by article URL or general threads.
+    - `POST /api/conversations`: Creates or resumes conversations for a given article.
+    - `GET /api/conversations/{id}`: Retrieves full message history.
+    - `POST /api/conversations/{id}/messages`: Sends user prompts to Ollama LLM, includes article context as system prompt, records responses, and updates thread timestamps.
+    - `DELETE /api/conversations/{id}`: Deletes a conversation thread.
+  - Added sliding interactive chat drawer to the article view (`src/kb_web/templates/view_page.j2.html`) with model selector, conversation history retention, auto-scrolling, and responsive markdown rendering.
+  - Added dedicated global conversations dashboard at `/conversations` (`src/kb_web/templates/conversations_list.j2.html`) displaying conversation cards, linked article badges, message counters, and thread deletion.
+- **Personal Knowledge Notes, Code Ingestion, Monaco Editor & Obsidian Vault Mirroring (Resolves #65)**:
+  - Added ORM model `Note` to `src/kb_web/models_orm.py` supporting `url` (`note://...`), `title`, `content`, `syntax`, `vault_name`, `folder_path`, `checksum`, and timestamps.
+  - Added full note management router `src/kb_web/routers/notes.py`:
+    - `GET /api/notes`: Lists notes with vault and search filtering.
+    - `GET /api/notes/tree`: Generates hierarchical directory trees grouped by vault and subfolder.
+    - `POST /api/notes/paste`: Instant paste ingestion for markdown notes and multi-language code snippets with auto-chunking and vector embedding generation.
+    - `GET /api/notes/{id}` & `PUT /api/notes/{id}`: Full CRUD operations for note viewing and editing.
+    - `POST /api/notes/upload-vault`: Unpacks Obsidian vault `.zip` archives, mirrors folder hierarchies, extracts markdown files, saves image attachments to media storage, and embeds chunks.
+  - Added notes hub UI at `/notes` (`src/kb_web/templates/notes_list.j2.html`) featuring an interactive vault tree sidebar, recent notes cards, and modals for note creation and vault upload.
+  - Added full-page Monaco code editor at `/notes/editor` (`src/kb_web/templates/note_editor.j2.html`) supporting syntax highlighting, theme selection (`vs-dark`, `vs-light`), keyboard shortcuts (`Ctrl+S`), live character counters, and auto-saving.
+- **Admin Portal Ergonomic Tabbed Layout Overhaul (Resolves #66)**:
+  - Completely refactored `src/kb_web/templates/admin.j2.html` from an endless vertical scrolling view into a clean, 5-tab responsive dashboard:
+    - Tab 1 (`tab-general`): General settings, auth token reset, Gotify configuration, system directories.
+    - Tab 2 (`tab-prompts`): AI curation & wiki generation system prompts.
+    - Tab 3 (`tab-backups`): JSON/SQLite backup downloads, upload restoration, and database view sync.
+    - Tab 4 (`tab-media`): Media disk usage, image/audio/video purge controls, and orphan cleanup.
+    - Tab 5 (`tab-diagnostics`): Live system info, dependency status, disk space, and logging links.
+  - Implemented persistent tab state via URL hash (`#general`, `#prompts`, `#backups`, `#media`, `#diagnostics`) and `localStorage`.
+  - Preserved all existing HTML anchor IDs and form action endpoints to guarantee backward compatibility.
+- **Dynamic ERP-Style Custom Report Builder & Data Grid (Resolves #67)**:
+  - Added ORM models `SavedReportView` and `ScheduledReportJob` to `src/kb_web/models_orm.py`.
+  - Added report API endpoints in `src/kb_web/routers/reports.py`:
+    - `GET /api/reports/tables`: Introspects available database tables, column names, and data types.
+    - `POST /api/reports/query`: Dynamic multi-table SQL query generator with automated primary/foreign key joins (e.g., `fetched_pages` to `youtube_videos`, `collections`, or `chunk_embeddings`), multi-condition filtering, sorting, column aliasing, and lazy placeholders (`[HTML: X KB]`, `[Vector: N-dim]`) for heavy data fields to prevent client memory bloat.
+    - `GET /api/reports/views` & `POST /api/reports/views`: Saves and retrieves custom user report definitions and view states.
+    - `GET /api/reports/export`: Streams high-volume report exports in `.csv`, `.json`, and native Excel `.xlsx` format (via `openpyxl`).
+    - `POST /api/reports/schedule`: Allows configuring scheduled automated report extraction jobs.
+  - Added responsive data grid interface at `/reports` (`src/kb_web/templates/reports.j2.html`) with table selector, interactive multi-column checklist, join toggles, dynamic filter builder, client-side pagination, quick sorting, search-in-results, and one-click export buttons.
+
 ## [0.3.0] - 2026-09-12
 ### Added
 - **UI Performance & Latency Overhaul with Database View (Resolves #56)**:
