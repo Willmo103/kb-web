@@ -3,92 +3,251 @@
 {% block title %}Server Maintenance Admin{% endblock %}
 
 {% block content %}
-<div class="container mx-auto px-4 max-w-[95%] w-full">
+<div class="container mx-auto px-4 max-w-[95%] w-full pb-16">
 
     {% if completion_message %}
-    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-lg text-sm mb-6 shadow-sm">
-        {{ completion_message }}
+    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-sm mb-6 shadow-sm flex items-center gap-3 animate-fade-in">
+        <span class="text-xl">✅</span>
+        <div class="font-medium">{{ completion_message }}</div>
     </div>
     {% endif %}
 
-    <h1 class="text-3xl font-extrabold text-gray-900 mb-6">⚙️ Server Dashboard</h1>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pb-12">
-
-        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+    <!-- Admin Header & Pill Navigation -->
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-gray-100">
             <div>
-                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Server Configurations</h3>
-                <p class="text-sm text-gray-500 mb-4">General server flags, Ollama host routing, and environment parameters.</p>
+                <h1 class="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight flex items-center gap-3">
+                    <span>⚙️</span> Server Dashboard
+                </h1>
+                <p class="text-sm text-gray-500 mt-1">Configure Ollama LLMs, vector database connections, scheduled pipelines, backups, and external CLI access.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="/admin/logs" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded-lg transition shadow-sm">
+                    <span>📄</span> Server Logs
+                </a>
+                <a href="/pages" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg transition shadow-sm">
+                    <span>📚</span> Portal Home
+                </a>
+            </div>
+        </div>
+
+        <!-- Tab Navigation Bar -->
+        <nav class="flex space-x-2 mt-4 overflow-x-auto pb-1" aria-label="Admin Tabs" id="adminTabsNav">
+            <button type="button" onclick="switchAdminTab('tab-general')" id="btn-tab-general" class="admin-tab-btn active px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap bg-indigo-600 text-white shadow-sm">
+                <span>⚙️</span> General & System
+            </button>
+            <button type="button" onclick="switchAdminTab('tab-prompts')" id="btn-tab-prompts" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap text-gray-600 hover:text-gray-900 hover:bg-gray-100">
+                <span>🤖</span> Prompts & Pipeline
+                {% if unprocessed_count and unprocessed_count > 0 %}
+                <span class="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full border border-amber-300">{{ unprocessed_count }}</span>
+                {% endif %}
+            </button>
+            <button type="button" onclick="switchAdminTab('tab-backups')" id="btn-tab-backups" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap text-gray-600 hover:text-gray-900 hover:bg-gray-100">
+                <span>💾</span> Backups & Database
+                {% if backups %}
+                <span class="bg-gray-200 text-gray-700 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{{ backups | length }}</span>
+                {% endif %}
+            </button>
+            <button type="button" onclick="switchAdminTab('tab-media')" id="btn-tab-media" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap text-gray-600 hover:text-gray-900 hover:bg-gray-100">
+                <span>🎬</span> Media & YouTube
+                {% if video_files_count %}
+                <span class="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{{ video_files_count }}</span>
+                {% endif %}
+            </button>
+            <button type="button" onclick="switchAdminTab('tab-diagnostics')" id="btn-tab-diagnostics" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap text-gray-600 hover:text-gray-900 hover:bg-gray-100">
+                <span>🖥️</span> Diagnostics & CLI
+                {% if cli_keys %}
+                <span class="bg-gray-200 text-gray-700 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{{ cli_keys | length }}</span>
+                {% endif %}
+            </button>
+        </nav>
+    </div>
+
+    <!-- TAB 1: General & System -->
+    <div id="tab-general" class="admin-tab-pane">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left 2 Cols: Main Server & API Configurations -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                <div class="border-b border-gray-100 pb-3 mb-5">
+                    <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <span>🔧</span> Server Configurations
+                    </h3>
+                    <p class="text-xs text-gray-500">Configure Ollama LLMs, embeddings, Qdrant vector store, and notification webhooks.</p>
+                </div>
+
                 <form action="/admin/config" method="post" class="space-y-4">
-                    <div>
-                        <label for="ollama_host" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Ollama Host URL</label>
-                        <input type="text" name="ollama_host" id="ollama_host" value="{{ config.ollama_host }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required />
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="ollama_host" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Ollama Host URL</label>
+                            <input type="text" name="ollama_host" id="ollama_host" value="{{ config.ollama_host }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                        </div>
+                        <div>
+                            <label for="ollama_model" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Ollama Inference Model</label>
+                            <input type="text" name="ollama_model" id="ollama_model" value="{{ config.ollama_model }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                        </div>
                     </div>
-                    <div>
-                        <label for="ollama_model" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Ollama Model</label>
-                        <input type="text" name="ollama_model" id="ollama_model" value="{{ config.ollama_model }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required />
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="ollama_embedding_model" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Ollama Embedding Model</label>
+                            <input type="text" name="ollama_embedding_model" id="ollama_embedding_model" value="{{ config.ollama_embedding_model }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                        </div>
+                        <div class="flex flex-col justify-center pt-2">
+                            <div class="flex items-center space-x-2">
+                                <input type="checkbox" name="ollama_think" id="ollama_think" value="true" {% if config.ollama_think %}checked{% endif %} class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" />
+                                <label for="ollama_think" class="text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer">Ollama thinking (Reasoning Latency)</label>
+                            </div>
+                            <div class="pt-2 flex items-center">
+                                <button type="button" onclick="testOllamaConnection()" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                                    ⚡ Test Ollama Connection
+                                </button>
+                                <span id="ollamaTestStatus" class="text-xs font-semibold ml-2"></span>
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <label for="ollama_embedding_model" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Ollama Embedding Model</label>
-                        <input type="text" name="ollama_embedding_model" id="ollama_embedding_model" value="{{ config.ollama_embedding_model }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required />
+
+                    <div class="border-t border-gray-100 pt-4">
+                        <label for="api_key" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Browser Extension & Client API Key</label>
+                        <input type="text" name="api_key" id="api_key" value="{{ config.api_key or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Shared API key (leave blank to disable client authentication)" />
+                        <p class="text-[11px] text-gray-400 mt-1">Used by the Chrome/Firefox browser extension and external scripts when authenticating against API endpoints.</p>
                     </div>
-                    <div class="flex items-center space-x-2">
-                        <input type="checkbox" name="ollama_think" id="ollama_think" value="true" {% if config.ollama_think %}checked{% endif %} class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" />
-                        <label for="ollama_think" class="text-xs font-semibold text-gray-750 uppercase tracking-wider cursor-pointer">Ollama thinking (Reasoning Latency)</label>
+
+                    <div class="border-t border-gray-100 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="gotify_url" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Gotify Server URL</label>
+                            <input type="text" name="gotify_url" id="gotify_url" value="{{ config.gotify_url or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. http://gotify.local" />
+                        </div>
+                        <div>
+                            <label for="gotify_token" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Gotify App Token</label>
+                            <input type="text" name="gotify_token" id="gotify_token" value="{{ config.gotify_token or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. A1B2C3D4" />
+                        </div>
                     </div>
-                    <div class="pt-1">
-                        <button type="button" onclick="testOllamaConnection()" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded transition shadow-sm">
-                            Test Ollama Connection
-                        </button>
-                        <span id="ollamaTestStatus" class="text-xs font-semibold ml-2"></span>
-                    </div>
-                    <div>
-                        <label for="api_key" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Browser Extension API Key</label>
-                        <input type="text" name="api_key" id="api_key" value="{{ config.api_key or '' }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="API key (leave blank to disable auth)" />
-                    </div>
-                    <div>
-                        <label for="gotify_url" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Gotify Server URL</label>
-                        <input type="text" name="gotify_url" id="gotify_url" value="{{ config.gotify_url or '' }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="e.g. http://gotify.local" />
-                    </div>
-                    <div>
-                        <label for="gotify_token" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Gotify App Token</label>
-                        <input type="text" name="gotify_token" id="gotify_token" value="{{ config.gotify_token or '' }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="e.g. A1B2C3D4" />
-                    </div>
-                    <div class="pt-1">
-                        <button type="button" onclick="testGotifyConnection()" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded transition shadow-sm">
-                            Test Gotify Connection
+                    <div class="flex items-center">
+                        <button type="button" onclick="testGotifyConnection()" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                            🔔 Test Gotify Alert
                         </button>
                         <span id="gotifyTestStatus" class="text-xs font-semibold ml-2"></span>
                     </div>
-                    <div>
-                        <label for="qdrant_host_url" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Qdrant Host URL</label>
-                        <input type="text" name="qdrant_host_url" id="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="e.g. http://localhost:6333" />
+
+                    <div class="border-t border-gray-100 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="qdrant_host_url" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Qdrant Host URL</label>
+                            <input type="text" name="qdrant_host_url" id="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. http://localhost:6333" />
+                        </div>
+                        <div>
+                            <label for="qdrant_api_key" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Qdrant API Key</label>
+                            <input type="text" name="qdrant_api_key" id="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Qdrant API Key (leave blank if none)" />
+                        </div>
                     </div>
-                    <div>
-                        <label for="qdrant_api_key" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Qdrant API Key</label>
-                        <input type="text" name="qdrant_api_key" id="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" placeholder="Qdrant API Key (leave blank if none)" />
+
+                    <!-- Hidden fields to preserve prompts if saved from General tab -->
+                    <input type="hidden" name="wiki_prompt" value="{{ config.wiki_prompt }}" />
+                    <input type="hidden" name="youtube_wiki_prompt" value="{{ config.youtube_wiki_prompt }}" />
+                    <input type="hidden" name="max_input_length" value="{{ config.max_input_length }}" />
+
+                    <div class="pt-2">
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-3 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
+                            <span>💾</span> Save System Configurations
+                        </button>
                     </div>
-                    <div>
-                        <div class="flex justify-between items-center mb-1">
-                            <label for="wiki_prompt" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Wiki Extraction System Prompt</label>
-                            <button type="button" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition shadow-sm flex items-center gap-1">
-                                ✏️ Open Prompt Editor Modal
+                </form>
+            </div>
+
+            <!-- Right 1 Col: Security & Admin Password -->
+            <div class="space-y-6">
+                <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                    <h3 class="text-base font-bold text-gray-900 border-b border-gray-100 pb-3 mb-4 flex items-center gap-2">
+                        <span>🔒</span> Admin Password
+                    </h3>
+                    <p class="text-xs text-gray-500 mb-4">Update the administrative password required to access this dashboard and execute privileged maintenance tasks.</p>
+                    
+                    <form action="/admin/change-password" method="post" class="space-y-4">
+                        <div>
+                            <label for="current_password" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Current Password</label>
+                            <input type="password" name="current_password" id="current_password" class="block w-full text-xs border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                        </div>
+                        <div>
+                            <label for="new_password" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">New Password</label>
+                            <input type="password" name="new_password" id="new_password" class="block w-full text-xs border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                        </div>
+                        <button type="submit" class="w-full bg-gray-900 hover:bg-black text-white text-xs font-bold py-2.5 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
+                            <span>🔑</span> Update Password
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Environment & Status Mini-Card -->
+                <div class="bg-gradient-to-br from-indigo-50 to-blue-50 p-6 rounded-2xl border border-indigo-100 shadow-sm">
+                    <h4 class="text-xs font-extrabold uppercase tracking-wider text-indigo-900 mb-3 flex items-center gap-1.5">
+                        <span>ℹ️</span> Quick Diagnostics
+                    </h4>
+                    <dl class="space-y-2 text-xs">
+                        <div class="flex justify-between">
+                            <dt class="text-gray-500">Database Engine:</dt>
+                            <dd class="font-bold text-gray-800 font-mono">PostgreSQL / SQLite</dd>
+                        </div>
+                        <div class="flex justify-between">
+                            <dt class="text-gray-500">Active Model:</dt>
+                            <dd class="font-bold text-gray-800 font-mono">{{ config.ollama_model }}</dd>
+                        </div>
+                        <div class="flex justify-between">
+                            <dt class="text-gray-500">Embeddings Model:</dt>
+                            <dd class="font-bold text-gray-800 font-mono">{{ config.ollama_embedding_model }}</dd>
+                        </div>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 2: Prompts & Pipeline Operations -->
+    <div id="tab-prompts" class="admin-tab-pane hidden">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left 2 Cols: Prompt Management -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                <div class="border-b border-gray-100 pb-3 mb-5">
+                    <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <span>🤖</span> AI Curation System Prompts
+                    </h3>
+                    <p class="text-xs text-gray-500">Customize the system instructions provided to Ollama during wiki markdown synthesis and YouTube transcripts.</p>
+                </div>
+
+                <form action="/admin/config" method="post" class="space-y-5">
+                    <!-- Carry forward non-prompt fields -->
+                    <input type="hidden" name="ollama_host" value="{{ config.ollama_host }}" />
+                    <input type="hidden" name="ollama_model" value="{{ config.ollama_model }}" />
+                    <input type="hidden" name="ollama_embedding_model" value="{{ config.ollama_embedding_model }}" />
+                    {% if config.ollama_think %}<input type="hidden" name="ollama_think" value="true" />{% endif %}
+                    <input type="hidden" name="api_key" value="{{ config.api_key or '' }}" />
+                    <input type="hidden" name="gotify_url" value="{{ config.gotify_url or '' }}" />
+                    <input type="hidden" name="gotify_token" value="{{ config.gotify_token or '' }}" />
+                    <input type="hidden" name="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" />
+                    <input type="hidden" name="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" />
+
+                    <!-- Wiki Prompt -->
+                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                        <div class="flex justify-between items-center mb-2">
+                            <label for="wiki_prompt" class="block text-xs font-bold text-gray-800 uppercase tracking-wider">Wiki Extraction System Prompt</label>
+                            <button type="button" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-white hover:bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-lg transition shadow-sm flex items-center gap-1.5">
+                                ✏️ Expand Editor Modal
                             </button>
                         </div>
-                        <textarea name="wiki_prompt" id="wiki_prompt" rows="4" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 cursor-pointer bg-gray-50 hover:bg-white transition" title="Click to edit in full modal" required>{{ config.wiki_prompt }}</textarea>
+                        <textarea name="wiki_prompt" id="wiki_prompt" rows="4" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer bg-white transition" title="Click to edit in full modal" required>{{ config.wiki_prompt }}</textarea>
                         
                         {% if wiki_prompts_history %}
-                        <details class="mt-2 text-xs">
-                            <summary class="cursor-pointer text-indigo-600 hover:underline font-semibold select-none">View Wiki Prompt Version History ({{ wiki_prompts_history | length }})</summary>
-                            <div class="space-y-3 mt-2 bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-48 overflow-y-auto shadow-inner">
+                        <details class="mt-3 text-xs">
+                            <summary class="cursor-pointer text-indigo-600 hover:underline font-semibold select-none flex items-center gap-1">
+                                <span>📜</span> Version History ({{ wiki_prompts_history | length }} revisions)
+                            </summary>
+                            <div class="space-y-3 mt-2 bg-white border border-gray-200 rounded-xl p-3 max-h-48 overflow-y-auto shadow-inner">
                                 {% for p in wiki_prompts_history %}
-                                <div class="border-b border-gray-200 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
+                                <div class="border-b border-gray-100 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
                                     <div class="flex justify-between items-center mb-1">
                                         <div class="flex items-center gap-2">
                                             <span class="font-bold text-gray-800">Version {{ p.version }}</span>
                                             <span class="text-gray-400 text-[10px] font-mono">{{ p.created_at[:16] | replace('T', ' ') }}</span>
                                             {% if p.is_head == 1 %}
-                                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.2 rounded border border-emerald-200">Active HEAD</span>
+                                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200">Active HEAD</span>
                                             {% endif %}
                                         </div>
                                         {% if p.is_head != 1 %}
@@ -97,34 +256,38 @@
                                         </button>
                                         {% endif %}
                                     </div>
-                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 bg-white border border-gray-150 rounded p-2 overflow-x-auto max-h-24">{{ p.prompt_text }}</pre>
+                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 overflow-x-auto max-h-20">{{ p.prompt_text }}</pre>
                                 </div>
                                 {% endfor %}
                             </div>
                         </details>
                         {% endif %}
                     </div>
-                    <div>
-                        <div class="flex justify-between items-center mb-1">
-                            <label for="youtube_wiki_prompt" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">YouTube Wiki System Prompt</label>
-                            <button type="button" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition shadow-sm flex items-center gap-1">
-                                ✏️ Open Prompt Editor Modal
+
+                    <!-- YouTube Prompt -->
+                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                        <div class="flex justify-between items-center mb-2">
+                            <label for="youtube_wiki_prompt" class="block text-xs font-bold text-gray-800 uppercase tracking-wider">YouTube Wiki System Prompt</label>
+                            <button type="button" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-white hover:bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-lg transition shadow-sm flex items-center gap-1.5">
+                                ✏️ Expand Editor Modal
                             </button>
                         </div>
-                        <textarea name="youtube_wiki_prompt" id="youtube_wiki_prompt" rows="4" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500 cursor-pointer bg-gray-50 hover:bg-white transition" title="Click to edit in full modal" required>{{ config.youtube_wiki_prompt }}</textarea>
+                        <textarea name="youtube_wiki_prompt" id="youtube_wiki_prompt" rows="4" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer bg-white transition" title="Click to edit in full modal" required>{{ config.youtube_wiki_prompt }}</textarea>
                         
                         {% if youtube_prompts_history %}
-                        <details class="mt-2 text-xs">
-                            <summary class="cursor-pointer text-indigo-650 hover:underline font-semibold select-none">View YouTube Wiki Prompt Version History ({{ youtube_prompts_history | length }})</summary>
-                            <div class="space-y-3 mt-2 bg-gray-50 border border-gray-200 rounded-lg p-3 max-h-48 overflow-y-auto shadow-inner">
+                        <details class="mt-3 text-xs">
+                            <summary class="cursor-pointer text-indigo-600 hover:underline font-semibold select-none flex items-center gap-1">
+                                <span>📜</span> Version History ({{ youtube_prompts_history | length }} revisions)
+                            </summary>
+                            <div class="space-y-3 mt-2 bg-white border border-gray-200 rounded-xl p-3 max-h-48 overflow-y-auto shadow-inner">
                                 {% for p in youtube_prompts_history %}
-                                <div class="border-b border-gray-200 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
+                                <div class="border-b border-gray-100 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
                                     <div class="flex justify-between items-center mb-1">
                                         <div class="flex items-center gap-2">
                                             <span class="font-bold text-gray-800">Version {{ p.version }}</span>
                                             <span class="text-gray-400 text-[10px] font-mono">{{ p.created_at[:16] | replace('T', ' ') }}</span>
                                             {% if p.is_head == 1 %}
-                                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.2 rounded border border-emerald-200">Active HEAD</span>
+                                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200">Active HEAD</span>
                                             {% endif %}
                                         </div>
                                         {% if p.is_head != 1 %}
@@ -133,346 +296,398 @@
                                         </button>
                                         {% endif %}
                                     </div>
-                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 bg-white border border-gray-150 rounded p-2 overflow-x-auto max-h-24">{{ p.prompt_text }}</pre>
+                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 overflow-x-auto max-h-20">{{ p.prompt_text }}</pre>
                                 </div>
                                 {% endfor %}
                             </div>
                         </details>
                         {% endif %}
                     </div>
+
                     <div>
-                        <label for="max_input_length" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Maximum Input Length (Characters)</label>
-                        <input type="number" name="max_input_length" id="max_input_length" value="{{ config.max_input_length }}" class="mt-1 block w-full text-xs font-mono border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required min="100" />
+                        <label for="max_input_length" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Maximum Input Length (Characters)</label>
+                        <input type="number" name="max_input_length" id="max_input_length" value="{{ config.max_input_length }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required min="100" />
                     </div>
-                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded transition shadow-sm">
-                        Save Configurations
+
+                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-3 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
+                        <span>💾</span> Save Prompt Changes
                     </button>
                 </form>
             </div>
-        </div>
 
-        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
-            <div>
-                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Pipeline Operations</h3>
-                <div class="flex flex-col gap-2 mb-6">
-                    <h4 class="font-semibold text-sm">Run Bulk Descriptions</h4>
-                    <p class="text-xs text-gray-500">Scans database for cards missing an AI summary and spins them into a background processing loop.</p>
-                    <span class="inline-block mt-1 mb-3 text-xs bg-amber-50 text-amber-700 font-mono px-2 py-1 rounded border border-amber-200 self-start">
-                        {{ unprocessed_count }} items pending
-                    </span>
-                    <form action="/admin/trigger-describe" method="post">
-                        <button type="submit" {% if unprocessed_count == 0 %}disabled class="w-full bg-gray-200 text-gray-400 text-sm py-2 px-4 rounded cursor-not-allowed" {% else %} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-2 px-4 rounded shadow-sm transition" {% endif %}>
-                            Execute Maintenance Loop
-                        </button>
-                    </form>
-                </div>
-                <div class="flex flex-col gap-2 border-t pt-4">
-                    <h4 class="font-semibold text-sm">Generate / Recalculate Embeddings</h4>
-                    <p class="text-xs text-gray-500">Indexes all articles using the configured Ollama embedding model to enable semantic search and similar articles mapping.</p>
-                    <form action="/admin/trigger-embeddings" method="post">
-                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-2 px-4 rounded shadow-sm transition">
-                            Run Embeddings Generation Loop
-                        </button>
-                    </form>
-                </div>
-                <div class="flex flex-col gap-2 border-t pt-4">
-                    <h4 class="font-semibold text-sm">Seed General Collection</h4>
-                    <p class="text-xs text-gray-500">Launches the streaming builder to categorize existing library items into the virtual taxonomy of the General Collection and verify vector structures.</p>
-                    <a href="/admin/collections/populate-general" class="block text-center bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-2 px-4 rounded shadow-sm transition">
-                        ⚡ Seeding General Collection Stream
-                    </a>
-                </div>
-            </div>
-        </div>
+            <!-- Right 1 Col: Pipeline Maintenance Operations -->
+            <div class="space-y-6">
+                <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                    <h3 class="text-base font-bold text-gray-900 border-b border-gray-100 pb-3 mb-4 flex items-center gap-2">
+                        <span>⚡</span> Pipeline Execution
+                    </h3>
 
-        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
-            <div>
-                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Change Admin Password</h3>
-                <p class="text-sm text-gray-500 mb-4">Update the administrative password used to log in to the server dashboard.</p>
-                <form action="/admin/change-password" method="post" class="space-y-4">
-                    <div>
-                        <label for="current_password" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Current Password</label>
-                        <input type="password" name="current_password" id="current_password" class="mt-1 block w-full text-xs border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required />
-                    </div>
-                    <div>
-                        <label for="new_password" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">New Password</label>
-                        <input type="password" name="new_password" id="new_password" class="mt-1 block w-full text-xs border border-gray-300 rounded p-2 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required />
-                    </div>
-                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded transition shadow-sm">
-                        Change Password
-                    </button>
-                </form>
-            </div>
-        </div>
-
-        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
-            <div>
-                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Database Backup & Recovery</h3>
-                <div>
-                    <h4 class="font-semibold text-sm mb-1">Export Knowledge Base</h4>
-                    <p class="text-xs text-gray-500 mb-3">Download and save a full multi-table JSON database backup on the server.</p>
-                    <div class="flex gap-2 mb-6">
-                        <a href="/admin/export" target="_blank" class="flex-1 text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2 px-3 rounded-lg transition shadow-sm">
-                            ⬇️ Download
-                        </a>
-                        <form action="/admin/backups/create" method="post" class="flex-1">
-                            <button type="submit" class="w-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-2 px-3 rounded-lg transition shadow-sm">
-                                💾 Save Locally
+                    <!-- Bulk Descriptions Loop -->
+                    <div class="mb-5 pb-5 border-b border-gray-100">
+                        <div class="flex items-center justify-between mb-1">
+                            <h4 class="font-bold text-xs text-gray-800 uppercase tracking-wider">Run Bulk Descriptions (Unprocessed Pages)</h4>
+                            <span class="text-xs bg-amber-50 text-amber-800 font-bold px-2 py-0.5 rounded border border-amber-200">
+                                {{ unprocessed_count }} pending
+                            </span>
+                        </div>
+                            </span>
+                        </div>
+                        <p class="text-xs text-gray-500 mb-3">Scans for library items lacking AI wiki summaries and processes them in batch background jobs.</p>
+                        <form action="/admin/trigger-describe" method="post">
+                            <button type="submit" {% if unprocessed_count == 0 %}disabled class="w-full bg-gray-100 text-gray-400 text-xs font-bold py-2.5 px-4 rounded-xl cursor-not-allowed border border-gray-200" {% else %} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition" {% endif %}>
+                                🚀 Execute Maintenance Loop
                             </button>
                         </form>
                     </div>
+
+                    <!-- Embeddings Recalculation -->
+                    <div class="mb-5 pb-5 border-b border-gray-100">
+                        <h4 class="font-bold text-xs text-gray-800 uppercase tracking-wider mb-1">Generate / Recalculate Embeddings</h4>
+                        <p class="text-xs text-gray-500 mb-3">Indexes all items using the active embedding model for similarity and nearest neighbors.</p>
+                        <form action="/admin/trigger-embeddings" method="post">
+                            <button type="submit" class="w-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition">
+                                🧬 Run Embeddings Generation
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Seed General Collection -->
+                    <div>
+                        <h4 class="font-bold text-xs text-gray-800 uppercase tracking-wider mb-1">Seed General Collection</h4>
+                        <p class="text-xs text-gray-500 mb-3">Runs the streaming builder to categorize library items into the virtual taxonomy.</p>
+                        <a href="/admin/collections/populate-general" class="block text-center bg-gray-900 hover:bg-black text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition">
+                            ⚡ Launch Seeding Stream
+                        </a>
+                    </div>
                 </div>
-                <div class="border-t border-gray-200 pt-4">
-                    <h4 class="font-semibold text-sm mb-1">Direct HTTP Backup Upload</h4>
-                    <p class="text-xs text-gray-500 mb-3">Upload a backup <code>.json</code> file to the server folder with optional immediate restore.</p>
-                    <form action="/admin/backups/upload" method="post" enctype="multipart/form-data" class="space-y-3">
-                        <input type="file" name="file" accept=".json" required class="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-                        <label class="flex items-center text-xs text-gray-600 gap-2 cursor-pointer">
-                            <input type="checkbox" name="restore_now" value="true" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
-                            <span>Restore database immediately upon upload</span>
-                        </label>
-                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-4 rounded-lg transition shadow-sm">
-                            Upload File
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 3: Backups & Database Recovery -->
+    <div id="tab-backups" class="admin-tab-pane hidden space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Card 1: Export -->
+            <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
+                <div>
+                    <h3 class="text-base font-bold text-gray-900 border-b border-gray-100 pb-3 mb-3 flex items-center gap-2">
+                        <span>📤</span> Export Knowledge Base
+                    </h3>
+                    <p class="text-xs text-gray-500 mb-4">Download a full multi-table JSON database backup or save a snapshot to the server backup directory.</p>
+                </div>
+                <div class="flex gap-2">
+                    <a href="/admin/export" target="_blank" class="flex-1 text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2.5 px-3 rounded-xl transition shadow-sm flex items-center justify-center gap-1">
+                        <span>⬇️</span> Download
+                    </a>
+                    <form action="/admin/backups/create" method="post" class="flex-1">
+                        <button type="submit" class="w-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-2.5 px-3 rounded-xl transition shadow-sm flex items-center justify-center gap-1">
+                            <span>💾</span> Save Local
                         </button>
                     </form>
                 </div>
             </div>
-        </div>
 
-        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
-            <div>
-                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">WebSocket Import (Chunked)</h3>
+            <!-- Card 2: HTTP Upload -->
+            <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
+                <div>
+                    <h3 class="text-base font-bold text-gray-900 border-b border-gray-100 pb-3 mb-3 flex items-center gap-2">
+                        <span>📥</span> Direct HTTP Restore
+                    </h3>
+                    <p class="text-xs text-gray-500 mb-3">Upload a backup <code>.json</code> file with optional immediate database restoration.</p>
+                </div>
+                <form action="/admin/backups/upload" method="post" enctype="multipart/form-data" class="space-y-3">
+                    <input type="file" name="file" accept=".json" required class="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                    <label class="flex items-center text-xs text-gray-600 gap-2 cursor-pointer">
+                        <input type="checkbox" name="restore_now" value="true" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                        <span>Restore database immediately upon upload</span>
+                    </label>
+                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl transition shadow-sm">
+                        Upload & Process File
+                    </button>
+                </form>
+            </div>
+
+            <!-- Card 3: WebSocket Import -->
+            <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
+                <div>
+                    <h3 class="text-base font-bold text-gray-900 border-b border-gray-100 pb-3 mb-3 flex items-center gap-2">
+                        <span>⚡</span> WebSocket Stream Import
+                    </h3>
+                    <p class="text-xs text-gray-500 mb-3">Stream extra-large JSON backups in chunks over WebSockets to bypass HTTP body size limits.</p>
+                </div>
                 <div class="space-y-3">
-                    <p class="text-xs text-gray-500">Stream large backups over a WebSocket connection. If proxy errors occur, use direct HTTP upload.</p>
-                    <input type="file" id="backupFile" accept=".json" class="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
-                    <button onclick="uploadBackupViaWebSocket()" id="uploadBtn" class="w-full bg-gray-800 hover:bg-gray-900 text-white text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
+                    <input type="file" id="backupFile" accept=".json" class="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"/>
+                    <button onclick="uploadBackupViaWebSocket()" id="uploadBtn" class="w-full bg-gray-900 hover:bg-black text-white text-xs font-bold py-2.5 px-4 rounded-xl transition shadow-sm">
                         Stream via WebSocket
                     </button>
-                    <div id="uploadStatus" class="text-xs font-mono hidden text-indigo-600">Uploading chunks...</div>
+                    <div id="uploadStatus" class="text-xs font-mono hidden text-indigo-600 font-bold">Uploading chunks...</div>
                 </div>
             </div>
         </div>
 
-        <!-- Full width: Local Server Backups & Video Media Backups -->
-        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm md:col-span-2 space-y-6">
-            <div>
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 mb-4 gap-2">
-                    <div>
-                        <h3 class="text-lg font-bold text-gray-900">📁 Local Server Database Backups</h3>
-                        <p class="text-xs text-gray-500">Stored on server in <code>~/.kb/kb-web_backups</code>. You can copy backup JSON files directly into this directory.</p>
-                    </div>
-                    <form action="/admin/backups/create" method="post">
-                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
-                            + Create Backup Now
+        <!-- Local Server Database Backups Table -->
+        <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-3 mb-4 gap-2">
+                <div>
+                    <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <span>📁</span> Server Database Snapshots
+                    </h3>
+                    <p class="text-xs text-gray-500">Saved in <code>~/.kb/kb-web_backups</code>. Reversible multi-table JSON snapshots.</p>
+                </div>
+                <form action="/admin/backups/create" method="post">
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-3.5 rounded-xl transition shadow-sm flex items-center gap-1.5">
+                        <span>➕</span> Create Backup Snapshot Now
+                    </button>
+                </form>
+            </div>
+
+            {% if backups %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-xs text-left">
+                    <thead class="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wider border-b border-gray-100">
+                        <tr>
+                            <th class="py-3 px-4 font-semibold">Filename</th>
+                            <th class="py-3 px-4 font-semibold">Size</th>
+                            <th class="py-3 px-4 font-semibold">Created</th>
+                            <th class="py-3 px-4 font-semibold text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for b in backups %}
+                        <tr class="hover:bg-gray-50/70 transition">
+                            <td class="py-3 px-4 font-mono font-medium text-gray-800">{{ b.filename }}</td>
+                            <td class="py-3 px-4 text-gray-600 font-mono">{{ b.size_mb }} MB</td>
+                            <td class="py-3 px-4 text-gray-500">{{ b.created_at }}</td>
+                            <td class="py-3 px-4 text-right">
+                                <div class="inline-flex gap-2">
+                                    <form action="/admin/backups/restore" method="post" onsubmit="return confirm('Are you sure you want to restore database from {{ b.filename }}? Existing records will be updated.');">
+                                        <input type="hidden" name="filename" value="{{ b.filename }}" />
+                                        <button type="submit" class="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-bold px-2.5 py-1 rounded-lg text-xs transition shadow-sm">
+                                            🔄 Restore
+                                        </button>
+                                    </form>
+                                    <a href="/admin/backups/download/{{ b.filename }}" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 font-bold px-2.5 py-1 rounded-lg text-xs transition shadow-sm">
+                                        ⬇️ Download
+                                    </a>
+                                    <form action="/admin/backups/delete/{{ b.filename }}" method="post" onsubmit="return confirm('Delete backup file {{ b.filename }} from server?');">
+                                        <button type="submit" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 font-bold px-2.5 py-1 rounded-lg text-xs transition shadow-sm">
+                                            🗑️ Delete
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="py-8 text-center text-xs text-gray-400 italic">
+                No database backups found in server directory. Click "Create Backup Snapshot Now" to create your first archive.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- TAB 4: Media & YouTube -->
+    <div id="tab-media" class="admin-tab-pane hidden space-y-6">
+        <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-4 mb-5 gap-3">
+                <div>
+                    <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <span>🎬</span> YouTube Video Media Archive & Indexing
+                    </h3>
+                    <p class="text-xs text-gray-500 mt-0.5">
+                        Local video files stored in <code>~/.kb/media/videos</code>: 
+                        <strong class="text-indigo-600 font-mono">{{ video_files_count }} files</strong>. 
+                        Compressed ZIP archives are stored in <code>~/.kb/kb-web_backups</code> (max 2 retained).
+                    </p>
+                </div>
+                <div class="flex gap-2">
+                    <form action="/admin/backups/videos/reindex" method="post">
+                        <button type="submit" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-2 px-3.5 rounded-xl transition shadow-sm flex items-center gap-1.5">
+                            <span>🔄</span> Re-Index Media
+                        </button>
+                    </form>
+                    <form action="/admin/backups/videos/create" method="post">
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-3.5 rounded-xl transition shadow-sm flex items-center gap-1.5">
+                            <span>🗜️</span> Backup Videos (ZIP)
                         </button>
                     </form>
                 </div>
-
-                {% if backups %}
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-xs text-left">
-                        <thead class="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wider border-b">
-                            <tr>
-                                <th class="py-2.5 px-3">Filename</th>
-                                <th class="py-2.5 px-3">Size</th>
-                                <th class="py-2.5 px-3">Created</th>
-                                <th class="py-2.5 px-3 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            {% for b in backups %}
-                            <tr class="hover:bg-gray-50">
-                                <td class="py-2 px-3 font-mono font-medium text-gray-800">{{ b.filename }}</td>
-                                <td class="py-2 px-3 text-gray-500">{{ b.size_mb }} MB</td>
-                                <td class="py-2 px-3 text-gray-500">{{ b.created_at }}</td>
-                                <td class="py-2 px-3 text-right">
-                                    <div class="inline-flex gap-2">
-                                        <form action="/admin/backups/restore" method="post" onsubmit="return confirm('Are you sure you want to restore database from {{ b.filename }}? Existing records will be updated.');">
-                                            <input type="hidden" name="filename" value="{{ b.filename }}" />
-                                            <button type="submit" class="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
-                                                🔄 Restore
-                                            </button>
-                                        </form>
-                                        <a href="/admin/backups/download/{{ b.filename }}" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
-                                            ⬇️ Download
-                                        </a>
-                                        <form action="/admin/backups/delete/{{ b.filename }}" method="post" onsubmit="return confirm('Delete backup file {{ b.filename }} from server?');">
-                                            <button type="submit" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
-                                                🗑️ Delete
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <p class="text-xs text-gray-400 italic py-2">No local database JSON backups found in <code>~/.kb/kb-web_backups</code>.</p>
-                {% endif %}
             </div>
 
-            <!-- YouTube Video Media Backups & Indexing -->
-            <div class="border-t pt-6">
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 mb-4 gap-2">
-                    <div>
-                        <h3 class="text-lg font-bold text-gray-900">🎬 YouTube Video Media Backups & Indexing</h3>
-                        <p class="text-xs text-gray-500">Local videos in <code>~/.kb/media/videos</code>: <strong>{{ video_files_count }} files</strong>. Video backup ZIP archives are stored in <code>~/.kb/kb-web_backups</code> (max 2 retained).</p>
-                    </div>
-                    <div class="flex gap-2">
-                        <form action="/admin/backups/videos/reindex" method="post">
-                            <button type="submit" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
-                                🔄 Re-Index Videos
-                            </button>
-                        </form>
-                        <form action="/admin/backups/videos/create" method="post">
-                            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
-                                🗜️ Backup Videos (ZIP)
-                            </button>
-                        </form>
-                    </div>
-                </div>
-
-                {% if video_backups %}
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-xs text-left">
-                        <thead class="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wider border-b">
-                            <tr>
-                                <th class="py-2.5 px-3">Archive Filename</th>
-                                <th class="py-2.5 px-3">Size</th>
-                                <th class="py-2.5 px-3">Created</th>
-                                <th class="py-2.5 px-3 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            {% for vb in video_backups %}
-                            <tr class="hover:bg-gray-50">
-                                <td class="py-2 px-3 font-mono font-medium text-gray-800">{{ vb.filename }}</td>
-                                <td class="py-2 px-3 text-gray-500">{{ vb.size_mb }} MB</td>
-                                <td class="py-2 px-3 text-gray-500">{{ vb.created_at }}</td>
-                                <td class="py-2 px-3 text-right">
-                                    <div class="inline-flex gap-2">
-                                        <form action="/admin/backups/videos/restore" method="post" onsubmit="return confirm('Restore videos from {{ vb.filename }} into media/videos and re-index?');">
-                                            <input type="hidden" name="filename" value="{{ vb.filename }}" />
-                                            <button type="submit" class="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
-                                                🔄 Restore
-                                            </button>
-                                        </form>
-                                        <a href="/admin/backups/videos/download/{{ vb.filename }}" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
-                                            ⬇️ Download
-                                        </a>
-                                        <form action="/admin/backups/videos/delete/{{ vb.filename }}" method="post" onsubmit="return confirm('Delete video archive {{ vb.filename }}?');">
-                                            <button type="submit" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 font-bold px-2 py-1 rounded text-[11px] transition shadow-sm">
-                                                🗑️ Delete
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <p class="text-xs text-gray-400 italic py-2">No video backup ZIP archives found (maximum 2 retained automatically).</p>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
-            <div>
-                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">Automation & Diagnostics</h3>
-                <div class="space-y-5">
-                    <div>
-                        <h4 class="font-semibold text-sm mb-1">📄 Server Application Logs</h4>
-                        <p class="text-xs text-gray-500 mb-3">Inspect active application trace, warnings, gotify posts, and request execution logs in real-time.</p>
-                        <a href="/admin/logs" class="block text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2.5 px-4 rounded-lg transition shadow-sm">
-                            View Server Logs
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between md:col-span-2">
-            <div>
-                <h3 class="text-lg font-bold text-gray-900 border-b pb-2 mb-4">🖥️ CLI Client Integration</h3>
-                <p class="text-sm text-gray-500 mb-6">Generate administrative API keys to register external computer terminals running the <code>kb-cli</code> tool.</p>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Column 1: API Keys Management -->
-                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-150">
-                        <h4 class="font-bold text-sm text-gray-800 mb-3">CLI API Keys</h4>
-                        
-                        <form action="/admin/cli/keys/create" method="post" class="flex gap-2 mb-4">
-                            <input type="text" name="name" placeholder="Key name (e.g. Will's Laptop)" class="flex-1 text-xs border border-gray-300 rounded px-2.5 py-1.5 focus:ring focus:ring-indigo-150 focus:border-indigo-500" required />
-                            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded transition shadow-sm">
-                                Generate Key
-                            </button>
-                        </form>
-                        
-                        {% if cli_keys %}
-                        <div class="space-y-2.5 max-h-48 overflow-y-auto">
-                            {% for k in cli_keys %}
-                            <div class="flex justify-between items-center bg-white border border-gray-200 rounded p-2 text-xs shadow-sm">
-                                <div>
-                                    <div class="font-semibold text-gray-850">{{ k.name }}</div>
-                                    <div class="font-mono text-gray-405 text-[10px] flex items-center gap-1.5 mt-0.5">
-                                        <span>{{ k.key[:8] }}...{{ k.key[-8:] }}</span>
-                                        <button type="button" onclick="copyToClipboard('{{ k.key }}', this)" class="text-indigo-600 hover:text-indigo-800 font-bold hover:underline transition text-[10px]" title="Copy full API Key to clipboard">
-                                            📋 Copy
+            {% if video_backups %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-xs text-left">
+                    <thead class="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wider border-b border-gray-100">
+                        <tr>
+                            <th class="py-3 px-4 font-semibold">Archive Filename</th>
+                            <th class="py-3 px-4 font-semibold">Size</th>
+                            <th class="py-3 px-4 font-semibold">Created</th>
+                            <th class="py-3 px-4 font-semibold text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for vb in video_backups %}
+                        <tr class="hover:bg-gray-50/70 transition">
+                            <td class="py-3 px-4 font-mono font-medium text-gray-800">{{ vb.filename }}</td>
+                            <td class="py-3 px-4 text-gray-600 font-mono">{{ vb.size_mb }} MB</td>
+                            <td class="py-3 px-4 text-gray-500">{{ vb.created_at }}</td>
+                            <td class="py-3 px-4 text-right">
+                                <div class="inline-flex gap-2">
+                                    <form action="/admin/backups/videos/restore" method="post" onsubmit="return confirm('Restore videos from {{ vb.filename }} into media/videos and re-index?');">
+                                        <input type="hidden" name="filename" value="{{ vb.filename }}" />
+                                        <button type="submit" class="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-bold px-2.5 py-1 rounded-lg text-xs transition shadow-sm">
+                                            🔄 Restore
                                         </button>
-                                    </div>
+                                    </form>
+                                    <a href="/admin/backups/videos/download/{{ vb.filename }}" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 font-bold px-2.5 py-1 rounded-lg text-xs transition shadow-sm">
+                                        ⬇️ Download
+                                    </a>
+                                    <form action="/admin/backups/videos/delete/{{ vb.filename }}" method="post" onsubmit="return confirm('Delete video archive {{ vb.filename }}?');">
+                                        <button type="submit" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 font-bold px-2.5 py-1 rounded-lg text-xs transition shadow-sm">
+                                            🗑️ Delete
+                                        </button>
+                                    </form>
                                 </div>
-                                <form action="/admin/cli/keys/delete" method="post" onsubmit="return confirm('Are you sure you want to revoke this key?');">
-                                    <input type="hidden" name="key" value="{{ k.key }}" />
-                                    <button type="submit" class="text-red-655 hover:text-red-750 font-bold border border-gray-200 hover:border-red-200 hover:bg-red-50 px-2 py-0.5 rounded text-[10px] transition shadow-sm">
-                                        Revoke
-                                    </button>
-                                </form>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <p class="text-xs text-gray-400 italic">No CLI API keys generated yet.</p>
-                        {% endif %}
-                    </div>
-                    
-                    <!-- Column 2: Registered Client Machines -->
-                    <div class="bg-gray-55 p-4 rounded-lg border border-gray-150">
-                        <h4 class="font-bold text-sm text-gray-800 mb-3">Registered Client Terminals</h4>
-                        
-                        {% if registered_clients %}
-                        <div class="space-y-2.5 max-h-60 overflow-y-auto">
-                            {% for c in registered_clients %}
-                            <div class="flex justify-between items-center bg-white border border-gray-200 rounded p-2 text-xs shadow-sm">
-                                <div>
-                                    <div class="font-semibold text-gray-850">{{ c.computer_name }}</div>
-                                    <div class="text-[10px] text-gray-550">Registered: {{ c.registered_at[:16] | replace('T', ' ') }}</div>
-                                    <div class="text-[10px] text-emerald-750 font-semibold bg-emerald-50 border border-emerald-150 rounded px-1 mt-0.5 inline-block">{{ c.status | upper }}</div>
-                                </div>
-                                <form action="/admin/cli/clients/delete" method="post" onsubmit="return confirm('Are you sure you want to de-register this client terminal?');">
-                                    <input type="hidden" name="computer_name" value="{{ c.computer_name }}" />
-                                    <button type="submit" class="text-red-655 hover:text-red-750 font-bold border border-gray-200 hover:border-red-200 hover:bg-red-50 px-2 py-0.5 rounded text-[10px] transition shadow-sm">
-                                        De-register
-                                    </button>
-                                </form>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <p class="text-xs text-gray-400 italic">No client terminals registered yet.</p>
-                        {% endif %}
-                    </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="py-8 text-center text-xs text-gray-400 italic">
+                No video backup ZIP archives found on server.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- TAB 5: Diagnostics & CLI Client Integration -->
+    <div id="tab-diagnostics" class="admin-tab-pane hidden space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Left: CLI API Keys Management -->
+            <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                <div class="border-b border-gray-100 pb-3 mb-4">
+                    <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <span>🔑</span> CLI API Keys
+                    </h3>
+                    <p class="text-xs text-gray-500">Generate administrative tokens to register external workstations running the <code>kb-cli</code> tool.</p>
                 </div>
+                
+                <form action="/admin/cli/keys/create" method="post" class="flex gap-2 mb-4">
+                    <input type="text" name="name" placeholder="Key description (e.g. Workstation 1)" class="flex-1 text-xs border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition shadow-sm">
+                        + Generate Key
+                    </button>
+                </form>
+                
+                {% if cli_keys %}
+                <div class="space-y-2.5 max-h-64 overflow-y-auto">
+                    {% for k in cli_keys %}
+                    <div class="flex justify-between items-center bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs shadow-sm">
+                        <div>
+                            <div class="font-bold text-gray-800">{{ k.name }}</div>
+                            <div class="font-mono text-gray-500 text-[11px] flex items-center gap-1.5 mt-0.5">
+                                <span>{{ k.key[:8] }}...{{ k.key[-8:] }}</span>
+                                <button type="button" onclick="copyToClipboard('{{ k.key }}', this)" class="text-indigo-600 hover:text-indigo-800 font-bold hover:underline transition text-[11px]" title="Copy full API Key to clipboard">
+                                    📋 Copy
+                                </button>
+                            </div>
+                        </div>
+                        <form action="/admin/cli/keys/delete" method="post" onsubmit="return confirm('Are you sure you want to revoke this key?');">
+                            <input type="hidden" name="key" value="{{ k.key }}" />
+                            <button type="submit" class="text-red-600 hover:text-red-800 font-bold border border-gray-200 hover:border-red-200 hover:bg-red-50 px-2.5 py-1 rounded-lg text-xs transition shadow-sm">
+                                Revoke
+                            </button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-xs text-gray-400 italic py-4 text-center">No CLI API keys generated yet.</p>
+                {% endif %}
+            </div>
+            
+            <!-- Right: Registered Client Machines -->
+            <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                <div class="border-b border-gray-100 pb-3 mb-4">
+                    <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <span>💻</span> Registered Client Terminals
+                    </h3>
+                    <p class="text-xs text-gray-500">External workstations actively communicating with this server through <code>kb-cli</code>.</p>
+                </div>
+                
+                {% if registered_clients %}
+                <div class="space-y-2.5 max-h-64 overflow-y-auto">
+                    {% for c in registered_clients %}
+                    <div class="flex justify-between items-center bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs shadow-sm">
+                        <div>
+                            <div class="font-bold text-gray-800">{{ c.computer_name }}</div>
+                            <div class="text-[11px] text-gray-500">Registered: {{ c.registered_at[:16] | replace('T', ' ') }}</div>
+                            <div class="text-[10px] text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 mt-0.5 inline-block">{{ c.status | upper }}</div>
+                        </div>
+                        <form action="/admin/cli/clients/delete" method="post" onsubmit="return confirm('Are you sure you want to de-register this client terminal?');">
+                            <input type="hidden" name="computer_name" value="{{ c.computer_name }}" />
+                            <button type="submit" class="text-red-600 hover:text-red-800 font-bold border border-gray-200 hover:border-red-200 hover:bg-red-50 px-2.5 py-1 rounded-lg text-xs transition shadow-sm">
+                                De-register
+                            </button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-xs text-gray-400 italic py-4 text-center">No client terminals registered yet.</p>
+                {% endif %}
             </div>
         </div>
-
     </div>
+
 </div>
 
+<!-- Tab Switching Controller -->
 <script>
+    function switchAdminTab(tabId) {
+        // Hide all panes
+        document.querySelectorAll('.admin-tab-pane').forEach(el => el.classList.add('hidden'));
+        // Deactivate all buttons
+        document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+            btn.classList.remove('bg-indigo-600', 'text-white', 'shadow-sm');
+            btn.classList.add('text-gray-600', 'hover:text-gray-900', 'hover:bg-gray-100');
+        });
+
+        // Show active pane
+        const targetPane = document.getElementById(tabId);
+        if (targetPane) targetPane.classList.remove('hidden');
+
+        // Highlight active button
+        const targetBtn = document.getElementById('btn-' + tabId);
+        if (targetBtn) {
+            targetBtn.classList.remove('text-gray-600', 'hover:text-gray-900', 'hover:bg-gray-100');
+            targetBtn.classList.add('bg-indigo-600', 'text-white', 'shadow-sm');
+        }
+
+        // Persist active tab
+        try {
+            localStorage.setItem('kb_admin_active_tab', tabId);
+            window.location.hash = tabId;
+        } catch (e) {}
+    }
+
+    // Initialize tab on load from URL hash or localStorage
+    document.addEventListener('DOMContentLoaded', () => {
+        const hashTab = window.location.hash ? window.location.hash.substring(1) : null;
+        const savedTab = localStorage.getItem('kb_admin_active_tab');
+        const initialTab = hashTab || savedTab || 'tab-general';
+        if (document.getElementById(initialTab)) {
+            switchAdminTab(initialTab);
+        } else {
+            switchAdminTab('tab-general');
+        }
+    });
+
     function testOllamaConnection() {
         const host = document.getElementById('ollama_host').value.trim();
         const model = document.getElementById('ollama_model').value.trim();
@@ -615,15 +830,7 @@
             statusText.classList.add('hidden');
         }
     }
-</script>
 
-<!-- Hidden form for prompt rollback -->
-<form id="setPromptHeadForm" action="/admin/prompts/set-head" method="post" class="hidden">
-    <input type="hidden" name="prompt_id" id="head_prompt_id" />
-    <input type="hidden" name="prompt_type" id="head_prompt_type" />
-</form>
-
-<script>
     function setPromptHead(id, type) {
         if (!confirm("Are you sure you want to restore this prompt version? This will set it as the active prompt.")) return;
         document.getElementById('head_prompt_id').value = id;
@@ -714,8 +921,14 @@
     }
 </script>
 
+<!-- Hidden form for prompt rollback -->
+<form id="setPromptHeadForm" action="/admin/prompts/set-head" method="post" class="hidden">
+    <input type="hidden" name="prompt_id" id="head_prompt_id" />
+    <input type="hidden" name="prompt_type" id="head_prompt_type" />
+</form>
+
 <!-- Interactive Prompt Editor Modal -->
-<div id="promptModal" class="fixed inset-0 bg-black bg-opacity-60 hidden flex items-center justify-center z-50 p-4 animate-fade-in">
+<div id="promptModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4 animate-fade-in">
     <div class="bg-white rounded-2xl border border-gray-200 w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         <!-- Modal Header -->
         <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
@@ -745,11 +958,11 @@
         <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-between items-center">
             <span class="text-xs text-gray-400 font-mono" id="modalCharCount">0 characters</span>
             <div class="flex gap-3">
-                <button type="button" onclick="closePromptModal()" class="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 text-xs font-bold rounded-lg transition shadow-sm">
+                <button type="button" onclick="closePromptModal()" class="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 text-xs font-bold rounded-xl transition shadow-sm">
                     Cancel
                 </button>
-                <button type="button" onclick="savePromptModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition shadow-sm">
-                    Save Prompt
+                <button type="button" onclick="savePromptModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition shadow-sm">
+                    Save Changes to Form
                 </button>
             </div>
         </div>
