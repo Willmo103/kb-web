@@ -1,5 +1,6 @@
 import json
 from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Table
+from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.types import TypeDecorator
 
@@ -206,7 +207,9 @@ class ChunkEmbedding(Base):
     chunk_number = Column(Integer)
     chunk_content = Column(Text)
     chunk_vector = Column(SafeVector())
+    model_name = Column(String, default="embeddinggemma")
     created_at = Column(String)
+
 
 
 class VideoEmbedding(Base):
@@ -296,7 +299,102 @@ class SystemLog(Base):
     traceback = Column(Text)
 
 
+class Note(Base):
+    __tablename__ = "notes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    url = Column(String, unique=True, index=True)
+    title = Column(String, index=True)
+    content = Column(Text)
+    syntax = Column(String, default="markdown")
+    folder_path = Column(String, default="")
+    vault_name = Column(String, default="Personal")
+    tags = Column(Text)  # JSON-encoded array
+    wiki_summary = Column(Text)
+    created_at = Column(String)
+    updated_at = Column(String)
+
+
+class ChatConversation(Base):
+    __tablename__ = "chat_conversations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String)
+    source_type = Column(String, default="article")  # "article", "video", "note", "general"
+    source_id = Column(String, index=True)
+    created_at = Column(String)
+    updated_at = Column(String)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conversation_id = Column(Integer, ForeignKey("chat_conversations.id", ondelete="CASCADE"), index=True)
+    role = Column(String)  # "user", "assistant", "system"
+    content = Column(Text)
+    timestamp = Column(String)
+    model = Column(String)
+
+
+class SavedReportView(Base):
+    __tablename__ = "saved_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, unique=True)
+    description = Column(Text)
+    base_table = Column(String)
+    selected_columns = Column(Text)  # JSON array
+    joins_config = Column(Text)  # JSON array
+    sort_config = Column(Text)  # JSON object
+    filter_config = Column(Text)  # JSON array
+    group_config = Column(Text)  # JSON array
+    created_at = Column(String)
+    updated_at = Column(String)
+
+
+class ScheduledReportJob(Base):
+    __tablename__ = "scheduled_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    report_id = Column(Integer, ForeignKey("saved_reports.id", ondelete="CASCADE"))
+    cron_expression = Column(String)
+    export_format = Column(String, default="xlsx")
+    destination = Column(String, default="local")
+    last_run_at = Column(String)
+    next_run_at = Column(String)
+    enabled = Column(Integer, default=1)
+    created_at = Column(String)
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, default="")
+    template = Column(String, default="web-game")  # "web-game", "python-demo", "blank"
+    created_at = Column(String)
+    updated_at = Column(String)
+
+    files = relationship("WorkspaceFile", back_populates="workspace", cascade="all, delete-orphan", lazy="joined")
+
+
+class WorkspaceFile(Base):
+    __tablename__ = "workspace_files"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_path = Column(String, nullable=False)
+    content = Column(Text, default="")
+    language = Column(String, default="plaintext")
+    updated_at = Column(String)
+
+    workspace = relationship("Workspace", back_populates="files")
+
+
 metadata = Base.metadata
+
 
 vault_master = Table(
     "vault_master",
@@ -380,6 +478,19 @@ def ensure_views_and_indexes(engine):
     dialect = getattr(engine.dialect, "name", "sqlite")
     with engine.connect() as conn:
         with conn.begin():
+            try:
+                Base.metadata.create_all(bind=conn)
+            except Exception:
+                pass
+
+            try:
+                if dialect == "postgresql":
+                    conn.execute(text("ALTER TABLE chunk_embeddings ADD COLUMN IF NOT EXISTS model_name VARCHAR DEFAULT 'embeddinggemma';"))
+                else:
+                    conn.execute(text("ALTER TABLE chunk_embeddings ADD COLUMN model_name TEXT DEFAULT 'embeddinggemma';"))
+            except Exception:
+                pass
+
             if dialect == "postgresql":
                 try:
                     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fetched_pages_fetched_at ON fetched_pages (fetched_at DESC);"))

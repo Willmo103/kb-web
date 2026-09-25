@@ -571,3 +571,59 @@ def list_ungrouped_pages_api(
             "has_prev": page > 1,
         }
 
+
+# --- 6. RAG Semantic Chunk Search Endpoints ---
+
+@router.get("/search/rag")
+def search_rag_chunks_get(
+    q: str = Query(..., description="Natural language search query"),
+    top_k: int = Query(10, ge=1, le=50, description="Maximum number of chunks to return"),
+    source_type: Optional[str] = Query(None, description="Optional filter by 'articles' or 'videos'"),
+    model: Optional[str] = Query(None, description="Optional embedding model to use"),
+) -> Dict[str, Any]:
+    """Retrieves top-k closest document or video chunks matching a natural language query via vector similarity."""
+    from ..utils import find_nearest_chunks
+
+    results = find_nearest_chunks(
+        query=q,
+        top_k=top_k,
+        source_type=source_type,
+        model=model,
+    )
+    return {
+        "query": q,
+        "model": model or getattr(config, "ollama_embedding_model", "embeddinggemma"),
+        "count": len(results),
+        "results": results,
+    }
+
+
+@router.post("/search/rag")
+def search_rag_chunks_post(
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Retrieves top-k closest chunks matching a natural language query via POST payload."""
+    from ..utils import find_nearest_chunks
+
+    query = payload.get("query", "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Search query is required")
+
+    top_k = int(payload.get("top_k", 10))
+    source_type = payload.get("source_type")
+    model = payload.get("model")
+
+    results = find_nearest_chunks(
+        query=query,
+        top_k=top_k,
+        source_type=source_type,
+        model=model,
+    )
+    return {
+        "query": query,
+        "model": model or getattr(config, "ollama_embedding_model", "embeddinggemma"),
+        "count": len(results),
+        "results": results,
+    }
+
+

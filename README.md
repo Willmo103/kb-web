@@ -17,6 +17,13 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - **JSON Streams**: Streams database records out as downloadable files.
 - **Standardized REST API Suite**: High-performance JSON endpoints (`/api/articles`, `/api/videos`, `/api/sites`, `/api/tags`) for external AI agents and frontend consuming.
 - **PostgreSQL & Database View Optimization**: Pre-aggregated database view (`vw_page_cards`) and indexes to eliminate latency and N+1 queries. Note: SQLite is being phased out in favor of PostgreSQL as the primary production engine.
+- **Semantic RAG Chunk Search**: High-dimensional chunk vector search across articles, notes, and videos directly from the homepage with jump-link document anchor highlights.
+- **Multi-Model Embeddings & Comparison**: Side-by-side vector model comparison explorer (`/similarity/compare`), background reindexing, and active model source toggling.
+- **Article Chat & Conversations Hub**: Sliding interactive Ollama chat drawer on articles and global dashboard (`/conversations`) preserving persistent discussion threads.
+- **Personal Knowledge Notes & Monaco Editor**: Note and code paste ingestion (`/notes`), directory tree grouping, integrated full-page Monaco Editor (`/notes/editor`), and Obsidian vault `.zip` mirroring.
+- **Admin Portal Tabbed Layout**: Ergonomic, 5-tab dashboard with persistent tab state across General, Prompts, Backups, Media, and Diagnostics.
+- **Custom Report Builder & ERP Data Grid**: Multi-table data grid (`/reports`) with dynamic joins, filtering, saved views, and high-volume streaming exports in `.csv`, `.json`, and native Excel `.xlsx`.
+- **In-Browser Replit-Lite Workspaces & Pyodide Python WASM**: Full browser-based coding studio (`/workspaces`) with persistent multi-file workspaces stored in the database, Monaco Editor, live Pyodide Python 3 WASM execution runtime, sandboxed HTML/JS preview with console log interceptor, ZIP archive bundling, and ephemeral Ollama coding agent with interactive diff review and merge.
 
 ---
 
@@ -28,6 +35,11 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - `src/kb_web/server.py`: FastAPI application routing, route guards, and background tasks.
 - `src/kb_web/routers/rest_api.py`: Public JSON REST API endpoints (`/api/articles`, `/api/videos`, `/api/sites`, `/api/tags`).
 - `src/kb_web/routers/pages.py`: Web UI page controller with pagination and virtual site indexing.
+- `src/kb_web/routers/conversations.py`: Persistent article-level and global Ollama chat conversations.
+- `src/kb_web/routers/embeddings.py`: Multi-model embedding management, reindexing, and side-by-side comparison.
+- `src/kb_web/routers/notes.py`: Personal knowledge notes, code paste ingestion, and Obsidian vault archives.
+- `src/kb_web/routers/reports.py`: Dynamic report builder, multi-table joins, and streaming data exports.
+- `src/kb_web/routers/workspaces.py`: Persistent in-browser IDE workspaces, starter templates, file sync, ZIP export, and Ollama agent integration.
 - `src/kb_web/cli.py`: Typer command launcher.
 - `src/kb_web/templates/`: Jinja2 templates for login, dashboard lists, configuration inputs, and profile views.
 - `browser_extension/`: Source directory containing manifest, options menu, and background worker for Chrome imports.
