@@ -1,5 +1,6 @@
 import json
 from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Table
+from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.types import TypeDecorator
 
@@ -366,6 +367,32 @@ class ScheduledReportJob(Base):
     created_at = Column(String)
 
 
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, default="")
+    template = Column(String, default="web-game")  # "web-game", "python-demo", "blank"
+    created_at = Column(String)
+    updated_at = Column(String)
+
+    files = relationship("WorkspaceFile", back_populates="workspace", cascade="all, delete-orphan", lazy="joined")
+
+
+class WorkspaceFile(Base):
+    __tablename__ = "workspace_files"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_path = Column(String, nullable=False)
+    content = Column(Text, default="")
+    language = Column(String, default="plaintext")
+    updated_at = Column(String)
+
+    workspace = relationship("Workspace", back_populates="files")
+
+
 metadata = Base.metadata
 
 
@@ -451,6 +478,11 @@ def ensure_views_and_indexes(engine):
     dialect = getattr(engine.dialect, "name", "sqlite")
     with engine.connect() as conn:
         with conn.begin():
+            try:
+                Base.metadata.create_all(bind=conn)
+            except Exception:
+                pass
+
             try:
                 if dialect == "postgresql":
                     conn.execute(text("ALTER TABLE chunk_embeddings ADD COLUMN IF NOT EXISTS model_name VARCHAR DEFAULT 'embeddinggemma';"))

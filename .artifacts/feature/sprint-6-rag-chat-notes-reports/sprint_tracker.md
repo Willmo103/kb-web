@@ -45,19 +45,24 @@ This document tracks implementation status, verification gates, and issue resolu
   - [x] Space-efficient form controls, reduced excessive vertical whitespace, and URL hash / `localStorage` persistent tab state.
   - [x] Full backward compatibility with existing form POST actions and anchor targets.
 
-- [x] **#67 - Custom Report & Data Grid Builder with Dynamic Joins, Filters, & Scheduled Exports**
-  - [x] Schema additions: `SavedReportView` and `ScheduledReportJob` ORM tables.
-  - [x] Interactive ERP-style data grid explorer (`/reports`): dynamic column selector, automated table joins (`fetched_pages` to `youtube_videos`, `collections`, `chunk_embeddings`), multi-column sorting, search filtering, and client-side pagination.
-  - [x] Lazy lightweight string placeholders for heavy columns (`[HTML: X KB]`, `[Vector: N-dim]`, `[Markdown: Y KB]`) to prevent client memory bloat.
-  - [x] Streaming export service generating `.csv`, `.json`, and native Excel `.xlsx` outputs (via `openpyxl`).
-  - [x] Scheduled export jobs endpoint (`POST /api/reports/schedule`).
+- [x] **#70 - In-Browser Replit-Lite Workspaces with Pyodide Python WASM & Ephemeral Ollama Coding Agent**
+  - [x] Schema additions: `Workspace` and `WorkspaceFile` ORM tables with cascade deletion.
+  - [x] Workspace management endpoints: `GET/POST /api/workspaces`, `GET/PUT/DELETE /api/workspaces/{id}`, `POST /api/workspaces/{id}/files`, `DELETE /api/workspaces/{id}/files/{path}`, `POST /api/workspaces/{id}/duplicate`, `GET /api/workspaces/{id}/export-zip`.
+  - [x] Ephemeral Ollama coding agent streaming endpoint `POST /api/workspaces/{id}/agent/chat` with file block parsing and diff preview/apply.
+  - [x] Studio gallery interface at `/workspaces` (`workspaces_list.j2.html`) and top navigation link `💻 Studio`.
+  - [x] In-browser IDE at `/workspaces/{id}` (`workspace_ide.j2.html`) with Monaco Editor, Pyodide Python 3 WASM in-browser execution, live sandboxed HTML/JS preview with console log interceptor, and resizable layout panes.
+
+- [x] **UAT Turn 3 Issue Fixes**
+  - [x] **Bug 1**: Fixed Monaco editor notes loader error (`require is not defined`) by adding missing `{% block extra_head %}` block in `base.j2.html` and polling fallback in `note_editor.j2.html`.
+  - [x] **Bug 2**: Resolved "Chat About Article" button inaction in `view_page.j2.html` through lazy DOM element resolution helpers.
+  - [x] **Bug 3**: Fixed reports data grid `GROUP BY` query syntax failure and default table sorting mismatch (`fetched_pages.fetched_at` on `notes`) in `reports.py` and added collapsible visual group clustering in `reports.j2.html`.
 
 ---
 
 ## Verification & Build Results
 
-- **Unit & Feature Tests**: 83/83 passed (`uv run pytest` in 75.34s)
-- **Feature Test Suite**: 7/7 passed (`uv run pytest tests/test_sprint6_features.py -vv` in 47.75s)
-- **UI Verification**: 19/19 Jinja2 templates verified with 0 warnings (`verify_ui_templates.py`)
+- **Unit & Feature Tests**: 87/87 passed (`uv run pytest` in 71.66s)
+- **Sprint 6 Test Suite**: 11/11 passed (`uv run pytest tests/test_sprint6_features.py -vv` in 47.80s)
+- **UI Verification**: 21/21 Jinja2 templates verified with 0 warnings (`verify_ui_templates.py`)
 - **Build Pipeline**: Clean wheel and sdist packages built (`uv run python build.py`)
-- **UAT Report**: Generated at `uat/reports/uat_report_sprint_6_features_20260918_040317.md`
+- **UAT Report**: Generated at `uat/reports/uat_report_uat_turn3_fixes_and_workspaces_20260925_120743.md`

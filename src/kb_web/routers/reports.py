@@ -163,7 +163,7 @@ class ReportQueryRequest(BaseModel):
     columns: List[str] = Field(default_factory=lambda: ["fetched_pages.url", "fetched_pages.title", "fetched_pages.fetched_at"])
     joins: List[str] = Field(default_factory=list)
     filters: List[FilterCondition] = Field(default_factory=list)
-    sort_by: Optional[str] = "fetched_pages.fetched_at"
+    sort_by: Optional[str] = None
     sort_order: str = "desc"
     group_by: Optional[str] = None
     limit: int = 50
@@ -346,27 +346,40 @@ def _build_sql_query(
         sql = f"SELECT {select_clause} FROM {from_clause} {joins_sql} {where_sql}"
         return sql, params
 
-    # Group By
-    group_sql = ""
-    if req.group_by and "." in req.group_by:
-        gtbl, gcol = req.group_by.split(".", 1)
-        if gtbl in TABLE_METADATA and gcol in [x["name"] for x in TABLE_METADATA[gtbl]["columns"]]:
-            group_sql = f"GROUP BY {gtbl}.{gcol}"
-
-    # Order By
+    # Order By & Group Clustering
+    # Order By & Group Clustering
     order_sql = ""
-    if req.sort_by and "." in req.sort_by:
-        stbl, scol = req.sort_by.split(".", 1)
-        if stbl in TABLE_METADATA and scol in [x["name"] for x in TABLE_METADATA[stbl]["columns"]]:
+    target_sort = req.sort_by
+    if not target_sort or "." not in target_sort:
+        base_pk = TABLE_METADATA[base_table]["pk"]
+        target_sort = f"{base_table}.{base_pk}"
+
+    if target_sort and "." in target_sort:
+        stbl, scol = target_sort.split(".", 1)
+        valid_tables = {base_table}.union(joined_tables)
+        if stbl in valid_tables and stbl in TABLE_METADATA and scol in [x["name"] for x in TABLE_METADATA[stbl]["columns"]]:
             direction = "DESC" if req.sort_order.lower() == "desc" else "ASC"
             order_sql = f"ORDER BY {stbl}.{scol} {direction}"
+        else:
+            base_pk = TABLE_METADATA[base_table]["pk"]
+            order_sql = f"ORDER BY {base_table}.{base_pk} DESC"
+
+    if req.group_by and "." in req.group_by:
+        gtbl, gcol = req.group_by.split(".", 1)
+        valid_tables = {base_table}.union(joined_tables)
+        if gtbl in valid_tables and gtbl in TABLE_METADATA and gcol in [x["name"] for x in TABLE_METADATA[gtbl]["columns"]]:
+            # In ERP data grids, grouping clusters rows by the group column
+            if order_sql:
+                order_sql = f"ORDER BY {gtbl}.{gcol} ASC, {order_sql[9:]}"
+            else:
+                order_sql = f"ORDER BY {gtbl}.{gcol} ASC"
 
     # Limit / Offset
     limit_val = min(max(1, req.limit), 500)
     offset_val = max(0, req.offset)
     pagination_sql = f"LIMIT {limit_val} OFFSET {offset_val}"
 
-    sql = f"SELECT {select_clause} FROM {from_clause} {joins_sql} {where_sql} {group_sql} {order_sql} {pagination_sql}"
+    sql = f"SELECT {select_clause} FROM {from_clause} {joins_sql} {where_sql} {order_sql} {pagination_sql}"
     return sql, params
 
 
@@ -392,10 +405,13 @@ def execute_report_query(req: ReportQueryRequest):
             total_count = 0
 
         # Fetch records
-        query_sql, query_params = _build_sql_query(req, fetch_heavy=req.fetch_heavy, is_count=False)
-        result = session.execute(text(query_sql), query_params)
-        keys = list(result.keys())
-        raw_rows = [dict(row._mapping) for row in result.fetchall()]
+        try:
+            query_sql, query_params = _build_sql_query(req, fetch_heavy=req.fetch_heavy, is_count=False)
+            result = session.execute(text(query_sql), query_params)
+            keys = list(result.keys())
+            raw_rows = [dict(row._mapping) for row in result.fetchall()]
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Database query error: {str(e)}")
 
         # Process heavy column placeholders if fetch_heavy is False
         processed_rows = []

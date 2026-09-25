@@ -406,3 +406,104 @@ def test_reports_tables_and_query(client: TestClient, auth_cookie):
 
     # 6. Clean up saved view
     client.delete(f"/api/reports/views/{view_id}")
+
+
+# -----------------------------------------------------------------------------
+# Turn 3 UAT Regression & Issue #70 Tests
+# -----------------------------------------------------------------------------
+
+def test_notes_monaco_editor_head_block(client: TestClient, auth_cookie):
+    """Verifies that Monaco Editor loader script tag is injected into the rendered HTML."""
+    resp = client.get("/notes/editor", cookies=auth_cookie)
+    assert resp.status_code == 200
+    assert "vs/loader.min.js" in resp.text
+    assert "initMonacoEditor" in resp.text
+
+
+def test_article_chat_drawer_dom_controller(client: TestClient):
+    """Verifies that view_page HTML includes dynamic chat elements and openChatDrawer."""
+    test_url = "https://example.com/sprint6-test-article"
+    resp = client.get(f"/view/page?url={test_url}")
+    assert resp.status_code == 200
+    assert "openChatDrawer()" in resp.text
+    assert "getChatElements" in resp.text
+    assert 'id="chat-drawer"' in resp.text
+
+
+def test_reports_group_by_query(client: TestClient):
+    """Verifies that execute_report_query handles group_by parameter cleanly without 500 SQL error."""
+    resp = client.post(
+        "/api/reports/query",
+        json={
+            "base_table": "notes",
+            "columns": ["notes.id", "notes.title", "notes.url", "notes.vault_name"],
+            "group_by": "notes.url",
+            "limit": 10,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "rows" in data
+    assert "total_count" in data
+
+
+def test_workspaces_crud_and_ide(client: TestClient, auth_cookie):
+    """Verifies persistent Replit-style workspace lifecycle: create, list, file upsert, export, duplicate, delete."""
+    # 1. Create workspace
+    create_resp = client.post(
+        "/api/workspaces",
+        json={
+            "name": "Test Mini Arcade",
+            "description": "A testing game workspace",
+            "template": "web-game",
+        },
+    )
+    assert create_resp.status_code == 200
+    ws_data = create_resp.json()
+    assert ws_data["status"] == "created"
+    ws_id = ws_data["id"]
+
+    # 2. Get workspace details (should contain seeded template files)
+    detail_resp = client.get(f"/api/workspaces/{ws_id}")
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert "index.html" in detail["files"]
+    assert "app.js" in detail["files"]
+
+    # 3. Upsert a new file
+    file_resp = client.post(
+        f"/api/workspaces/{ws_id}/files",
+        json={
+            "path": "src/utils.js",
+            "content": "export function add(a, b) { return a + b; }",
+            "language": "javascript",
+        },
+    )
+    assert file_resp.status_code == 200
+
+    # 4. Export ZIP
+    zip_resp = client.get(f"/api/workspaces/{ws_id}/export-zip")
+    assert zip_resp.status_code == 200
+    assert zip_resp.headers["content-type"] == "application/zip"
+
+    # 5. UI Routes
+    list_ui_resp = client.get("/workspaces", cookies=auth_cookie)
+    assert list_ui_resp.status_code == 200
+    assert "Test Mini Arcade" in list_ui_resp.text
+
+    ide_ui_resp = client.get(f"/workspaces/{ws_id}", cookies=auth_cookie)
+    assert ide_ui_resp.status_code == 200
+    assert "Test Mini Arcade" in ide_ui_resp.text
+    assert "monacoEditor" in ide_ui_resp.text
+
+    # 6. Duplicate workspace
+    dup_resp = client.post(f"/api/workspaces/{ws_id}/duplicate")
+    assert dup_resp.status_code == 200
+    dup_id = dup_resp.json()["id"]
+
+    # 7. Delete workspaces
+    del_orig = client.delete(f"/api/workspaces/{ws_id}")
+    assert del_orig.status_code == 200
+    del_dup = client.delete(f"/api/workspaces/{dup_id}")
+    assert del_dup.status_code == 200
+

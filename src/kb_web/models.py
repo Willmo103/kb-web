@@ -288,3 +288,27 @@ class SavedReportCreateRequest(BaseModel):
     filter_config: list[dict] = []
     group_config: list[str] = []
 
+
+class WorkspaceCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    template: str = "web-game"  # "web-game", "python-demo", "blank"
+
+
+class WorkspaceUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class WorkspaceFileUpsertRequest(BaseModel):
+    path: str
+    content: str
+    language: Optional[str] = None
+
+
+class WorkspaceAgentChatRequest(BaseModel):
+    message: str
+    active_file: Optional[str] = None
+    model: Optional[str] = None
+
+

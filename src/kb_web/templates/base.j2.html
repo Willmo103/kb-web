@@ -21,6 +21,7 @@
         }
     </style>
     {% block extra_head %}{% endblock %}
+    {% block head_extra %}{% endblock %}
 
     <link rel="manifest" href="/manifest.json">
     <script>
@@ -51,6 +52,9 @@
                 </a>
                 <a href="/notes" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
                     <span class="mr-1.5">📝</span> Notes
+                </a>
+                <a href="/workspaces" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
+                    <span class="mr-1.5">💻</span> Studio
                 </a>
                 <a href="/reports" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
                     <span class="mr-1.5">📊</span> Reports

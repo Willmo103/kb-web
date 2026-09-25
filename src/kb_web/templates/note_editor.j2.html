@@ -2,7 +2,7 @@
 
 {% block title %}{% if note %}{{ note.title }}{% else %}New Note{% endif %} - Monaco Editor{% endblock %}
 
-{% block head_extra %}
+{% block extra_head %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
@@ -88,32 +88,44 @@ const noteId = {{ note.id if note else 'null' }};
 const initialContent = {{ (note.content if note else '# New Note\n\nStart typing notes or paste code here...') | tojson }};
 const initialSyntax = {{ (note.syntax if note else 'markdown') | tojson }};
 
-require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
+function initMonacoEditor() {
+    if (typeof require === 'undefined') {
+        setTimeout(initMonacoEditor, 50);
+        return;
+    }
+    require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
 
-require(['vs/editor/editor.main'], function() {
-    editor = monaco.editor.create(document.getElementById('monaco-container'), {
-        value: initialContent,
-        language: initialSyntax,
-        theme: 'vs-dark',
-        automaticLayout: true,
-        minimap: { enabled: true },
-        fontSize: 13,
-        wordWrap: 'on',
-        scrollBeyondLastLine: false,
-    });
+    require(['vs/editor/editor.main'], function() {
+        editor = monaco.editor.create(document.getElementById('monaco-container'), {
+            value: initialContent,
+            language: initialSyntax,
+            theme: 'vs-dark',
+            automaticLayout: true,
+            minimap: { enabled: true },
+            fontSize: 13,
+            wordWrap: 'on',
+            scrollBeyondLastLine: false,
+        });
 
-    updatePreview();
-
-    editor.onDidChangeModelContent(() => {
-        document.getElementById('save-status').textContent = 'Unsaved changes...';
         updatePreview();
-    });
 
-    // Keyboard shortcut Ctrl+S
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function() {
-        saveNote();
+        editor.onDidChangeModelContent(() => {
+            document.getElementById('save-status').textContent = 'Unsaved changes...';
+            updatePreview();
+        });
+
+        // Keyboard shortcut Ctrl+S
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function() {
+            saveNote();
+        });
     });
-});
+}
+
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', initMonacoEditor);
+} else {
+    initMonacoEditor();
+}
 
 function updatePreview() {
     if (!editor) return;

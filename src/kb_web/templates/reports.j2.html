@@ -667,11 +667,18 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         })
-        .then(res => res.json())
+        .then(async res => {
+            const data = await res.json().catch(() => null);
+            if (!res.ok) {
+                const errDetail = data && (data.detail || data.error) ? (data.detail || data.error) : `Query error (HTTP ${res.status})`;
+                throw new Error(errDetail);
+            }
+            return data;
+        })
         .then(data => {
             totalRecords = data.total_count || 0;
             lastQueryRows = data.rows || [];
-            renderDataGrid(data.columns, data.rows);
+            renderDataGrid(data.columns, data.rows, groupBy);
             updatePaginationUI();
         })
         .catch(err => {
@@ -679,14 +686,14 @@
             tbody.innerHTML = `
                 <tr>
                     <td colspan="15" class="py-12 text-center text-red-600 text-xs font-bold">
-                        Failed to execute report query: ${err.message}
+                        Failed to execute report query: ${escapeHtml(err.message)}
                     </td>
                 </tr>
             `;
         });
     }
 
-    function renderDataGrid(columns, rows) {
+    function renderDataGrid(columns, rows, groupBy = null) {
         const headerRow = document.getElementById("gridHeaderRow");
         headerRow.innerHTML = `<th class="py-3 px-3 text-gray-400 font-mono w-10">#</th>`;
         
@@ -722,7 +729,32 @@
             return;
         }
 
+        let lastGroupVal = undefined;
+
         rows.forEach((r, idx) => {
+            // Group Header Row if grouped
+            if (groupBy && r[groupBy] !== undefined) {
+                const currentGroupVal = String(r[groupBy] ?? "(empty)");
+                if (currentGroupVal !== lastGroupVal) {
+                    lastGroupVal = currentGroupVal;
+                    const groupTr = document.createElement("tr");
+                    groupTr.className = "bg-indigo-50/70 border-t-2 border-b border-indigo-200 text-indigo-950 font-bold text-xs";
+                    groupTr.innerHTML = `
+                        <td colspan="${columns.length + 1}" class="py-2.5 px-4">
+                            <div class="flex items-center justify-between">
+                                <span class="flex items-center gap-2">
+                                    <span>📁</span>
+                                    <span class="font-mono text-indigo-700">${escapeHtml(groupBy)}:</span>
+                                    <span class="text-gray-900">${escapeHtml(currentGroupVal)}</span>
+                                </span>
+                                <span class="text-[10px] uppercase font-mono px-2 py-0.5 bg-indigo-100 rounded text-indigo-700">Group Header</span>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(groupTr);
+                }
+            }
+
             const tr = document.createElement("tr");
             tr.className = "hover:bg-gray-50/80 transition";
 

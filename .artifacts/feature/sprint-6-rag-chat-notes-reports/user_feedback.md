@@ -77,3 +77,33 @@
   - Instead, they are projected as metadata placeholders (e.g. `[HTML: 14.2 KB]`, `[Markdown: 3.1 KB]`, `[Vector: 768-dim]`).
   - Full payloads are only fetched on explicit user drilldown or when specifically selected during file export (`.xlsx`/`.csv`/`.json`).
 
+---
+
+## 5. Turn 3 UAT Results & Feedback (2026-09-25)
+
+### Bug 1: Monaco Editor `require is not defined`
+* **Symptom**: When navigating to `/notes/editor?id=...`, the Monaco editor fails to initialize and the console displays: `Uncaught ReferenceError: require is not defined at editor?id=57:159:1`.
+* **Root Cause**: `note_editor.j2.html` placed the Monaco AMD loader `<script src=".../vs/loader.min.js">` inside `{% block head_extra %}`, but `base.j2.html` defines the block as `{% block extra_head %}`. The script tag was omitted from the rendered HTML.
+* **Fix Action**: Change `{% block head_extra %}` to `{% block extra_head %}` in `note_editor.j2.html` (and support `head_extra` in `base.j2.html` for backward compatibility).
+
+### Bug 2: "Chat About Article" Button Does Nothing
+* **Symptom**: Clicking "Chat About Article" on `/view/page` yields no action, error, or modal.
+* **Root Cause**: In `view_page.j2.html`, JavaScript variables `chatDrawer`, `chatBackdrop`, etc. were bound at top-level execution before the chat drawer modal elements (`id="chat-drawer"`, etc.) appeared in the HTML. As a result, `chatDrawer` was `null` and `openChatDrawer()` returned early.
+* **Fix Action**: Resolve DOM elements dynamically inside `openChatDrawer()` / `DOMContentLoaded`, and position the modal markup cleanly before or alongside the controller.
+
+### Bug 3: Report Generator Error on Group By
+* **Symptom**: Selecting a `GROUP BY` column in `/reports` produces an error: `Failed to execute report query: Unexpected token '<', "<!DOCTYPE "... is not valid JSON`.
+* **Root Cause**: In `src/kb_web/routers/reports.py`, the query generator emitted `GROUP BY {gtbl}.{gcol}` while `SELECT` requested non-grouped columns (`notes.id`, `notes.title`, etc.) without aggregate functions, triggering a PostgreSQL `psycopg2.errors.GroupingError` and unhandled 500 HTML response.
+* **Fix Action**:
+  1. In `reports.py`, wrap query execution in structured error handling so any database exception returns clean JSON `{ "detail": str(e) }` rather than an unhandled 500 HTML page.
+  2. Implement robust ERP data grid grouping: cluster rows by group key (`ORDER BY {gtbl}.{gcol} ASC, ...`) and render collapsible group header rows with item counts in `reports.j2.html`.
+
+### Feature 4: Persistent Replit-Lite Coding Workspaces & Ephemeral Generation Agent
+* **User Request**: Incorporate `workspace.html` into `kb-web` with persistent workspace storage ("store my workspaces in perpetuity untill I delete them" like Replit), Pyodide Python WASM runtime, live sandboxed web preview with console interceptor, and ephemeral Ollama coding agent with diff review/apply.
+* **Implementation Plan**:
+  1. Add ORM models `Workspace` and `WorkspaceFile` in `src/kb_web/models_orm.py`.
+  2. Add dedicated router `src/kb_web/routers/workspaces.py` with full REST API (`/api/workspaces`, `/api/workspaces/{id}`, `/api/workspaces/{id}/files`, `/api/workspaces/{id}/export-zip`, `/api/workspaces/{id}/generate`).
+  3. Add `/workspaces` dashboard template (`workspaces_list.j2.html`) for creating, browsing, duplicating, and deleting persistent workspaces.
+  4. Add full IDE studio template (`workspace_ide.j2.html`) based on `workspace.html` with Monaco Editor, Pyodide WASM, Sandboxed Web Preview, Ollama Agent, and persistent auto-saving to `kb-web`.
+  5. Add top nav bar link `💻 Studio` in `base.j2.html`.
+

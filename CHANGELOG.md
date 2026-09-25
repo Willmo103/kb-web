@@ -56,7 +56,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `GET /api/reports/views` & `POST /api/reports/views`: Saves and retrieves custom user report definitions and view states.
     - `GET /api/reports/export`: Streams high-volume report exports in `.csv`, `.json`, and native Excel `.xlsx` format (via `openpyxl`).
     - `POST /api/reports/schedule`: Allows configuring scheduled automated report extraction jobs.
-  - Added responsive data grid interface at `/reports` (`src/kb_web/templates/reports.j2.html`) with table selector, interactive multi-column checklist, join toggles, dynamic filter builder, client-side pagination, quick sorting, search-in-results, and one-click export buttons.
+- **In-Browser Replit-Lite Workspaces with Pyodide Python WASM & Ephemeral Ollama Coding Agent (Resolves #70)**:
+  - Added database models `Workspace` and `WorkspaceFile` to `src/kb_web/models_orm.py` supporting persistent multi-file workspaces across browser sessions with cascading deletions.
+  - Added workspace router `src/kb_web/routers/workspaces.py` supporting starter project templates (`web-game`, `python-demo`, `blank`), full CRUD, ZIP packaging export streaming, workspace duplication, and ephemeral Ollama agent streaming chat (`/api/workspaces/{id}/agent/chat`).
+  - Added responsive studio dashboard UI at `/workspaces` (`src/kb_web/templates/workspaces_list.j2.html`) and top-nav link `💻 Studio` in `src/kb_web/templates/base.j2.html`.
+  - Added in-browser IDE at `/workspaces/{id}` (`src/kb_web/templates/workspace_ide.j2.html`) featuring Monaco Editor, Pyodide Python 3 WASM in-browser execution runtime, live sandboxed HTML/JS preview with console log interceptor, resizable layout panes, and Ollama agent file diff review/apply workflow.
+
+### Fixed
+- **Monaco Editor Notes Loading Failure (Uncaught ReferenceError: require is not defined)**:
+  - Fixed template block mismatch between `base.j2.html` (`extra_head`) and `note_editor.j2.html` (`head_extra`), ensuring the `vs/loader.min.js` AMD loader is injected prior to editor initialization.
+  - Added resilient DOM polling fallback in `note_editor.j2.html` to guarantee `require` is loaded before instantiating Monaco models.
+- **Article View "Chat About Article" Trigger Button Inaction**:
+  - Resolved DOM lookup race condition in `src/kb_web/templates/view_page.j2.html` by converting eager top-level element bindings (`chat-drawer`, `chat-drawer-backdrop`, `chat-messages-container`, `chat-user-input`, `chat-submit-btn`) into lazy accessor methods evaluated at click time.
+- **Custom Report Data Grid Group By Query Failure**:
+  - Replaced raw SQL `GROUP BY` syntax with ERP group ordering and clustering (`ORDER BY {gtbl}.{gcol} ASC, ...`) to prevent unaggregated column syntax errors across database engines.
+  - Fixed default `sort_by` column table referencing (`fetched_pages.fetched_at`) when executing queries against non-base tables such as `notes`.
+  - Added collapsible visual group headers (`📁 Group: value (N records)`) and safe error rendering in `src/kb_web/templates/reports.j2.html`.
 
 ## [0.3.0] - 2026-09-12
 ### Added

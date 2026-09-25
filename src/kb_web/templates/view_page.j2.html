@@ -564,28 +564,39 @@
 
     // --- Article Chat Drawer Controller ---
     let currentConversationId = null;
-    const chatDrawer = document.getElementById("chat-drawer");
-    const chatBackdrop = document.getElementById("chat-drawer-backdrop");
-    const chatContainer = document.getElementById("chat-messages-container");
-    const chatInput = document.getElementById("chat-user-input");
-    const chatSubmitBtn = document.getElementById("chat-submit-btn");
+
+    function getChatElements() {
+        return {
+            drawer: document.getElementById("chat-drawer"),
+            backdrop: document.getElementById("chat-drawer-backdrop"),
+            container: document.getElementById("chat-messages-container"),
+            input: document.getElementById("chat-user-input"),
+            btn: document.getElementById("chat-submit-btn"),
+        };
+    }
 
     function openChatDrawer() {
-        if (!chatDrawer || !chatBackdrop) return;
-        chatBackdrop.classList.remove("hidden");
-        chatDrawer.classList.remove("translate-x-full");
+        const { drawer, backdrop, input } = getChatElements();
+        if (!drawer || !backdrop) {
+            console.error("Chat drawer DOM elements not found!");
+            return;
+        }
+        backdrop.classList.remove("hidden");
+        drawer.classList.remove("translate-x-full");
         loadArticleChatHistory();
-        if (chatInput) setTimeout(() => chatInput.focus(), 300);
+        if (input) setTimeout(() => input.focus(), 300);
     }
 
     function closeChatDrawer() {
-        if (!chatDrawer || !chatBackdrop) return;
-        chatDrawer.classList.add("translate-x-full");
-        chatBackdrop.classList.add("hidden");
+        const { drawer, backdrop } = getChatElements();
+        if (!drawer || !backdrop) return;
+        drawer.classList.add("translate-x-full");
+        backdrop.classList.add("hidden");
     }
 
     async function loadArticleChatHistory() {
-        if (!chatContainer) return;
+        const { container } = getChatElements();
+        if (!container) return;
         try {
             const pageUrl = "{{ page.url }}";
             const res = await fetch(`/api/conversations/by-source?url=${encodeURIComponent(pageUrl)}`);
@@ -599,9 +610,10 @@
     }
 
     function renderChatMessages(messages) {
-        if (!chatContainer) return;
+        const { container } = getChatElements();
+        if (!container) return;
         if (!messages.length) {
-            chatContainer.innerHTML = `
+            container.innerHTML = `
                 <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-indigo-900 leading-relaxed text-xs">
                     👋 Ask me anything about <strong class="font-semibold">{{ page.title or 'this document' }}</strong>. I have direct access to its summary wiki and embeddings chunks!
                 </div>
@@ -609,7 +621,7 @@
             return;
         }
 
-        chatContainer.innerHTML = messages.map(m => {
+        container.innerHTML = messages.map(m => {
             const isUser = m.role === "user";
             return `
                 <div class="flex ${isUser ? 'justify-end' : 'justify-start'}">
@@ -623,38 +635,41 @@
                 </div>
             `;
         }).join('');
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+        container.scrollTop = container.scrollHeight;
     }
 
     async function sendChatMessage(e) {
         if (e) e.preventDefault();
-        const text = chatInput ? chatInput.value.trim() : "";
+        const { container, input, btn } = getChatElements();
+        const text = input ? input.value.trim() : "";
         if (!text) return;
 
-        chatInput.value = "";
-        if (chatSubmitBtn) chatSubmitBtn.disabled = true;
+        if (input) input.value = "";
+        if (btn) btn.disabled = true;
 
-        // Optimistically append user message
-        const tempMsg = document.createElement("div");
-        tempMsg.className = "flex justify-end";
-        tempMsg.innerHTML = `
-            <div class="max-w-[85%] bg-indigo-600 text-white rounded-2xl rounded-br-none px-4 py-2.5 shadow-sm text-xs">
-                ${escapeHtml(text)}
-            </div>
-        `;
-        chatContainer.appendChild(tempMsg);
+        if (container) {
+            // Optimistically append user message
+            const tempMsg = document.createElement("div");
+            tempMsg.className = "flex justify-end";
+            tempMsg.innerHTML = `
+                <div class="max-w-[85%] bg-indigo-600 text-white rounded-2xl rounded-br-none px-4 py-2.5 shadow-sm text-xs">
+                    ${escapeHtml(text)}
+                </div>
+            `;
+            container.appendChild(tempMsg);
 
-        // Typing indicator
-        const typingIndicator = document.createElement("div");
-        typingIndicator.id = "chat-typing-indicator";
-        typingIndicator.className = "flex justify-start";
-        typingIndicator.innerHTML = `
-            <div class="bg-white border border-gray-200 text-gray-500 rounded-2xl rounded-bl-none px-4 py-2 text-xs shadow-sm flex items-center gap-1.5 animate-pulse">
-                <span>🤖 Thinking with Ollama...</span>
-            </div>
-        `;
-        chatContainer.appendChild(typingIndicator);
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+            // Typing indicator
+            const typingIndicator = document.createElement("div");
+            typingIndicator.id = "chat-typing-indicator";
+            typingIndicator.className = "flex justify-start";
+            typingIndicator.innerHTML = `
+                <div class="bg-white border border-gray-200 text-gray-500 rounded-2xl rounded-bl-none px-4 py-2 text-xs shadow-sm flex items-center gap-1.5 animate-pulse">
+                    <span>🤖 Thinking with Ollama...</span>
+                </div>
+            `;
+            container.appendChild(typingIndicator);
+            container.scrollTop = container.scrollHeight;
+        }
 
         try {
             const res = await fetch('/api/conversations/chat', {
@@ -672,15 +687,17 @@
 
             if (res.ok) {
                 currentConversationId = data.conversation_id;
-                const asstMsg = document.createElement("div");
-                asstMsg.className = "flex justify-start";
-                asstMsg.innerHTML = `
-                    <div class="max-w-[85%] bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-bl-none px-4 py-2.5 shadow-sm text-xs prose-sm leading-relaxed whitespace-pre-wrap">
-                        ${escapeHtml(data.content)}
-                    </div>
-                `;
-                chatContainer.appendChild(asstMsg);
-                chatContainer.scrollTop = chatContainer.scrollHeight;
+                if (container) {
+                    const asstMsg = document.createElement("div");
+                    asstMsg.className = "flex justify-start";
+                    asstMsg.innerHTML = `
+                        <div class="max-w-[85%] bg-white border border-gray-200 text-gray-800 rounded-2xl rounded-bl-none px-4 py-2.5 shadow-sm text-xs prose-sm leading-relaxed whitespace-pre-wrap">
+                            ${escapeHtml(data.content)}
+                        </div>
+                    `;
+                    container.appendChild(asstMsg);
+                    container.scrollTop = container.scrollHeight;
+                }
             } else {
                 alert("Ollama chat error: " + (data.detail || "Request failed"));
             }
@@ -690,7 +707,7 @@
             if (indicator) indicator.remove();
             alert("Network error sending chat message.");
         } finally {
-            if (chatSubmitBtn) chatSubmitBtn.disabled = false;
+            if (btn) btn.disabled = false;
         }
     }
 
@@ -724,8 +741,9 @@
             }
         }
 
-        if (chatInput) {
-            chatInput.addEventListener("keydown", function(e) {
+        const { input } = getChatElements();
+        if (input) {
+            input.addEventListener("keydown", function(e) {
                 if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     sendChatMessage();

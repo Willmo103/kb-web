@@ -199,6 +199,7 @@ from .routers import (  # noqa: E402
     embeddings,
     notes,
     reports,
+    workspaces,
 )
 
 app.include_router(auth.router)
@@ -215,6 +216,7 @@ app.include_router(conversations.router)
 app.include_router(embeddings.router)
 app.include_router(notes.router)
 app.include_router(reports.router)
+app.include_router(workspaces.router)
 
 
 # --- Re-export utility functions for backward test compatibility ---
