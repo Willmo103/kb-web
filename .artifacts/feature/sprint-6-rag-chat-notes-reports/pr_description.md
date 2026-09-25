@@ -34,14 +34,27 @@ This pull request implements all feature and architectural requests outlined in 
    - Lazy lightweight string placeholders for heavy columns (`[HTML: X KB]`, `[Vector: N-dim]`) to prevent client memory bloat.
    - Streaming export service for `.csv`, `.json`, and native Excel `.xlsx` (via `openpyxl`).
 
+7. **#70: Persistent Replit-Lite Workspaces with Pyodide Python WASM & Ephemeral Ollama Coding Agent**
+   - Added persistent multi-file workspaces stored in the database (`Workspace` and `WorkspaceFile` ORM tables) across browser sessions until deleted.
+   - Added studio gallery dashboard at `/workspaces` (`src/kb_web/templates/workspaces_list.j2.html`) and top-nav link `💻 Studio`.
+   - Built full-featured in-browser IDE at `/workspaces/{id}` (`src/kb_web/templates/workspace_ide.j2.html`) with Monaco Editor, Pyodide Python 3 WASM in-browser execution runtime, sandboxed HTML/JS preview with console log interceptor, ZIP archive export streaming, and ephemeral Ollama agent streaming chat (`/api/workspaces/{id}/agent/chat`) with code diff review and apply.
+
+---
+
+## Turn 3 UAT Defect Resolution
+
+- **Bug 1 (Monaco Editor Notes Loader)**: Resolved `require is not defined` console error by unifying base layout head blocks (`{% block extra_head %}`) and adding an AMD polling listener in `note_editor.j2.html`.
+- **Bug 2 (Article View "Chat About Article" Trigger Button)**: Converted eager top-level element bindings into dynamic accessor methods evaluated at click time in `view_page.j2.html` to prevent null references during initial script evaluation.
+- **Bug 3 (Custom Reports Group By Query Failure)**: Replaced unaggregated raw SQL `GROUP BY` with ERP group ordering and clustering, fixed default sort table referencing for non-article tables (`notes`), and added collapsible group header rows in `reports.j2.html`.
+
 ---
 
 ## Verification & Build
 
-- **Regression & Feature Tests**: 83/83 passed (`uv run pytest` in 75s)
-- **Feature Test Suite**: 7/7 passed (`uv run pytest tests/test_sprint6_features.py -vv`)
-- **UI Template Verification**: 19/19 templates verified with 0 warnings (`verify_ui_templates.py`)
+- **Regression & Feature Tests**: 87/87 passed (`uv run pytest` in 71.66s)
+- **Feature Test Suite**: 11/11 passed (`uv run pytest tests/test_sprint6_features.py -vv` in 47.80s)
+- **UI Template Verification**: 21/21 templates verified with 0 warnings (`verify_ui_templates.py`)
 - **Build Pipeline**: Clean packages built in `dist/` and `kb-web-cli/dist/` (`uv run python build.py`)
-- **UAT Report**: Generated at `uat/reports/uat_report_sprint_6_features_20260918_040317.md`
+- **UAT Report**: Generated at `uat/reports/uat_report_uat_turn3_fixes_and_workspaces_20260925_120743.md`
 
-Resolves #62, Resolves #63, Resolves #64, Resolves #65, Resolves #66, Resolves #67, Resolves #68
+Resolves #62, Resolves #63, Resolves #64, Resolves #65, Resolves #66, Resolves #67, Resolves #68, Resolves #70
