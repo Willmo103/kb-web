@@ -1,0 +1,276 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Notes & Obsidian Vaults - Knowledge Base{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-8">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 border-b border-gray-200 pb-5">
+        <div>
+            <div class="flex items-center gap-2 mb-1">
+                <span class="text-2xl">📝</span>
+                <h1 class="text-2xl font-extrabold text-gray-900 tracking-tight">Notes & Obsidian Vaults</h1>
+                <span class="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-mono font-bold rounded-full border border-indigo-100">
+                    {{ total }} item{% if total != 1 %}s{% endif %}
+                </span>
+            </div>
+            <p class="text-sm text-gray-500">Paste code and markdown notes, edit with Monaco Editor, and mirror complete Obsidian vaults.</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <button onclick="openPasteModal()" class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-sm">
+                <span>+</span> New Note / Code
+            </button>
+            <button onclick="openVaultUploadModal()" class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold transition shadow-sm">
+                <span>📂</span> Upload Obsidian Vault
+            </button>
+        </div>
+    </div>
+
+    <!-- Tree View & Notes Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <!-- Sidebar: Vault Folder Hierarchy -->
+        <aside class="lg:col-span-1 bg-white border border-gray-200 rounded-2xl p-5 shadow-sm h-fit">
+            <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 pb-2 border-b border-gray-100 flex items-center justify-between">
+                <span>📁 Vault Hierarchy</span>
+                <span class="text-[10px] text-gray-400 font-mono">{{ tree | length }} vaults</span>
+            </h2>
+            {% if not tree %}
+            <p class="text-xs text-gray-400 italic">No notes or vaults created yet.</p>
+            {% else %}
+            <div class="space-y-4 text-xs">
+                {% for vault, folders in tree.items() %}
+                <div>
+                    <div class="font-bold text-indigo-700 flex items-center gap-1.5 py-1">
+                        <span>💎</span> <span>{{ vault }}</span>
+                    </div>
+                    <div class="pl-4 space-y-1.5 border-l-2 border-indigo-100 ml-2 mt-1">
+                        {% for folder, items in folders.items() %}
+                        <div>
+                            <span class="text-gray-500 font-medium flex items-center gap-1">
+                                <span>📂</span> {{ folder }}
+                            </span>
+                            <div class="pl-4 space-y-1 mt-1">
+                                {% for item in items %}
+                                <a href="/notes/editor?id={{ item.id }}" class="block truncate text-gray-700 hover:text-indigo-600 hover:underline py-0.5" title="{{ item.title }}">
+                                    • {{ item.title }}
+                                </a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </aside>
+
+        <!-- Main Content: Recent Notes Cards -->
+        <div class="lg:col-span-3">
+            <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 pb-2 border-b border-gray-100">
+                ⚡ Recently Edited Notes
+            </h2>
+            {% if not notes %}
+            <div class="bg-white border border-gray-200 rounded-2xl p-12 text-center shadow-sm">
+                <p class="text-gray-500 text-sm mb-4">No notes recorded yet. Paste your first markdown document or upload an Obsidian vault.</p>
+                <button onclick="openPasteModal()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold">
+                    Create First Note
+                </button>
+            </div>
+            {% else %}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {% for n in notes %}
+                <div class="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm">
+                    <div>
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                            <span class="px-2 py-0.5 bg-gray-100 text-gray-700 text-[10px] font-mono rounded border border-gray-200">
+                                {{ n.syntax or 'markdown' }}
+                            </span>
+                            <span class="text-[10px] text-gray-400 font-mono">
+                                {{ n.updated_at[:10] }}
+                            </span>
+                        </div>
+                        <h3 class="text-base font-bold text-gray-900 leading-snug mb-2">
+                            <a href="/notes/editor?id={{ n.id }}" class="hover:text-indigo-600">
+                                {{ n.title }}
+                            </a>
+                        </h3>
+                        <p class="text-xs text-gray-500 font-sans line-clamp-3 leading-relaxed mb-3">
+                            {{ n.wiki_summary or n.content[:200] }}
+                        </p>
+                    </div>
+                    <div class="pt-3 border-t border-gray-100 flex items-center justify-between">
+                        <span class="text-[10px] text-indigo-600 font-semibold truncate max-w-[150px]">
+                            💎 {{ n.vault_name }}/{{ n.folder_path or 'root' }}
+                        </span>
+                        <div class="flex items-center gap-1.5">
+                            <a href="/notes/editor?id={{ n.id }}" class="px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-bold border border-indigo-100 transition">
+                                ✏️ Edit
+                            </a>
+                            <a href="/view/page?url={{ n.url | urlencode }}" class="px-2.5 py-1 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded text-xs font-semibold border border-gray-200 transition" title="View Wiki Entry">
+                                ↗️
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Modal: New / Paste Note -->
+<div id="paste-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-gray-200">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+            <h3 class="font-bold text-gray-900 text-base flex items-center gap-2">
+                <span>📝</span> Ingest New Note or Code Snippet
+            </h3>
+            <button onclick="closePasteModal()" class="text-gray-400 hover:text-gray-600 text-lg">✕</button>
+        </div>
+        <form onsubmit="submitNewNote(event)" class="space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Title (Optional)</label>
+                    <input type="text" id="new-note-title" placeholder="e.g. Docker Compose Guide" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Syntax / Language</label>
+                    <select id="new-note-syntax" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono">
+                        <option value="markdown">Markdown (.md)</option>
+                        <option value="python">Python (.py)</option>
+                        <option value="javascript">JavaScript (.js)</option>
+                        <option value="typescript">TypeScript (.ts)</option>
+                        <option value="html">HTML</option>
+                        <option value="json">JSON</option>
+                        <option value="yaml">YAML</option>
+                        <option value="shell">Shell / Bash</option>
+                        <option value="sql">SQL</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Vault Name</label>
+                    <input type="text" id="new-note-vault" value="Personal" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Folder Path</label>
+                    <input type="text" id="new-note-folder" placeholder="e.g. Work/Guides" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Content</label>
+                <textarea id="new-note-content" rows="10" placeholder="Paste your markdown or code content here..." required class="w-full text-xs font-mono p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"></textarea>
+            </div>
+            <div class="flex justify-end gap-3 pt-2">
+                <button type="button" onclick="closePasteModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg">Cancel</button>
+                <button type="submit" id="save-note-btn" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm">Save & Ingest</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Upload Obsidian Vault ZIP -->
+<div id="vault-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-gray-200">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+            <h3 class="font-bold text-gray-900 text-base flex items-center gap-2">
+                <span>📂</span> Upload Obsidian Vault ZIP
+            </h3>
+            <button onclick="closeVaultUploadModal()" class="text-gray-400 hover:text-gray-600 text-lg">✕</button>
+        </div>
+        <form onsubmit="submitVaultZip(event)" class="space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Target Vault Name</label>
+                <input type="text" id="vault-upload-name" value="Obsidian Notes" required class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Select Vault ZIP Archive</label>
+                <input type="file" id="vault-upload-file" accept=".zip" required class="w-full text-xs p-2.5 border border-gray-300 rounded-lg bg-gray-50 focus:outline-none" />
+                <p class="text-[11px] text-gray-400 mt-1">Compress your Obsidian vault folder into a .zip file. Markdown files and image attachments will be mirrored automatically.</p>
+            </div>
+            <div class="flex justify-end gap-3 pt-2">
+                <button type="button" onclick="closeVaultUploadModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg">Cancel</button>
+                <button type="submit" id="vault-upload-btn" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg shadow-sm">Upload & Unpack</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openPasteModal() { document.getElementById("paste-modal").classList.remove("hidden"); }
+function closePasteModal() { document.getElementById("paste-modal").classList.add("hidden"); }
+function openVaultUploadModal() { document.getElementById("vault-modal").classList.remove("hidden"); }
+function closeVaultUploadModal() { document.getElementById("vault-modal").classList.add("hidden"); }
+
+async function submitNewNote(e) {
+    e.preventDefault();
+    const btn = document.getElementById("save-note-btn");
+    btn.disabled = true;
+    btn.textContent = "Saving & Ingesting...";
+
+    const payload = {
+        title: document.getElementById("new-note-title").value.trim() || null,
+        content: document.getElementById("new-note-content").value,
+        syntax: document.getElementById("new-note-syntax").value,
+        vault_name: document.getElementById("new-note-vault").value.trim() || "Personal",
+        folder_path: document.getElementById("new-note-folder").value.trim() || ""
+    };
+
+    try {
+        const res = await fetch('/api/notes/paste', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+            const data = await res.json();
+            window.location.href = `/notes/editor?id=${data.id}`;
+        } else {
+            alert("Failed to save note.");
+        }
+    } catch (err) {
+        alert("Error saving note: " + err);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Save & Ingest";
+    }
+}
+
+async function submitVaultZip(e) {
+    e.preventDefault();
+    const btn = document.getElementById("vault-upload-btn");
+    const fileInput = document.getElementById("vault-upload-file");
+    const vaultName = document.getElementById("vault-upload-name").value;
+
+    if (!fileInput.files.length) return;
+    btn.disabled = true;
+    btn.textContent = "Unpacking Vault...";
+
+    const formData = new FormData();
+    formData.append("vault_file", fileInput.files[0]);
+    formData.append("vault_name", vaultName);
+
+    try {
+        const res = await fetch('/api/notes/upload-vault', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        if (res.ok) {
+            alert(`Vault "${data.vault_name}" unpacked! Ingested ${data.notes_ingested} notes.`);
+            window.location.reload();
+        } else {
+            alert("Vault upload failed: " + (data.detail || "Unknown error"));
+        }
+    } catch (err) {
+        alert("Error uploading vault: " + err);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Upload & Unpack";
+    }
+}
+</script>
+{% endblock %}

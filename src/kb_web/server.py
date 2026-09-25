@@ -14,18 +14,18 @@ from .base import config
 from .gotify import post_error_to_gotify
 
 
-# Setup logging using SQLite database table system_logs
+# Setup logging using system_logs database table
 def setup_logging():
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logger.handlers = []
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
 
     # Console Handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(
-        logging.Formatter("[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
-    )
-    logger.addHandler(console_handler)
+    if not any(isinstance(h, logging.StreamHandler) and h.__class__.__name__ != "DatabaseLogHandler" for h in root_logger.handlers):
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(
+            logging.Formatter("[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
+        )
+        root_logger.addHandler(console_handler)
 
     # Database Logging Handler
     try:
@@ -33,11 +33,20 @@ def setup_logging():
 
         db_handler = DatabaseLogHandler()
         db_handler.setFormatter(logging.Formatter("%(message)s"))
-        logger.addHandler(db_handler)
+
+        # Attach to root if not already present
+        if not any(isinstance(h, DatabaseLogHandler) for h in root_logger.handlers):
+            root_logger.addHandler(db_handler)
+
+        # Attach directly to application and server loggers to survive worker process resets
+        for logger_name in ("kb_web", "uvicorn", "uvicorn.error", "uvicorn.access"):
+            lg = logging.getLogger(logger_name)
+            lg.disabled = False
+            lg.setLevel(logging.INFO)
+            if not any(isinstance(h, DatabaseLogHandler) for h in lg.handlers):
+                lg.addHandler(db_handler)
     except Exception as e:
         print(f"Warning: Failed to setup DatabaseLogHandler: {e}")
-
-    logging.getLogger("kb_web").setLevel(logging.INFO)
 
 
 setup_logging()
@@ -46,6 +55,9 @@ logger = logging.getLogger("kb_web")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure database logging handlers remain attached after worker process initialization
+    setup_logging()
+
     # Run database migrations on startup
     try:
         from kb_web.scripts.deploy_migrations import deploy
@@ -172,17 +184,39 @@ app.mount("/media", StaticFiles(directory=str(media_dir)), name="media")
 
 
 # Import and register routers
-from .routers import auth, pages, sites, admin, api, collections, graph, cli_api, links  # noqa: E402
+from .routers import (  # noqa: E402
+    auth,
+    pages,
+    sites,
+    admin,
+    api,
+    collections,
+    graph,
+    cli_api,
+    links,
+    rest_api,
+    conversations,
+    embeddings,
+    notes,
+    reports,
+    workspaces,
+)
 
 app.include_router(auth.router)
 app.include_router(pages.router)
 app.include_router(sites.router)
 app.include_router(admin.router)
 app.include_router(api.router)
+app.include_router(rest_api.router)
 app.include_router(collections.router)
 app.include_router(graph.router)
 app.include_router(cli_api.router)
 app.include_router(links.router)
+app.include_router(conversations.router)
+app.include_router(embeddings.router)
+app.include_router(notes.router)
+app.include_router(reports.router)
+app.include_router(workspaces.router)
 
 
 # --- Re-export utility functions for backward test compatibility ---

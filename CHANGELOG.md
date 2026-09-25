@@ -5,6 +5,157 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-18
+### Added
+- **Main Page Semantic RAG Chunk Search Across Articles & Videos (Resolves #62)**:
+  - Added semantic chunk search endpoint `POST /api/rag/search` using high-dimensional cosine similarity across chunk vectors stored in PostgreSQL `chunk_embeddings` with SQLite fallback.
+  - Added dedicated RAG search bar, model selector dropdown, result count slider, and real-time similarity score indicator directly on the home page (`src/kb_web/templates/pages_list.j2.html`).
+  - Added chunk anchor hydration and jump-link support to article view (`src/kb_web/templates/view_page.j2.html`), displaying discrete chunk boundaries with direct anchor highlighting (`#chunk-N`) and semantic proximity badges.
+- **Multi-Model Embedding Reindexing, Model Comparison & Vector Source Toggle (Resolves #63)**:
+  - Added `ChunkEmbedding.model_name` tracking column to support indexing the same documents across multiple embedding models (e.g. `embeddinggemma`, `nomic-embed-text`, `bge-m3`, `all-minilm`).
+  - Added multi-model management endpoints in `src/kb_web/routers/embeddings.py`:
+    - `GET /api/embeddings/models`: Discovers installed Ollama models and per-model chunk index statistics.
+    - `GET /api/embeddings/active-model` & `POST /api/embeddings/active-model`: Dynamically reads and toggles the active embedding model source used throughout the app.
+    - `POST /api/embeddings/reindex`: Background worker for re-embedding all stored knowledge base pages with any selected model.
+    - `POST /api/embeddings/compare`: Executes queries across multiple models simultaneously and compares ranked chunk similarity side-by-side.
+  - Added visual model comparison explorer UI at `/similarity/compare` (`src/kb_web/templates/embedding_comparison.j2.html`) with dual-column ranked chunk preview, similarity percentage dials, and reindex triggers.
+- **Persistent Article-Level Ollama Chat & Dedicated Conversations Dashboard (Resolves #64)**:
+  - Added ORM models `ChatConversation` and `ChatMessage` to `src/kb_web/models_orm.py` to persist conversational threads, message roles (`user`, `assistant`, `system`), and associated article links.
+  - Added conversation API endpoints in `src/kb_web/routers/conversations.py`:
+    - `GET /api/conversations`: Lists conversations filtered by article URL or general threads.
+    - `POST /api/conversations`: Creates or resumes conversations for a given article.
+    - `GET /api/conversations/{id}`: Retrieves full message history.
+    - `POST /api/conversations/{id}/messages`: Sends user prompts to Ollama LLM, includes article context as system prompt, records responses, and updates thread timestamps.
+    - `DELETE /api/conversations/{id}`: Deletes a conversation thread.
+  - Added sliding interactive chat drawer to the article view (`src/kb_web/templates/view_page.j2.html`) with model selector, conversation history retention, auto-scrolling, and responsive markdown rendering.
+  - Added dedicated global conversations dashboard at `/conversations` (`src/kb_web/templates/conversations_list.j2.html`) displaying conversation cards, linked article badges, message counters, and thread deletion.
+- **Personal Knowledge Notes, Code Ingestion, Monaco Editor & Obsidian Vault Mirroring (Resolves #65)**:
+  - Added ORM model `Note` to `src/kb_web/models_orm.py` supporting `url` (`note://...`), `title`, `content`, `syntax`, `vault_name`, `folder_path`, `checksum`, and timestamps.
+  - Added full note management router `src/kb_web/routers/notes.py`:
+    - `GET /api/notes`: Lists notes with vault and search filtering.
+    - `GET /api/notes/tree`: Generates hierarchical directory trees grouped by vault and subfolder.
+    - `POST /api/notes/paste`: Instant paste ingestion for markdown notes and multi-language code snippets with auto-chunking and vector embedding generation.
+    - `GET /api/notes/{id}` & `PUT /api/notes/{id}`: Full CRUD operations for note viewing and editing.
+    - `POST /api/notes/upload-vault`: Unpacks Obsidian vault `.zip` archives, mirrors folder hierarchies, extracts markdown files, saves image attachments to media storage, and embeds chunks.
+  - Added notes hub UI at `/notes` (`src/kb_web/templates/notes_list.j2.html`) featuring an interactive vault tree sidebar, recent notes cards, and modals for note creation and vault upload.
+  - Added full-page Monaco code editor at `/notes/editor` (`src/kb_web/templates/note_editor.j2.html`) supporting syntax highlighting, theme selection (`vs-dark`, `vs-light`), keyboard shortcuts (`Ctrl+S`), live character counters, and auto-saving.
+- **Admin Portal Ergonomic Tabbed Layout Overhaul (Resolves #66)**:
+  - Completely refactored `src/kb_web/templates/admin.j2.html` from an endless vertical scrolling view into a clean, 5-tab responsive dashboard:
+    - Tab 1 (`tab-general`): General settings, auth token reset, Gotify configuration, system directories.
+    - Tab 2 (`tab-prompts`): AI curation & wiki generation system prompts.
+    - Tab 3 (`tab-backups`): JSON/SQLite backup downloads, upload restoration, and database view sync.
+    - Tab 4 (`tab-media`): Media disk usage, image/audio/video purge controls, and orphan cleanup.
+    - Tab 5 (`tab-diagnostics`): Live system info, dependency status, disk space, and logging links.
+  - Implemented persistent tab state via URL hash (`#general`, `#prompts`, `#backups`, `#media`, `#diagnostics`) and `localStorage`.
+  - Preserved all existing HTML anchor IDs and form action endpoints to guarantee backward compatibility.
+- **Dynamic ERP-Style Custom Report Builder & Data Grid (Resolves #67)**:
+  - Added ORM models `SavedReportView` and `ScheduledReportJob` to `src/kb_web/models_orm.py`.
+  - Added report API endpoints in `src/kb_web/routers/reports.py`:
+    - `GET /api/reports/tables`: Introspects available database tables, column names, and data types.
+    - `POST /api/reports/query`: Dynamic multi-table SQL query generator with automated primary/foreign key joins (e.g., `fetched_pages` to `youtube_videos`, `collections`, or `chunk_embeddings`), multi-condition filtering, sorting, column aliasing, and lazy placeholders (`[HTML: X KB]`, `[Vector: N-dim]`) for heavy data fields to prevent client memory bloat.
+    - `GET /api/reports/views` & `POST /api/reports/views`: Saves and retrieves custom user report definitions and view states.
+    - `GET /api/reports/export`: Streams high-volume report exports in `.csv`, `.json`, and native Excel `.xlsx` format (via `openpyxl`).
+    - `POST /api/reports/schedule`: Allows configuring scheduled automated report extraction jobs.
+- **In-Browser Replit-Lite Workspaces with Pyodide Python WASM & Ephemeral Ollama Coding Agent (Resolves #70)**:
+  - Added database models `Workspace` and `WorkspaceFile` to `src/kb_web/models_orm.py` supporting persistent multi-file workspaces across browser sessions with cascading deletions.
+  - Added workspace router `src/kb_web/routers/workspaces.py` supporting starter project templates (`web-game`, `python-demo`, `blank`), full CRUD, ZIP packaging export streaming, workspace duplication, and ephemeral Ollama agent streaming chat (`/api/workspaces/{id}/agent/chat`).
+  - Added responsive studio dashboard UI at `/workspaces` (`src/kb_web/templates/workspaces_list.j2.html`) and top-nav link `💻 Studio` in `src/kb_web/templates/base.j2.html`.
+  - Added in-browser IDE at `/workspaces/{id}` (`src/kb_web/templates/workspace_ide.j2.html`) featuring Monaco Editor, Pyodide Python 3 WASM in-browser execution runtime, live sandboxed HTML/JS preview with console log interceptor, resizable layout panes, and Ollama agent file diff review/apply workflow.
+
+### Fixed
+- **Monaco Editor Notes Loading Failure (Uncaught ReferenceError: require is not defined)**:
+  - Fixed template block mismatch between `base.j2.html` (`extra_head`) and `note_editor.j2.html` (`head_extra`), ensuring the `vs/loader.min.js` AMD loader is injected prior to editor initialization.
+  - Added resilient DOM polling fallback in `note_editor.j2.html` to guarantee `require` is loaded before instantiating Monaco models.
+- **Article View "Chat About Article" Trigger Button Inaction**:
+  - Resolved DOM lookup race condition in `src/kb_web/templates/view_page.j2.html` by converting eager top-level element bindings (`chat-drawer`, `chat-drawer-backdrop`, `chat-messages-container`, `chat-user-input`, `chat-submit-btn`) into lazy accessor methods evaluated at click time.
+- **Custom Report Data Grid Group By Query Failure**:
+  - Replaced raw SQL `GROUP BY` syntax with ERP group ordering and clustering (`ORDER BY {gtbl}.{gcol} ASC, ...`) to prevent unaggregated column syntax errors across database engines.
+  - Fixed default `sort_by` column table referencing (`fetched_pages.fetched_at`) when executing queries against non-base tables such as `notes`.
+  - Added collapsible visual group headers (`📁 Group: value (N records)`) and safe error rendering in `src/kb_web/templates/reports.j2.html`.
+
+## [0.3.0] - 2026-09-12
+### Added
+- **UI Performance & Latency Overhaul with Database View (Resolves #56)**:
+  - Created pre-aggregated PostgreSQL database view `vw_page_cards` joining `fetched_pages`, `youtube_videos`, and `collections` with `string_agg(c.title, ', ')`, completely eliminating N+1 collection queries on index feeds.
+  - Added targeted database performance indexes on `fetched_pages.fetched_at DESC`, `collection_items.source_id`, and `youtube_videos.creator` in Alembic migration `c72b89d412e1_add_page_card_view_and_indexes.py` and `ensure_views_and_indexes()`.
+  - Added dedicated, high-performance REST API router `src/kb_web/routers/rest_api.py` serving lightweight JSON payloads for web frontends and external client agents:
+    - `GET /api/articles`: Paginated article cards with search (`q`), tag filtering (`tag`), sort order, and metadata.
+    - `GET /api/articles/detail`: Full article details with markdown and raw HTML (on-demand only).
+    - `GET /api/videos`: Paginated YouTube video profiles with creator aggregation and duration/view counts.
+    - `GET /api/videos/transcript`: Timestamped subtitle transcript extraction and segment parsing (`[MM:SS]` formatting).
+    - `GET /api/sites`: Virtual domain directory grouped by hostname and article counts.
+    - `GET /api/tags`: Tag cloud index with frequency counts.
+  - Added responsive UI pagination and dynamic reactive search controls to `src/kb_web/templates/pages_list.j2.html`:
+    - Responsive pagination bar with Previous/Next buttons, active page pills, item counters, and limit selector.
+    - Client-side reactive JavaScript controller with 300ms search input debouncing, animated skeleton loading placeholders (`animate-pulse`), and seamless URL address bar state synchronization (`history.pushState`).
+    - Added comprehensive unit test suite in `tests/test_rest_api.py` covering pagination bounds, query filtering, transcript segment extraction, cascade deletion, collections endpoints, and HTML shell responses.
+  - **REST API Cascade Deletion (`DELETE /api/articles`)**:
+    - Added `DELETE /api/articles` endpoint for external agents and client apps, supporting cascading removal of articles, YouTube video metadata, vector embeddings, collection memberships, and history revisions.
+  - **Collections REST API Endpoints (`GET /api/collections`, `GET /api/collections/ungrouped`)**:
+    - Added paginated endpoints for collections and ungrouped items with query filtering for client applications and agent tools.
+  - **Dismissible Toast Flash Banners**:
+    - Added responsive green success (`?msg=...`) and red error (`?error=...`) alert banners to `src/kb_web/templates/base.j2.html` with SVG icons and dismiss triggers.
+  - **Ghost Stub Purge Routine**:
+    - Added automated ghost stub cleanup in `ensure_views_and_indexes()` and database view definition to eliminate orphaned `Archived Item (...)` placeholders resurrected during migration.
+  - **Webpage Crawl Link Discovery, Interactive Multi-Selection, and AI Pre-Checking (Resolves #60)**:
+    - Added modular crawler engine in `src/kb_web/crawler.py` featuring robust URL normalization (`normalize_url`), anchor/tracking parameter stripping (`utm_*`, `ref`), same-domain link discovery (`extract_candidate_links`), already-ingested status detection, Ollama LLM structured curation (`ai_curate_candidate_links`), and background batch ingestion with Gotify notifications (`run_batch_crawl_ingestion`).
+    - Added structured AI pre-checking system prompt prioritizing substantive technical documentation, articles, and guides while strictly filtering out foreign language variants (`/zh/`, `/ja/`, `/es/`, etc.), sitemaps, RSS feeds, legal/privacy boilerplate, authentication links, and social channels; supports user-defined custom driving instructions.
+    - Added administrative REST endpoints in `src/kb_web/routers/admin.py`:
+      - `POST /api/crawl/discover`: Extracts same-domain candidate URLs from seed page.
+      - `POST /api/crawl/ai-filter`: Runs structured LLM curation with explanation.
+      - `POST /api/crawl/enqueue`: Dispatches background scraping task for selected URLs into designated collections.
+    - Added interactive "🕷️ Crawl & Discover URLs" tab to `/import` (`src/kb_web/templates/url_import.j2.html`) with candidate search filter, Select All / None / New Only toggles, dynamic selection counter badge, AI Pre-Select button, target collection selector with inline collection creation modal, and background enqueue toast alert.
+    - Added direct deep crawl discovery shortcut on page profile view (`src/kb_web/templates/view_page.j2.html`).
+    - Added comprehensive unit tests in `tests/test_crawler.py` covering URL normalization, HTML link parsing, AI structured JSON response handling, and API endpoints.
+  - **Qdrant Collection Export & Automatic Vector Synchronization (Resolves #61)**:
+    - Added `@router.post("/collections/view/{collection_id}/sync")` in `src/kb_web/routers/collections.py` matching the collection view sync trigger.
+    - Added automated collection creation on the server if a collection with the requested identifier or name does not already exist in the database.
+    - Added automated collection creation on the Qdrant vector server (`PUT /collections/{name}`) with Cosine distance and correct vector dimensions (`768` for `nomic-embed-text` or dynamically inferred from vectors).
+    - Added on-demand chunk embedding generation for collection items lacking vectors prior to Qdrant export.
+    - Applied URL quote encoding for collection names in Qdrant API requests to safely support spaces, commas, and special characters.
+    - Added graceful handling of unauthenticated or local Qdrant servers when `QDRANT_API_KEY` is not provided.
+    - Added comprehensive unit tests in `tests/test_qdrant_sync.py` verifying collection creation, vector point uploads, unconfigured URLs, and error states.
+  - **Database Compound Indexing for Collections**:
+    - Added compound performance index `idx_collection_items_col_source` on `collection_items (collection_id, source_id)` in Alembic migration `e81c74291a23_add_collection_items_compound_index.py` and `ensure_views_and_indexes()`.
+
+### Changed
+- **Phasing out SQLite in favor of PostgreSQL as Primary Storage Engine**:
+  - Initiated deprecation of SQLite as primary production storage engine; optimized database queries, views, and indexes specifically for PostgreSQL.
+  - Excluded heavy `html_content` and `md_content` fields from default article hydration queries to minimize network transfer overhead.
+  - Optimized virtual site domain extraction in `view_all_pages` to project only `(url, title)` instead of full table scans.
+
+### Fixed
+- **Fixed Qdrant Sync 404 & Undefined Error Modal (Resolves #61)**:
+  - Resolved 404 Not Found error caused by missing `@router.post("/collections/view/{collection_id}/sync")` route.
+  - Updated status modal JavaScript in `src/kb_web/templates/view_collection.j2.html` to parse `data.message`, `data.detail`, and HTTP status codes, preventing `'undefined'` messages from displaying.
+- **Fixed `/links` 500 Internal Server Error (Resolves #59)**:
+  - Decoupled ORM `Link` rows into plain dictionaries inside `db_session()` in `src/kb_web/routers/links.py` to prevent SQLAlchemy 2.0 `DetachedInstanceError` when accessing attributes after session teardown.
+  - Guarded `link.created_at[:10]` and `link.last_clicked_at[:10]` against `NoneType` subscripting in `src/kb_web/templates/links.j2.html`.
+- **Restored Live Server DB Logging & Filtered Alembic Plugin Spam (Resolves #59)**:
+  - Re-attached `DatabaseLogHandler` directly to `kb_web`, `uvicorn.error`, `uvicorn.access`, and root loggers inside `lifespan(app)` in `src/kb_web/server.py` to ensure request logging and uncaught exceptions persist after Gunicorn/Uvicorn worker process initialization.
+  - Added filter in `DatabaseLogHandler.emit()` in `src/kb_web/base.py` to exclude noisy `alembic` and `plugins` migration setup messages from flooding `system_logs`.
+  - Configured `fileConfig(..., disable_existing_loggers=False)` in `migrations/env.py` and set `lg.disabled = False` in `setup_logging()` to prevent Alembic startup migrations from muting runtime server and application loggers.
+- **Optimized `/admin` Dashboard Latency from 7.92s to <5ms (Resolves #59)**:
+  - Replaced full-table scan and Python list comprehension in `get_admin_dashboard()` (`session.query(FetchedPage).all()`) with an efficient SQL aggregate query (`func.count(FetchedPage.url).filter(...)`), eliminating multi-megabyte HTML/markdown deserialization overhead.
+- **Optimized `/view/site` Profile Latency & Fixed Character-Split Tags (Resolves #59)**:
+  - Replaced full-table scans in `view_site_profile()` with lightweight column projections and separate domain URL counts.
+  - Parsed JSON-encoded `tags` strings into lists of strings (`_parse_tags`) to prevent Jinja from iterating over raw JSON strings character by character into single-letter pills.
+  - Populated `safe_url = quote_plus(url)` on site page items so links route properly to page profiles.
+- **Severe 11+ Second Latency on `/collections` and `/collections/view/{id}` (Resolves #58)**:
+  - Eliminated full-table scans that eagerly loaded multi-megabyte `html_content`, `md_content`, and `text_content` across all 286 database pages on admin loads.
+  - Replaced Pydantic `HTMLPage` model inflation on ungrouped pages and admin dropdown lists with lightweight column projections `(FetchedPage.url, FetchedPage.title)` and dictionaries, reducing query execution time from 11.33s to 0.028s (~400x speedup).
+  - Replaced N+1 query loop in `view_collection` with a single grouped subquery for other collection memberships.
+  - Projected only required fields in `view_collection_editor`, excluding heavy raw HTML payloads.
+- **PostgreSQL Cascade Deletion & Foreign Key Violations (Resolves #56)**:
+  - Fixed `ForeignKeyViolation` and 404 failure in `handle_delete_page` (`/admin/delete/page`) by cascading deletions across `article_embeddings`, `title_embeddings`, `video_embeddings`, `chunk_embeddings`, `collection_items`, `collection_actions`, `youtube_videos`, `page_versions`, `links`, and `fetched_pages`.
+  - Replaced unhandled HTTP 404 raw JSON exceptions on deletion with user-friendly redirects to `/?error=...` toast banners.
+  - Fixed migration script `db_migrate_sqlite.py` and WebSocket import to skip orphaned child records rather than synthesizing empty `Archived Item (<url>)` dummy cards.
+  - Filtered out hollow ghost stubs in PostgreSQL view `vw_page_cards`.
+- Fixed `AttributeError` / `OperationalError` during database snapshot export by ignoring database views in `db_snapshot.py`.
+- Excluded view models from `Base.metadata.create_all()` to prevent accidental table creation before view instantiation.
+- Resolved `NameError: name 'func' is not defined` in `src/kb_web/routers/pages.py`.
+- Replaced deprecated `regex` parameter with `pattern` in FastAPI Query annotations across `rest_api.py`.
+
 ## [0.2.0] - 2026-09-09
 ### Added
 - **Complete PostgreSQL & SQLAlchemy Migration (Resolves #30)**:

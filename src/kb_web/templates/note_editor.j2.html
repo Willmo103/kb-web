@@ -1,0 +1,220 @@
+{% extends "base.j2.html" %}
+
+{% block title %}{% if note %}{{ note.title }}{% else %}New Note{% endif %} - Monaco Editor{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+#monaco-container { width: 100%; height: 100%; min-height: 600px; }
+.editor-pane { height: calc(100vh - 200px); min-height: 600px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-[96%] mx-auto py-4">
+    <!-- Editor Top Bar -->
+    <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-center gap-3 flex-grow min-w-0">
+            <a href="/notes" class="p-2 rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition" title="Back to Notes">
+                ←
+            </a>
+            <div class="flex-grow min-w-0">
+                <input 
+                    type="text" 
+                    id="note-title-input" 
+                    value="{{ note.title if note else 'Untitled Note' }}" 
+                    class="font-extrabold text-lg text-gray-900 w-full border-b border-transparent hover:border-gray-300 focus:border-indigo-500 focus:outline-none px-1 py-0.5 transition"
+                    placeholder="Note Title..."
+                />
+                <div class="flex items-center gap-2 text-[11px] text-gray-400 font-mono px-1">
+                    <span>💎 {{ note.vault_name if note else 'Personal' }}</span>
+                    <span>/</span>
+                    <span>{{ note.folder_path if note and note.folder_path else 'Root' }}</span>
+                    {% if note %}
+                    <span>•</span>
+                    <a href="/view/page?url={{ note.url | urlencode }}" class="text-indigo-600 hover:underline">View In Library ↗</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="flex items-center gap-3 flex-shrink-0">
+            <div class="flex items-center gap-1.5">
+                <label for="syntax-select" class="text-xs text-gray-500 font-semibold">Language:</label>
+                <select id="syntax-select" onchange="changeLanguage()" class="text-xs border border-gray-300 rounded-lg px-2.5 py-1.5 bg-gray-50 font-mono focus:ring-1 focus:ring-indigo-500">
+                    <option value="markdown" {% if not note or note.syntax == 'markdown' %}selected{% endif %}>Markdown</option>
+                    <option value="python" {% if note and note.syntax == 'python' %}selected{% endif %}>Python</option>
+                    <option value="javascript" {% if note and note.syntax == 'javascript' %}selected{% endif %}>JavaScript</option>
+                    <option value="typescript" {% if note and note.syntax == 'typescript' %}selected{% endif %}>TypeScript</option>
+                    <option value="html" {% if note and note.syntax == 'html' %}selected{% endif %}>HTML</option>
+                    <option value="json" {% if note and note.syntax == 'json' %}selected{% endif %}>JSON</option>
+                    <option value="yaml" {% if note and note.syntax == 'yaml' %}selected{% endif %}>YAML</option>
+                    <option value="shell" {% if note and note.syntax == 'shell' %}selected{% endif %}>Shell</option>
+                    <option value="sql" {% if note and note.syntax == 'sql' %}selected{% endif %}>SQL</option>
+                </select>
+            </div>
+
+            <button onclick="togglePreviewPane()" id="preview-toggle-btn" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg border border-gray-200 transition">
+                Toggle Preview
+            </button>
+
+            <span id="save-status" class="text-xs text-gray-400 font-mono">Saved</span>
+
+            <button onclick="saveNote()" id="save-btn" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition shadow-sm flex items-center gap-1.5">
+                <span>💾</span> Save (Ctrl+S)
+            </button>
+        </div>
+    </div>
+
+    <!-- Dual-Pane Workspace -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 editor-pane">
+        <!-- Left: Monaco Editor Container -->
+        <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col" id="monaco-wrapper">
+            <div id="monaco-container" class="flex-grow"></div>
+        </div>
+
+        <!-- Right: Live Markdown Preview -->
+        <div id="preview-wrapper" class="bg-white border border-gray-200 rounded-xl p-6 overflow-y-auto shadow-sm prose max-w-none">
+            <div id="preview-content" class="text-gray-800"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+let editor = null;
+const noteId = {{ note.id if note else 'null' }};
+const initialContent = {{ (note.content if note else '# New Note\n\nStart typing notes or paste code here...') | tojson }};
+const initialSyntax = {{ (note.syntax if note else 'markdown') | tojson }};
+
+function initMonacoEditor() {
+    if (typeof require === 'undefined') {
+        setTimeout(initMonacoEditor, 50);
+        return;
+    }
+    require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
+
+    require(['vs/editor/editor.main'], function() {
+        editor = monaco.editor.create(document.getElementById('monaco-container'), {
+            value: initialContent,
+            language: initialSyntax,
+            theme: 'vs-dark',
+            automaticLayout: true,
+            minimap: { enabled: true },
+            fontSize: 13,
+            wordWrap: 'on',
+            scrollBeyondLastLine: false,
+        });
+
+        updatePreview();
+
+        editor.onDidChangeModelContent(() => {
+            document.getElementById('save-status').textContent = 'Unsaved changes...';
+            updatePreview();
+        });
+
+        // Keyboard shortcut Ctrl+S
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function() {
+            saveNote();
+        });
+    });
+}
+
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', initMonacoEditor);
+} else {
+    initMonacoEditor();
+}
+
+function updatePreview() {
+    if (!editor) return;
+    const val = editor.getValue();
+    const preview = document.getElementById('preview-content');
+    const syntax = document.getElementById('syntax-select').value;
+    if (preview) {
+        if (syntax === 'markdown' && typeof marked !== 'undefined') {
+            preview.innerHTML = marked.parse(val);
+        } else {
+            preview.innerHTML = `<pre class="font-mono text-xs bg-gray-50 p-4 rounded-lg overflow-x-auto"><code>${escapeHtml(val)}</code></pre>`;
+        }
+    }
+}
+
+function changeLanguage() {
+    if (!editor) return;
+    const syntax = document.getElementById('syntax-select').value;
+    monaco.editor.setModelLanguage(editor.getModel(), syntax);
+    updatePreview();
+}
+
+function togglePreviewPane() {
+    const previewWrapper = document.getElementById('preview-wrapper');
+    const monacoWrapper = document.getElementById('monaco-wrapper');
+    if (previewWrapper.classList.contains('hidden')) {
+        previewWrapper.classList.remove('hidden');
+        monacoWrapper.classList.remove('md:col-span-2');
+    } else {
+        previewWrapper.classList.add('hidden');
+        monacoWrapper.classList.add('md:col-span-2');
+    }
+    if (editor) editor.layout();
+}
+
+async function saveNote() {
+    if (!editor) return;
+    const saveStatus = document.getElementById('save-status');
+    const saveBtn = document.getElementById('save-btn');
+    saveStatus.textContent = 'Saving...';
+    saveBtn.disabled = true;
+
+    const title = document.getElementById('note-title-input').value.trim();
+    const syntax = document.getElementById('syntax-select').value;
+    const content = editor.getValue();
+
+    try {
+        if (noteId) {
+            // Update existing
+            const res = await fetch(`/api/notes/${noteId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, syntax, content })
+            });
+            if (res.ok) {
+                saveStatus.textContent = 'Saved at ' + new Date().toLocaleTimeString();
+            } else {
+                saveStatus.textContent = 'Save failed!';
+            }
+        } else {
+            // Create new
+            const res = await fetch('/api/notes/paste', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, syntax, content, vault_name: 'Personal' })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                window.location.href = `/notes/editor?id=${data.id}`;
+            } else {
+                saveStatus.textContent = 'Create failed!';
+            }
+        }
+    } catch (err) {
+        console.error(err);
+        saveStatus.textContent = 'Network error!';
+    } finally {
+        saveBtn.disabled = false;
+    }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+</script>
+{% endblock %}

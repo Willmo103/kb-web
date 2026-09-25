@@ -1,5 +1,6 @@
 import json
 from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Table
+from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.types import TypeDecorator
 
@@ -84,7 +85,7 @@ class FetchedPage(Base):
     links = Column(Text)  # JSON-encoded array of URLs
     html_content_hash = Column(String)
     md_content_hash = Column(String)
-    fetched_at = Column(String)
+    fetched_at = Column(String, index=True)
     description = Column(Text)
     keywords = Column(Text)  # JSON-encoded array of strings
     tags = Column(Text)  # JSON-encoded array of tags/labels
@@ -138,7 +139,7 @@ class YouTubeVideo(Base):
 
     url = Column(String, ForeignKey("fetched_pages.url"), primary_key=True)
     video_id = Column(String)
-    creator = Column(String)
+    creator = Column(String, index=True)
     channel_id = Column(String)
     duration = Column(Integer)
     view_count = Column(Integer)
@@ -165,7 +166,7 @@ class CollectionItem(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     collection_id = Column(Integer, ForeignKey("collections.id"))
     source_type = Column(String)  # "articles" or "videos"
-    source_id = Column(String)  # URL
+    source_id = Column(String, index=True)  # URL
     item_note = Column(Text)
     taxonomy_path = Column(String)
     item_order = Column(Integer)
@@ -206,7 +207,9 @@ class ChunkEmbedding(Base):
     chunk_number = Column(Integer)
     chunk_content = Column(Text)
     chunk_vector = Column(SafeVector())
+    model_name = Column(String, default="embeddinggemma")
     created_at = Column(String)
+
 
 
 class VideoEmbedding(Base):
@@ -296,7 +299,102 @@ class SystemLog(Base):
     traceback = Column(Text)
 
 
+class Note(Base):
+    __tablename__ = "notes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    url = Column(String, unique=True, index=True)
+    title = Column(String, index=True)
+    content = Column(Text)
+    syntax = Column(String, default="markdown")
+    folder_path = Column(String, default="")
+    vault_name = Column(String, default="Personal")
+    tags = Column(Text)  # JSON-encoded array
+    wiki_summary = Column(Text)
+    created_at = Column(String)
+    updated_at = Column(String)
+
+
+class ChatConversation(Base):
+    __tablename__ = "chat_conversations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String)
+    source_type = Column(String, default="article")  # "article", "video", "note", "general"
+    source_id = Column(String, index=True)
+    created_at = Column(String)
+    updated_at = Column(String)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conversation_id = Column(Integer, ForeignKey("chat_conversations.id", ondelete="CASCADE"), index=True)
+    role = Column(String)  # "user", "assistant", "system"
+    content = Column(Text)
+    timestamp = Column(String)
+    model = Column(String)
+
+
+class SavedReportView(Base):
+    __tablename__ = "saved_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, unique=True)
+    description = Column(Text)
+    base_table = Column(String)
+    selected_columns = Column(Text)  # JSON array
+    joins_config = Column(Text)  # JSON array
+    sort_config = Column(Text)  # JSON object
+    filter_config = Column(Text)  # JSON array
+    group_config = Column(Text)  # JSON array
+    created_at = Column(String)
+    updated_at = Column(String)
+
+
+class ScheduledReportJob(Base):
+    __tablename__ = "scheduled_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    report_id = Column(Integer, ForeignKey("saved_reports.id", ondelete="CASCADE"))
+    cron_expression = Column(String)
+    export_format = Column(String, default="xlsx")
+    destination = Column(String, default="local")
+    last_run_at = Column(String)
+    next_run_at = Column(String)
+    enabled = Column(Integer, default=1)
+    created_at = Column(String)
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, default="")
+    template = Column(String, default="web-game")  # "web-game", "python-demo", "blank"
+    created_at = Column(String)
+    updated_at = Column(String)
+
+    files = relationship("WorkspaceFile", back_populates="workspace", cascade="all, delete-orphan", lazy="joined")
+
+
+class WorkspaceFile(Base):
+    __tablename__ = "workspace_files"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_path = Column(String, nullable=False)
+    content = Column(Text, default="")
+    language = Column(String, default="plaintext")
+    updated_at = Column(String)
+
+    workspace = relationship("Workspace", back_populates="files")
+
+
 metadata = Base.metadata
+
 
 vault_master = Table(
     "vault_master",
@@ -342,3 +440,159 @@ valid_repo_files = Table(
     Column("file_path", String),
     Column("repo_path", String),
 )
+
+
+class PageCardView(Base):
+    """Declarative model mapped to the vw_page_cards pre-processed view.
+
+    Excludes heavy html_content and md_content fields, and pre-aggregates
+    collections to prevent N+1 queries.
+    """
+    __tablename__ = "vw_page_cards"
+    __table_args__ = {"info": dict(is_view=True)}
+
+    url = Column(String, primary_key=True)
+    title = Column(String)
+    description = Column(Text)
+    tags = Column(Text)
+    fetched_at = Column(String)
+    collection_id = Column(Integer)
+    exclude_from_general = Column(Integer, default=0)
+    creator = Column(String)
+    video_id = Column(String)
+    duration = Column(Integer)
+    view_count = Column(Integer)
+    thumbnail_url = Column(String)
+    collection_title = Column(String)
+    collection_first_id = Column(Integer)
+
+
+# Remove PageCardView from Base.metadata tables to avoid CREATE TABLE vw_page_cards during Base.metadata.create_all
+if PageCardView.__table__ in Base.metadata.tables.values():
+    Base.metadata.remove(PageCardView.__table__)
+
+
+def ensure_views_and_indexes(engine):
+    """Ensures that the vw_page_cards view and performance indexes exist on the target database."""
+    from sqlalchemy import text
+    dialect = getattr(engine.dialect, "name", "sqlite")
+    with engine.connect() as conn:
+        with conn.begin():
+            try:
+                Base.metadata.create_all(bind=conn)
+            except Exception:
+                pass
+
+            try:
+                if dialect == "postgresql":
+                    conn.execute(text("ALTER TABLE chunk_embeddings ADD COLUMN IF NOT EXISTS model_name VARCHAR DEFAULT 'embeddinggemma';"))
+                else:
+                    conn.execute(text("ALTER TABLE chunk_embeddings ADD COLUMN model_name TEXT DEFAULT 'embeddinggemma';"))
+            except Exception:
+                pass
+
+            if dialect == "postgresql":
+                try:
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fetched_pages_fetched_at ON fetched_pages (fetched_at DESC);"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_source_id ON collection_items (source_id);"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_col_source ON collection_items (collection_id, source_id);"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_youtube_videos_creator ON youtube_videos (creator);"))
+                except Exception as e:
+                    print(f"Warning creating PostgreSQL indexes: {e}")
+
+                try:
+                    conn.execute(text("""
+                        DO $$
+                        BEGIN
+                            IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'vw_page_cards') THEN
+                                EXECUTE 'DROP TABLE vw_page_cards CASCADE';
+                            ELSIF EXISTS (SELECT 1 FROM pg_views WHERE schemaname = 'public' AND viewname = 'vw_page_cards') THEN
+                                EXECUTE 'DROP VIEW vw_page_cards CASCADE';
+                            END IF;
+                        END $$;
+                    """))
+
+                    # Clean up any orphaned ghost stubs generated during previous SQLite migrations
+                    ghost_urls = conn.execute(text("""
+                        SELECT url FROM fetched_pages 
+                        WHERE title LIKE 'Archived Item (%%' 
+                          AND (html_content IS NULL OR html_content = '')
+                          AND (md_content IS NULL OR md_content = '')
+                    """)).fetchall()
+                    for (g_url,) in ghost_urls:
+                        conn.execute(text("DELETE FROM article_embeddings WHERE url = :u"), {"u": g_url})
+                        conn.execute(text("DELETE FROM title_embeddings WHERE url = :u"), {"u": g_url})
+                        conn.execute(text("DELETE FROM video_embeddings WHERE url = :u"), {"u": g_url})
+                        conn.execute(text("DELETE FROM chunk_embeddings WHERE source_id = :u"), {"u": g_url})
+                        conn.execute(text("DELETE FROM youtube_videos WHERE url = :u"), {"u": g_url})
+                        conn.execute(text("DELETE FROM collection_items WHERE source_id = :u"), {"u": g_url})
+                        conn.execute(text("DELETE FROM collection_actions WHERE source_id = :u"), {"u": g_url})
+                        conn.execute(text("DELETE FROM page_versions WHERE url = :u"), {"u": g_url})
+                        conn.execute(text("DELETE FROM links WHERE url = :u"), {"u": g_url})
+                        conn.execute(text("DELETE FROM fetched_pages WHERE url = :u"), {"u": g_url})
+
+                    conn.execute(text("""
+                        CREATE VIEW vw_page_cards AS
+                        SELECT 
+                            f.url,
+                            f.title,
+                            f.description,
+                            f.tags,
+                            f.fetched_at,
+                            f.collection_id,
+                            f.exclude_from_general,
+                            y.creator,
+                            y.video_id,
+                            y.duration,
+                            y.view_count,
+                            y.thumbnail_url,
+                            string_agg(c.title, ', ') AS collection_title,
+                            MIN(c.id) AS collection_first_id
+                        FROM fetched_pages f
+                        LEFT JOIN youtube_videos y ON f.url = y.url
+                        LEFT JOIN collection_items ci ON f.url = ci.source_id AND ci.collection_id != 1
+                        LEFT JOIN collections c ON ci.collection_id = c.id
+                        WHERE (f.title NOT LIKE 'Archived Item (%%' OR (f.html_content IS NOT NULL AND f.html_content != '') OR (f.md_content IS NOT NULL AND f.md_content != '') OR (y.video_id IS NOT NULL))
+                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general,
+                                 y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
+                    """))
+                except Exception as e:
+                    print(f"Warning creating PostgreSQL view: {e}")
+            else:
+                try:
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fetched_pages_fetched_at ON fetched_pages (fetched_at DESC);"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_source_id ON collection_items (source_id);"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_youtube_videos_creator ON youtube_videos (creator);"))
+                except Exception:
+                    pass
+                try:
+                    conn.execute(text("DROP TABLE IF EXISTS vw_page_cards;"))
+                    conn.execute(text("DROP VIEW IF EXISTS vw_page_cards;"))
+                    conn.execute(text("""
+                        CREATE VIEW vw_page_cards AS
+                        SELECT 
+                            f.url,
+                            f.title,
+                            f.description,
+                            f.tags,
+                            f.fetched_at,
+                            f.collection_id,
+                            f.exclude_from_general,
+                            y.creator,
+                            y.video_id,
+                            y.duration,
+                            y.view_count,
+                            y.thumbnail_url,
+                            group_concat(c.title, ', ') AS collection_title,
+                            MIN(c.id) AS collection_first_id
+                        FROM fetched_pages f
+                        LEFT JOIN youtube_videos y ON f.url = y.url
+                        LEFT JOIN collection_items ci ON f.url = ci.source_id AND ci.collection_id != 1
+                        LEFT JOIN collections c ON ci.collection_id = c.id
+                        WHERE (f.title NOT LIKE 'Archived Item (%%' OR (f.html_content IS NOT NULL AND f.html_content != '') OR (f.md_content IS NOT NULL AND f.md_content != '') OR (y.video_id IS NOT NULL))
+                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general,
+                                 y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
+                    """))
+                except Exception:
+                    pass
+

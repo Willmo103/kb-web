@@ -1,0 +1,1436 @@
+<!doctype html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100 dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ workspace.name }} - Replit Studio</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: "#eef2ff",
+              100: "#e0e7ff",
+              500: "#6366f1",
+              600: "#4f46e5",
+              700: "#4338ca",
+            },
+            editor: {
+              dark: "#0d1117",
+              sidebar: "#161b22",
+              border: "#30363d",
+              activeTab: "#1f242c",
+              tab: "#161b22",
+              panel: "#090d13",
+            },
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- JSZip for exporting workspace as ZIP -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <!-- Pyodide for In-Browser Python WASM Runtime -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+
+  <!-- Marked for rendering Markdown inside chat -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <!-- Monaco Editor loader -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap");
+
+    body {
+      font-family: "Inter", sans-serif;
+      user-select: none;
+    }
+
+    .font-mono-code {
+      font-family: "Fira Code", monospace;
+    }
+
+    /* Splitter handles */
+    .resizer-horizontal {
+      width: 4px;
+      cursor: col-resize;
+      background: #21262d;
+      transition: background-color 0.15s;
+    }
+    .resizer-horizontal:hover,
+    .resizer-horizontal.dragging {
+      background: #6366f1;
+    }
+
+    .resizer-vertical {
+      height: 4px;
+      cursor: row-resize;
+      background: #21262d;
+      transition: background-color 0.15s;
+    }
+    .resizer-vertical:hover,
+    .resizer-vertical.dragging {
+      background: #6366f1;
+    }
+
+    /* Custom scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.2);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.4);
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .pulse-dot {
+      animation: pulse-dot 1.5s infinite;
+    }
+  </style>
+</head>
+
+<body class="h-full flex flex-col overflow-hidden bg-[#0d1117] text-slate-200">
+  <!-- Top Navigation Bar -->
+  <header class="h-11 bg-[#161b22] border-b border-[#30363d] px-3 flex items-center justify-between shrink-0 z-30 select-none">
+    <div class="flex items-center gap-3">
+      <a href="/workspaces" class="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-100 transition mr-1" title="Back to All Workspaces">
+        <i data-lucide="arrow-left" class="w-4 h-4"></i>
+        <span class="hidden sm:inline">Workspaces</span>
+      </a>
+
+      <div class="h-4 w-px bg-slate-700"></div>
+
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 rounded-md bg-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-md shadow-indigo-600/30">
+          <i data-lucide="terminal" class="w-4 h-4"></i>
+        </div>
+        <span class="font-semibold text-xs tracking-wide text-slate-100" id="workspaceTitleDisplay">{{ workspace.name }}</span>
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
+          {{ workspace.template }}
+        </span>
+      </div>
+
+      <div class="h-4 w-px bg-slate-700 mx-1"></div>
+
+      <!-- Sync / Auto-save Status Pill -->
+      <div id="saveStatusBadge" class="flex items-center gap-1 text-[11px] text-slate-400 font-mono">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+        <span id="saveStatusText">Saved</span>
+      </div>
+    </div>
+
+    <!-- Center Control Actions (Run, Export, Settings) -->
+    <div class="flex items-center gap-2">
+      <!-- Run Code Button -->
+      <button
+        id="runBtn"
+        onclick="runCurrentProject()"
+        class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition active:scale-95"
+      >
+        <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
+        <span>Run</span>
+      </button>
+
+      <!-- Save Button (Ctrl+S) -->
+      <button
+        onclick="saveActiveFileNow()"
+        class="bg-[#21262d] hover:bg-[#30363d] text-slate-200 text-xs font-medium px-2.5 py-1.5 rounded flex items-center gap-1.5 border border-[#30363d] transition active:scale-95"
+        title="Save active file (Ctrl+S)"
+      >
+        <i data-lucide="save" class="w-3.5 h-3.5 text-emerald-400"></i>
+        <span class="hidden sm:inline">Save</span>
+      </button>
+
+      <!-- Download Workspace as ZIP -->
+      <a
+        href="/api/workspaces/{{ workspace.id }}/export-zip"
+        class="bg-[#21262d] hover:bg-[#30363d] text-slate-200 text-xs font-medium px-2.5 py-1.5 rounded flex items-center gap-1.5 border border-[#30363d] transition active:scale-95"
+        title="Download all project files as a ZIP archive"
+      >
+        <i data-lucide="archive" class="w-3.5 h-3.5 text-indigo-400"></i>
+        <span class="hidden sm:inline">Export ZIP</span>
+      </a>
+
+      <!-- Ollama Status Pill -->
+      <button
+        onclick="openSettingsModal()"
+        id="ollamaStatusBadge"
+        class="flex items-center gap-1.5 bg-[#21262d] hover:bg-[#30363d] text-slate-300 px-2.5 py-1.5 rounded border border-[#30363d] text-xs transition"
+        title="Click to configure Ollama"
+      >
+        <span id="ollamaDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span id="ollamaModelName" class="font-mono text-[11px] hidden md:inline">Ollama: {{ ollama_model }}</span>
+      </button>
+
+      <!-- Settings Gear -->
+      <button
+        onclick="openSettingsModal()"
+        class="p-1.5 rounded hover:bg-[#21262d] text-slate-400 hover:text-slate-200"
+        title="Workspace & AI Settings"
+      >
+        <i data-lucide="settings" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main IDE Workspace Body -->
+  <div class="flex-1 flex overflow-hidden relative">
+    <!-- Activity Bar (Icons) -->
+    <aside class="w-12 bg-[#090d13] border-r border-[#30363d] flex flex-col items-center py-3 gap-4 shrink-0 z-20">
+      <button
+        onclick="toggleSideTab('files')"
+        id="actBtn-files"
+        class="p-2 rounded-lg text-indigo-400 bg-[#21262d]"
+        title="File Explorer"
+      >
+        <i data-lucide="folder-tree" class="w-5 h-5"></i>
+      </button>
+      <button
+        onclick="toggleSideTab('ai')"
+        id="actBtn-ai"
+        class="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-[#21262d] relative"
+        title="Ollama AI Agent"
+      >
+        <i data-lucide="bot" class="w-5 h-5"></i>
+        <span id="aiActiveBadge" class="hidden absolute top-1 right-1 w-2 h-2 rounded-full bg-indigo-500"></span>
+      </button>
+      <button
+        onclick="toggleSideTab('search')"
+        id="actBtn-search"
+        class="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-[#21262d]"
+        title="Project Search"
+      >
+        <i data-lucide="search" class="w-5 h-5"></i>
+      </button>
+
+      <div class="mt-auto flex flex-col gap-3 items-center">
+        <button onclick="openDocsHelp()" class="p-2 rounded-lg text-slate-500 hover:text-slate-300" title="Quick Guide">
+          <i data-lucide="help-circle" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Sidebar (Files / AI / Search) -->
+    <div id="sidebarContainer" class="w-64 bg-[#161b22] border-r border-[#30363d] flex flex-col shrink-0 overflow-hidden">
+      <!-- Explorer View -->
+      <div id="sideView-files" class="flex-1 flex flex-col overflow-hidden">
+        <div class="px-3 py-2 border-b border-[#30363d] flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+          <span>Files</span>
+          <div class="flex items-center gap-1">
+            <button onclick="promptNewFile()" class="p-1 hover:bg-[#21262d] rounded text-slate-400 hover:text-slate-200" title="New File">
+              <i data-lucide="file-plus" class="w-3.5 h-3.5"></i>
+            </button>
+            <button onclick="promptNewFolder()" class="p-1 hover:bg-[#21262d] rounded text-slate-400 hover:text-slate-200" title="New Folder">
+              <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
+            </button>
+            <button onclick="refreshFileTree()" class="p-1 hover:bg-[#21262d] rounded text-slate-400 hover:text-slate-200" title="Refresh Tree">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- File Tree Container -->
+        <div id="fileTreeRoot" class="flex-1 overflow-y-auto py-2 text-xs select-none">
+          <!-- Dynamically populated files -->
+        </div>
+      </div>
+
+      <!-- AI Agent View -->
+      <div id="sideView-ai" class="flex-1 flex flex-col overflow-hidden hidden">
+        <div class="px-3 py-2 border-b border-[#30363d] flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider bg-[#12161c]">
+          <div class="flex items-center gap-1.5 text-indigo-400">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+            <span>Ollama Coding Agent</span>
+          </div>
+          <button onclick="clearChatHistory()" class="text-[10px] lowercase text-slate-500 hover:text-slate-300" title="Clear chat messages">
+            clear
+          </button>
+        </div>
+
+        <!-- Chat messages -->
+        <div id="aiChatMessages" class="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
+          <div class="bg-[#21262d] p-3 rounded-lg border border-[#30363d]">
+            <div class="flex items-center gap-1.5 font-semibold text-indigo-400 mb-1">
+              <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+              <span>Ollama Agent</span>
+            </div>
+            <p class="text-slate-300 leading-relaxed">
+              Hello! I am your local coding partner for <b>{{ workspace.name }}</b>. Ask me to create files, refactor features, write algorithms, or style your workspace.
+            </p>
+            <div class="mt-2 pt-2 border-t border-[#30363d] text-[11px] text-slate-400">
+              Tip: I automatically detect <code class="bg-[#0d1117] px-1 py-0.5 rounded text-indigo-300">```file:path/to/file.ext</code> blocks with instant <b>Apply to Workspace</b> buttons that persist directly to the database!
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat Input Form -->
+        <div class="p-2.5 border-t border-[#30363d] bg-[#0f1319]">
+          <div class="relative">
+            <textarea
+              id="aiInputText"
+              rows="3"
+              placeholder="e.g. Add a reset button to app.js, or create utils/math.py..."
+              class="w-full bg-[#161b22] border border-[#30363d] focus:border-indigo-500 rounded-lg p-2 text-xs text-slate-200 outline-none resize-none placeholder-slate-500 leading-relaxed font-sans"
+              onkeydown="handleAiInputKeydown(event)"
+            ></textarea>
+            <div class="flex items-center justify-between mt-1 px-1">
+              <span id="aiTokenStatus" class="text-[10px] text-slate-500">Ready</span>
+              <button
+                id="sendAiBtn"
+                onclick="sendAiMessage()"
+                class="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-2.5 py-1 rounded text-xs flex items-center gap-1 transition shadow-sm active:scale-95"
+              >
+                <span>Ask Agent</span>
+                <i data-lucide="send" class="w-3 h-3"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search View -->
+      <div id="sideView-search" class="flex-1 flex flex-col overflow-hidden hidden p-3">
+        <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Search Workspace</div>
+        <input
+          type="text"
+          id="projectSearchInput"
+          oninput="handleProjectSearch(this.value)"
+          placeholder="Search filenames and content..."
+          class="bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-xs text-slate-200 outline-none w-full"
+        />
+        <div id="searchResults" class="mt-3 flex-1 overflow-y-auto space-y-1.5 text-xs text-slate-400">
+          <p class="text-[11px] text-slate-500">Type to search inside all project files...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Resizer Horizontal (Sidebar <-> Editor) -->
+    <div id="resizerSidebar" class="resizer-horizontal"></div>
+
+    <!-- Center & Right Canvas Area -->
+    <div class="flex-1 flex flex-col overflow-hidden bg-[#0d1117]">
+      <!-- Upper Section: Tab Bar + Editor & Preview -->
+      <div id="upperPane" class="flex-1 flex flex-col overflow-hidden min-h-[150px]">
+        <!-- Editor Tabs Bar -->
+        <div id="editorTabsContainer" class="h-8 bg-[#161b22] border-b border-[#30363d] flex items-center overflow-x-auto select-none shrink-0 px-1 gap-1">
+          <!-- Injected dynamic tabs -->
+        </div>
+
+        <!-- Middle Area: Monaco Editor + Split Live Preview -->
+        <div class="flex-1 flex overflow-hidden relative">
+          <!-- Monaco Editor Mount Container -->
+          <div id="editorMountContainer" class="flex-1 h-full relative overflow-hidden bg-[#0d1117]">
+            <div id="monacoEditor" class="w-full h-full"></div>
+            <div id="emptyEditorState" class="hidden absolute inset-0 bg-[#0d1117] flex flex-col items-center justify-center text-slate-500 text-xs">
+              <i data-lucide="file-code" class="w-10 h-10 mb-2 opacity-40"></i>
+              <span>No file open. Select or create one from the file tree.</span>
+            </div>
+          </div>
+
+          <!-- Split Preview Pane (Collapsible / Toggleable) -->
+          <div id="previewPane" class="w-1/2 border-l border-[#30363d] bg-white flex flex-col hidden relative">
+            <div class="bg-[#161b22] border-b border-[#30363d] px-3 py-1 flex items-center justify-between text-xs text-slate-400">
+              <div class="flex items-center gap-1.5">
+                <i data-lucide="globe" class="w-3.5 h-3.5 text-indigo-400"></i>
+                <span class="font-medium text-slate-200">Interactive Preview</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="refreshLivePreview()" class="hover:text-slate-200" title="Reload Frame">
+                  <i data-lucide="rotate-cw" class="w-3 h-3"></i>
+                </button>
+                <button onclick="togglePreviewSplit(false)" class="hover:text-slate-200" title="Close Preview Pane">
+                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+            </div>
+            <iframe id="previewIframe" class="w-full flex-1 border-none bg-white" sandbox="allow-scripts allow-modals"></iframe>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resizer Vertical (Editor <-> Bottom Terminal/Console Drawer) -->
+      <div id="resizerBottom" class="resizer-vertical"></div>
+
+      <!-- Bottom Drawer: Console, Web Log, Python Output, Ollama Status -->
+      <div id="bottomDrawer" class="h-44 bg-[#090d13] border-t border-[#30363d] flex flex-col shrink-0">
+        <!-- Drawer Header Tabs -->
+        <div class="h-7 bg-[#12161c] border-b border-[#21262d] flex items-center justify-between px-2 text-xs select-none">
+          <div class="flex items-center gap-1 h-full">
+            <button onclick="switchBottomTab('console')" id="bottomTab-console" class="px-2.5 h-full flex items-center gap-1 text-slate-200 border-b-2 border-indigo-500 font-medium">
+              <i data-lucide="terminal" class="w-3 h-3 text-indigo-400"></i>
+              <span>Console / Logs</span>
+            </button>
+            <button onclick="switchBottomTab('python')" id="bottomTab-python" class="px-2.5 h-full flex items-center gap-1 text-slate-400 hover:text-slate-200 border-b-2 border-transparent">
+              <i data-lucide="code-2" class="w-3 h-3 text-amber-400"></i>
+              <span>Python (Pyodide WASM)</span>
+            </button>
+            <button onclick="switchBottomTab('agentLog')" id="bottomTab-agentLog" class="px-2.5 h-full flex items-center gap-1 text-slate-400 hover:text-slate-200 border-b-2 border-transparent">
+              <i data-lucide="cpu" class="w-3 h-3 text-emerald-400"></i>
+              <span>AI Logs & Payloads</span>
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button onclick="clearCurrentBottomOutput()" class="text-slate-500 hover:text-slate-300 p-1" title="Clear console">
+              <i data-lucide="trash-2" class="w-3 h-3"></i>
+            </button>
+            <button onclick="toggleBottomDrawer()" class="text-slate-500 hover:text-slate-300 p-1" title="Minimize Drawer">
+              <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Drawer Content Areas -->
+        <div class="flex-1 overflow-hidden relative">
+          <!-- Web / General Console Output -->
+          <div id="drawerPane-console" class="w-full h-full p-2.5 overflow-y-auto font-mono text-[11px] leading-relaxed text-slate-300 select-text">
+            <div class="text-slate-500 mb-1">// System Ready. Run your app or click Run to see execution output.</div>
+          </div>
+
+          <!-- Python WASM Terminal Output -->
+          <div id="drawerPane-python" class="w-full h-full p-2.5 overflow-y-auto font-mono text-[11px] leading-relaxed text-emerald-300 select-text hidden">
+            <div id="pythonInitStatus" class="text-slate-400 mb-1">// Pyodide Python 3.11 Runtime initializing on first run...</div>
+          </div>
+
+          <!-- AI Logs Output -->
+          <div id="drawerPane-agentLog" class="w-full h-full p-2.5 overflow-y-auto font-mono text-[11px] leading-relaxed text-indigo-300 select-text hidden">
+            <div class="text-slate-500">// Ollama Agent stream traces and tool outputs will appear here.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Status Bar -->
+  <footer class="h-6 bg-[#161b22] border-t border-[#30363d] px-3 flex items-center justify-between text-[11px] text-slate-400 shrink-0 select-none">
+    <div class="flex items-center gap-3">
+      <span id="statusBarFile" class="font-mono text-slate-300 flex items-center gap-1">
+        <i data-lucide="file" class="w-3 h-3 text-indigo-400"></i>
+        <span id="statusFilename">None</span>
+      </span>
+      <span class="text-slate-600">|</span>
+      <span id="statusBarCursor">Ln 1, Col 1</span>
+      <span class="text-slate-600">|</span>
+      <span id="statusBarEncoding">UTF-8</span>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <span id="statusBarProjectStats">0 files</span>
+      <span class="text-slate-600">|</span>
+      <span id="pyodideBadge" class="flex items-center gap-1 text-slate-500">
+        <span class="w-1.5 h-1.5 rounded-full bg-slate-600"></span> Pyodide WASM
+      </span>
+      <span class="text-slate-600">|</span>
+      <button onclick="togglePreviewSplit()" class="hover:text-slate-200 text-indigo-400">
+        Toggle Web Preview
+      </button>
+    </div>
+  </footer>
+
+  <!-- Ollama Settings Modal -->
+  <div id="settingsModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-[#161b22] border border-[#30363d] rounded-xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col">
+      <div class="px-5 py-3.5 border-b border-[#30363d] flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="cpu" class="w-4 h-4 text-indigo-400"></i>
+          <h3 class="text-sm font-semibold text-slate-100">AI Agent & Ollama Configuration</h3>
+        </div>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 text-xs">
+        <div>
+          <label class="block font-medium text-slate-300 mb-1">Ollama API Endpoint:</label>
+          <input
+            type="text"
+            id="settingOllamaUrl"
+            value="{{ ollama_host }}"
+            class="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-slate-200 outline-none font-mono"
+            placeholder="http://localhost:11434"
+          />
+        </div>
+
+        <div>
+          <label class="block font-medium text-slate-300 mb-1">Model Tag:</label>
+          <input
+            type="text"
+            id="settingOllamaModel"
+            value="{{ ollama_model }}"
+            class="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-slate-200 outline-none font-mono"
+            placeholder="ornith:9b"
+          />
+        </div>
+      </div>
+
+      <div class="px-5 py-3 border-t border-[#30363d] bg-[#12161c] flex justify-end gap-2">
+        <button onclick="closeSettingsModal()" class="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-xs">
+          Cancel
+        </button>
+        <button onclick="saveOllamaSettings()" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-medium transition">
+          Save Settings
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Diff / Review File Apply Modal -->
+  <div id="diffReviewModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-[#161b22] border border-[#30363d] rounded-xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+      <div class="px-5 py-3.5 border-b border-[#30363d] flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="file-diff" class="w-4 h-4 text-emerald-400"></i>
+          <h3 class="text-sm font-semibold text-slate-100">Review Code Changes Proposed by Agent</h3>
+        </div>
+        <button onclick="closeDiffModal()" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="p-4 border-b border-[#30363d] bg-[#0d1117] flex items-center justify-between text-xs">
+        <div>
+          <span class="text-slate-400">Target File:</span>
+          <span id="diffTargetFilename" class="font-mono text-emerald-400 font-bold ml-1">app.js</span>
+        </div>
+        <span id="diffActionType" class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">File Update</span>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-4 bg-[#090d13]">
+        <pre id="diffPreviewContent" class="font-mono text-xs text-slate-200 whitespace-pre leading-relaxed select-text"></pre>
+      </div>
+
+      <div class="px-5 py-3 border-t border-[#30363d] bg-[#12161c] flex justify-end gap-2">
+        <button onclick="closeDiffModal()" class="px-3.5 py-1.5 bg-[#21262d] hover:bg-[#30363d] text-slate-300 rounded text-xs transition">
+          Cancel
+        </button>
+        <button id="applyDiffConfirmBtn" onclick="confirmApplyDiff()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center gap-1.5 transition">
+          <i data-lucide="check" class="w-3.5 h-3.5"></i>
+          <span>Apply to Workspace</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const WORKSPACE_ID = {{ workspace.id }};
+    const INITIAL_FILES = {{ workspace.files | tojson }};
+
+    /**
+     * Virtual In-Memory File System (VFS) with Server Sync
+     */
+    class VirtualFileSystem {
+      constructor() {
+        this.files = {};
+      }
+
+      setFile(path, content, language = null) {
+        const normalizedPath = this.normalize(path);
+        const ext = normalizedPath.split(".").pop().toLowerCase();
+        const lang = language || this.inferLanguage(ext);
+        this.files[normalizedPath] = {
+          path: normalizedPath,
+          name: normalizedPath.split("/").pop(),
+          content: content,
+          language: lang,
+        };
+        return this.files[normalizedPath];
+      }
+
+      getFile(path) {
+        return this.files[this.normalize(path)] || null;
+      }
+
+      deleteFile(path) {
+        const normalized = this.normalize(path);
+        let deleted = false;
+        if (this.files[normalized]) {
+          delete this.files[normalized];
+          deleted = true;
+        } else {
+          Object.keys(this.files).forEach((k) => {
+            if (k.startsWith(normalized + "/")) {
+              delete this.files[k];
+              deleted = true;
+            }
+          });
+        }
+        return deleted;
+      }
+
+      renameFile(oldPath, newPath) {
+        const normOld = this.normalize(oldPath);
+        const normNew = this.normalize(newPath);
+        if (this.files[normOld]) {
+          const file = this.files[normOld];
+          delete this.files[normOld];
+          return this.setFile(normNew, file.content, file.language);
+        }
+        return null;
+      }
+
+      getAllPaths() {
+        return Object.keys(this.files).sort();
+      }
+
+      normalize(p) {
+        return p.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/");
+      }
+
+      inferLanguage(ext) {
+        switch (ext) {
+          case "html": case "htm": return "html";
+          case "css": return "css";
+          case "js": case "jsx": case "mjs": return "javascript";
+          case "ts": case "tsx": return "typescript";
+          case "py": return "python";
+          case "json": return "json";
+          case "md": case "markdown": return "markdown";
+          case "sql": return "sql";
+          case "rs": return "rust";
+          case "sh": case "bash": return "shell";
+          default: return "plaintext";
+        }
+      }
+    }
+
+    const VFS = new VirtualFileSystem();
+
+    // Populate initial files from server database
+    Object.entries(INITIAL_FILES).forEach(([path, fileData]) => {
+      VFS.setFile(path, fileData.content, fileData.language);
+    });
+
+    // IDE State
+    let editorInstance = null;
+    let activeFilePath = null;
+    let openTabs = [];
+    let pyodideInstance = null;
+    let isPyodideLoading = false;
+    let pendingDiff = null;
+    let autoSaveTimeout = null;
+
+    let ollamaConfig = {
+      url: "{{ ollama_host }}",
+      model: "{{ ollama_model }}",
+      temperature: 0.3,
+    };
+
+    // Auto-save to Server API
+    async function syncFileToServer(path, content, language) {
+      setSaveStatus("saving");
+      try {
+        const res = await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, content, language }),
+        });
+        if (res.ok) {
+          setSaveStatus("saved");
+        } else {
+          setSaveStatus("error");
+        }
+      } catch (e) {
+        setSaveStatus("error");
+      }
+    }
+
+    function setSaveStatus(status) {
+      const badge = document.getElementById("saveStatusBadge");
+      const text = document.getElementById("saveStatusText");
+      if (status === "saving") {
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span><span>Saving...</span>`;
+      } else if (status === "saved") {
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Saved</span>`;
+      } else if (status === "unsaved") {
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span><span>Unsaved</span>`;
+      } else {
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span><span>Save error</span>`;
+      }
+    }
+
+    function saveActiveFileNow() {
+      if (!activeFilePath || !editorInstance) return;
+      const file = VFS.getFile(activeFilePath);
+      if (!file) return;
+      file.content = editorInstance.getValue();
+      syncFileToServer(activeFilePath, file.content, file.language);
+    }
+
+    // Initialize Monaco Editor via AMD loader
+    function initializeMonaco() {
+      if (typeof require === "undefined") {
+        setTimeout(initializeMonaco, 50);
+        return;
+      }
+
+      require.config({
+        paths: {
+          vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs",
+        },
+      });
+
+      require(["vs/editor/editor.main"], function () {
+        editorInstance = monaco.editor.create(
+          document.getElementById("monacoEditor"),
+          {
+            value: "",
+            language: "javascript",
+            theme: "vs-dark",
+            automaticLayout: true,
+            fontSize: 13,
+            fontFamily: "'Fira Code', monospace",
+            tabSize: 2,
+            minimap: { enabled: true },
+            scrollBeyondLastLine: false,
+            padding: { top: 10 },
+          }
+        );
+
+        editorInstance.onDidChangeCursorPosition((e) => {
+          document.getElementById("statusBarCursor").textContent =
+            `Ln ${e.position.lineNumber}, Col ${e.position.column}`;
+        });
+
+        // Auto-save on content change
+        editorInstance.onDidChangeModelContent(() => {
+          if (activeFilePath && VFS.getFile(activeFilePath)) {
+            const val = editorInstance.getValue();
+            VFS.files[activeFilePath].content = val;
+            setSaveStatus("unsaved");
+
+            clearTimeout(autoSaveTimeout);
+            autoSaveTimeout = setTimeout(() => {
+              const file = VFS.getFile(activeFilePath);
+              if (file) syncFileToServer(activeFilePath, val, file.language);
+            }, 800);
+          }
+        });
+
+        // Ctrl+S Hotkey
+        editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+          saveActiveFileNow();
+        });
+
+        // Open initial primary file
+        const allPaths = VFS.getAllPaths();
+        if (allPaths.length > 0) {
+          const primary = allPaths.find(p => p === "index.html" || p === "main.py") || allPaths[0];
+          openFile(primary);
+        }
+      });
+    }
+
+    // Open file in editor and add to tabs
+    function openFile(filePath) {
+      const file = VFS.getFile(filePath);
+      if (!file) return;
+
+      if (!openTabs.includes(filePath)) {
+        openTabs.push(filePath);
+      }
+      activeFilePath = filePath;
+
+      if (editorInstance) {
+        const oldModel = editorInstance.getModel();
+        const newModel = monaco.editor.createModel(file.content, file.language);
+        editorInstance.setModel(newModel);
+        if (oldModel) oldModel.dispose();
+        document.getElementById("emptyEditorState").classList.add("hidden");
+      }
+
+      renderTabs();
+      refreshFileTree();
+      updateStatusBar();
+    }
+
+    function closeTab(filePath, event) {
+      if (event) event.stopPropagation();
+      openTabs = openTabs.filter((p) => p !== filePath);
+
+      if (activeFilePath === filePath) {
+        if (openTabs.length > 0) {
+          openFile(openTabs[openTabs.length - 1]);
+        } else {
+          activeFilePath = null;
+          if (editorInstance) editorInstance.setValue("");
+          document.getElementById("emptyEditorState").classList.remove("hidden");
+          renderTabs();
+          updateStatusBar();
+        }
+      } else {
+        renderTabs();
+      }
+    }
+
+    function renderTabs() {
+      const container = document.getElementById("editorTabsContainer");
+      container.innerHTML = "";
+
+      openTabs.forEach((path) => {
+        const file = VFS.getFile(path);
+        if (!file) return;
+
+        const isActive = path === activeFilePath;
+        const tabEl = document.createElement("div");
+        tabEl.className = `group flex items-center gap-2 px-3 py-1 rounded text-xs cursor-pointer select-none transition border ${
+          isActive
+            ? "bg-[#1f242c] text-white border-slate-700 font-medium"
+            : "bg-[#161b22] text-slate-400 hover:text-slate-200 border-transparent hover:bg-[#1c222b]"
+        }`;
+
+        const iconName = getFileIconName(file.name);
+        tabEl.innerHTML = `
+          <span class="flex items-center gap-1.5 pointer-events-none">
+            <i data-lucide="${iconName}" class="w-3.5 h-3.5 text-indigo-400"></i>
+            <span>${file.name}</span>
+          </span>
+          <button class="text-slate-500 group-hover:text-slate-300 hover:bg-slate-700 p-0.5 rounded transition" title="Close Tab">
+            <i data-lucide="x" class="w-3 h-3"></i>
+          </button>
+        `;
+
+        tabEl.querySelector("button").onclick = (e) => closeTab(path, e);
+        tabEl.onclick = () => openFile(path);
+        container.appendChild(tabEl);
+      });
+
+      lucide.createIcons();
+    }
+
+    function getFileIconName(filename) {
+      const ext = filename.split(".").pop().toLowerCase();
+      switch (ext) {
+        case "html": return "file-code";
+        case "css": return "file-type";
+        case "js": case "jsx": case "ts": return "file-code-2";
+        case "py": return "file-terminal";
+        case "json": return "file-json";
+        case "md": return "file-text";
+        default: return "file";
+      }
+    }
+
+    function refreshFileTree() {
+      const container = document.getElementById("fileTreeRoot");
+      container.innerHTML = "";
+      const paths = VFS.getAllPaths();
+
+      if (paths.length === 0) {
+        container.innerHTML = `<div class="px-4 py-3 text-slate-500 italic">No files yet.</div>`;
+        return;
+      }
+
+      paths.forEach((path) => {
+        const file = VFS.getFile(path);
+        const isActive = path === activeFilePath;
+        const row = document.createElement("div");
+        row.className = `flex items-center justify-between px-3 py-1.5 hover:bg-[#21262d] cursor-pointer group transition ${
+          isActive ? "bg-[#21262d] text-indigo-300 font-medium" : "text-slate-300"
+        }`;
+
+        row.innerHTML = `
+          <div class="flex items-center gap-2 truncate">
+            <i data-lucide="${getFileIconName(file.name)}" class="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-400 shrink-0"></i>
+            <span class="truncate">${path}</span>
+          </div>
+          <div class="opacity-0 group-hover:opacity-100 flex items-center gap-1 shrink-0">
+            <button class="text-slate-400 hover:text-slate-200 p-0.5" title="Rename" onclick="promptRenameFile('${path}', event)">
+              <i data-lucide="pencil" class="w-3 h-3"></i>
+            </button>
+            <button class="text-slate-400 hover:text-rose-400 p-0.5" title="Delete" onclick="deleteWorkspaceFile('${path}', event)">
+              <i data-lucide="trash" class="w-3 h-3"></i>
+            </button>
+          </div>
+        `;
+
+        row.onclick = () => openFile(path);
+        container.appendChild(row);
+      });
+
+      document.getElementById("statusBarProjectStats").textContent =
+        `${paths.length} file${paths.length === 1 ? "" : "s"}`;
+      lucide.createIcons();
+    }
+
+    async function promptNewFile() {
+      const name = prompt("Enter new file path (e.g. script.js or src/utils.py):");
+      if (!name || !name.trim()) return;
+      const clean = name.trim();
+      if (VFS.getFile(clean)) {
+        alert("A file with this name already exists.");
+        return;
+      }
+      VFS.setFile(clean, "");
+      openFile(clean);
+      await syncFileToServer(clean, "", VFS.inferLanguage(clean.split(".").pop()));
+      logConsole(`Created file: ${clean}`);
+    }
+
+    function promptNewFolder() {
+      const folder = prompt("Enter folder path (e.g. assets or components):");
+      if (!folder || !folder.trim()) return;
+      const clean = folder.trim().replace(/\/+$/, "");
+      const placeholder = `${clean}/.keep`;
+      VFS.setFile(placeholder, "# folder placeholder");
+      syncFileToServer(placeholder, "# folder placeholder", "plaintext");
+      refreshFileTree();
+      logConsole(`Created folder: ${clean}`);
+    }
+
+    async function promptRenameFile(oldPath, event) {
+      event.stopPropagation();
+      const newName = prompt(`Rename "${oldPath}" to:`, oldPath);
+      if (!newName || newName.trim() === oldPath) return;
+      const cleanNew = newName.trim();
+      const oldFile = VFS.getFile(oldPath);
+      if (!oldFile) return;
+
+      VFS.renameFile(oldPath, cleanNew);
+
+      // Sync rename to server
+      await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: oldPath }),
+      });
+      await syncFileToServer(cleanNew, oldFile.content, VFS.inferLanguage(cleanNew.split(".").pop()));
+
+      const tabIdx = openTabs.indexOf(oldPath);
+      if (tabIdx !== -1) openTabs[tabIdx] = cleanNew;
+      if (activeFilePath === oldPath) activeFilePath = cleanNew;
+
+      refreshFileTree();
+      renderTabs();
+      logConsole(`Renamed "${oldPath}" -> "${cleanNew}"`);
+    }
+
+    async function deleteWorkspaceFile(path, event) {
+      event.stopPropagation();
+      if (confirm(`Delete "${path}"?`)) {
+        VFS.deleteFile(path);
+        closeTab(path);
+        refreshFileTree();
+        await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path }),
+        });
+        logConsole(`Deleted file: ${path}`);
+      }
+    }
+
+    function updateStatusBar() {
+      document.getElementById("statusFilename").textContent = activeFilePath || "None";
+    }
+
+    function runCurrentProject() {
+      const isPythonActive = activeFilePath && activeFilePath.endsWith(".py");
+      const hasHtml = VFS.getFile("index.html") !== null;
+
+      if (isPythonActive || (!hasHtml && VFS.getAllPaths().some((p) => p.endsWith(".py")))) {
+        runPythonCode();
+      } else {
+        runWebPreview();
+      }
+    }
+
+    function runWebPreview() {
+      togglePreviewSplit(true);
+      refreshLivePreview();
+    }
+
+    function refreshLivePreview() {
+      const iframe = document.getElementById("previewIframe");
+      const indexFile = VFS.getFile("index.html");
+
+      if (!indexFile) {
+        logConsole("Error: Could not find 'index.html' in workspace.", "error");
+        return;
+      }
+
+      let htmlContent = indexFile.content;
+
+      // Inject inline CSS & JS
+      htmlContent = htmlContent.replace(
+        /<link\s+rel=["']stylesheet["']\s+href=["']([^"']+)["']\s*\/?>/gi,
+        (match, href) => {
+          const cssFile = VFS.getFile(href);
+          return cssFile ? `<style>\n/* Injected ${href} */\n${cssFile.content}\n</style>` : match;
+        }
+      );
+
+      htmlContent = htmlContent.replace(
+        /<script\s+src=["']([^"']+)["']\s*><\/script>/gi,
+        (match, src) => {
+          const jsFile = VFS.getFile(src);
+          return jsFile ? `<script>\n/* Injected ${src} */\n${jsFile.content}\n<\/script>` : match;
+        }
+      );
+
+      // Console interceptor
+      const consoleInterceptor = `
+        <script>
+          (function() {
+            const _log = console.log, _warn = console.warn, _err = console.error;
+            function send(type, args) {
+              try {
+                window.parent.postMessage({
+                  source: 'preview-iframe-log',
+                  type: type,
+                  payload: Array.from(args).map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')
+                }, '*');
+              } catch(e) {}
+            }
+            console.log = function() { send('log', arguments); _log.apply(console, arguments); };
+            console.warn = function() { send('warn', arguments); _warn.apply(console, arguments); };
+            console.error = function() { send('error', arguments); _err.apply(console, arguments); };
+          })();
+        <\/script>
+      `;
+
+      iframe.srcdoc = consoleInterceptor + htmlContent;
+      switchBottomTab("console");
+      logConsole("Web preview started. Console attached.");
+    }
+
+    window.addEventListener("message", (e) => {
+      if (e.data && e.data.source === "preview-iframe-log") {
+        logConsole(`[Preview] ${e.data.payload}`, e.data.type);
+      }
+    });
+
+    async function runPythonCode() {
+      switchBottomTab("python");
+      const targetFile = activeFilePath && activeFilePath.endsWith(".py") ? activeFilePath : "main.py";
+      const codeObj = VFS.getFile(targetFile);
+
+      if (!codeObj) {
+        logPython(`Error: Cannot find '${targetFile}' to execute.`);
+        return;
+      }
+
+      logPython(`\n--- Running '${targetFile}' at ${new Date().toLocaleTimeString()} ---`);
+
+      try {
+        if (!pyodideInstance) {
+          if (isPyodideLoading) return;
+          isPyodideLoading = true;
+          logPython("Downloading & Bootstrapping Pyodide Python 3 WASM engine...");
+          document.getElementById("pyodideBadge").innerHTML =
+            `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span> Loading Python...`;
+
+          pyodideInstance = await loadPyodide({
+            stdout: (text) => logPython(text),
+            stderr: (text) => logPython(`[stderr] ${text}`, true),
+          });
+
+          isPyodideLoading = false;
+          document.getElementById("pyodideBadge").innerHTML =
+            `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Pyodide Ready`;
+          logPython("Pyodide WASM Engine initialized successfully!");
+        }
+
+        // Sync VFS to Pyodide FS
+        VFS.getAllPaths().forEach((path) => {
+          const f = VFS.getFile(path);
+          try {
+            const dirs = path.split("/");
+            if (dirs.length > 1) {
+              dirs.pop();
+              pyodideInstance.FS.mkdirTree(dirs.join("/"));
+            }
+            pyodideInstance.FS.writeFile(path, f.content);
+          } catch (fsErr) {}
+        });
+
+        await pyodideInstance.runPythonAsync(codeObj.content);
+        logPython(`\n--- Completed Execution of '${targetFile}' ---`);
+      } catch (err) {
+        logPython(`\nTraceback / Error:\n${err.message}`, true);
+      }
+    }
+
+    function logConsole(message, type = "info") {
+      const pane = document.getElementById("drawerPane-console");
+      const line = document.createElement("div");
+      const time = new Date().toLocaleTimeString();
+      if (type === "error") line.className = "text-rose-400";
+      else if (type === "warn") line.className = "text-amber-400";
+      else line.className = "text-slate-300";
+      line.textContent = `[${time}] ${message}`;
+      pane.appendChild(line);
+      pane.scrollTop = pane.scrollHeight;
+    }
+
+    function logPython(text, isError = false) {
+      const pane = document.getElementById("drawerPane-python");
+      const line = document.createElement("div");
+      line.className = isError ? "text-rose-400 font-mono" : "text-emerald-300 font-mono";
+      line.textContent = text;
+      pane.appendChild(line);
+      pane.scrollTop = pane.scrollHeight;
+    }
+
+    function logAgentPayload(text) {
+      const pane = document.getElementById("drawerPane-agentLog");
+      const line = document.createElement("div");
+      line.className = "text-indigo-300 font-mono text-[11px] mb-1";
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+      pane.appendChild(line);
+      pane.scrollTop = pane.scrollHeight;
+    }
+
+    // Ephemeral Ollama Coding Agent
+    async function sendAiMessage() {
+      const input = document.getElementById("aiInputText");
+      const userPrompt = input.value.trim();
+      if (!userPrompt) return;
+
+      input.value = "";
+      appendAiMessage("user", userPrompt);
+
+      const tokenStatus = document.getElementById("aiTokenStatus");
+      const sendBtn = document.getElementById("sendAiBtn");
+      tokenStatus.textContent = "Agent thinking...";
+      sendBtn.disabled = true;
+      sendBtn.classList.add("opacity-50");
+
+      const responseBubble = appendAiMessage("assistant", "");
+
+      try {
+        logAgentPayload(`Calling /api/workspaces/${WORKSPACE_ID}/agent/chat with model: ${ollamaConfig.model}`);
+        const res = await fetch(`/api/workspaces/${WORKSPACE_ID}/agent/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: userPrompt,
+            active_file: activeFilePath,
+            model: ollamaConfig.model,
+          }),
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          responseBubble.innerHTML = marked.parse(data.reply || "");
+          parseAndAttachDiffActions(responseBubble);
+          tokenStatus.textContent = "Done";
+        } else {
+          throw new Error(data.detail || "Agent call failed");
+        }
+      } catch (err) {
+        console.error("AI Generation failed:", err);
+        responseBubble.innerHTML = `
+          <div class="p-2 bg-rose-950/80 border border-rose-800 text-rose-300 rounded text-xs">
+            <b>Agent Error:</b> ${err.message}
+          </div>
+        `;
+        tokenStatus.textContent = "Error";
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.classList.remove("opacity-50");
+        lucide.createIcons();
+      }
+    }
+
+    function appendAiMessage(role, text) {
+      const chatContainer = document.getElementById("aiChatMessages");
+      const msgDiv = document.createElement("div");
+
+      if (role === "user") {
+        msgDiv.className = "bg-[#1f242c] p-2.5 rounded-lg border border-[#30363d] text-slate-200";
+        msgDiv.innerHTML = `<div class="font-semibold text-slate-400 text-[11px] mb-1">You</div><p class="whitespace-pre-wrap">${escapeHtml(text)}</p>`;
+      } else {
+        msgDiv.className = "bg-[#161b22] p-3 rounded-lg border border-[#30363d] text-slate-300";
+        msgDiv.innerHTML = `
+          <div class="flex items-center gap-1.5 font-semibold text-indigo-400 text-[11px] mb-1.5">
+            <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+            <span>Agent (${ollamaConfig.model})</span>
+          </div>
+          <div class="prose prose-invert max-w-none text-xs leading-relaxed agent-body-text">${text ? marked.parse(text) : '<span class="pulse-dot">Thinking...</span>'}</div>
+        `;
+      }
+
+      chatContainer.appendChild(msgDiv);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+      lucide.createIcons();
+      return msgDiv.querySelector(".agent-body-text") || msgDiv;
+    }
+
+    function parseAndAttachDiffActions(containerEl) {
+      const preBlocks = containerEl.querySelectorAll("pre code");
+      preBlocks.forEach((codeBlock) => {
+        const classAttr = codeBlock.className || "";
+        const match = classAttr.match(/language-file:([^\s]+)/) || codeBlock.innerText.match(/^file:([^\s\n]+)/);
+
+        let targetPath = null;
+        let rawContent = codeBlock.innerText;
+
+        if (match) {
+          targetPath = match[1];
+        } else {
+          const firstLine = rawContent.split("\n")[0].trim();
+          if (firstLine.startsWith("file:")) {
+            targetPath = firstLine.replace("file:", "").trim();
+            rawContent = rawContent.split("\n").slice(1).join("\n");
+          }
+        }
+
+        if (targetPath) {
+          const actionWrap = document.createElement("div");
+          actionWrap.className = "mt-2 p-2 bg-[#090d13] border border-indigo-500/40 rounded flex items-center justify-between gap-2";
+          actionWrap.innerHTML = `
+            <div class="flex items-center gap-1.5 text-[11px] text-indigo-300 font-mono truncate">
+              <i data-lucide="file-check" class="w-3.5 h-3.5 text-emerald-400"></i>
+              <span>Action: <b>${targetPath}</b></span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button class="review-btn px-2 py-1 bg-[#21262d] hover:bg-[#30363d] text-slate-200 rounded text-[10px] font-medium transition">
+                Review Diff
+              </button>
+              <button class="apply-btn px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-semibold transition flex items-center gap-1">
+                <i data-lucide="check" class="w-3 h-3"></i> Apply
+              </button>
+            </div>
+          `;
+
+          actionWrap.querySelector(".review-btn").onclick = () => openDiffModal(targetPath, rawContent);
+          actionWrap.querySelector(".apply-btn").onclick = async () => {
+            await applyCodeToWorkspace(targetPath, rawContent);
+            actionWrap.querySelector(".apply-btn").innerHTML = `<i data-lucide="check-check" class="w-3 h-3"></i> Applied`;
+            actionWrap.querySelector(".apply-btn").classList.replace("bg-emerald-600", "bg-slate-700");
+            lucide.createIcons();
+          };
+
+          codeBlock.parentElement.after(actionWrap);
+        }
+      });
+      lucide.createIcons();
+    }
+
+    async function applyCodeToWorkspace(path, newContent) {
+      VFS.setFile(path, newContent);
+      if (activeFilePath === path && editorInstance) {
+        editorInstance.setValue(newContent);
+      }
+      refreshFileTree();
+      openFile(path);
+      await syncFileToServer(path, newContent, VFS.inferLanguage(path.split(".").pop()));
+      logConsole(`Agent changes applied to '${path}' and saved in database.`);
+    }
+
+    function openDiffModal(path, newContent) {
+      pendingDiff = { path, newContent };
+      document.getElementById("diffTargetFilename").textContent = path;
+      const existing = VFS.getFile(path);
+      document.getElementById("diffActionType").textContent = existing ? "Modify File" : "Create New File";
+      document.getElementById("diffPreviewContent").textContent = newContent;
+      document.getElementById("diffReviewModal").classList.remove("hidden");
+      document.getElementById("diffReviewModal").classList.add("flex");
+    }
+
+    function closeDiffModal() {
+      document.getElementById("diffReviewModal").classList.add("hidden");
+      document.getElementById("diffReviewModal").classList.remove("flex");
+      pendingDiff = null;
+    }
+
+    async function confirmApplyDiff() {
+      if (pendingDiff) {
+        await applyCodeToWorkspace(pendingDiff.path, pendingDiff.newContent);
+        closeDiffModal();
+      }
+    }
+
+    function clearChatHistory() {
+      document.getElementById("aiChatMessages").innerHTML = `
+        <div class="text-slate-500 text-[11px] italic text-center py-4">Chat history cleared.</div>
+      `;
+    }
+
+    function handleAiInputKeydown(e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendAiMessage();
+      }
+    }
+
+    function toggleSideTab(tabName) {
+      const views = ["files", "ai", "search"];
+      views.forEach((v) => {
+        document.getElementById(`sideView-${v}`).classList.add("hidden");
+        const btn = document.getElementById(`actBtn-${v}`);
+        btn.className = "p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-[#21262d]";
+      });
+
+      document.getElementById(`sideView-${tabName}`).classList.remove("hidden");
+      const activeBtn = document.getElementById(`actBtn-${tabName}`);
+      activeBtn.className = "p-2 rounded-lg text-indigo-400 bg-[#21262d]";
+    }
+
+    function switchBottomTab(tabName) {
+      const tabs = ["console", "python", "agentLog"];
+      tabs.forEach((t) => {
+        document.getElementById(`drawerPane-${t}`).classList.add("hidden");
+        const btn = document.getElementById(`bottomTab-${t}`);
+        btn.className = "px-2.5 h-full flex items-center gap-1 text-slate-400 hover:text-slate-200 border-b-2 border-transparent";
+      });
+
+      document.getElementById(`drawerPane-${tabName}`).classList.remove("hidden");
+      const activeBtn = document.getElementById(`bottomTab-${tabName}`);
+      activeBtn.className = "px-2.5 h-full flex items-center gap-1 text-slate-200 border-b-2 border-indigo-500 font-medium";
+    }
+
+    function togglePreviewSplit(forceOpen = null) {
+      const pane = document.getElementById("previewPane");
+      const shouldOpen = forceOpen !== null ? forceOpen : pane.classList.contains("hidden");
+      if (shouldOpen) pane.classList.remove("hidden");
+      else pane.classList.add("hidden");
+      if (editorInstance) editorInstance.layout();
+    }
+
+    function toggleBottomDrawer() {
+      const drawer = document.getElementById("bottomDrawer");
+      drawer.style.height = drawer.style.height === "28px" ? "176px" : "28px";
+      if (editorInstance) editorInstance.layout();
+    }
+
+    function clearCurrentBottomOutput() {
+      document.getElementById("drawerPane-console").innerHTML = "";
+      document.getElementById("drawerPane-python").innerHTML = "";
+      document.getElementById("drawerPane-agentLog").innerHTML = "";
+    }
+
+    function handleProjectSearch(query) {
+      const resContainer = document.getElementById("searchResults");
+      resContainer.innerHTML = "";
+      const q = query.trim().toLowerCase();
+      if (!q) return;
+
+      VFS.getAllPaths().forEach((path) => {
+        const file = VFS.getFile(path);
+        const matchesName = path.toLowerCase().includes(q);
+        const matchesContent = file.content.toLowerCase().includes(q);
+
+        if (matchesName || matchesContent) {
+          const item = document.createElement("div");
+          item.className = "p-1.5 rounded bg-[#0d1117] border border-[#30363d] cursor-pointer hover:border-indigo-500";
+          item.innerHTML = `
+            <div class="font-mono text-indigo-300 font-semibold">${path}</div>
+            <div class="text-[10px] text-slate-400 truncate">${matchesContent ? "Matched content" : "Filename match"}</div>
+          `;
+          item.onclick = () => openFile(path);
+          resContainer.appendChild(item);
+        }
+      });
+    }
+
+    function openSettingsModal() {
+      document.getElementById("settingsModal").classList.remove("hidden");
+      document.getElementById("settingsModal").classList.add("flex");
+    }
+
+    function closeSettingsModal() {
+      document.getElementById("settingsModal").classList.add("hidden");
+      document.getElementById("settingsModal").classList.remove("flex");
+    }
+
+    function saveOllamaSettings() {
+      ollamaConfig.url = document.getElementById("settingOllamaUrl").value.trim();
+      ollamaConfig.model = document.getElementById("settingOllamaModel").value.trim();
+      document.getElementById("ollamaModelName").textContent = `Ollama: ${ollamaConfig.model}`;
+      closeSettingsModal();
+      logConsole(`Saved AI Settings: ${ollamaConfig.model} @ ${ollamaConfig.url}`);
+    }
+
+    function openDocsHelp() {
+      alert(`DevStudio Features Guide:
+1. Virtual Filesystem: Automatically synced with kb-web database in perpetuity!
+2. Live Preview: Click Run on web apps to preview with piped console logs.
+3. Python Pyodide: Execute .py scripts in browser WebAssembly.
+4. Export ZIP: Download all workspace files at any time.
+5. Ollama Coding Agent: Ask questions and click 'Apply' to merge diffs directly.`);
+    }
+
+    function initResizers() {
+      const resizerSidebar = document.getElementById("resizerSidebar");
+      const sidebar = document.getElementById("sidebarContainer");
+      let isResizingSidebar = false;
+
+      resizerSidebar.addEventListener("mousedown", () => {
+        isResizingSidebar = true;
+        resizerSidebar.classList.add("dragging");
+        document.body.style.cursor = "col-resize";
+      });
+
+      const resizerBottom = document.getElementById("resizerBottom");
+      const bottomDrawer = document.getElementById("bottomDrawer");
+      let isResizingBottom = false;
+
+      resizerBottom.addEventListener("mousedown", () => {
+        isResizingBottom = true;
+        resizerBottom.classList.add("dragging");
+        document.body.style.cursor = "row-resize";
+      });
+
+      window.addEventListener("mousemove", (e) => {
+        if (isResizingSidebar) {
+          const newWidth = Math.max(160, Math.min(500, e.clientX - 48));
+          sidebar.style.width = `${newWidth}px`;
+          if (editorInstance) editorInstance.layout();
+        }
+        if (isResizingBottom) {
+          const newHeight = Math.max(28, Math.min(500, window.innerHeight - e.clientY - 24));
+          bottomDrawer.style.height = `${newHeight}px`;
+          if (editorInstance) editorInstance.layout();
+        }
+      });
+
+      window.addEventListener("mouseup", () => {
+        if (isResizingSidebar) {
+          isResizingSidebar = false;
+          resizerSidebar.classList.remove("dragging");
+          document.body.style.cursor = "default";
+        }
+        if (isResizingBottom) {
+          isResizingBottom = false;
+          resizerBottom.classList.remove("dragging");
+          document.body.style.cursor = "default";
+        }
+      });
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    window.onload = function () {
+      lucide.createIcons();
+      initResizers();
+      refreshFileTree();
+      initializeMonaco();
+    };
+  </script>
+</body>
+</html>

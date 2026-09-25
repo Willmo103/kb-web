@@ -842,7 +842,124 @@ def get_similar_articles(
         return []
 
 
+def find_nearest_chunks(
+    query: str,
+    top_k: int = 10,
+    source_type: Optional[str] = None,
+    model: Optional[str] = None,
+    config=None,
+    client: Optional[ollama.Client] = None,
+) -> list[dict]:
+    """Retrieves top-k closest document/transcript chunks matching a semantic query.
+
+    Generates embedding for query using the configured Ollama embedding model,
+    then executes cosine distance similarity across ChunkEmbedding records.
+    """
+    if config is None:
+        config = default_config
+    if client is None:
+        client = _get_ollama_client()
+
+    emb_model = model or getattr(config, "ollama_embedding_model", "embeddinggemma")
+    if "gemma" in emb_model.lower() or "nomic" in emb_model.lower():
+        prompt = f"search_query: {query}"
+    else:
+        prompt = query
+
+    query_vector = None
+    try:
+        resp = client.embeddings(model=emb_model, prompt=prompt)
+        query_vector = resp.get("embedding")
+    except Exception as e:
+        print(f"Warning: Failed to generate query embedding with {emb_model}: {e}")
+        fallback = "nomic-embed-text" if emb_model != "nomic-embed-text" else "embeddinggemma"
+        try:
+            resp = client.embeddings(model=fallback, prompt=f"search_query: {query}")
+            query_vector = resp.get("embedding")
+            emb_model = fallback
+        except Exception:
+            pass
+
+    if not query_vector:
+        return []
+
+    from .models_orm import ChunkEmbedding
+    from .base import db_session
+    from urllib.parse import quote_plus
+
+    results = []
+    try:
+        with db_session() as session:
+            dialect_name = session.bind.dialect.name
+            query_obj = session.query(ChunkEmbedding)
+            if source_type:
+                query_obj = query_obj.filter(ChunkEmbedding.source_type == source_type)
+
+            if dialect_name == "postgresql":
+                distance_col = ChunkEmbedding.chunk_vector.cosine_distance(query_vector)
+                rows = (
+                    query_obj.add_columns(distance_col)
+                    .filter(ChunkEmbedding.chunk_vector.isnot(None))
+                    .order_by(distance_col.asc())
+                    .limit(top_k)
+                    .all()
+                )
+                for chunk, dist in rows:
+                    if dist is None:
+                        continue
+                    sim = max(0.0, 1.0 - float(dist))
+                    results.append(
+                        {
+                            "id": chunk.id,
+                            "source_id": chunk.source_id,
+                            "source_type": chunk.source_type,
+                            "source_title": chunk.source_title or chunk.source_id,
+                            "chunk_number": chunk.chunk_number or 0,
+                            "chunk_content": chunk.chunk_content or "",
+                            "similarity": round(sim * 100, 1),
+                            "url": chunk.source_id,
+                            "jump_url": f"/view/page?url={quote_plus(chunk.source_id)}#chunk-{chunk.chunk_number}",
+                        }
+                    )
+            else:
+                # SQLite fallback
+                all_chunks = query_obj.filter(ChunkEmbedding.chunk_vector.isnot(None)).all()
+                scored = []
+                for chunk in all_chunks:
+                    vec = chunk.chunk_vector
+                    if isinstance(vec, str):
+                        try:
+                            vec = json.loads(vec)
+                        except Exception:
+                            continue
+                    if not vec:
+                        continue
+                    sim = cosine_similarity(query_vector, vec)
+                    scored.append((sim, chunk))
+                scored.sort(key=lambda x: x[0], reverse=True)
+                for sim, chunk in scored[:top_k]:
+                    results.append(
+                        {
+                            "id": chunk.id,
+                            "source_id": chunk.source_id,
+                            "source_type": chunk.source_type,
+                            "source_title": chunk.source_title or chunk.source_id,
+                            "chunk_number": chunk.chunk_number or 0,
+                            "chunk_content": chunk.chunk_content or "",
+                            "similarity": round(max(0.0, sim) * 100, 1),
+                            "url": chunk.source_id,
+                            "jump_url": f"/view/page?url={quote_plus(chunk.source_id)}#chunk-{chunk.chunk_number}",
+                        }
+                    )
+    except Exception as e:
+        print(f"Error executing find_nearest_chunks: {e}")
+        return []
+
+    return results
+
+
 def serialize_page_for_db(page_data: HTMLPage) -> tuple[dict, Optional[str]]:
+
     """Helper to convert HTMLPage object to a dict ready for fetched_pages insertion,
 
     stripping out YouTube metadata attributes from the fetched_pages model to preserve decoupling.
