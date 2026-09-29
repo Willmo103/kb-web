@@ -600,6 +600,8 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             completion_message=msg,
             config=config,
             is_admin=True,
+            is_default_password=(config.admin_password == "admin123"),
+            is_default_api_key=(config.api_key == "kb-secret-key"),
             wiki_prompts_history=wiki_prompts_history,
             youtube_prompts_history=youtube_prompts_history,
             cli_keys=cli_keys,

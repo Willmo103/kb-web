@@ -603,8 +603,8 @@ def duplicate_workspace_api(workspace_id: int) -> Dict[str, Any]:
 def upsert_workspace_file_api(workspace_id: int, payload: WorkspaceFileUpsertRequest) -> Dict[str, Any]:
     """Creates or updates a file inside a persistent workspace."""
     clean_path = payload.path.replace("\\", "/").strip("/").replace("//", "/")
-    if not clean_path:
-        raise HTTPException(status_code=400, detail="Invalid file path")
+    if not clean_path or ".." in clean_path.split("/"):
+        raise HTTPException(status_code=400, detail="Invalid file path: directory traversal not permitted.")
 
     now_str = datetime.now().isoformat()
     with db_session() as session:
@@ -648,8 +648,8 @@ def upsert_workspace_file_api(workspace_id: int, payload: WorkspaceFileUpsertReq
 def delete_workspace_file_api(workspace_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Deletes a file or directory prefix from a persistent workspace."""
     target_path = payload.get("path", "").replace("\\", "/").strip("/").replace("//", "/")
-    if not target_path:
-        raise HTTPException(status_code=400, detail="File path required")
+    if not target_path or ".." in target_path.split("/"):
+        raise HTTPException(status_code=400, detail="File path required and directory traversal not permitted.")
 
     with db_session() as session:
         ws = session.query(Workspace).filter_by(id=workspace_id).first()

@@ -214,20 +214,29 @@ async def upload_obsidian_vault(
             # If it's a media asset (images, pdfs), unpack to media directory
             lower_name = filename.lower()
             if any(lower_name.endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf"]):
-                dest_path = media_vault_dir / filename
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(dest_path, "wb") as f:
-                    f.write(z.read(filename))
+                try:
+                    dest_path = (media_vault_dir / filename).resolve()
+                    # Prevent directory traversal / ZipSlip vulnerability
+                    if not str(dest_path).startswith(str(media_vault_dir.resolve())):
+                        continue
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(dest_path, "wb") as f:
+                        f.write(z.read(filename))
+                except Exception:
+                    continue
                 continue
 
             # If it's a markdown note
             if lower_name.endswith(".md"):
+                path_parts = Path(filename).parts
+                # Prevent directory traversal in note folder paths
+                if ".." in path_parts:
+                    continue
                 try:
                     content = z.read(filename).decode("utf-8", errors="replace")
                 except Exception:
                     continue
 
-                path_parts = Path(filename).parts
                 folder_path = "/".join(path_parts[:-1]) if len(path_parts) > 1 else ""
                 note_title = Path(filename).stem
                 safe_slug = re.sub(r"[^\w\-_\.]", "_", note_title.lower())

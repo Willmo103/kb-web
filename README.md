@@ -4,15 +4,17 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 
 ## Core Features
 
-- **PWA Web Ingestion Target**: Registers as a share target on mobile and desktop web browsers, enabling quick clicks to ingest URLs directly.
-- **Chrome Browser Extension Ingest**: Features an unpackaged Chrome extension targeting `/api/import/html` to instantly post raw tab HTML, bypassing authentication and JavaScript obstacles.
+- **Global Authentication & Site Security Guard**: Secures the entire web application behind admin password authentication. Unauthenticated requests are redirected with 303 to `/login?next={url}`. API and media endpoints require valid session cookies or API keys (`X-API-Key` or `Authorization: Bearer <key>`).
+- **PWA Web Ingestion Target**: Registers as a share target on mobile and desktop web browsers, enabling authenticated quick clicks to ingest URLs directly.
+- **Chrome Browser Extension Ingest**: Features an unpackaged Chrome extension targeting `/api/import/html` with `X-API-Key` header authentication to instantly post raw tab HTML, bypassing JavaScript obstacles.
 - **AI Wiki Conversion**: Rewrites raw scraped web pages into clean, highly structured markdown wiki entries starting with H1 titles `# Title` using Ollama.
 - **Tag Curation & Editing**: Automates tag generation through Ollama classification prompts and allows manual tag updates inside the UI.
-- **Root Chronological Archive Feed**: Hitting `/` directly renders the public ingestion feed, omitting any login restrictions.
 - **Source Page Re-fetching with Version Snapshots**: Re-fetches the page URL. If successful, archives the current copy in `page_versions` and updates the latest page with the newly ingested content; otherwise, rolls back and retains the original page.
-- **Secure Password Manager**: Allows logged-in administrators to change the passcode after verifying current credentials from the web UI.
+- **Secure Password & Credential Manager**: Allows logged-in administrators to change the passcode after verifying current credentials from the web UI, backed by constant-time verification.
+- **Brute-Force Login Rate Limiting**: Sliding window rate limiter guarding `/login` against automated credential stuffing (5 failed attempts per 60s per IP triggers HTTP 429).
+- **HTTP Security Headers & Path Hardening**: Injects `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, and strict referrer policies on all responses. Blocks ZipSlip archive extraction attacks and virtual filesystem traversal.
 - **Interactive Action Triggers**: Supports 1-click Wiki, Tag, and source URL re-fetching / re-generation directly on the page view profile.
-- **Administrative Settings Portal**: Prefills and updates Ollama hosts/models, system prompts, API keys, and Gotify details directly from the Web UI.
+- **Administrative Settings Portal**: Prefills and updates Ollama hosts/models, system prompts, API keys, and Gotify details directly from the Web UI with default-credential warning banners.
 - **Chunked WS Ingest**: Supports uploading JSON database backups over WebSockets.
 - **JSON Streams**: Streams database records out as downloadable files.
 - **Standardized REST API Suite**: High-performance JSON endpoints (`/api/articles`, `/api/videos`, `/api/sites`, `/api/tags`) for external AI agents and frontend consuming.
@@ -44,6 +46,38 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - `src/kb_web/templates/`: Jinja2 templates for login, dashboard lists, configuration inputs, and profile views.
 - `browser_extension/`: Source directory containing manifest, options menu, and background worker for Chrome imports.
 - `kb-web.service`: Systemd service template for Linux deployments.
+
+---
+
+## Security & Hardening Architecture
+
+When deployed to public networks or the open internet, `kb-web` enforces multi-layer defense-in-depth security controls:
+
+### 1. Global Full-Site Authentication Guard
+All web views, media assets, personal notes, in-browser workspaces, and API endpoints are fully gated:
+- **UI Web Routes**: Any unauthenticated request to UI endpoints (`/`, `/pages`, `/notes`, `/workspaces`, `/similarity/...`, `/reports`, `/collections`, etc.) is intercepted by middleware and redirected with HTTP `303 See Other` to `/login?next={requested_url}`.
+- **REST & Internal APIs**: Unauthenticated calls to `/api/...` return HTTP `401 Unauthorized` with JSON error messages. Clients can authenticate using either a valid session cookie (`kb_session`) or an API key passed via `X-API-Key` or `Authorization: Bearer <key>`.
+- **Media Asset Gating**: All files under `/media/...` require authentication, preventing unauthorized access to personal attachments and downloaded video files.
+- **Public Allowlist**: Gated access is strictly exempted only for login flow and essential PWA resources: `/login`, `/logout`, `/favicon.ico`, `/icon.png`, `/manifest.json`, and `/sw.js`.
+
+### 2. Session Cookies & Rate Limiting
+- **Cookie Security**: Authentication session tokens (`kb_session`) are signed and set with `HttpOnly=True`, `SameSite=Lax`, and dynamically enabled `Secure=True` whenever HTTPS is detected directly or through reverse-proxy headers (`X-Forwarded-Proto: https`).
+- **Brute-Force Rate Limiting**: The `POST /login` endpoint employs an in-memory sliding-window rate limiter per client IP. More than 5 failed authentication attempts within a 60-second window triggers an immediate HTTP `429 Too Many Requests`.
+- **Constant-Time Verification**: All password and API key checks utilize `hmac.compare_digest` to prevent side-channel timing attacks.
+
+### 3. HTTP Security Headers
+Every HTTP response automatically includes enterprise security headers:
+- `X-Content-Type-Options: nosniff` (prevents MIME-type sniffing)
+- `X-Frame-Options: SAMEORIGIN` (prevents clickjacking attacks)
+- `X-XSS-Protection: 1; mode=block` (legacy XSS filtering)
+- `Referrer-Policy: strict-origin-when-cross-origin` (prevents URL parameter leakage across domains)
+
+### 4. Path Traversal & ZipSlip Safeguards
+- **Obsidian Vault Archives**: Zip file extractions under `/api/notes/upload-vault` sanitize all archive member paths against directory traversal (`..`) and enforce target path canonicalization before writing files to disk.
+- **Virtual Workspaces**: Workspace file CRUD endpoints (`/api/workspaces/...`) enforce path component validation to disallow directory escapes outside the workspace context.
+
+### 5. Default Credential Alerts
+The application actively detects whether default development credentials (`admin123` or `kb-secret-key`) remain active, logging security warnings on server boot and rendering prominent dismissible alert banners in the Admin Portal.
 
 ---
 

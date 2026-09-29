@@ -43,6 +43,7 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 6. **MCP & REST Endpoints**: Expose Model Context Protocol (MCP) server endpoints (`kb-web-mcp.service`) and standardized REST endpoints (`/api/articles`, `/api/videos`, `/api/sites`, `/api/tags`) for external AI agents and frontend consuming.
 7. **Database View & Pagination**: Serve indexed web cards via pre-aggregated PostgreSQL view `vw_page_cards` with responsive UI pagination. Note: SQLite is being phased out in favor of PostgreSQL.
 8. **In-Browser Workspaces & Python WASM**: Host persistent multi-file coding workspaces (`/workspaces`) with Monaco Editor, Pyodide Python WASM, sandboxed web preview, and ephemeral Ollama agent pairing.
+9. **Full-Site Authentication & Hardening**: Protect all UI and REST endpoints behind session cookies or API keys, brute-force rate limiter on login, security headers, ZipSlip prevention, and default credential alerts.
 
 ---
 

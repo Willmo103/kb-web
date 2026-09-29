@@ -6,11 +6,12 @@ import os
 import logging
 import traceback
 from contextlib import asynccontextmanager
+from urllib.parse import quote_plus
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .base import config
+from .base import config, is_request_authenticated
 from .gotify import post_error_to_gotify
 
 
@@ -65,11 +66,43 @@ async def lifespan(app: FastAPI):
         deploy()
     except Exception as e:
         logger.error(f"Failed to run database migrations on startup: {e}")
+
+    # Security posture check on startup
+    if config.admin_password == "admin123":
+        logger.warning(
+            "CRITICAL SECURITY WARNING: Default administrator password ('admin123') is active! "
+            "Because this server is accessible on the open internet, change your password immediately."
+        )
+    if config.api_key == "kb-secret-key":
+        logger.warning(
+            "SECURITY NOTICE: Default API key ('kb-secret-key') is active. "
+            "Please configure a unique KB_API_KEY in production."
+        )
+
     yield
 
 
 # Instantiate core application
 app = FastAPI(title="Knowledge Base Web Importer", lifespan=lifespan)
+
+
+# Public exact paths that do not require prior session authentication
+PUBLIC_EXACT_PATHS = {
+    "/login",
+    "/logout",
+    "/favicon.ico",
+    "/icon.png",
+    "/manifest.json",
+    "/sw.js",
+}
+
+
+def _inject_security_headers(response: Response) -> None:
+    """Injects industry-standard HTTP security headers onto all outgoing responses."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
 
 # Request logging middleware to trace request lifecycle and performance
@@ -98,6 +131,51 @@ async def log_request_middleware(request: Request, call_next):
             exc_info=True,
         )
         raise e
+
+
+# Global site security and authentication guard middleware
+@app.middleware("http")
+async def security_and_auth_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # 1. Allow public metadata and login/logout paths
+    if path in PUBLIC_EXACT_PATHS:
+        response = await call_next(request)
+        _inject_security_headers(response)
+        return response
+
+    # 2. Check if request is authenticated via session cookie or valid API key
+    if not is_request_authenticated(request):
+        # API requests or JSON requests receive 401 Unauthorized JSON
+        accept_header = request.headers.get("accept", "")
+        if path.startswith("/api/") or "application/json" in accept_header:
+            response = JSONResponse(
+                status_code=401,
+                content={"detail": "Unauthorized: Authentication required."},
+            )
+            _inject_security_headers(response)
+            return response
+
+        # Media requests receive 401 Unauthorized plain text
+        if path.startswith("/media/"):
+            response = Response(
+                content="Unauthorized: Authentication required to access media assets.",
+                status_code=401,
+                media_type="text/plain",
+            )
+            _inject_security_headers(response)
+            return response
+
+        # Web browser navigation receives 303 redirect to /login?next={url}
+        redirect_url = f"/login?next={quote_plus(str(request.url))}"
+        response = RedirectResponse(url=redirect_url, status_code=303)
+        _inject_security_headers(response)
+        return response
+
+    # Request is authenticated
+    response = await call_next(request)
+    _inject_security_headers(response)
+    return response
 
 
 # Exception handler posting internal errors to Gotify
