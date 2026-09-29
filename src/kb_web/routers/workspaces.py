@@ -509,6 +509,45 @@ def create_workspace_api(payload: WorkspaceCreateRequest) -> Dict[str, Any]:
         }
 
 
+@router.get("/api/workspaces/models")
+@router.get("/api/workspaces/tags")
+def list_workspace_models() -> Dict[str, Any]:
+    """
+    Returns available Ollama models dynamically pulled from Ollama's tags endpoint.
+    """
+    client = _get_ollama_client()
+    models: List[str] = []
+    default_model = getattr(config, "ollama_model", "gemma4:latest")
+    try:
+        models_resp = client.list()
+        raw_models = getattr(models_resp, "models", None)
+        if raw_models is None and isinstance(models_resp, dict):
+            raw_models = models_resp.get("models", [])
+        raw_models = raw_models or []
+
+        for m in raw_models:
+            name = None
+            if hasattr(m, "model") and m.model:
+                name = m.model
+            elif hasattr(m, "name") and m.name:
+                name = m.name
+            elif isinstance(m, dict):
+                name = m.get("model") or m.get("name")
+            if name and name not in models:
+                models.append(name)
+    except Exception as e:
+        print(f"Error fetching Ollama models: {e}")
+
+    if not models and default_model:
+        models.append(default_model)
+
+    return {
+        "status": "success",
+        "models": models,
+        "default_model": default_model if default_model in models else (models[0] if models else default_model),
+    }
+
+
 @router.get("/api/workspaces/{workspace_id}")
 def get_workspace_detail_api(workspace_id: int) -> Dict[str, Any]:
     """Returns workspace metadata and complete file contents for IDE loading."""
@@ -721,7 +760,7 @@ def workspace_agent_chat_api(workspace_id: int, payload: WorkspaceAgentChatReque
     if not user_prompt:
         raise HTTPException(status_code=400, detail="Prompt is required")
 
-    model_name = payload.model or getattr(config, "ollama_model", "ornith:9b")
+    model_name = payload.model or getattr(config, "ollama_model", "gemma4:latest")
 
     with db_session() as session:
         ws = session.query(Workspace).filter_by(id=workspace_id).first()
@@ -740,31 +779,50 @@ def workspace_agent_chat_api(workspace_id: int, payload: WorkspaceAgentChatReque
         f"Workspace files: [{', '.join(paths_list)}].{active_context}\n\n"
         f"When you want to create or edit files in the workspace, you MUST output the complete updated or new file wrapped in this exact syntax:\n"
         f"```file:path/to/filename.ext\n<complete code of file here>\n```\n\n"
+        f"IMPORTANT: If you are answering a question, reviewing code, explaining concepts, or having a discussion without modifying any files, output standard conversational markdown or regular code blocks (e.g. ```python or ```javascript). Never use the ```file:path syntax unless proposing an actual file creation or edit.\n\n"
         f"Give concise explanations and apply clean, robust, and modern programming patterns."
     )
 
     client = _get_ollama_client()
     try:
-        resp = client.generate(
-            model=model_name,
-            prompt=f"{system_prompt}\n\nUser Request: {user_prompt}",
-            options={"temperature": 0.3},
-        )
-        reply_text = resp.get("response", "")
+        ensure_model_available(client, model_name)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        try:
+            resp = client.chat(
+                model=model_name,
+                messages=messages,
+                options={"temperature": 0.3},
+            )
+            if hasattr(resp, "message") and hasattr(resp.message, "content"):
+                reply_text = str(resp.message.content)
+            elif isinstance(resp, dict) and "message" in resp and "content" in resp["message"]:
+                reply_text = str(resp["message"]["content"])
+            else:
+                reply_text = str(resp)
+        except Exception:
+            resp = client.generate(
+                model=model_name,
+                prompt=f"{system_prompt}\n\nUser Request: {user_prompt}",
+                options={"temperature": 0.3},
+            )
+            if hasattr(resp, "response"):
+                reply_text = str(resp.response)
+            elif isinstance(resp, dict) and "response" in resp:
+                reply_text = str(resp["response"])
+            else:
+                reply_text = str(resp)
+
         return {
             "status": "success",
             "reply": reply_text,
             "model": model_name,
         }
     except Exception as e:
-        # Fallback to smart simulated response if Ollama is unreachable
         return {
-            "status": "mock",
-            "reply": (
-                f"Note: Ollama server connection was unavailable ({str(e)}).\n\n"
-                f"Simulated suggestion for '{user_prompt}':\n\n"
-                f"```file:app.js\n// Generated sample by AI Agent\nconsole.log('Update applied successfully!');\n```\n"
-                f"You can review or apply this change."
-            ),
-            "model": "simulated-agent",
+            "status": "error",
+            "reply": f"Note: Ollama server connection or execution failed ({str(e)}). Please verify your Ollama server is running and the model '{model_name}' is installed.",
+            "model": model_name,
         }
