@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-09-29
+### Fixed
+- **Jinja2 Autoescape & XSS Hardening (Resolves #75)**:
+  - Configured `autoescape=jinja2.select_autoescape(["html", "xml", "j2.html", "html5"])` in `src/kb_web/base.py` on the package Jinja2 environment.
+  - Defensively escaped note content, summaries, vault names, and titles in `src/kb_web/templates/notes_list.j2.html`.
+  - Added null-safe date slicing `{{ (n.updated_at or '')[:10] }}` to prevent `TypeError` when note update timestamps are unset.
+  - Eliminated raw script injections from imported notes that triggered `Uncaught SyntaxError: Unexpected token '.'` and broke browser JavaScript evaluation.
+- **Notes Modal Trigger Declarations & Event Listeners**:
+  - Defined modal toggle functions (`openPasteModal`, `closePasteModal`, `openVaultUploadModal`, `closeVaultUploadModal`) in `{% block extra_head %}` so functions are declared globally on `window` before DOM buttons render.
+  - Added explicit element IDs (`open-paste-modal-btn`, `open-vault-modal-btn`, `empty-create-note-btn`) and registered secondary event listeners on `DOMContentLoaded`.
+  - Enabled backdrop click dismiss and `Escape` key listeners for modal accessibility and clean teardown.
+- **PWA Web Share Target Manifest Enctype**:
+  - Added `"enctype": "application/x-www-form-urlencoded"` to `share_target` in `GET /manifest.json` (`src/kb_web/server.py`), satisfying W3C Web Share Target API specifications and removing the browser manifest warning.
+- **Service Worker Lifecycle & No-Op Fetch Removal**:
+  - Replaced empty/no-op fetch event listener in `GET /sw.js` with standard service worker lifecycle event handlers (`install` with `skipWaiting()` and `activate` with `clients.claim()`), eliminating Chromium no-op navigation overhead warnings.
+- **Automated Regression Test Suite**:
+  - Added `test_issue75_notes_modal_freeze_and_pwa_manifest` in `tests/test_sprint6_features.py` testing note autoescaping, script declaration, manifest enctype, and service worker lifecycle compliance.
+
 ## [0.5.1] - 2026-09-28
 ### Fixed
 - **LoggedOllamaClient Generate & Attribute Delegation (Resolves #73)**:

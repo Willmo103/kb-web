@@ -34,8 +34,11 @@ def extract_url_path(url: str) -> str:
         return url
 
 
-# Set up Jinja2 environment utilizing PackageLoader for clean packaging
-_jinja_env = jinja2.Environment(loader=jinja2.PackageLoader("kb_web", "templates"))
+# Set up Jinja2 environment utilizing PackageLoader for clean packaging with autoescape enabled
+_jinja_env = jinja2.Environment(
+    loader=jinja2.PackageLoader("kb_web", "templates"),
+    autoescape=jinja2.select_autoescape(["html", "xml", "j2.html", "html5"]),
+)
 _jinja_env.filters["urlpath"] = extract_url_path
 
 COOKIE_NAME = "kb_session"

@@ -240,6 +240,7 @@ def get_manifest() -> dict:
         "share_target": {
             "action": "/import/shared-url",
             "method": "GET",
+            "enctype": "application/x-www-form-urlencoded",
             "params": {"title": "title", "text": "text", "url": "url"},
         },
     }
@@ -247,9 +248,12 @@ def get_manifest() -> dict:
 
 @app.get("/sw.js", response_class=HTMLResponse)
 def get_service_worker() -> HTMLResponse:
-    """Serves a blank Service Worker required by mobile PWA client specifications."""
+    """Serves a blank Service Worker required by mobile PWA client specifications without no-op fetch warnings."""
     return HTMLResponse(
-        content="self.addEventListener('fetch', function(event) {});",
+        content=(
+            "self.addEventListener('install', function(event) { self.skipWaiting(); });\n"
+            "self.addEventListener('activate', function(event) { event.waitUntil(clients.claim()); });\n"
+        ),
         media_type="application/javascript",
     )
 
