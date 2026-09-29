@@ -584,3 +584,60 @@ def test_workspace_ollama_agent_and_models(client: TestClient, monkeypatch):
     client.delete(f"/api/workspaces/{ws_id}")
 
 
+# -----------------------------------------------------------------------------
+# Issue #75: Notes Modal Freeze, Autoescape, and PWA Manifest Tests
+# -----------------------------------------------------------------------------
+
+def test_issue75_notes_modal_freeze_and_pwa_manifest(client: TestClient, auth_cookie):
+    """Verifies that notes with HTML/scripts are safely autoescaped, modal scripts
+    are declared early and properly, sw.js omits no-op fetch handler, and manifest
+    includes share_target enctype."""
+    # 1. Test PWA manifest enctype
+    manifest_resp = client.get("/manifest.json")
+    assert manifest_resp.status_code == 200
+    manifest_data = manifest_resp.json()
+    assert "share_target" in manifest_data
+    assert manifest_data["share_target"].get("enctype") == "application/x-www-form-urlencoded"
+
+    # 2. Test sw.js does not contain no-op fetch handler
+    sw_resp = client.get("/sw.js")
+    assert sw_resp.status_code == 200
+    assert "addEventListener('fetch'" not in sw_resp.text
+    assert "addEventListener(\"fetch\"" not in sw_resp.text
+    assert "addEventListener('install'" in sw_resp.text
+    assert "addEventListener('activate'" in sw_resp.text
+
+    # 3. Create note containing unclosed/raw script tags and code
+    paste_resp = client.post(
+        "/api/notes/paste",
+        json={
+            "title": "Raw Script <script>alert('xss')</script> Test",
+            "content": "Code with script:\n<script src=\"evil.js\">\nconst x = 1.0;\n</script>",
+            "syntax": "javascript",
+            "vault_name": "Obsidian <Vault>",
+            "folder_path": "scripts/<test>",
+        },
+        cookies=auth_cookie,
+    )
+    assert paste_resp.status_code == 200
+    note_id = paste_resp.json()["id"]
+
+    # 4. Request /notes UI dashboard and verify escaping and modal functions
+    notes_ui_resp = client.get("/notes", cookies=auth_cookie)
+    assert notes_ui_resp.status_code == 200
+    html = notes_ui_resp.text
+
+    # Raw script tags in title or content must NOT be present unescaped
+    assert "<script>alert('xss')</script>" not in html
+    assert "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;" in html or "&lt;script&gt;" in html
+    # Modal trigger functions must be declared
+    assert "window.openPasteModal" in html
+    assert "window.openVaultUploadModal" in html
+    assert "id=\"open-paste-modal-btn\"" in html
+    assert "id=\"open-vault-modal-btn\"" in html
+
+    # Clean up test note
+    client.delete(f"/api/notes/{note_id}", cookies=auth_cookie)
+
+
+

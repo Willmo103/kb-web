@@ -2,6 +2,27 @@
 
 {% block title %}Notes & Obsidian Vaults - Knowledge Base{% endblock %}
 
+{% block extra_head %}
+<script>
+window.openPasteModal = function() {
+    var m = document.getElementById("paste-modal");
+    if (m) m.classList.remove("hidden");
+};
+window.closePasteModal = function() {
+    var m = document.getElementById("paste-modal");
+    if (m) m.classList.add("hidden");
+};
+window.openVaultUploadModal = function() {
+    var m = document.getElementById("vault-modal");
+    if (m) m.classList.remove("hidden");
+};
+window.closeVaultUploadModal = function() {
+    var m = document.getElementById("vault-modal");
+    if (m) m.classList.add("hidden");
+};
+</script>
+{% endblock %}
+
 {% block content %}
 <div class="max-w-6xl mx-auto px-4 py-8">
     <!-- Header -->
@@ -17,10 +38,10 @@
             <p class="text-sm text-gray-500">Paste code and markdown notes, edit with Monaco Editor, and mirror complete Obsidian vaults.</p>
         </div>
         <div class="flex items-center gap-3">
-            <button onclick="openPasteModal()" class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-sm">
+            <button id="open-paste-modal-btn" onclick="openPasteModal()" class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-sm">
                 <span>+</span> New Note / Code
             </button>
-            <button onclick="openVaultUploadModal()" class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold transition shadow-sm">
+            <button id="open-vault-modal-btn" onclick="openVaultUploadModal()" class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold transition shadow-sm">
                 <span>📂</span> Upload Obsidian Vault
             </button>
         </div>
@@ -51,8 +72,8 @@
                             </span>
                             <div class="pl-4 space-y-1 mt-1">
                                 {% for item in items %}
-                                <a href="/notes/editor?id={{ item.id }}" class="block truncate text-gray-700 hover:text-indigo-600 hover:underline py-0.5" title="{{ item.title }}">
-                                    • {{ item.title }}
+                                <a href="/notes/editor?id={{ item.id }}" class="block truncate text-gray-700 hover:text-indigo-600 hover:underline py-0.5" title="{{ item.title | e }}">
+                                    • {{ item.title | e }}
                                 </a>
                                 {% endfor %}
                             </div>
@@ -73,7 +94,7 @@
             {% if not notes %}
             <div class="bg-white border border-gray-200 rounded-2xl p-12 text-center shadow-sm">
                 <p class="text-gray-500 text-sm mb-4">No notes recorded yet. Paste your first markdown document or upload an Obsidian vault.</p>
-                <button onclick="openPasteModal()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold">
+                <button id="empty-create-note-btn" onclick="openPasteModal()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold">
                     Create First Note
                 </button>
             </div>
@@ -87,21 +108,21 @@
                                 {{ n.syntax or 'markdown' }}
                             </span>
                             <span class="text-[10px] text-gray-400 font-mono">
-                                {{ n.updated_at[:10] }}
+                                {{ (n.updated_at or '')[:10] }}
                             </span>
                         </div>
                         <h3 class="text-base font-bold text-gray-900 leading-snug mb-2">
                             <a href="/notes/editor?id={{ n.id }}" class="hover:text-indigo-600">
-                                {{ n.title }}
+                                {{ n.title | e }}
                             </a>
                         </h3>
                         <p class="text-xs text-gray-500 font-sans line-clamp-3 leading-relaxed mb-3">
-                            {{ n.wiki_summary or n.content[:200] }}
+                            {{ (n.wiki_summary or n.content[:200]) | e }}
                         </p>
                     </div>
                     <div class="pt-3 border-t border-gray-100 flex items-center justify-between">
                         <span class="text-[10px] text-indigo-600 font-semibold truncate max-w-[150px]">
-                            💎 {{ n.vault_name }}/{{ n.folder_path or 'root' }}
+                            💎 {{ n.vault_name | e }}/{{ (n.folder_path or 'root') | e }}
                         </span>
                         <div class="flex items-center gap-1.5">
                             <a href="/notes/editor?id={{ n.id }}" class="px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-bold border border-indigo-100 transition">
@@ -121,7 +142,7 @@
 </div>
 
 <!-- Modal: New / Paste Note -->
-<div id="paste-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+<div id="paste-modal" onclick="if(event.target===this)closePasteModal()" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
     <div class="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-gray-200">
         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
             <h3 class="font-bold text-gray-900 text-base flex items-center gap-2">
@@ -173,7 +194,7 @@
 </div>
 
 <!-- Modal: Upload Obsidian Vault ZIP -->
-<div id="vault-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+<div id="vault-modal" onclick="if(event.target===this)closeVaultUploadModal()" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
     <div class="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-gray-200">
         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
             <h3 class="font-bold text-gray-900 text-base flex items-center gap-2">
@@ -200,10 +221,49 @@
 </div>
 
 <script>
-function openPasteModal() { document.getElementById("paste-modal").classList.remove("hidden"); }
-function closePasteModal() { document.getElementById("paste-modal").classList.add("hidden"); }
-function openVaultUploadModal() { document.getElementById("vault-modal").classList.remove("hidden"); }
-function closeVaultUploadModal() { document.getElementById("vault-modal").classList.add("hidden"); }
+// Modal display functions
+if (!window.openPasteModal) {
+    window.openPasteModal = function() {
+        var m = document.getElementById("paste-modal");
+        if (m) m.classList.remove("hidden");
+    };
+}
+if (!window.closePasteModal) {
+    window.closePasteModal = function() {
+        var m = document.getElementById("paste-modal");
+        if (m) m.classList.add("hidden");
+    };
+}
+if (!window.openVaultUploadModal) {
+    window.openVaultUploadModal = function() {
+        var m = document.getElementById("vault-modal");
+        if (m) m.classList.remove("hidden");
+    };
+}
+if (!window.closeVaultUploadModal) {
+    window.closeVaultUploadModal = function() {
+        var m = document.getElementById("vault-modal");
+        if (m) m.classList.add("hidden");
+    };
+}
+
+// Bind DOM event listeners
+document.addEventListener("DOMContentLoaded", function() {
+    var pasteBtn = document.getElementById("open-paste-modal-btn");
+    if (pasteBtn) pasteBtn.addEventListener("click", window.openPasteModal);
+    var vaultBtn = document.getElementById("open-vault-modal-btn");
+    if (vaultBtn) vaultBtn.addEventListener("click", window.openVaultUploadModal);
+    var emptyBtn = document.getElementById("empty-create-note-btn");
+    if (emptyBtn) emptyBtn.addEventListener("click", window.openPasteModal);
+});
+
+// Dismiss modal on Escape key
+document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") {
+        window.closePasteModal();
+        window.closeVaultUploadModal();
+    }
+});
 
 async function submitNewNote(e) {
     e.preventDefault();
