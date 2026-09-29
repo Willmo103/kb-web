@@ -70,9 +70,20 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 - [kb-web-browser-extension](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/kb-web-browser-extension/SKILL.md): Extension testing & configuration.
 - [kb-web-service-management](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/kb-web-service-management/SKILL.md): Systemd service configuration.
 
+## Git Branching Strategy & Tiered Release Lifecycle
+
+The repository enforces a strict 3-tier branch architecture:
+1. `development`: The primary trunk branch for active day-to-day development.
+   - All feature, bugfix, and sprint branches (`feature/...`, `fix/...`, `agent/...`) MUST branch off the latest `development` branch (`git checkout -b feature/... development`).
+   - Pull requests for ongoing work are opened into `development` (`gh pr create --draft --base development`).
+2. `production`: The pre-release staging and verified baseline branch.
+   - Once features, test suites, and UAT pass all pre-commit verification checks (`uv run pytest`, `build.py`), verified increments are merged from `development` into `production`.
+3. `master`: The stable long-term production release line.
+   - Merged from `production` only when formal major releases are cut and deployed.
+
 ## Chat Turn Instructions
 
-- Artifacts: All artifacts (`implimantation_plan.md`, `walkthrough.md`, etc.) should always be saved in the `./.artifacts` folder in the root of the project.
- - a *subfolder* should be created for the specific action that is being taken; e.g. `/.artifacts/feature-001/` This should **match the git branch from the `production` branch that the feature or fix is being developed on**.
+- Artifacts: All artifacts (`implementation_plan.md`, `walkthrough.md`, etc.) should always be saved in the `./.artifacts` folder in the root of the project.
+ - a *subfolder* should be created for the specific action that is being taken; e.g. `/.artifacts/feature-001/` This should **match the git branch from the `development` branch that the feature or fix is being developed on**.
  - All files should be in **Markdown** format with clear headings and sections.
  - all user feedback for the given turn should be documented as `user_feedback.md` in the artifacts folder. This should be done **before** any code is changed or committed. If no feedback is received, then this file should still be created and documented as such.
