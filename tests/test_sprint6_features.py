@@ -10,8 +10,9 @@ Test suite for Sprint 6 features:
 
 import json
 import time
-import pytest
+import unittest
 from unittest.mock import MagicMock, patch
+import pytest
 from starlette.testclient import TestClient
 
 from kb_web.server import app, config as server_config
@@ -509,4 +510,77 @@ def test_workspaces_crud_and_ide(client: TestClient, auth_cookie):
     assert del_orig.status_code == 200
     del_dup = client.delete(f"/api/workspaces/{dup_id}")
     assert del_dup.status_code == 200
+
+
+def test_workspace_ollama_agent_and_models(client: TestClient, monkeypatch):
+    """Verifies LoggedOllamaClient.generate, workspace models endpoint from /tags, and clean agent error handling."""
+    from kb_web.base import _get_ollama_client
+
+    ollama_c = _get_ollama_client()
+
+    # 1. Verify LoggedOllamaClient.generate works and logs
+    with unittest.mock.patch.object(ollama_c._client, "generate", return_value={"response": "test code generation"}):
+        resp_gen = ollama_c.generate(model="gemma4:latest", prompt="generate hello world")
+        assert resp_gen["response"] == "test code generation"
+
+    # 2. Verify LoggedOllamaClient.__getattr__ delegates to _client
+    assert hasattr(ollama_c, "_client")
+    assert callable(getattr(ollama_c, "list"))
+
+    # 3. Test GET /api/workspaces/models
+    with unittest.mock.patch.object(
+        ollama_c,
+        "list",
+        return_value={"models": [{"model": "gemma4:e4b"}, {"model": "llama3.2:latest"}]},
+    ):
+        with unittest.mock.patch("kb_web.routers.workspaces._get_ollama_client", return_value=ollama_c):
+            models_resp = client.get("/api/workspaces/models")
+            assert models_resp.status_code == 200
+            m_data = models_resp.json()
+            assert m_data["status"] == "success"
+            assert "gemma4:e4b" in m_data["models"]
+            assert "llama3.2:latest" in m_data["models"]
+
+    # 4. Create workspace for agent chat test
+    ws_resp = client.post("/api/workspaces", json={"name": "Ollama Agent Test WS", "template": "empty"})
+    assert ws_resp.status_code == 200
+    ws_id = ws_resp.json()["id"]
+
+    # 5. Test agent chat with successful response
+    mock_chat_resp = unittest.mock.MagicMock()
+    mock_chat_resp.message.content = "Here is my advice on pythonrc.py: you should import rich."
+
+    with unittest.mock.patch.object(ollama_c, "chat", return_value=mock_chat_resp):
+        with unittest.mock.patch("kb_web.routers.workspaces._get_ollama_client", return_value=ollama_c):
+            with unittest.mock.patch("kb_web.routers.workspaces.ensure_model_available"):
+                chat_resp = client.post(
+                    f"/api/workspaces/{ws_id}/agent/chat",
+                    json={"message": "What do you think of my pythonrc.py?", "model": "gemma4:e4b"},
+                )
+                assert chat_resp.status_code == 200
+                res_data = chat_resp.json()
+                assert res_data["status"] == "success"
+                assert "you should import rich" in res_data["reply"]
+                # Must not contain hallucinated fake app.js diff
+                assert "app.js" not in res_data["reply"]
+
+    # 6. Test agent chat with error (no hallucinated mock diffs)
+    with unittest.mock.patch.object(ollama_c, "chat", side_effect=RuntimeError("Connection refused by Ollama")):
+        with unittest.mock.patch.object(ollama_c, "generate", side_effect=RuntimeError("Connection refused by Ollama")):
+            with unittest.mock.patch("kb_web.routers.workspaces._get_ollama_client", return_value=ollama_c):
+                with unittest.mock.patch("kb_web.routers.workspaces.ensure_model_available"):
+                    chat_err_resp = client.post(
+                        f"/api/workspaces/{ws_id}/agent/chat",
+                        json={"message": "Suggest changes", "model": "gemma4:e4b"},
+                    )
+                    assert chat_err_resp.status_code == 200
+                    err_data = chat_err_resp.json()
+                    assert err_data["status"] == "error"
+                    assert "Ollama server connection or execution failed" in err_data["reply"]
+                    # Strictly no fake codeblocks for app.js
+                    assert "```file:app.js" not in err_data["reply"]
+
+    # Clean up workspace
+    client.delete(f"/api/workspaces/{ws_id}")
+
 

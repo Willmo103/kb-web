@@ -268,6 +268,30 @@
           </button>
         </div>
 
+        <!-- Model Selection Subheader (dynamic from /tags) -->
+        <div class="px-3 py-1.5 bg-[#0e1217] border-b border-[#21262d] flex items-center justify-between gap-2 text-[11px]">
+          <div class="flex items-center gap-1 text-slate-400 truncate">
+            <i data-lucide="cpu" class="w-3 h-3 text-indigo-400 shrink-0"></i>
+            <span class="text-[10px] uppercase font-mono tracking-wider">Model:</span>
+          </div>
+          <div class="flex items-center gap-1 flex-1 max-w-[200px]">
+            <select
+              id="workspaceAgentModelSelect"
+              onchange="changeWorkspaceModel(this.value)"
+              class="w-full bg-[#161b22] border border-[#30363d] text-slate-200 text-[11px] rounded px-2 py-0.5 outline-none font-mono focus:border-indigo-500 truncate"
+            >
+              <option value="{{ ollama_model }}">{{ ollama_model }}</option>
+            </select>
+            <button
+              onclick="fetchWorkspaceModels(true)"
+              class="p-1 text-slate-400 hover:text-indigo-300 hover:bg-[#21262d] rounded transition shrink-0"
+              title="Refresh models from Ollama /tags"
+            >
+              <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            </button>
+          </div>
+        </div>
+
         <!-- Chat messages -->
         <div id="aiChatMessages" class="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
           <div class="bg-[#21262d] p-3 rounded-lg border border-[#30363d]">
@@ -474,14 +498,32 @@
         </div>
 
         <div>
-          <label class="block font-medium text-slate-300 mb-1">Model Tag:</label>
-          <input
-            type="text"
-            id="settingOllamaModel"
-            value="{{ ollama_model }}"
-            class="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-slate-200 outline-none font-mono"
-            placeholder="ornith:9b"
-          />
+          <div class="flex items-center justify-between mb-1">
+            <label class="block font-medium text-slate-300">Model Tag:</label>
+            <button
+              type="button"
+              onclick="fetchWorkspaceModels(true)"
+              class="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition"
+            >
+              <i data-lucide="refresh-cw" class="w-3 h-3"></i> Pull from /tags
+            </button>
+          </div>
+          <div class="space-y-1.5">
+            <select
+              id="settingOllamaModelSelect"
+              onchange="syncSettingsModelSelect(this.value)"
+              class="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-slate-200 outline-none font-mono focus:border-indigo-500"
+            >
+              <option value="{{ ollama_model }}">{{ ollama_model }}</option>
+            </select>
+            <input
+              type="text"
+              id="settingOllamaModel"
+              value="{{ ollama_model }}"
+              class="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-slate-200 outline-none font-mono"
+              placeholder="Or enter custom model tag"
+            />
+          </div>
         </div>
       </div>
 
@@ -631,9 +673,10 @@
     let pendingDiff = null;
     let autoSaveTimeout = null;
 
+    let savedWsModel = localStorage.getItem(`ws_model_${WORKSPACE_ID}`);
     let ollamaConfig = {
       url: "{{ ollama_host }}",
-      model: "{{ ollama_model }}",
+      model: savedWsModel || "{{ ollama_model }}",
       temperature: 0.3,
     };
 
@@ -1132,18 +1175,22 @@
         });
 
         const data = await res.json();
-        if (res.ok) {
+        if (res.ok && data.status !== "error") {
           responseBubble.innerHTML = marked.parse(data.reply || "");
           parseAndAttachDiffActions(responseBubble);
           tokenStatus.textContent = "Done";
         } else {
-          throw new Error(data.detail || "Agent call failed");
+          throw new Error(data.reply || data.detail || "Agent call failed");
         }
       } catch (err) {
         console.error("AI Generation failed:", err);
         responseBubble.innerHTML = `
-          <div class="p-2 bg-rose-950/80 border border-rose-800 text-rose-300 rounded text-xs">
-            <b>Agent Error:</b> ${err.message}
+          <div class="p-2.5 bg-rose-950/80 border border-rose-800 text-rose-300 rounded text-xs leading-relaxed">
+            <div class="flex items-center gap-1.5 font-semibold text-rose-200 mb-1">
+              <i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-rose-400"></i>
+              <span>Agent Service Notice</span>
+            </div>
+            ${escapeHtml(err.message)}
           </div>
         `;
         tokenStatus.textContent = "Error";
@@ -1182,49 +1229,67 @@
       const preBlocks = containerEl.querySelectorAll("pre code");
       preBlocks.forEach((codeBlock) => {
         const classAttr = codeBlock.className || "";
-        const match = classAttr.match(/language-file:([^\s]+)/) || codeBlock.innerText.match(/^file:([^\s\n]+)/);
+        let match = classAttr.match(/language-file:([^\s]+)/) || codeBlock.innerText.match(/^file:([^\s\n]+)/);
 
         let targetPath = null;
         let rawContent = codeBlock.innerText;
 
         if (match) {
-          targetPath = match[1];
+          targetPath = match[1].trim();
+          if (rawContent.startsWith("file:")) {
+            rawContent = rawContent.replace(/^file:[^\n]*\n?/, "");
+          }
         } else {
-          const firstLine = rawContent.split("\n")[0].trim();
+          const lines = rawContent.split("\n");
+          const firstLine = lines[0].trim();
           if (firstLine.startsWith("file:")) {
-            targetPath = firstLine.replace("file:", "").trim();
-            rawContent = rawContent.split("\n").slice(1).join("\n");
+            targetPath = firstLine.replace(/^file:\s*/, "").trim();
+            rawContent = lines.slice(1).join("\n");
           }
         }
 
         if (targetPath) {
-          const actionWrap = document.createElement("div");
-          actionWrap.className = "mt-2 p-2 bg-[#090d13] border border-indigo-500/40 rounded flex items-center justify-between gap-2";
-          actionWrap.innerHTML = `
-            <div class="flex items-center gap-1.5 text-[11px] text-indigo-300 font-mono truncate">
-              <i data-lucide="file-check" class="w-3.5 h-3.5 text-emerald-400"></i>
-              <span>Action: <b>${targetPath}</b></span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <button class="review-btn px-2 py-1 bg-[#21262d] hover:bg-[#30363d] text-slate-200 rounded text-[10px] font-medium transition">
-                Review Diff
-              </button>
-              <button class="apply-btn px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-semibold transition flex items-center gap-1">
-                <i data-lucide="check" class="w-3 h-3"></i> Apply
-              </button>
-            </div>
-          `;
-
-          actionWrap.querySelector(".review-btn").onclick = () => openDiffModal(targetPath, rawContent);
-          actionWrap.querySelector(".apply-btn").onclick = async () => {
-            await applyCodeToWorkspace(targetPath, rawContent);
-            actionWrap.querySelector(".apply-btn").innerHTML = `<i data-lucide="check-check" class="w-3 h-3"></i> Applied`;
-            actionWrap.querySelector(".apply-btn").classList.replace("bg-emerald-600", "bg-slate-700");
-            lucide.createIcons();
-          };
-
-          codeBlock.parentElement.after(actionWrap);
+          targetPath = targetPath.replace(/[`"'<>]/g, "").trim();
         }
+
+        // STRICT VALIDATION:
+        // Must have a valid filename with an extension (e.g., script.py, app.js, index.html)
+        // Must NOT be empty, must NOT contain ".." directory traversal, and must NOT be a generic word
+        const hasValidExtension = /^[a-zA-Z0-9_\-\./]+\.[a-zA-Z0-9]{1,10}$/.test(targetPath || "");
+        if (!targetPath || !hasValidExtension || targetPath.includes("..")) {
+          // Normal codeblock or conversational text: DO NOT display diff/action buttons!
+          return;
+        }
+
+        // Update codeblock display content to strip the "file:path" metadata line
+        codeBlock.textContent = rawContent;
+
+        const actionWrap = document.createElement("div");
+        actionWrap.className = "mt-2 p-2 bg-[#090d13] border border-indigo-500/40 rounded flex items-center justify-between gap-2";
+        actionWrap.innerHTML = `
+          <div class="flex items-center gap-1.5 text-[11px] text-indigo-300 font-mono truncate">
+            <i data-lucide="file-check" class="w-3.5 h-3.5 text-emerald-400"></i>
+            <span>Action: <b>${escapeHtml(targetPath)}</b></span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button class="review-btn px-2 py-1 bg-[#21262d] hover:bg-[#30363d] text-slate-200 rounded text-[10px] font-medium transition">
+              Review Diff
+            </button>
+            <button class="apply-btn px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-semibold transition flex items-center gap-1">
+              <i data-lucide="check" class="w-3 h-3"></i> Apply
+            </button>
+          </div>
+        `;
+
+        actionWrap.querySelector(".review-btn").onclick = () => openDiffModal(targetPath, rawContent);
+        actionWrap.querySelector(".apply-btn").onclick = async () => {
+          await applyCodeToWorkspace(targetPath, rawContent);
+          actionWrap.querySelector(".apply-btn").innerHTML = `<i data-lucide="check-check" class="w-3 h-3"></i> Applied`;
+          actionWrap.querySelector(".apply-btn").classList.replace("bg-emerald-600", "bg-slate-700");
+          lucide.createIcons();
+        };
+
+        codeBlock.parentElement.after(actionWrap);
       });
       lucide.createIcons();
     }
@@ -1358,10 +1423,85 @@
 
     function saveOllamaSettings() {
       ollamaConfig.url = document.getElementById("settingOllamaUrl").value.trim();
-      ollamaConfig.model = document.getElementById("settingOllamaModel").value.trim();
-      document.getElementById("ollamaModelName").textContent = `Ollama: ${ollamaConfig.model}`;
+      const modelVal = document.getElementById("settingOllamaModel").value.trim() || "{{ ollama_model }}";
+      changeWorkspaceModel(modelVal);
       closeSettingsModal();
       logConsole(`Saved AI Settings: ${ollamaConfig.model} @ ${ollamaConfig.url}`);
+    }
+
+    async function fetchWorkspaceModels(showAlert = false) {
+      const selectHeader = document.getElementById("workspaceAgentModelSelect");
+      const selectSettings = document.getElementById("settingOllamaModelSelect");
+      const ollamaDot = document.getElementById("ollamaDot");
+
+      try {
+        const res = await fetch("/api/workspaces/models");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const models = data.models || [];
+
+        if (models.length > 0) {
+          if (selectHeader) {
+            selectHeader.innerHTML = "";
+            models.forEach((m) => {
+              const opt = document.createElement("option");
+              opt.value = m;
+              opt.textContent = m;
+              if (m === ollamaConfig.model) opt.selected = true;
+              selectHeader.appendChild(opt);
+            });
+            if (!models.includes(ollamaConfig.model) && ollamaConfig.model) {
+              const customOpt = document.createElement("option");
+              customOpt.value = ollamaConfig.model;
+              customOpt.textContent = `${ollamaConfig.model} (active)`;
+              customOpt.selected = true;
+              selectHeader.insertBefore(customOpt, selectHeader.firstChild);
+            }
+          }
+
+          if (selectSettings) {
+            selectSettings.innerHTML = "";
+            models.forEach((m) => {
+              const opt = document.createElement("option");
+              opt.value = m;
+              opt.textContent = m;
+              if (m === ollamaConfig.model) opt.selected = true;
+              selectSettings.appendChild(opt);
+            });
+          }
+
+          if (ollamaDot) ollamaDot.className = "w-2 h-2 rounded-full bg-emerald-400";
+          if (showAlert) alert(`Found ${models.length} installed Ollama model(s):\n${models.join(", ")}`);
+        } else {
+          if (ollamaDot) ollamaDot.className = "w-2 h-2 rounded-full bg-amber-400";
+          if (showAlert) alert("No models found from Ollama /tags.");
+        }
+      } catch (err) {
+        console.warn("Could not fetch models from /api/workspaces/models:", err);
+        if (ollamaDot) ollamaDot.className = "w-2 h-2 rounded-full bg-rose-500";
+        if (showAlert) alert(`Could not fetch models: ${err.message}`);
+      }
+    }
+
+    function changeWorkspaceModel(newModel) {
+      if (!newModel) return;
+      ollamaConfig.model = newModel.trim();
+      const inputSettings = document.getElementById("settingOllamaModel");
+      if (inputSettings) inputSettings.value = ollamaConfig.model;
+      const selectSettings = document.getElementById("settingOllamaModelSelect");
+      if (selectSettings) selectSettings.value = ollamaConfig.model;
+      const selectHeader = document.getElementById("workspaceAgentModelSelect");
+      if (selectHeader) selectHeader.value = ollamaConfig.model;
+      const modelNameBadge = document.getElementById("ollamaModelName");
+      if (modelNameBadge) modelNameBadge.textContent = `Ollama: ${ollamaConfig.model}`;
+      localStorage.setItem(`ws_model_${WORKSPACE_ID}`, ollamaConfig.model);
+      logConsole(`Active AI Model set to: ${ollamaConfig.model}`);
+    }
+
+    function syncSettingsModelSelect(val) {
+      if (!val) return;
+      const input = document.getElementById("settingOllamaModel");
+      if (input) input.value = val;
     }
 
     function openDocsHelp() {
@@ -1430,6 +1570,8 @@
       initResizers();
       refreshFileTree();
       initializeMonaco();
+      fetchWorkspaceModels(false);
+      changeWorkspaceModel(ollamaConfig.model);
     };
   </script>
 </body>

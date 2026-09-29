@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-09-28
+### Fixed
+- **LoggedOllamaClient Generate & Attribute Delegation (Resolves #73)**:
+  - Implemented `generate(self, *args, **kwargs)` on `LoggedOllamaClient` in `src/kb_web/base.py` with execution duration tracking and logging to `ollama_logs`.
+  - Added `__getattr__(self, name)` delegation to forward unhandled method calls to the underlying `ollama.Client`.
+- **Dynamic Workspace Model Discovery from Ollama `/tags`**:
+  - Added `GET /api/workspaces/models` and `GET /api/workspaces/tags` endpoints in `src/kb_web/routers/workspaces.py` querying installed models via `client.list()`.
+  - Integrated dynamic model selector dropdowns into the workspace IDE (`workspace_ide.j2.html`) in both the AI Assistant subheader and Settings modal, with dynamic reload via Ollama `/tags` and persistent model selection via `localStorage`.
+- **Workspace Agent Chat & Clean Error Handling**:
+  - Updated `workspace_agent_chat_api` in `src/kb_web/routers/workspaces.py` to use structured `client.chat` messages, falling back to `generate`.
+  - Removed simulated fake file modification template (`app.js`) on errors, returning clean error diagnostics and preventing false diff cards from rendering on failure.
+- **Strict Codeblock Diff Action Matching**:
+  - Refined `parseAndAttachDiffActions` in `workspace_ide.j2.html` to strictly validate target file paths (`^[a-zA-Z0-9_\-\./]+\.[a-zA-Z0-9]{1,10}$`), disallow directory traversal tokens (`..`), and ensure valid file extensions.
+  - Suppressed diff action buttons (`[Review Diff]` / `[Apply]`) when the response is conversational or contains standard language codeblocks without explicit file targets.
+  - Cleanly stripped `file:<path>` metadata lines from code block text in chat bubbles.
+
 ## [0.5.0] - 2026-09-28
 ### Added
 - **Global Site-Wide Authentication Guard (Resolves #71)**:

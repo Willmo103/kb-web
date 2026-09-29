@@ -324,6 +324,63 @@ class LoggedOllamaClient:
             )
             raise e
 
+    def generate(self, *args, **kwargs):
+        import traceback
+
+        prompt_type = "generate"
+        model = kwargs.get("model", "")
+        prompt = kwargs.get("prompt", "")
+        options = {k: v for k, v in kwargs.items() if k not in ("model", "prompt")}
+
+        start_time = time.time()
+        try:
+            resp = self._client.generate(*args, **kwargs)
+            duration = time.time() - start_time
+
+            response_content = ""
+            if hasattr(resp, "response"):
+                response_content = resp.response
+            elif isinstance(resp, dict) and "response" in resp:
+                response_content = resp["response"]
+            else:
+                response_content = str(resp)
+
+            self._log_call(
+                prompt_type=prompt_type,
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt[:500] if len(prompt) > 500 else prompt,
+                    }
+                ],
+                options=options,
+                response=response_content,
+                duration=duration,
+                status="success",
+            )
+            return resp
+        except Exception as e:
+            duration = time.time() - start_time
+            self._log_call(
+                prompt_type=prompt_type,
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt[:500] if len(prompt) > 500 else prompt,
+                    }
+                ],
+                options=options,
+                response=f"Error: {e}\n{traceback.format_exc()}",
+                duration=duration,
+                status="failed",
+            )
+            raise e
+
+    def __getattr__(self, name):
+        return getattr(self._client, name)
+
     def _log_call(
         self, prompt_type, model, messages, options, response, duration, status
     ) -> None:
