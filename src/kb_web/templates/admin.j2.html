@@ -68,6 +68,35 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <!-- Left 2 Cols: Main Server & API Configurations -->
             <div class="lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                {% if is_default_password %}
+                <div class="mb-5 bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl">
+                    <div class="flex items-start">
+                        <span class="text-xl mr-3">⚠️</span>
+                        <div>
+                            <h4 class="text-sm font-bold text-red-800">Critical Security Risk: Default Admin Password Active</h4>
+                            <p class="text-xs text-red-700 mt-1">
+                                Your server is currently running with the default password (<code class="bg-red-100 px-1 py-0.5 rounded font-mono font-bold">admin123</code>).
+                                Because this server is accessible on the open internet, please change your password immediately in the <strong>Admin Passcode</strong> panel on the right.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if is_default_api_key %}
+                <div class="mb-5 bg-amber-50 border-l-4 border-amber-500 p-3.5 rounded-r-xl">
+                    <div class="flex items-start">
+                        <span class="text-lg mr-2.5">🛡️</span>
+                        <div>
+                            <h4 class="text-xs font-bold text-amber-800">Security Warning: Default API Key Active</h4>
+                            <p class="text-[11px] text-amber-700 mt-0.5">
+                                The default API key (<code class="bg-amber-100 px-1 py-0.5 rounded font-mono">kb-secret-key</code>) is active. To prevent unauthorized API ingestion, set a unique key below.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
                 <div class="border-b border-gray-100 pb-3 mb-5">
                     <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
                         <span>🔧</span> Server Configurations

@@ -390,26 +390,55 @@ def verify_session_token(token: str) -> bool:
         return False
 
 
-def verify_auth(request: Request) -> None:
-    """Security route guard ensuring requests contain a valid session cookie."""
+def is_request_authenticated(request: Request) -> bool:
+    """Checks whether the request is authenticated via session cookie or authorized API key."""
+    import hmac
+
+    # 1. Check session cookie
     token = request.cookies.get(COOKIE_NAME)
-    if not token or not verify_session_token(token):
-        redirect_url = f"/login?next={quote_plus(str(request.url))}"
-        raise HTTPException(status_code=303, headers={"Location": redirect_url})
+    if token and verify_session_token(token):
+        return True
 
-
-def verify_api_key(request: Request) -> None:
-    """Security guard verifying API Key header matching KB_API_KEY."""
+    # 2. Check API key (for API endpoints or external tools/extensions)
     api_key_header = request.headers.get("X-API-Key")
     if not api_key_header:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
-            api_key_header = auth_header[7:]
-        else:
-            api_key_header = auth_header
+            api_key_header = auth_header[7:].strip()
+        elif auth_header.startswith("ApiKey "):
+            api_key_header = auth_header[7:].strip()
+        elif auth_header:
+            api_key_header = auth_header.strip()
 
-    if config.api_key:
-        if api_key_header != config.api_key:
-            raise HTTPException(
-                status_code=401, detail="Unauthorized: Invalid API key."
-            )
+    if config.api_key and api_key_header and hmac.compare_digest(api_key_header, config.api_key):
+        return True
+
+    return False
+
+
+def verify_auth(request: Request) -> None:
+    """Security route guard ensuring requests contain a valid session cookie or API key."""
+    if is_request_authenticated(request):
+        return
+    redirect_url = f"/login?next={quote_plus(str(request.url))}"
+    raise HTTPException(status_code=303, headers={"Location": redirect_url})
+
+
+def verify_api_key(request: Request) -> None:
+    """Security guard verifying API Key header matching KB_API_KEY."""
+    import hmac
+
+    api_key_header = request.headers.get("X-API-Key")
+    if not api_key_header:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            api_key_header = auth_header[7:].strip()
+        elif auth_header.startswith("ApiKey "):
+            api_key_header = auth_header[7:].strip()
+        elif auth_header:
+            api_key_header = auth_header.strip()
+
+    if not config.api_key or not api_key_header or not hmac.compare_digest(api_key_header, config.api_key):
+        raise HTTPException(
+            status_code=401, detail="Unauthorized: Invalid API key."
+        )

@@ -63,14 +63,24 @@ class ParsedUrl(BaseModel):
             ParsedUrl: Instance containing parsed URL attributes.
         """
         parsed = urlparse(url)
+        try:
+            port = parsed.port
+        except (ValueError, TypeError):
+            port = None
+
+        try:
+            hostname = parsed.hostname
+        except (ValueError, TypeError):
+            hostname = None
+
         return cls(
             scheme=parsed.scheme,
             netloc=parsed.netloc,
             path=parsed.path,
             fragments=parsed.fragment,
             query=parsed.query,
-            port=parsed.port,
-            hostname=parsed.hostname,
+            port=port,
+            hostname=hostname,
         )
 
 

@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-28
+### Added
+- **Global Site-Wide Authentication Guard (Resolves #71)**:
+  - Enforced full-site authentication gating across all web UI routes (`/`, `/pages`, `/view/page`, `/notes`, `/workspaces`, `/similarity/...`, `/conversations`, `/reports`, `/collections`, `/links`, etc.). Unauthenticated users are redirected with HTTP 303 to `/login?next={url}`.
+  - Restricted public allowlist strictly to: `/login`, `/logout`, `/favicon.ico`, `/icon.png`, `/manifest.json`, and `/sw.js`.
+  - Added REST and internal API gating requiring either an authenticated session cookie or valid API key (`X-API-Key` or `Authorization: Bearer <key>`), returning standard 401 Unauthorized JSON error responses for unauthenticated requests.
+  - Added media asset route guard rejecting unauthenticated requests to `/media/...` with 401 Unauthorized.
+  - Preserved login return redirection via `next` query parameter after successful authentication.
+- **Brute-Force Login Rate Limiting**:
+  - Implemented thread-safe sliding-window rate limiter on `POST /login` tracking failed authentication attempts per client IP. Exceeding 5 failures within a 60-second window triggers an immediate HTTP 429 Too Many Requests response.
+- **HTTP Security Headers Middleware**:
+  - Automatically injected standard enterprise security headers across all responses: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection: 1; mode=block`, and `Referrer-Policy: strict-origin-when-cross-origin`.
+- **Dynamic HTTPS Session Cookie Security**:
+  - Enabled dynamic detection of secure connections via `request.url.scheme == "https"` or reverse-proxy `X-Forwarded-Proto: https` header, automatically setting the `Secure=True` cookie attribute when running behind HTTPS/TLS proxies.
+- **Path Traversal & ZipSlip Safeguards**:
+  - Hardened Obsidian vault archive extraction (`POST /api/notes/upload-vault`) against ZipSlip directory traversal vulnerabilities by disallowing path traversal tokens and validating canonical destination boundaries.
+  - Enforced strict path sanitization on virtual workspace file CRUD endpoints (`/api/workspaces/...`).
+- **Default Credential Posture Warnings**:
+  - Added server boot-time security checks warning administrators in application logs if default development secrets (`admin123` or `kb-secret-key`) remain active.
+  - Added visual security alert banners in the Admin Portal General tab alerting users to change default passwords and API keys.
+- **Comprehensive Security Test Suite**:
+  - Added dedicated test suite `tests/test_security_hardening.py` verifying full-site route gating, API key authentication, login brute-force rate limiting, security headers, ZipSlip prevention, and session cookie properties.
+
+### Changed
+- Refactored `base.py` authentication helpers to use constant-time `hmac.compare_digest` to prevent side-channel timing attacks.
+- Updated `base.j2.html` navigation header to hide internal application navigation links for unauthenticated sessions, rendering a minimal gateway header instead.
+- Hardened `ParsedUrl.from_url` in `models.py` against malformed port casting exceptions on non-standard URLs and Windows local path schemes.
+
 ## [0.4.0] - 2026-09-18
 ### Added
 - **Main Page Semantic RAG Chunk Search Across Articles & Videos (Resolves #62)**:

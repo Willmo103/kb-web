@@ -9,6 +9,7 @@ Test suite for Sprint 6 features:
 """
 
 import json
+import time
 import pytest
 from unittest.mock import MagicMock, patch
 from starlette.testclient import TestClient
@@ -20,7 +21,9 @@ from kb_web.models_orm import FetchedPage, ChunkEmbedding, Note, ChatConversatio
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    from kb_web.base import COOKIE_NAME, generate_session_token
+    token = generate_session_token(time.time() + 3600)
+    return TestClient(app, cookies={COOKIE_NAME: token})
 
 
 @pytest.fixture

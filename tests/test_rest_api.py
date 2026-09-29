@@ -36,7 +36,9 @@ def mock_gotify(monkeypatch):
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    import time
+    token = generate_session_token(time.time() + 3600)
+    return TestClient(app, cookies={COOKIE_NAME: token})
 
 
 def test_list_articles_and_pagination(client: TestClient):
