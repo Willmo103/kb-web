@@ -49,6 +49,19 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 
 ---
 
+## Git Branching & Release Lifecycle
+
+The repository uses a 3-tier branch architecture to guarantee stability and reliable releases:
+1. **`development`**: Primary trunk branch for active day-to-day feature work.
+   - All feature, bugfix, and sprint branches (`feature/...`, `fix/...`) branch off `development`.
+   - Work is submitted via draft PRs targeting `development`.
+2. **`production`**: Pre-release staging and verified production baseline.
+   - Merged from `development` once all automated test suites, UI component checks, and UAT pass cleanly.
+3. **`master`**: Long-term stable release line.
+   - Merged from `production` when major, tagged milestone releases are cut.
+
+---
+
 ## Security & Hardening Architecture
 
 When deployed to public networks or the open internet, `kb-web` enforces multi-layer defense-in-depth security controls:
