@@ -1,0 +1,1021 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Custom Reports & Data Grid - Knowledge Base{% endblock %}
+
+{% block extra_head %}
+<style>
+    .grid-cell-heavy {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 0.375rem;
+        font-size: 0.7rem;
+        font-weight: 600;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        background-color: #EEF2FF;
+        color: #4338CA;
+        border: 1px solid #C7D2FE;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    .grid-cell-heavy:hover {
+        background-color: #E0E7FF;
+        border-color: #A5B4FC;
+    }
+    .sticky-header th {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: #F9FAFB;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 max-w-[98%] w-full pb-16">
+
+    <!-- Top Breadcrumb & Actions Bar -->
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 mb-6">
+        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-gray-100">
+            <div>
+                <h1 class="text-2xl lg:text-3xl font-extrabold text-gray-900 tracking-tight flex items-center gap-3">
+                    <span>📊</span> Custom Reports & ERP Data Grid
+                </h1>
+                <p class="text-xs text-gray-500 mt-1">Design ad-hoc queries across database entities, configure table joins, apply multi-attribute filters, and stream exports.</p>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-2">
+                <!-- Saved Views Selector -->
+                <div class="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5 shadow-sm">
+                    <label for="savedViewSelect" class="text-xs font-bold text-gray-600 whitespace-nowrap">📂 Saved View:</label>
+                    <select id="savedViewSelect" onchange="loadSavedView(this.value)" class="text-xs font-semibold bg-white border border-gray-300 rounded-lg px-2.5 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                        <option value="">-- Custom Ad-Hoc View --</option>
+                        {% for v in saved_views %}
+                        <option value="{{ v.id }}">{{ v.name }} ({{ v.base_table }})</option>
+                        {% endfor %}
+                    </select>
+                    <button type="button" onclick="openSaveViewModal()" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 px-2 py-1 hover:bg-indigo-50 rounded-lg transition" title="Save current configuration">
+                        💾 Save
+                    </button>
+                    <button type="button" onclick="deleteCurrentSavedView()" id="btnDeleteView" class="text-xs font-bold text-red-600 hover:text-red-800 px-2 py-1 hover:bg-red-50 rounded-lg transition hidden" title="Delete this saved view">
+                        🗑️
+                    </button>
+                </div>
+
+                <!-- Export Action Dropdown / Buttons -->
+                <div class="inline-flex rounded-xl shadow-sm border border-gray-200 bg-white p-0.5">
+                    <button type="button" onclick="triggerExport('xlsx')" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50 rounded-lg transition">
+                        <span>📗</span> Excel (.xlsx)
+                    </button>
+                    <button type="button" onclick="triggerExport('csv')" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-50 rounded-lg transition">
+                        <span>📄</span> CSV
+                    </button>
+                    <button type="button" onclick="triggerExport('json')" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-50 rounded-lg transition">
+                        <span>📦</span> JSON
+                    </button>
+                </div>
+
+                <button type="button" onclick="openScheduleJobModal()" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl transition shadow-sm">
+                    <span>⏰</span> Schedule Job
+                </button>
+            </div>
+        </div>
+
+        <!-- Query Configuration Toolbar -->
+        <div class="pt-4 space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <!-- Base Table -->
+                <div>
+                    <label for="baseTableSelect" class="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">Base Entity / Table</label>
+                    <select id="baseTableSelect" onchange="onBaseTableChange(this.value)" class="block w-full text-xs font-bold bg-gray-50 border border-gray-300 rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                        {% for tkey, tinfo in tables_meta.items() %}
+                        <option value="{{ tkey }}">{{ tinfo.label }} ({{ tkey }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Column Picker Trigger -->
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">Visible Columns</label>
+                    <button type="button" onclick="toggleColumnPicker()" class="w-full flex items-center justify-between text-xs font-semibold bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded-xl p-2.5 transition">
+                        <span id="colPickerSummary" class="truncate font-mono">4 columns selected</span>
+                        <span>▼</span>
+                    </button>
+                </div>
+
+                <!-- Sort By & Direction -->
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">Sort Field & Order</label>
+                    <div class="flex gap-2">
+                        <select id="sortBySelect" class="flex-1 text-xs font-mono bg-gray-50 border border-gray-300 rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500">
+                            <!-- Populated dynamically -->
+                        </select>
+                        <select id="sortOrderSelect" class="w-24 text-xs font-bold bg-gray-50 border border-gray-300 rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500">
+                            <option value="desc">DESC</option>
+                            <option value="asc">ASC</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Group By & Run Button -->
+                <div class="flex gap-2">
+                    <div class="flex-1">
+                        <label for="groupBySelect" class="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">Group By (Optional)</label>
+                        <select id="groupBySelect" class="w-full text-xs font-mono bg-gray-50 border border-gray-300 rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500">
+                            <option value="">None (Flat Records)</option>
+                        </select>
+                    </div>
+                    <div class="pt-5">
+                        <button type="button" onclick="runReportQuery(0)" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-sm transition flex items-center gap-1.5 h-[38px]">
+                            <span>⚡</span> Run Query
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Joins Badges Bar -->
+            <div class="flex items-center gap-2 flex-wrap text-xs pt-1">
+                <span class="font-bold text-gray-500 uppercase tracking-wider text-[10px]">Table Joins:</span>
+                <div id="joinBadgesContainer" class="flex items-center gap-1.5 flex-wrap">
+                    <!-- Populated dynamically based on base table -->
+                </div>
+            </div>
+
+            <!-- Dynamic Filters Builder -->
+            <div class="bg-gray-50 rounded-xl border border-gray-200 p-3.5 space-y-2.5">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                        <span>🔍</span> Filter Conditions (<span id="filterCountBadge">0</span> active)
+                    </span>
+                    <button type="button" onclick="addFilterRow()" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-white hover:bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg transition shadow-sm">
+                        + Add Condition
+                    </button>
+                </div>
+                <div id="filterRowsContainer" class="space-y-2">
+                    <!-- Filter rows appended dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Column Picker Dropdown Modal / Popover -->
+    <div id="columnPickerPopover" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl border border-gray-200 w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-fade-in">
+            <div class="px-5 py-3.5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                <div>
+                    <h3 class="text-sm font-bold text-gray-900">Select Visible Columns</h3>
+                    <p class="text-[11px] text-gray-500">Pick columns to display in data grid and include in exports.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="selectAllColumns(true)" class="text-[11px] text-indigo-600 font-bold hover:underline">Select All</button>
+                    <span class="text-gray-300">|</span>
+                    <button type="button" onclick="selectAllColumns(false)" class="text-[11px] text-gray-500 font-bold hover:underline">Clear</button>
+                    <button type="button" onclick="toggleColumnPicker()" class="text-gray-400 hover:text-gray-600 font-bold p-1 rounded-lg ml-2">✕</button>
+                </div>
+            </div>
+            <div class="p-5 overflow-y-auto space-y-4 flex-grow" id="columnCheckboxesList">
+                <!-- Grouped column checkboxes dynamically rendered -->
+            </div>
+            <div class="px-5 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
+                <span class="text-[11px] text-indigo-600 font-semibold" id="selectedCountFooter">4 columns selected</span>
+                <button type="button" onclick="applyColumnSelection()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition shadow-sm">
+                    Apply Columns
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Grid Panel -->
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+        <!-- Grid Header Stats -->
+        <div class="px-5 py-3 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div class="flex items-center gap-3 text-xs text-gray-600 font-medium">
+                <span class="font-bold text-gray-800" id="totalRecordsLabel">0 records found</span>
+                <span class="text-gray-300">•</span>
+                <span id="pageSummaryLabel">Page 1</span>
+                <span class="text-gray-300">•</span>
+                <span class="text-gray-400 text-[11px] italic">💡 Heavy columns (HTML, Markdown, Vectors) are represented by placeholder badges to ensure instant rendering.</span>
+            </div>
+            
+            <div class="flex items-center gap-2">
+                <label for="pageSizeSelect" class="text-xs text-gray-500">Rows per page:</label>
+                <select id="pageSizeSelect" onchange="runReportQuery(0)" class="text-xs font-semibold bg-white border border-gray-300 rounded-lg px-2 py-1">
+                    <option value="25">25</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                    <option value="250">250</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Interactive Grid Scrollable Area -->
+        <div class="overflow-x-auto min-h-[350px] max-h-[650px] relative" id="gridContainer">
+            <table class="min-w-full text-xs text-left divide-y divide-gray-100" id="reportsDataTable">
+                <thead class="bg-gray-50 sticky-header font-mono text-[11px] text-gray-600 uppercase tracking-wider border-b border-gray-200">
+                    <tr id="gridHeaderRow">
+                        <th class="py-3 px-4">#</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 font-sans" id="gridBody">
+                    <tr>
+                        <td colspan="10" class="py-12 text-center text-gray-400 italic">
+                            Click "Run Query" above or select a Saved View to populate the data grid.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination Controls -->
+        <div class="px-5 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
+            <button type="button" onclick="changePage(-1)" id="btnPrevPage" disabled class="px-3.5 py-1.5 text-xs font-bold bg-white border border-gray-300 text-gray-700 rounded-xl transition shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+                ← Previous
+            </button>
+            <div class="text-xs text-gray-600 font-semibold" id="paginationInfo">
+                Page 1 of 1
+            </div>
+            <button type="button" onclick="changePage(1)" id="btnNextPage" disabled class="px-3.5 py-1.5 text-xs font-bold bg-white border border-gray-300 text-gray-700 rounded-xl transition shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+                Next →
+            </button>
+        </div>
+    </div>
+
+    <!-- Scheduled Export Jobs Section -->
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mt-6">
+        <div class="flex justify-between items-center border-b border-gray-100 pb-3 mb-4">
+            <div>
+                <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                    <span>⏰</span> Recurring Scheduled Report Jobs
+                </h3>
+                <p class="text-xs text-gray-500">Scheduled exports execute in the background and archive results to <code>~/.kb/reports_export/</code>.</p>
+            </div>
+            <button type="button" onclick="openScheduleJobModal()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold px-3 py-1.5 rounded-xl transition shadow-sm">
+                + New Scheduled Job
+            </button>
+        </div>
+
+        {% if schedules %}
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-xs text-left">
+                <thead class="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wider border-b border-gray-100 font-mono">
+                    <tr>
+                        <th class="py-2.5 px-3">Job Name</th>
+                        <th class="py-2.5 px-3">Format</th>
+                        <th class="py-2.5 px-3">Cron Schedule</th>
+                        <th class="py-2.5 px-3">Destination</th>
+                        <th class="py-2.5 px-3">Last Run</th>
+                        <th class="py-2.5 px-3 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for s in schedules %}
+                    <tr class="hover:bg-gray-50/70 transition">
+                        <td class="py-2 px-3 font-bold text-gray-800">{{ s.name }}</td>
+                        <td class="py-2 px-3 font-mono uppercase font-bold text-indigo-600">{{ s.export_format }}</td>
+                        <td class="py-2 px-3 font-mono text-gray-600">{{ s.schedule_cron }}</td>
+                        <td class="py-2 px-3 font-mono text-gray-500 truncate max-w-xs">{{ s.destination_path }}</td>
+                        <td class="py-2 px-3 text-gray-500">{{ s.last_run_at or 'Never' }}</td>
+                        <td class="py-2 px-3 text-right space-x-2">
+                            <button type="button" onclick="runJobNow({{ s.id }})" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold px-2 py-1 rounded-lg text-xs transition shadow-sm">
+                                🚀 Run Now
+                            </button>
+                            <button type="button" onclick="deleteJob({{ s.id }})" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold px-2 py-1 rounded-lg text-xs transition shadow-sm">
+                                🗑️
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-xs text-gray-400 italic py-4 text-center">No recurring export jobs registered.</p>
+        {% endif %}
+    </div>
+
+</div>
+
+<!-- Modal: Save View -->
+<div id="saveViewModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl border border-gray-200 w-full max-w-md shadow-2xl overflow-hidden animate-fade-in p-6">
+        <h3 class="text-base font-bold text-gray-900 mb-2">💾 Save Report View</h3>
+        <p class="text-xs text-gray-500 mb-4">Save the current table joins, columns, filters, and sorting criteria for quick re-use.</p>
+        <div class="space-y-3">
+            <div>
+                <label for="viewNameInput" class="block text-xs font-bold text-gray-700 mb-1">View Name</label>
+                <input type="text" id="viewNameInput" placeholder="e.g. YouTube Videos with Transcripts" class="w-full text-xs border border-gray-300 rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500" required />
+            </div>
+            <div>
+                <label for="viewDescInput" class="block text-xs font-bold text-gray-700 mb-1">Description (Optional)</label>
+                <textarea id="viewDescInput" rows="2" placeholder="Brief summary of what this report analyzes..." class="w-full text-xs border border-gray-300 rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500"></textarea>
+            </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-6 pt-4 border-t border-gray-100">
+            <button type="button" onclick="closeSaveViewModal()" class="px-4 py-2 text-xs font-bold bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl transition">
+                Cancel
+            </button>
+            <button type="button" onclick="submitSaveView()" class="px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition shadow-sm">
+                Save View
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Schedule Job -->
+<div id="scheduleJobModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl border border-gray-200 w-full max-w-md shadow-2xl overflow-hidden animate-fade-in p-6">
+        <h3 class="text-base font-bold text-gray-900 mb-2">⏰ Schedule Recurring Export</h3>
+        <p class="text-xs text-gray-500 mb-4">Automatically export this report to the server reports directory on a recurring schedule.</p>
+        <div class="space-y-3">
+            <div>
+                <label for="jobNameInput" class="block text-xs font-bold text-gray-700 mb-1">Job Name</label>
+                <input type="text" id="jobNameInput" placeholder="e.g. Daily Library Catalog Export" class="w-full text-xs border border-gray-300 rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500" required />
+            </div>
+            <div>
+                <label for="jobFormatSelect" class="block text-xs font-bold text-gray-700 mb-1">Export Format</label>
+                <select id="jobFormatSelect" class="w-full text-xs border border-gray-300 rounded-xl p-2.5">
+                    <option value="xlsx">Excel Workbook (.xlsx)</option>
+                    <option value="csv">CSV File (.csv)</option>
+                    <option value="json">JSON Document (.json)</option>
+                </select>
+            </div>
+            <div>
+                <label for="jobCronInput" class="block text-xs font-bold text-gray-700 mb-1">Cron Expression</label>
+                <input type="text" id="jobCronInput" value="0 0 * * *" class="w-full text-xs font-mono border border-gray-300 rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-500" />
+                <p class="text-[10px] text-gray-400 mt-0.5 font-mono">Default: '0 0 * * *' (Every night at midnight)</p>
+            </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-6 pt-4 border-t border-gray-100">
+            <button type="button" onclick="closeScheduleJobModal()" class="px-4 py-2 text-xs font-bold bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl transition">
+                Cancel
+            </button>
+            <button type="button" onclick="submitScheduleJob()" class="px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition shadow-sm">
+                Create Schedule
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Cell Detail Viewer (for heavy content drilldown) -->
+<div id="cellDetailModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl border border-gray-200 w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-fade-in">
+        <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+            <h3 class="text-sm font-bold text-gray-900" id="cellDetailTitle">Field Inspection</h3>
+            <button type="button" onclick="closeCellDetailModal()" class="text-gray-400 hover:text-gray-600 font-bold p-1 rounded-lg">✕</button>
+        </div>
+        <div class="p-6 overflow-y-auto space-y-3 flex-grow">
+            <pre id="cellDetailContent" class="text-xs font-mono bg-gray-50 p-4 rounded-xl border border-gray-200 whitespace-pre-wrap max-h-[60vh] overflow-y-auto leading-relaxed"></pre>
+        </div>
+        <div class="px-6 py-3 border-t border-gray-100 bg-gray-50 flex justify-end">
+            <button type="button" onclick="closeCellDetailModal()" class="px-4 py-2 text-xs font-bold bg-gray-900 hover:bg-black text-white rounded-xl transition shadow-sm">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Dynamic Reports Controller Script -->
+<script>
+    const TABLE_META = {{ tables_meta | tojson }};
+    const HEAVY_COLS = new Set({{ heavy_columns | tojson }});
+    
+    let currentBaseTable = "items";
+    let activeJoins = new Set();
+    let selectedColumns = ["items.id", "items.title", "items.source_type", "items.created_at"];
+    let filterConditions = [];
+    let currentOffset = 0;
+    let currentLimit = 50;
+    let totalRecords = 0;
+    let lastQueryRows = [];
+
+    document.addEventListener("DOMContentLoaded", () => {
+        initBaseTableUI("items");
+        runReportQuery(0);
+    });
+
+    function initBaseTableUI(tableKey) {
+        currentBaseTable = tableKey;
+        activeJoins.clear();
+        
+        // Populate joins badges
+        const joinContainer = document.getElementById("joinBadgesContainer");
+        joinContainer.innerHTML = "";
+        const allowable = TABLE_META[tableKey]?.allowable_joins || [];
+        
+        if (allowable.length === 0) {
+            joinContainer.innerHTML = `<span class="text-gray-400 italic text-[11px]">No allowable joins for this table.</span>`;
+        } else {
+            allowable.forEach(jKey => {
+                const badge = document.createElement("button");
+                badge.type = "button";
+                badge.id = `join-badge-${jKey}`;
+                badge.className = "px-2.5 py-1 rounded-lg border text-xs font-semibold transition flex items-center gap-1 bg-gray-100 text-gray-700 border-gray-300 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300";
+                badge.innerHTML = `<span>+</span> <span>${TABLE_META[jKey]?.label || jKey}</span>`;
+                badge.onclick = () => toggleJoin(jKey);
+                joinContainer.appendChild(badge);
+            });
+        }
+
+        // Reset columns to defaults for base table
+        selectedColumns = [
+            `${tableKey}.id`,
+            ...(TABLE_META[tableKey].columns.slice(1, 4).map(c => `${tableKey}.${c.name}`))
+        ];
+
+        renderColumnPicker();
+        updateSortAndGroupOptions();
+        updateColPickerSummary();
+    }
+
+    function toggleJoin(joinKey) {
+        const badge = document.getElementById(`join-badge-${joinKey}`);
+        if (activeJoins.has(joinKey)) {
+            activeJoins.delete(joinKey);
+            badge.className = "px-2.5 py-1 rounded-lg border text-xs font-semibold transition flex items-center gap-1 bg-gray-100 text-gray-700 border-gray-300 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300";
+            badge.innerHTML = `<span>+</span> <span>${TABLE_META[joinKey]?.label || joinKey}</span>`;
+            // Remove columns from this join
+            selectedColumns = selectedColumns.filter(c => !c.startsWith(`${joinKey}.`));
+        } else {
+            activeJoins.add(joinKey);
+            badge.className = "px-2.5 py-1 rounded-lg border text-xs font-bold transition flex items-center gap-1 bg-indigo-600 text-white border-indigo-600 shadow-sm";
+            badge.innerHTML = `<span>✔</span> <span>${TABLE_META[joinKey]?.label || joinKey}</span>`;
+        }
+        renderColumnPicker();
+        updateSortAndGroupOptions();
+        updateColPickerSummary();
+    }
+
+    function onBaseTableChange(newBase) {
+        initBaseTableUI(newBase);
+        runReportQuery(0);
+    }
+
+    function renderColumnPicker() {
+        const list = document.getElementById("columnCheckboxesList");
+        list.innerHTML = "";
+
+        const tablesToInclude = [currentBaseTable, ...Array.from(activeJoins)];
+        
+        tablesToInclude.forEach(tbl => {
+            const group = document.createElement("div");
+            group.className = "border border-gray-200 rounded-xl p-3 bg-gray-50/50";
+            
+            const title = document.createElement("h4");
+            title.className = "text-xs font-bold text-gray-800 uppercase tracking-wider mb-2 flex items-center justify-between";
+            title.innerHTML = `<span>📁 ${TABLE_META[tbl]?.label || tbl}</span> <span class="text-[10px] text-gray-400 font-mono">${tbl}</span>`;
+            group.appendChild(title);
+
+            const grid = document.createElement("div");
+            grid.className = "grid grid-cols-1 sm:grid-cols-2 gap-2";
+
+            TABLE_META[tbl].columns.forEach(col => {
+                const colKey = `${tbl}.${col.name}`;
+                const label = document.createElement("label");
+                label.className = "flex items-center gap-2 text-xs font-medium text-gray-700 cursor-pointer hover:text-indigo-600";
+                
+                const isChecked = selectedColumns.includes(colKey);
+                label.innerHTML = `
+                    <input type="checkbox" value="${colKey}" class="col-picker-cb rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" ${isChecked ? 'checked' : ''} onchange="onColCheckboxChange(this)">
+                    <span>${col.label}</span>
+                    ${col.is_heavy ? '<span class="text-[9px] font-bold text-indigo-500 bg-indigo-50 px-1 rounded border border-indigo-200">Heavy</span>' : ''}
+                `;
+                grid.appendChild(label);
+            });
+
+            group.appendChild(grid);
+            list.appendChild(group);
+        });
+
+        document.getElementById("selectedCountFooter").innerText = `${selectedColumns.length} columns selected`;
+    }
+
+    function onColCheckboxChange(cb) {
+        if (cb.checked) {
+            if (!selectedColumns.includes(cb.value)) selectedColumns.push(cb.value);
+        } else {
+            selectedColumns = selectedColumns.filter(c => c !== cb.value);
+        }
+        document.getElementById("selectedCountFooter").innerText = `${selectedColumns.length} columns selected`;
+    }
+
+    function selectAllColumns(selectAll) {
+        document.querySelectorAll(".col-picker-cb").forEach(cb => {
+            cb.checked = selectAll;
+            onColCheckboxChange(cb);
+        });
+    }
+
+    function applyColumnSelection() {
+        toggleColumnPicker();
+        updateColPickerSummary();
+        updateSortAndGroupOptions();
+        runReportQuery(0);
+    }
+
+    function toggleColumnPicker() {
+        const pop = document.getElementById("columnPickerPopover");
+        pop.classList.toggle("hidden");
+    }
+
+    function updateColPickerSummary() {
+        document.getElementById("colPickerSummary").innerText = `${selectedColumns.length} columns selected`;
+    }
+
+    function updateSortAndGroupOptions() {
+        const sortSelect = document.getElementById("sortBySelect");
+        const groupSelect = document.getElementById("groupBySelect");
+        const prevSort = sortSelect.value;
+        const prevGroup = groupSelect.value;
+
+        sortSelect.innerHTML = "";
+        groupSelect.innerHTML = '<option value="">None (Flat Records)</option>';
+
+        selectedColumns.forEach(col => {
+            const opt1 = document.createElement("option");
+            opt1.value = col;
+            opt1.innerText = col;
+            sortSelect.appendChild(opt1);
+
+            const opt2 = document.createElement("option");
+            opt2.value = col;
+            opt2.innerText = col;
+            groupSelect.appendChild(opt2);
+        });
+
+        if (selectedColumns.includes(prevSort)) sortSelect.value = prevSort;
+        if (selectedColumns.includes(prevGroup)) groupSelect.value = prevGroup;
+    }
+
+    // Dynamic Filter Rows
+    function addFilterRow(initCol = null, initOp = "contains", initVal = "") {
+        const container = document.getElementById("filterRowsContainer");
+        const rowId = "filter-row-" + Date.now() + Math.random().toString(36).substring(2, 6);
+
+        const row = document.createElement("div");
+        row.id = rowId;
+        row.className = "flex items-center gap-2 flex-wrap text-xs bg-white p-2 rounded-lg border border-gray-200 shadow-sm";
+
+        // Columns dropdown
+        const colSelect = document.createElement("select");
+        colSelect.className = "filter-col text-xs font-mono border border-gray-300 rounded-lg p-1.5 focus:ring-1 focus:ring-indigo-500";
+        
+        const tablesToInclude = [currentBaseTable, ...Array.from(activeJoins)];
+        tablesToInclude.forEach(tbl => {
+            TABLE_META[tbl].columns.forEach(col => {
+                const opt = document.createElement("option");
+                opt.value = `${tbl}.${col.name}`;
+                opt.innerText = `${tbl}.${col.name} (${col.label})`;
+                colSelect.appendChild(opt);
+            });
+        });
+        if (initCol) colSelect.value = initCol;
+
+        // Operator dropdown
+        const opSelect = document.createElement("select");
+        opSelect.className = "filter-op text-xs border border-gray-300 rounded-lg p-1.5 font-semibold";
+        opSelect.innerHTML = `
+            <option value="contains">contains</option>
+            <option value="eq">equals (=)</option>
+            <option value="neq">not equals (!=)</option>
+            <option value="not_contains">not contains</option>
+            <option value="gt">greater than (&gt;)</option>
+            <option value="lt">less than (&lt;)</option>
+            <option value="is_null">is empty (null)</option>
+            <option value="is_not_null">is not empty</option>
+        `;
+        if (initOp) opSelect.value = initOp;
+
+        // Value Input
+        const valInput = document.createElement("input");
+        valInput.type = "text";
+        valInput.className = "filter-val flex-1 min-w-[140px] text-xs border border-gray-300 rounded-lg p-1.5 focus:ring-1 focus:ring-indigo-500";
+        valInput.placeholder = "Filter value...";
+        if (initVal) valInput.value = initVal;
+
+        // Delete button
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "text-red-500 hover:text-red-700 font-bold px-2 py-1";
+        delBtn.innerHTML = "✕";
+        delBtn.onclick = () => {
+            row.remove();
+            updateFilterCount();
+        };
+
+        row.appendChild(colSelect);
+        row.appendChild(opSelect);
+        row.appendChild(valInput);
+        row.appendChild(delBtn);
+        container.appendChild(row);
+        updateFilterCount();
+    }
+
+    function updateFilterCount() {
+        const count = document.querySelectorAll("#filterRowsContainer > div").length;
+        document.getElementById("filterCountBadge").innerText = count;
+    }
+
+    function collectFilterConditions() {
+        const rows = document.querySelectorAll("#filterRowsContainer > div");
+        const filters = [];
+        rows.forEach(r => {
+            const col = r.querySelector(".filter-col").value;
+            const op = r.querySelector(".filter-op").value;
+            const val = r.querySelector(".filter-val").value.trim();
+            if (col) {
+                filters.push({ column: col, operator: op, value: val });
+            }
+        });
+        return filters;
+    }
+
+    // Run Query Engine
+    function runReportQuery(offset = 0) {
+        currentOffset = offset;
+        currentLimit = parseInt(document.getElementById("pageSizeSelect").value) || 50;
+
+        const filters = collectFilterConditions();
+        const sortBy = document.getElementById("sortBySelect").value || `${currentBaseTable}.id`;
+        const sortOrder = document.getElementById("sortOrderSelect").value || "desc";
+        const groupBy = document.getElementById("groupBySelect").value || null;
+
+        const payload = {
+            base_table: currentBaseTable,
+            columns: selectedColumns,
+            joins: Array.from(activeJoins),
+            filters: filters,
+            sort_by: sortBy,
+            sort_order: sortOrder,
+            group_by: groupBy,
+            limit: currentLimit,
+            offset: currentOffset,
+            fetch_heavy: false // Always lightweight placeholders for responsive data grid browsing!
+        };
+
+        const tbody = document.getElementById("gridBody");
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="15" class="py-12 text-center text-indigo-600 font-bold text-xs">
+                    <span class="inline-block animate-spin mr-2">⚙️</span> Executing ERP query & aggregating rows...
+                </td>
+            </tr>
+        `;
+
+        fetch("/api/reports/query", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        })
+        .then(async res => {
+            const data = await res.json().catch(() => null);
+            if (!res.ok) {
+                const errDetail = data && (data.detail || data.error) ? (data.detail || data.error) : `Query error (HTTP ${res.status})`;
+                throw new Error(errDetail);
+            }
+            return data;
+        })
+        .then(data => {
+            totalRecords = data.total_count || 0;
+            lastQueryRows = data.rows || [];
+            renderDataGrid(data.columns, data.rows, groupBy);
+            updatePaginationUI();
+        })
+        .catch(err => {
+            console.error("Report query error:", err);
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="15" class="py-12 text-center text-red-600 text-xs font-bold">
+                        Failed to execute report query: ${escapeHtml(err.message)}
+                    </td>
+                </tr>
+            `;
+        });
+    }
+
+    function renderDataGrid(columns, rows, groupBy = null) {
+        const headerRow = document.getElementById("gridHeaderRow");
+        headerRow.innerHTML = `<th class="py-3 px-3 text-gray-400 font-mono w-10">#</th>`;
+        
+        columns.forEach(col => {
+            const th = document.createElement("th");
+            th.className = "py-3 px-4 cursor-pointer hover:bg-gray-100 transition whitespace-nowrap select-none";
+            th.innerHTML = `${col} <span class="text-gray-300 text-[10px]">↕</span>`;
+            th.onclick = () => {
+                const sortSelect = document.getElementById("sortBySelect");
+                const orderSelect = document.getElementById("sortOrderSelect");
+                if (sortSelect.value === col) {
+                    orderSelect.value = orderSelect.value === "asc" ? "desc" : "asc";
+                } else {
+                    sortSelect.value = col;
+                    orderSelect.value = "desc";
+                }
+                runReportQuery(0);
+            };
+            headerRow.appendChild(th);
+        });
+
+        const tbody = document.getElementById("gridBody");
+        tbody.innerHTML = "";
+
+        if (!rows || rows.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="${columns.length + 1}" class="py-12 text-center text-gray-400 italic">
+                        No matching records found for this query filter.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        let lastGroupVal = undefined;
+
+        rows.forEach((r, idx) => {
+            // Group Header Row if grouped
+            if (groupBy && r[groupBy] !== undefined) {
+                const currentGroupVal = String(r[groupBy] ?? "(empty)");
+                if (currentGroupVal !== lastGroupVal) {
+                    lastGroupVal = currentGroupVal;
+                    const groupTr = document.createElement("tr");
+                    groupTr.className = "bg-indigo-50/70 border-t-2 border-b border-indigo-200 text-indigo-950 font-bold text-xs";
+                    groupTr.innerHTML = `
+                        <td colspan="${columns.length + 1}" class="py-2.5 px-4">
+                            <div class="flex items-center justify-between">
+                                <span class="flex items-center gap-2">
+                                    <span>📁</span>
+                                    <span class="font-mono text-indigo-700">${escapeHtml(groupBy)}:</span>
+                                    <span class="text-gray-900">${escapeHtml(currentGroupVal)}</span>
+                                </span>
+                                <span class="text-[10px] uppercase font-mono px-2 py-0.5 bg-indigo-100 rounded text-indigo-700">Group Header</span>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(groupTr);
+                }
+            }
+
+            const tr = document.createElement("tr");
+            tr.className = "hover:bg-gray-50/80 transition";
+
+            // Row index
+            const indexTd = document.createElement("td");
+            indexTd.className = "py-2.5 px-3 font-mono text-gray-400 text-[10px]";
+            indexTd.innerText = currentOffset + idx + 1;
+            tr.appendChild(indexTd);
+
+            columns.forEach(col => {
+                const td = document.createElement("td");
+                td.className = "py-2.5 px-4 font-mono text-[11px] text-gray-800 max-w-xs truncate";
+                
+                const val = r[col];
+                if (val === null || val === undefined) {
+                    td.innerHTML = `<span class="text-gray-300 italic">null</span>`;
+                } else if (typeof val === "string" && (val.startsWith("[HTML:") || val.startsWith("[Markdown:") || val.startsWith("[Vector:") || val.startsWith("[Raw Content:") || val.startsWith("[Transcript:"))) {
+                    // Heavy column placeholder badge
+                    td.innerHTML = `<button type="button" class="grid-cell-heavy" onclick="inspectHeavyCell('${col}', ${idx})"><span>🧩</span> ${val}</button>`;
+                } else if (col.includes("url") && typeof val === "string" && val.startsWith("http")) {
+                    td.innerHTML = `<a href="${val}" target="_blank" class="text-indigo-600 hover:underline truncate block" title="${val}">${val}</a>`;
+                } else {
+                    td.innerText = val;
+                    td.title = val;
+                }
+                tr.appendChild(td);
+            });
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    function inspectHeavyCell(colKey, rowIdx) {
+        const row = lastQueryRows[rowIdx];
+        const val = row ? row[colKey] : "";
+        document.getElementById("cellDetailTitle").innerText = `Field Inspection: ${colKey}`;
+        document.getElementById("cellDetailContent").innerText = val || "[No content]";
+        document.getElementById("cellDetailModal").classList.remove("hidden");
+    }
+
+    function closeCellDetailModal() {
+        document.getElementById("cellDetailModal").classList.add("hidden");
+    }
+
+    function updatePaginationUI() {
+        document.getElementById("totalRecordsLabel").innerText = `${totalRecords.toLocaleString()} records found`;
+        const currentPage = Math.floor(currentOffset / currentLimit) + 1;
+        const totalPages = Math.max(1, Math.ceil(totalRecords / currentLimit));
+        
+        document.getElementById("pageSummaryLabel").innerText = `Page ${currentPage} of ${totalPages}`;
+        document.getElementById("paginationInfo").innerText = `Page ${currentPage} of ${totalPages}`;
+        
+        document.getElementById("btnPrevPage").disabled = currentOffset <= 0;
+        document.getElementById("btnNextPage").disabled = currentOffset + currentLimit >= totalRecords;
+    }
+
+    function changePage(delta) {
+        const newOffset = currentOffset + (delta * currentLimit);
+        if (newOffset >= 0 && newOffset < totalRecords) {
+            runReportQuery(newOffset);
+        }
+    }
+
+    // Export Trigger
+    function triggerExport(format) {
+        const payload = {
+            base_table: currentBaseTable,
+            columns: selectedColumns,
+            joins: Array.from(activeJoins),
+            filters: collectFilterConditions(),
+            sort_by: document.getElementById("sortBySelect").value || `${currentBaseTable}.id`,
+            sort_order: document.getElementById("sortOrderSelect").value || "desc",
+            fetch_heavy: false // Fast placeholders for streaming exports
+        };
+
+        fetch(`/api/reports/export?format=${format}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        })
+        .then(response => {
+            if (!response.ok) throw new Error("Export download failed.");
+            return response.blob().then(blob => ({ blob, response }));
+        })
+        .then(({ blob, response }) => {
+            const filenameHeader = response.headers.get("Content-Disposition");
+            let filename = `report_${currentBaseTable}.${format}`;
+            if (filenameHeader && filenameHeader.includes("filename=")) {
+                filename = filenameHeader.split("filename=")[1].replace(/"/g, "");
+            }
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        })
+        .catch(err => alert("Export failed: " + err.message));
+    }
+
+    // Saved Views Handlers
+    function openSaveViewModal() {
+        document.getElementById("saveViewModal").classList.remove("hidden");
+    }
+
+    function closeSaveViewModal() {
+        document.getElementById("saveViewModal").classList.add("hidden");
+    }
+
+    function submitSaveView() {
+        const name = document.getElementById("viewNameInput").value.trim();
+        const desc = document.getElementById("viewDescInput").value.trim();
+        if (!name) {
+            alert("Please enter a view name.");
+            return;
+        }
+
+        const config = {
+            base_table: currentBaseTable,
+            columns: selectedColumns,
+            joins: Array.from(activeJoins),
+            filters: collectFilterConditions(),
+            sort_by: document.getElementById("sortBySelect").value,
+            sort_order: document.getElementById("sortOrderSelect").value,
+            group_by: document.getElementById("groupBySelect").value,
+        };
+
+        fetch("/api/reports/views", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name: name,
+                description: desc,
+                base_table: currentBaseTable,
+                config_json: config
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "success") {
+                alert("Saved report view created!");
+                window.location.reload();
+            }
+        })
+        .catch(err => alert("Error saving view: " + err.message));
+    }
+
+    function loadSavedView(viewId) {
+        if (!viewId) {
+            document.getElementById("btnDeleteView").classList.add("hidden");
+            return;
+        }
+        document.getElementById("btnDeleteView").classList.remove("hidden");
+
+        fetch("/api/reports/views")
+        .then(res => res.json())
+        .then(views => {
+            const v = views.find(x => x.id == viewId);
+            if (!v || !v.config) return;
+
+            const c = v.config;
+            document.getElementById("baseTableSelect").value = c.base_table;
+            currentBaseTable = c.base_table;
+            initBaseTableUI(c.base_table);
+
+            if (c.joins) {
+                c.joins.forEach(j => toggleJoin(j));
+            }
+            if (c.columns) {
+                selectedColumns = c.columns;
+            }
+
+            // Restore filters
+            document.getElementById("filterRowsContainer").innerHTML = "";
+            if (c.filters) {
+                c.filters.forEach(f => addFilterRow(f.column, f.operator, f.value));
+            }
+
+            renderColumnPicker();
+            updateSortAndGroupOptions();
+            updateColPickerSummary();
+
+            if (c.sort_by) document.getElementById("sortBySelect").value = c.sort_by;
+            if (c.sort_order) document.getElementById("sortOrderSelect").value = c.sort_order;
+            if (c.group_by) document.getElementById("groupBySelect").value = c.group_by;
+
+            runReportQuery(0);
+        });
+    }
+
+    function deleteCurrentSavedView() {
+        const viewId = document.getElementById("savedViewSelect").value;
+        if (!viewId) return;
+        if (!confirm("Are you sure you want to delete this saved view?")) return;
+
+        fetch(`/api/reports/views/${viewId}`, { method: "DELETE" })
+        .then(res => res.json())
+        .then(data => {
+            alert("View deleted.");
+            window.location.reload();
+        })
+        .catch(err => alert("Delete error: " + err.message));
+    }
+
+    // Schedule Jobs Handlers
+    function openScheduleJobModal() {
+        document.getElementById("scheduleJobModal").classList.remove("hidden");
+    }
+
+    function closeScheduleJobModal() {
+        document.getElementById("scheduleJobModal").classList.add("hidden");
+    }
+
+    function submitScheduleJob() {
+        const name = document.getElementById("jobNameInput").value.trim();
+        const fmt = document.getElementById("jobFormatSelect").value;
+        const cron = document.getElementById("jobCronInput").value.trim();
+        const viewId = document.getElementById("savedViewSelect").value || null;
+
+        if (!name) {
+            alert("Please enter a job name.");
+            return;
+        }
+
+        fetch("/api/reports/schedule", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name: name,
+                view_id: viewId ? parseInt(viewId) : null,
+                export_format: fmt,
+                schedule_cron: cron
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            alert("Scheduled export job registered!");
+            window.location.reload();
+        })
+        .catch(err => alert("Schedule error: " + err.message));
+    }
+
+    function runJobNow(jobId) {
+        fetch(`/api/reports/schedule/${jobId}/run`, { method: "POST" })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "success") {
+                alert(`Export generated!\nFile: ${data.filename}\nSize: ${data.file_size} bytes`);
+                window.location.reload();
+            }
+        })
+        .catch(err => alert("Run error: " + err.message));
+    }
+
+    function deleteJob(jobId) {
+        if (!confirm("Delete this scheduled job?")) return;
+        fetch(`/api/reports/schedule/${jobId}`, { method: "DELETE" })
+        .then(res => res.json())
+        .then(() => window.location.reload())
+        .catch(err => alert("Error: " + err.message));
+    }
+</script>
+{% endblock %}

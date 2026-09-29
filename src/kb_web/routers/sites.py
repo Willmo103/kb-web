@@ -1,8 +1,6 @@
-"""
-FastAPI Router for virtual sites views in kb-web.
-"""
-
-from typing import Optional
+import json
+from urllib.parse import quote_plus
+from typing import Optional, List
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -16,6 +14,27 @@ from ..models_orm import FetchedPage
 from ..utils import get_url_basename
 
 router = APIRouter()
+
+
+def _parse_tags(tags_raw) -> List[str]:
+    """Parses JSON-encoded or comma-separated tags into a clean list of strings."""
+    if not tags_raw:
+        return []
+    if isinstance(tags_raw, list):
+        return [str(t).strip() for t in tags_raw if t]
+    if isinstance(tags_raw, str):
+        try:
+            parsed = json.loads(tags_raw)
+            if isinstance(parsed, list):
+                return [str(t).strip() for t in parsed if t]
+            elif isinstance(parsed, str):
+                parsed_inner = json.loads(parsed)
+                if isinstance(parsed_inner, list):
+                    return [str(t).strip() for t in parsed_inner if t]
+                return [parsed.strip()]
+        except Exception:
+            return [t.strip() for t in tags_raw.split(",") if t.strip()]
+    return []
 
 
 @router.get("/sites", response_class=HTMLResponse)
@@ -34,17 +53,16 @@ def view_site_profile(
     """Renders the profile page for a specific virtual 'site', showing its pages."""
     site_name = site.strip().lower()
 
-    pages = []
     sites_dict = {}
 
     with db_session() as session:
-        all_pages = session.query(FetchedPage).all()
+        all_urls = session.query(FetchedPage.url).all()
 
-        for row in all_pages:
-            url = row.url
-            basename = get_url_basename(url)
+        matching_urls = []
+        for (u,) in all_urls:
+            basename = get_url_basename(u)
             if basename == site_name:
-                pages.append(row)
+                matching_urls.append(u)
             if basename not in sites_dict:
                 sites_dict[basename] = {
                     "name": basename,
@@ -52,11 +70,35 @@ def view_site_profile(
                 }
             sites_dict[basename]["pages_count"] += 1
 
-        if not pages:
+        if not matching_urls:
             return HTMLResponse(
                 content=f"<h1>Site '{site_name}' has no imported pages.</h1>",
                 status_code=404,
             )
+
+        matching_rows = (
+            session.query(
+                FetchedPage.url,
+                FetchedPage.title,
+                FetchedPage.tags,
+                FetchedPage.description,
+                FetchedPage.fetched_at,
+            )
+            .filter(FetchedPage.url.in_(matching_urls))
+            .all()
+        )
+
+        pages = [
+            {
+                "url": row.url,
+                "safe_url": quote_plus(row.url),
+                "title": row.title or row.url,
+                "tags": _parse_tags(row.tags),
+                "description": row.description or "",
+                "fetched_at": row.fetched_at or "",
+            }
+            for row in matching_rows
+        ]
 
         sorted_sites = sorted(
             sites_dict.values(), key=lambda x: (-x["pages_count"], x["name"])

@@ -91,10 +91,10 @@
                     <p class="text-xs text-gray-600 font-medium">{{ link.description }}</p>
                     {% endif %}
                     <div class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider flex items-center gap-3">
-                        <span>Created: {{ link.created_at[:10] }}</span>
+                        <span>Created: {{ link.created_at[:10] if link.created_at else 'Unknown' }}</span>
                         {% if link.last_clicked_at %}
                         <span>•</span>
-                        <span class="text-indigo-500">Last Clicked: {{ link.last_clicked_at[:10] }} at {{ link.last_clicked_at[11:16] }}</span>
+                        <span class="text-indigo-500">Last Clicked: {{ link.last_clicked_at[:10] }}{% if link.last_clicked_at|length > 15 %} at {{ link.last_clicked_at[11:16] }}{% endif %}</span>
                         {% endif %}
                     </div>
                 </div>

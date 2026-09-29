@@ -1,0 +1,251 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Embedding Model Comparison & Reindexing - Knowledge Base{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-8">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 border-b border-gray-200 pb-5">
+        <div>
+            <div class="flex items-center gap-2 mb-1">
+                <span class="text-2xl">⚖️</span>
+                <h1 class="text-2xl font-extrabold text-gray-900 tracking-tight">Embedding Models & Multi-Vector Comparison</h1>
+            </div>
+            <p class="text-sm text-gray-500">Re-index documents with different vector models, compare semantic match qualities side-by-side, and toggle the active vector source.</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="/" class="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg text-xs font-bold transition shadow-sm">
+                ← Back to Library
+            </a>
+        </div>
+    </div>
+
+    <!-- Active Model & Reindexing Controls Bar -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm mb-8">
+        <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 pb-2 border-b border-gray-100 flex items-center justify-between">
+            <span>⚙️ Global Vector Source Configuration</span>
+            <span id="active-model-display" class="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 font-mono text-xs rounded-full border border-indigo-100 font-bold">
+                Active: Loading...
+            </span>
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+            <div>
+                <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">Switch Active Vector Model</label>
+                <select id="active-model-select" class="w-full text-xs border border-gray-300 rounded-lg p-2.5 bg-gray-50 font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    <option value="embeddinggemma">embeddinggemma (Google Gemma 768-dim)</option>
+                    <option value="nomic-embed-text">nomic-embed-text (Nomic 768-dim)</option>
+                    <option value="bge-m3">bge-m3 (BAAI 1024-dim)</option>
+                    <option value="all-minilm">all-minilm (MiniLM 384-dim)</option>
+                </select>
+            </div>
+            <div class="flex gap-2">
+                {% if is_admin %}
+                <button onclick="saveActiveModel()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition shadow-sm flex items-center justify-center gap-1.5">
+                    <span>💾</span> Save Active Source
+                </button>
+                <button onclick="triggerReindex()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-lg text-xs transition shadow-sm flex items-center justify-center gap-1.5">
+                    <span>🔄</span> Re-embed All Items
+                </button>
+                {% else %}
+                <span class="text-xs text-gray-400 italic self-center">Login as admin to switch models or trigger reindexing.</span>
+                {% endif %}
+            </div>
+            <div class="text-xs text-gray-500 bg-gray-50 p-3 rounded-xl border border-gray-200">
+                <span class="font-bold text-gray-700">Coverage:</span>
+                <span id="coverage-stats" class="font-mono text-[11px] block mt-1">Loading vector counts...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Interactive Side-by-Side Comparison Playground -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+        <h2 class="text-sm font-bold text-gray-900 mb-2 flex items-center gap-2">
+            <span>🔬</span> Side-by-Side Retrieval Explorer
+        </h2>
+        <p class="text-xs text-gray-500 mb-6">Enter any test query to inspect rank orders and cosine similarity scores across two different models simultaneously.</p>
+
+        <div class="flex flex-col sm:flex-row gap-3 mb-6">
+            <input 
+                type="text" 
+                id="compare-query-input" 
+                placeholder="Enter semantic query (e.g. 'how to install postgresql vector extension')..." 
+                class="flex-grow text-xs p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            />
+            <button onclick="runModelComparison()" id="compare-run-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3 rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2">
+                <span>⚡</span> Compare Models
+            </button>
+        </div>
+
+        <!-- Two-Column Side-by-Side Grid -->
+        <div id="compare-results-container" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Model A Column -->
+            <div class="border border-gray-200 rounded-xl p-5 bg-gray-50">
+                <div class="flex items-center justify-between pb-3 border-b border-gray-200 mb-4">
+                    <span class="text-xs font-bold uppercase tracking-wider text-indigo-700">Model A: embeddinggemma</span>
+                    <span id="model-a-status" class="text-[11px] font-mono text-gray-400">Ready</span>
+                </div>
+                <div id="model-a-cards" class="space-y-3">
+                    <p class="text-xs text-gray-400 italic text-center py-8">Run comparison to view ranked matches.</p>
+                </div>
+            </div>
+
+            <!-- Model B Column -->
+            <div class="border border-gray-200 rounded-xl p-5 bg-gray-50">
+                <div class="flex items-center justify-between pb-3 border-b border-gray-200 mb-4">
+                    <span class="text-xs font-bold uppercase tracking-wider text-purple-700">Model B: nomic-embed-text</span>
+                    <span id="model-b-status" class="text-[11px] font-mono text-gray-400">Ready</span>
+                </div>
+                <div id="model-b-cards" class="space-y-3">
+                    <p class="text-xs text-gray-400 italic text-center py-8">Run comparison to view ranked matches.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    loadModelMetadata();
+});
+
+async function loadModelMetadata() {
+    try {
+        const res = await fetch('/api/embeddings/models');
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        const display = document.getElementById("active-model-display");
+        if (display) display.textContent = `Active: ${data.active_model}`;
+
+        const select = document.getElementById("active-model-select");
+        if (select && data.active_model) select.value = data.active_model;
+
+        const cov = document.getElementById("coverage-stats");
+        if (cov && data.indexed_chunks_by_model) {
+            const lines = Object.entries(data.indexed_chunks_by_model).map(([k, v]) => `${k}: ${v} chunks`);
+            cov.textContent = lines.join(' | ') || 'No chunk embeddings found.';
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+async function saveActiveModel() {
+    const select = document.getElementById("active-model-select");
+    if (!select) return;
+    try {
+        const res = await fetch('/api/embeddings/active-model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: select.value })
+        });
+        if (res.ok) {
+            alert("Active embedding model updated successfully!");
+            loadModelMetadata();
+        } else {
+            alert("Failed to update active model.");
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Network error: " + err);
+    }
+}
+
+async function triggerReindex() {
+    const select = document.getElementById("active-model-select");
+    const model = select ? select.value : "embeddinggemma";
+    if (!confirm(`Are you sure you want to trigger background reindexing for model "${model}"? This will compute embeddings for all documents.`)) return;
+    
+    try {
+        const res = await fetch('/api/embeddings/reindex', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model })
+        });
+        const data = await res.json();
+        alert(data.message || "Reindexing started in background!");
+    } catch (err) {
+        alert("Error initiating reindexing: " + err);
+    }
+}
+
+async function runModelComparison() {
+    const input = document.getElementById("compare-query-input");
+    const q = input ? input.value.trim() : "";
+    if (!q) {
+        alert("Please enter a search query to compare.");
+        return;
+    }
+
+    const btn = document.getElementById("compare-run-btn");
+    if (btn) btn.disabled = true;
+
+    const cardsA = document.getElementById("model-a-cards");
+    const cardsB = document.getElementById("model-b-cards");
+    if (cardsA) cardsA.innerHTML = '<div class="p-6 text-center text-xs text-gray-400 animate-pulse">Calculating embedding & similarities...</div>';
+    if (cardsB) cardsB.innerHTML = '<div class="p-6 text-center text-xs text-gray-400 animate-pulse">Calculating embedding & similarities...</div>';
+
+    try {
+        const res = await fetch('/api/embeddings/compare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                query: q,
+                models: ["embeddinggemma", "nomic-embed-text"],
+                top_k: 5
+            })
+        });
+        const data = await res.json();
+        renderComparisonColumn("model-a", data.comparisons["embeddinggemma"]);
+        renderComparisonColumn("model-b", data.comparisons["nomic-embed-text"]);
+    } catch (err) {
+        console.error(err);
+        alert("Comparison failed: " + err);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+function renderComparisonColumn(prefix, modelData) {
+    const status = document.getElementById(`${prefix}-status`);
+    const container = document.getElementById(`${prefix}-cards`);
+    if (!container) return;
+
+    if (!modelData || modelData.error) {
+        if (status) status.textContent = "Error";
+        container.innerHTML = `<div class="p-4 bg-red-50 text-red-600 rounded-lg text-xs">${modelData ? modelData.error : 'No data'}</div>`;
+        return;
+    }
+
+    const results = modelData.results || [];
+    if (status) status.textContent = `${results.length} matches`;
+
+    if (!results.length) {
+        container.innerHTML = `<div class="p-6 text-center text-xs text-gray-400">No matching chunks found for this model. Ensure documents have been indexed with it.</div>`;
+        return;
+    }
+
+    container.innerHTML = results.map((r, i) => `
+        <div class="bg-white border border-gray-200 rounded-lg p-3.5 shadow-sm text-xs space-y-1.5 hover:border-indigo-300 transition">
+            <div class="flex items-center justify-between">
+                <span class="font-bold text-gray-900 truncate max-w-[200px]">${escapeHtml(r.source_title || r.source_id)}</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                    ${r.similarity}% match (#${i + 1})
+                </span>
+            </div>
+            <p class="text-gray-600 font-sans line-clamp-3 leading-relaxed">${escapeHtml(r.chunk_content)}</p>
+        </div>
+    `).join('');
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+</script>
+{% endblock %}

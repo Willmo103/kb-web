@@ -39,7 +39,10 @@ def mock_gotify(monkeypatch):
 @pytest.fixture
 def client() -> TestClient:
     """Fixture providing TestClient for FastAPI app."""
-    return TestClient(app)
+    import time
+    from kb_web.base import COOKIE_NAME, generate_session_token
+    token = generate_session_token(time.time() + 3600)
+    return TestClient(app, cookies={COOKIE_NAME: token})
 
 
 def test_safe_vector_type():

@@ -576,16 +576,22 @@
         fetch(`/collections/view/{{ collection.id }}/sync`, {
             method: 'POST'
         })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showStatusModal("Sync Successful", data.message, true);
+        .then(async res => {
+            let data = {};
+            try {
+                data = await res.json();
+            } catch (e) {
+                data = { message: res.statusText || ('HTTP ' + res.status) };
+            }
+            if (res.ok && data.status === 'success') {
+                showStatusModal("Sync Successful", data.message || "Collection synchronized to Qdrant.", true);
             } else {
-                showStatusModal("Sync Failed/Deferred", data.message, true);
+                const errMsg = data.message || data.detail || ("HTTP " + res.status + ": Sync failed.");
+                showStatusModal("Sync Failed/Deferred", errMsg, true);
             }
         })
         .catch(err => {
-            showStatusModal("Connection Error", "A network error occurred while contacting Qdrant: " + err.message + "\nOffline queue is staged.", true);
+            showStatusModal("Connection Error", "A network error occurred while contacting server: " + err.message, true);
         });
     }
 

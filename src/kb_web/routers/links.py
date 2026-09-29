@@ -22,11 +22,25 @@ router = APIRouter()
 
 @router.get("/links", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
 def view_links(request: Request) -> HTMLResponse:
-    with db_session() as session:
-        links_list = session.query(Link).order_by(Link.click_count.desc(), Link.id.desc()).all()
-
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))
+
+    with db_session() as session:
+        links_rows = (
+            session.query(Link).order_by(Link.click_count.desc(), Link.id.desc()).all()
+        )
+        links_list = [
+            {
+                "id": l.id,
+                "url": l.url,
+                "title": l.title,
+                "description": l.description,
+                "click_count": l.click_count or 0,
+                "created_at": l.created_at,
+                "last_clicked_at": l.last_clicked_at,
+            }
+            for l in links_rows
+        ]
 
     return HTMLResponse(
         _jinja_env.get_template("links.j2.html").render(

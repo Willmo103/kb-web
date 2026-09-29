@@ -34,8 +34,11 @@ def extract_url_path(url: str) -> str:
         return url
 
 
-# Set up Jinja2 environment utilizing PackageLoader for clean packaging
-_jinja_env = jinja2.Environment(loader=jinja2.PackageLoader("kb_web", "templates"))
+# Set up Jinja2 environment utilizing PackageLoader for clean packaging with autoescape enabled
+_jinja_env = jinja2.Environment(
+    loader=jinja2.PackageLoader("kb_web", "templates"),
+    autoescape=jinja2.select_autoescape(["html", "xml", "j2.html", "html5"]),
+)
 _jinja_env.filters["urlpath"] = extract_url_path
 
 COOKIE_NAME = "kb_session"
@@ -48,8 +51,13 @@ class DatabaseLogHandler(logging.Handler):
         super().__init__()
 
     def emit(self, record: logging.LogRecord) -> None:
-        # Skip logging if it is from sqlalchemy engine to avoid infinite recursion/loops
-        if record.name.startswith("sqlalchemy"):
+        # Skip logging if it is from sqlalchemy engine to avoid infinite recursion/loops,
+        # or alembic/plugins to avoid startup migration spam in system logs.
+        if (
+            record.name.startswith("sqlalchemy")
+            or record.name.startswith("alembic")
+            or record.module == "plugins"
+        ):
             return
 
         try:
@@ -159,9 +167,10 @@ def get_engine():
                     )
 
                 # Import models and create all tables if missing
-                from .models_orm import Base
+                from .models_orm import Base, ensure_views_and_indexes
 
                 Base.metadata.create_all(_engine)
+                ensure_views_and_indexes(_engine)
                 _SessionFactory = sessionmaker(bind=_engine)
     return _engine
 
@@ -318,6 +327,63 @@ class LoggedOllamaClient:
             )
             raise e
 
+    def generate(self, *args, **kwargs):
+        import traceback
+
+        prompt_type = "generate"
+        model = kwargs.get("model", "")
+        prompt = kwargs.get("prompt", "")
+        options = {k: v for k, v in kwargs.items() if k not in ("model", "prompt")}
+
+        start_time = time.time()
+        try:
+            resp = self._client.generate(*args, **kwargs)
+            duration = time.time() - start_time
+
+            response_content = ""
+            if hasattr(resp, "response"):
+                response_content = resp.response
+            elif isinstance(resp, dict) and "response" in resp:
+                response_content = resp["response"]
+            else:
+                response_content = str(resp)
+
+            self._log_call(
+                prompt_type=prompt_type,
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt[:500] if len(prompt) > 500 else prompt,
+                    }
+                ],
+                options=options,
+                response=response_content,
+                duration=duration,
+                status="success",
+            )
+            return resp
+        except Exception as e:
+            duration = time.time() - start_time
+            self._log_call(
+                prompt_type=prompt_type,
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt[:500] if len(prompt) > 500 else prompt,
+                    }
+                ],
+                options=options,
+                response=f"Error: {e}\n{traceback.format_exc()}",
+                duration=duration,
+                status="failed",
+            )
+            raise e
+
+    def __getattr__(self, name):
+        return getattr(self._client, name)
+
     def _log_call(
         self, prompt_type, model, messages, options, response, duration, status
     ) -> None:
@@ -384,26 +450,55 @@ def verify_session_token(token: str) -> bool:
         return False
 
 
-def verify_auth(request: Request) -> None:
-    """Security route guard ensuring requests contain a valid session cookie."""
+def is_request_authenticated(request: Request) -> bool:
+    """Checks whether the request is authenticated via session cookie or authorized API key."""
+    import hmac
+
+    # 1. Check session cookie
     token = request.cookies.get(COOKIE_NAME)
-    if not token or not verify_session_token(token):
-        redirect_url = f"/login?next={quote_plus(str(request.url))}"
-        raise HTTPException(status_code=303, headers={"Location": redirect_url})
+    if token and verify_session_token(token):
+        return True
 
-
-def verify_api_key(request: Request) -> None:
-    """Security guard verifying API Key header matching KB_API_KEY."""
+    # 2. Check API key (for API endpoints or external tools/extensions)
     api_key_header = request.headers.get("X-API-Key")
     if not api_key_header:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
-            api_key_header = auth_header[7:]
-        else:
-            api_key_header = auth_header
+            api_key_header = auth_header[7:].strip()
+        elif auth_header.startswith("ApiKey "):
+            api_key_header = auth_header[7:].strip()
+        elif auth_header:
+            api_key_header = auth_header.strip()
 
-    if config.api_key:
-        if api_key_header != config.api_key:
-            raise HTTPException(
-                status_code=401, detail="Unauthorized: Invalid API key."
-            )
+    if config.api_key and api_key_header and hmac.compare_digest(api_key_header, config.api_key):
+        return True
+
+    return False
+
+
+def verify_auth(request: Request) -> None:
+    """Security route guard ensuring requests contain a valid session cookie or API key."""
+    if is_request_authenticated(request):
+        return
+    redirect_url = f"/login?next={quote_plus(str(request.url))}"
+    raise HTTPException(status_code=303, headers={"Location": redirect_url})
+
+
+def verify_api_key(request: Request) -> None:
+    """Security guard verifying API Key header matching KB_API_KEY."""
+    import hmac
+
+    api_key_header = request.headers.get("X-API-Key")
+    if not api_key_header:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            api_key_header = auth_header[7:].strip()
+        elif auth_header.startswith("ApiKey "):
+            api_key_header = auth_header[7:].strip()
+        elif auth_header:
+            api_key_header = auth_header.strip()
+
+    if not config.api_key or not api_key_header or not hmac.compare_digest(api_key_header, config.api_key):
+        raise HTTPException(
+            status_code=401, detail="Unauthorized: Invalid API key."
+        )

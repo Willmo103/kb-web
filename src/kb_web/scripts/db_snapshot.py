@@ -47,11 +47,17 @@ def create_database_snapshot(
         models = list(MIGRATION_MODELS)
         if hasattr(Base, "registry"):
             for mapper in Base.registry.mappers:
-                if mapper.class_ not in models:
-                    models.append(mapper.class_)
+                cls = mapper.class_
+                if getattr(cls, "__table__", None) is not None:
+                    if cls.__table__.info.get("is_view") or getattr(cls, "__tablename__", "").startswith("vw_"):
+                        continue
+                if cls not in models:
+                    models.append(cls)
 
         for model in models:
-            tbl_name = model.__tablename__
+            tbl_name = getattr(model, "__tablename__", "")
+            if tbl_name.startswith("vw_"):
+                continue
             rows = session.query(model).all()
             clean_rows = []
             for row in rows:

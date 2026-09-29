@@ -32,6 +32,7 @@ dependencies = [
     "sqlalchemy>=2.0.28",
     "pgvector>=0.2.5",
     "psycopg2-binary>=2.9.9",
+    "openpyxl>=3.1.5",
 ]
 
 [project.scripts]

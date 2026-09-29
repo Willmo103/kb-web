@@ -1,0 +1,199 @@
+{% extends "base.j2.html" %}
+
+{% block title %}DevStudio Workspaces - Knowledge Base{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-8">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 border-b border-gray-200 pb-5">
+        <div>
+            <div class="flex items-center gap-2 mb-1">
+                <span class="text-2xl">💻</span>
+                <h1 class="text-2xl font-extrabold text-gray-900 tracking-tight">Replit-Lite Coding Workspaces</h1>
+                <span class="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-mono font-bold rounded-full border border-indigo-100">
+                    {{ workspaces | length }} active
+                </span>
+            </div>
+            <p class="text-sm text-gray-500">
+                Persistent in-browser IDE with Monaco Editor, Python Pyodide WASM runtime, live sandboxed preview, and ephemeral Ollama coding agent.
+            </p>
+        </div>
+        <div class="flex items-center gap-3">
+            <button onclick="openCreateModal()" class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-sm">
+                <span>+</span> New Workspace
+            </button>
+        </div>
+    </div>
+
+    <!-- Workspaces Grid -->
+    {% if workspaces %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for ws in workspaces %}
+        <div class="bg-white border border-gray-200 rounded-2xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm">
+            <div>
+                <div class="flex items-center justify-between gap-2 mb-3">
+                    <span class="px-2.5 py-0.5 text-[10px] font-mono font-bold rounded-full border
+                        {% if ws.template == 'web-game' %}
+                            bg-blue-50 text-blue-700 border-blue-200
+                        {% elif ws.template == 'python-demo' %}
+                            bg-amber-50 text-amber-700 border-amber-200
+                        {% else %}
+                            bg-gray-100 text-gray-700 border-gray-200
+                        {% endif %}">
+                        {% if ws.template == 'web-game' %}🎮 Web App & Game{% elif ws.template == 'python-demo' %}🐍 Python WASM{% else %}📄 Blank{% endif %}
+                    </span>
+                    <span class="text-[11px] text-gray-400 font-mono">
+                        {{ ws.updated_at[:10] if ws.updated_at else '' }}
+                    </span>
+                </div>
+
+                <h3 class="text-base font-bold text-gray-900 leading-snug mb-1">
+                    <a href="/workspaces/{{ ws.id }}" class="hover:text-indigo-600 transition">
+                        {{ ws.name }}
+                    </a>
+                </h3>
+
+                <p class="text-xs text-gray-500 mb-4 line-clamp-2">
+                    {{ ws.description or 'No description provided.' }}
+                </p>
+
+                <div class="flex items-center gap-3 text-xs text-gray-500 font-mono mb-4 pb-3 border-b border-gray-100">
+                    <span class="flex items-center gap-1">
+                        <span>📁</span> {{ ws.files_count }} file{{ 's' if ws.files_count != 1 else '' }}
+                    </span>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between gap-2 pt-2">
+                <a href="/workspaces/{{ ws.id }}" class="flex-1 text-center py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-sm">
+                    Open Studio ↗
+                </a>
+                <button onclick="duplicateWorkspace({{ ws.id }})" class="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 border border-gray-200 rounded-lg text-xs transition" title="Duplicate Workspace">
+                    📋
+                </button>
+                <a href="/api/workspaces/{{ ws.id }}/export-zip" class="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 border border-gray-200 rounded-lg text-xs transition" title="Export ZIP">
+                    📦
+                </a>
+                <button onclick="deleteWorkspace({{ ws.id }}, '{{ ws.name | escape }}')" class="p-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 rounded-lg text-xs transition" title="Delete Workspace">
+                    🗑️
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="bg-white border border-gray-200 rounded-2xl p-12 text-center shadow-sm">
+        <span class="text-4xl mb-3 inline-block">💻</span>
+        <h3 class="text-base font-bold text-gray-800 mb-1">No Workspaces Created Yet</h3>
+        <p class="text-xs text-gray-500 max-w-md mx-auto mb-6">
+            Create your first persistent development workspace to build HTML/JS web apps, run Python WASM algorithms, and code alongside your local Ollama agent.
+        </p>
+        <button onclick="openCreateModal()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition">
+            Create Your First Workspace
+        </button>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Modal: New Workspace -->
+<div id="create-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-gray-200">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+            <h3 class="font-bold text-gray-900 text-base flex items-center gap-2">
+                <span>💻</span> Create New Coding Workspace
+            </h3>
+            <button onclick="closeCreateModal()" class="text-gray-400 hover:text-gray-600 text-lg">✕</button>
+        </div>
+        <form onsubmit="submitNewWorkspace(event)" class="space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Workspace Name</label>
+                <input type="text" id="ws-name" required placeholder="e.g. Neon Arcade or Python Data Tools" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Description (Optional)</label>
+                <textarea id="ws-desc" rows="2" placeholder="Brief summary of this project..." class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none resize-none"></textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Starter Template</label>
+                <select id="ws-template" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    <option value="web-game">🎮 Web App: Mini Arcade (HTML5 / CSS / JS with Live Preview)</option>
+                    <option value="python-demo">🐍 Python: Data & Algorithms (Pyodide 3.11 WASM Engine)</option>
+                    <option value="blank">📄 Empty Workspace (Single index.html & README.md)</option>
+                </select>
+            </div>
+            <div class="flex justify-end gap-3 pt-3 border-t border-gray-100">
+                <button type="button" onclick="closeCreateModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg">Cancel</button>
+                <button type="submit" id="ws-submit-btn" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm">Create & Open Studio</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openCreateModal() { document.getElementById("create-modal").classList.remove("hidden"); }
+function closeCreateModal() { document.getElementById("create-modal").classList.add("hidden"); }
+
+async function submitNewWorkspace(e) {
+    e.preventDefault();
+    const btn = document.getElementById("ws-submit-btn");
+    btn.disabled = true;
+    btn.textContent = "Creating...";
+
+    const payload = {
+        name: document.getElementById("ws-name").value.trim(),
+        description: document.getElementById("ws-desc").value.trim(),
+        template: document.getElementById("ws-template").value,
+    };
+
+    try {
+        const res = await fetch('/api/workspaces', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+            window.location.href = `/workspaces/${data.id}`;
+        } else {
+            alert("Failed to create workspace: " + (data.detail || "Server error"));
+        }
+    } catch (err) {
+        alert("Error: " + err);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Create & Open Studio";
+    }
+}
+
+async function duplicateWorkspace(id) {
+    try {
+        const res = await fetch(`/api/workspaces/${id}/duplicate`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            window.location.href = `/workspaces/${data.id}`;
+        } else {
+            alert("Duplicate failed: " + (data.detail || "Unknown error"));
+        }
+    } catch (err) {
+        alert("Error: " + err);
+    }
+}
+
+async function deleteWorkspace(id, name) {
+    if (!confirm(`Are you sure you want to permanently delete workspace "${name}" and all its files? This action cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/workspaces/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+            window.location.reload();
+        } else {
+            alert("Failed to delete workspace.");
+        }
+    } catch (err) {
+        alert("Error: " + err);
+    }
+}
+</script>
+{% endblock %}

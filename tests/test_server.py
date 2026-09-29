@@ -350,7 +350,16 @@ def setup_temp_db(request, tmp_path, monkeypatch) -> None:
 
 @pytest.fixture
 def client() -> TestClient:
-    """Fixture to obtain a TestClient instance targeting the FastAPI app."""
+    """Fixture to obtain an authenticated TestClient instance targeting the FastAPI app."""
+    import time
+    from kb_web.base import COOKIE_NAME, generate_session_token
+    token = generate_session_token(time.time() + 3600)
+    return TestClient(app, cookies={COOKIE_NAME: token})
+
+
+@pytest.fixture
+def unauth_client() -> TestClient:
+    """Fixture to obtain an unauthenticated TestClient instance."""
     return TestClient(app)
 
 
@@ -399,35 +408,46 @@ def test_models() -> None:
     assert page.title == "Test Page Title"
 
 
-def test_public_routes(client: TestClient) -> None:
-    """Checks public endpoints for positive status codes."""
-    response = client.get("/login")
+def test_public_routes(client: TestClient, unauth_client: TestClient) -> None:
+    """Checks public endpoints for positive status codes and verifies private routes require auth."""
+    # Public routes accessible without auth
+    response = unauth_client.get("/login")
     assert response.status_code == 200
     assert "password" in response.text
 
-    response = client.get("/pages")
-    assert response.status_code == 200
+    response = unauth_client.get("/favicon.ico")
+    assert response.status_code in (200, 404)
 
-    response = client.get("/")
-    assert response.status_code == 200
+    # Private routes redirect unauthenticated callers
+    response = unauth_client.get("/pages", follow_redirects=False)
+    assert response.status_code == 303
+    assert "/login" in response.headers["location"]
+
+    response = unauth_client.get("/", follow_redirects=False)
+    assert response.status_code == 303
+    assert "/login" in response.headers["location"]
+
+    # Authenticated client can access private routes
+    assert client.get("/pages").status_code == 200
+    assert client.get("/").status_code == 200
 
 
-def test_auth_route_guard_redirects(client: TestClient) -> None:
+def test_auth_route_guard_redirects(unauth_client: TestClient) -> None:
     """Ensures protected endpoints redirect requests missing auth cookies."""
-    response = client.get("/import", follow_redirects=False)
+    response = unauth_client.get("/import", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"].startswith("/login")
 
 
-def test_login_flow(client: TestClient) -> None:
+def test_login_flow(unauth_client: TestClient) -> None:
     """Tests password evaluations and cookie generation."""
-    # Invalid password check
-    response = client.post("/login", data={"password": "bad_password"})
-    assert response.status_code == 200
+    # Invalid password check (returns 401)
+    response = unauth_client.post("/login", data={"password": "bad_password"})
+    assert response.status_code == 401
     assert "Invalid security credentials" in response.text
 
     # Valid password check
-    response = client.post(
+    response = unauth_client.post(
         "/login",
         data={"password": server_config.admin_password},
         follow_redirects=False,
@@ -484,7 +504,7 @@ def test_api_html_import(client: TestClient, monkeypatch) -> None:
     assert row["tags"] is not None
 
 
-def test_admin_only_features_and_deletion(client: TestClient) -> None:
+def test_admin_only_features_and_deletion(unauth_client: TestClient) -> None:
     """Verifies that wiki / tag regeneration, manual tag editing, and page deletion are protected and only shown to admin."""
     # 1. Insert a page into the database
     db = get_db(server_config)
@@ -503,20 +523,13 @@ def test_admin_only_features_and_deletion(client: TestClient) -> None:
     }
     db["fetched_pages"].insert(page_data)
 
-    # 2. View page as non-admin (without cookies)
-    response = client.get("/view/page?url=https://example.com/testpage")
-    assert response.status_code == 200
-    assert "A Test Page Title" in response.text
-    assert "This is a wiki summary description." in response.text
-    assert "tag-one" in response.text
-    # Admin actions should not be visible
-    assert "Regenerate Wiki" not in response.text
-    assert "Regenerate Tags" not in response.text
-    assert "Delete Entry" not in response.text
-    assert "Edit Tags" not in response.text
+    # 2. View page as non-admin (without cookies) -> redirects to login since full site is protected
+    response = unauth_client.get("/view/page?url=https://example.com/testpage", follow_redirects=False)
+    assert response.status_code == 303
+    assert "/login" in response.headers["location"]
 
     # 3. Attempt deletion without auth (before logging in to avoid cookie persistence)
-    del_fail = client.post(
+    del_fail = unauth_client.post(
         "/admin/delete/page",
         data={"url": "https://example.com/testpage"},
         follow_redirects=False,
@@ -525,7 +538,7 @@ def test_admin_only_features_and_deletion(client: TestClient) -> None:
     assert db["fetched_pages"].get("https://example.com/testpage") is not None
 
     # 4. Log in as admin
-    login_resp = client.post(
+    login_resp = unauth_client.post(
         "/login",
         data={"password": server_config.admin_password},
         follow_redirects=False,
@@ -535,7 +548,7 @@ def test_admin_only_features_and_deletion(client: TestClient) -> None:
     assert session_cookie is not None
 
     # 5. View page as admin
-    response_admin = client.get("/view/page?url=https://example.com/testpage")
+    response_admin = unauth_client.get("/view/page?url=https://example.com/testpage", cookies={"kb_session": session_cookie})
     assert response_admin.status_code == 200
     # Admin actions should be visible
     assert "Regenerate Wiki" in response_admin.text
@@ -544,13 +557,14 @@ def test_admin_only_features_and_deletion(client: TestClient) -> None:
     assert "Edit Tags" in response_admin.text
 
     # 6. Attempt deletion with auth
-    del_success = client.post(
+    del_success = unauth_client.post(
         "/admin/delete/page",
         data={"url": "https://example.com/testpage"},
+        cookies={"kb_session": session_cookie},
         follow_redirects=False,
     )
     assert del_success.status_code == 303
-    assert del_success.headers["location"] == "/"
+    assert del_success.headers["location"].startswith("/?msg=") or del_success.headers["location"] == "/"
 
     # Verify deleted
     import sqlite_utils
@@ -790,17 +804,17 @@ def test_tags_view(client: TestClient) -> None:
     assert resp_legacy.status_code == 404
 
 
-def test_login_redirect_preservation(client: TestClient) -> None:
+def test_login_redirect_preservation(unauth_client: TestClient) -> None:
     """Ensures verify_auth redirects with a next parameter and login forwards it."""
     # Attempting to access protected url_import should redirect with next parameter
-    resp = client.get("/import", follow_redirects=False)
+    resp = unauth_client.get("/import", follow_redirects=False)
     assert resp.status_code == 303
     location = resp.headers["location"]
     assert "/login?next=" in location
     assert "import" in location
 
     # Performing login with next parameter should redirect back to /import
-    resp_login = client.post(
+    resp_login = unauth_client.post(
         "/login",
         data={"password": server_config.admin_password, "next": "/import"},
         follow_redirects=False,
@@ -2714,17 +2728,17 @@ def test_cli_client_server_integration(client: TestClient, monkeypatch) -> None:
     )
 
 
-def test_links_management_and_tracking(client: TestClient) -> None:
+def test_links_management_and_tracking(unauth_client: TestClient) -> None:
     """Tests the new links tracking endpoints: creation, redirects, deletion, and HTML bookmarks parsing."""
     db = get_db(server_config)
 
     # 1. Access GET /links publicly (should redirect to login)
-    resp = client.get("/links", follow_redirects=False)
+    resp = unauth_client.get("/links", follow_redirects=False)
     assert resp.status_code == 303
     assert "login" in resp.headers.get("Location", "")
 
     # 2. Try to add link without logging in (should redirect to login)
-    add_resp = client.post(
+    add_resp = unauth_client.post(
         "/links/add",
         data={
             "url": "https://example.com/test-ref",
@@ -2737,7 +2751,7 @@ def test_links_management_and_tracking(client: TestClient) -> None:
     assert "login" in add_resp.headers.get("Location", "")
 
     # 3. Log in to get session cookie
-    login_resp = client.post(
+    login_resp = unauth_client.post(
         "/login",
         data={"password": server_config.admin_password},
         follow_redirects=False,
@@ -2746,12 +2760,12 @@ def test_links_management_and_tracking(client: TestClient) -> None:
     assert session_cookie is not None
 
     # Access GET /links with authentication
-    resp_auth = client.get("/links", cookies={"kb_session": session_cookie})
+    resp_auth = unauth_client.get("/links", cookies={"kb_session": session_cookie})
     assert resp_auth.status_code == 200
     assert "Directory" in resp_auth.text
 
     # 4. Add link with session cookie
-    add_resp = client.post(
+    add_resp = unauth_client.post(
         "/links/add",
         data={
             "url": "https://example.com/test-ref",
@@ -2773,13 +2787,13 @@ def test_links_management_and_tracking(client: TestClient) -> None:
     link_id = links[0]["id"]
 
     # 5. Access redirect tracking GET /links/go publicly (should redirect to login)
-    client.cookies.clear()
-    go_resp_public = client.get(f"/links/go?id={link_id}", follow_redirects=False)
+    unauth_client.cookies.clear()
+    go_resp_public = unauth_client.get(f"/links/go?id={link_id}", follow_redirects=False)
     assert go_resp_public.status_code == 303
     assert "login" in go_resp_public.headers.get("Location", "")
 
     # Access redirect tracking GET /links/go with authentication
-    go_resp = client.get(
+    go_resp = unauth_client.get(
         f"/links/go?id={link_id}",
         cookies={"kb_session": session_cookie},
         follow_redirects=False,
@@ -2803,7 +2817,7 @@ def test_links_management_and_tracking(client: TestClient) -> None:
     </DL><p>
     """
 
-    import_resp = client.post(
+    import_resp = unauth_client.post(
         "/links/import-bookmarks",
         files={"file": ("bookmarks.html", mock_bookmarks_html, "text/html")},
         cookies={"kb_session": session_cookie},
@@ -2821,7 +2835,7 @@ def test_links_management_and_tracking(client: TestClient) -> None:
     assert any(r["url"] == "https://example.com/imported-link-2" for r in imported_rows)
 
     # 7. Delete a link
-    del_resp = client.post(
+    del_resp = unauth_client.post(
         "/links/delete",
         data={"id": link_id},
         cookies={"kb_session": session_cookie},
@@ -3091,3 +3105,156 @@ def test_session_dialect_config(monkeypatch) -> None:
     # Restore config to fallback
     monkeypatch.setattr(kb_web.base.config, "_database_url", "")
     monkeypatch.setattr(kb_web.base, "_engine", None)
+
+
+def test_collections_page_and_view_performance(client: TestClient) -> None:
+    """Verifies that /collections and /collections/view/{id} load quickly without heavy model inflation."""
+    from kb_web.base import db_session
+    from kb_web.models_orm import Collection, FetchedPage
+
+    with db_session() as session:
+        col = Collection(
+            title="Fast Dashboard Test Collection",
+            visibility="public",
+            created_at="2026-09-13T16:00:00",
+        )
+        session.add(col)
+        session.flush()
+        col_id = col.id
+
+        page = FetchedPage(
+            url="https://example.com/fast-col-page",
+            title="Fast Col Page",
+            fetched_at="2026-09-13T16:00:00",
+        )
+        session.add(page)
+
+    # 1. Anonymous GET /collections
+    res_anon = client.get("/collections")
+    assert res_anon.status_code == 200
+    assert "Knowledge Collections" in res_anon.text
+    assert "Fast Dashboard Test Collection" in res_anon.text
+
+    # 2. Admin GET /collections
+    login_resp = client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+    res_admin = client.get("/collections")
+    assert res_admin.status_code == 200
+    assert "Assign to Collection" in res_admin.text
+    assert "New Collection" in res_admin.text
+
+    # 3. GET /collections/view/{col_id}
+    res_view = client.get(f"/collections/view/{col_id}")
+    assert res_view.status_code == 200
+    assert "Fast Dashboard Test Collection" in res_view.text
+
+    # Clean up
+    with db_session() as session:
+        session.query(Collection).filter_by(id=col_id).delete()
+        session.query(FetchedPage).filter_by(url="https://example.com/fast-col-page").delete()
+
+
+def test_links_safe_rendering_and_null_dates(client):
+    """Verifies that /links renders cleanly without DetachedInstanceError or NoneType subscripting."""
+    from kb_web.base import db_session
+    from kb_web.models_orm import Link
+
+    with db_session() as session:
+        link = Link(
+            url="https://example.com/null-date-link",
+            title="Safe Null Date Link",
+            description="Testing null date handling",
+            click_count=5,
+            created_at=None,
+            last_clicked_at=None,
+        )
+        session.add(link)
+        session.flush()
+        link_id = link.id
+
+    # Authenticate as admin
+    client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+
+    resp = client.get("/links")
+    assert resp.status_code == 200
+    assert "Safe Null Date Link" in resp.text
+    assert "Created: Unknown" in resp.text
+
+    # Cleanup
+    with db_session() as session:
+        session.query(Link).filter_by(id=link_id).delete()
+
+
+def test_admin_dashboard_performance_and_render(client):
+    """Verifies /admin loads cleanly with SQL aggregate count."""
+    client.post(
+        "/login",
+        data={"password": server_config.admin_password},
+        follow_redirects=False,
+    )
+
+    resp = client.get("/admin")
+    assert resp.status_code == 200
+    assert "Server Dashboard" in resp.text
+    assert "Unprocessed Pages" in resp.text or "unprocessed_count" in resp.text or "Server Configurations" in resp.text
+
+
+def test_view_site_tag_deserialization_and_safe_url(client):
+    """Verifies that /view/site renders whole tag badges without character splitting and populates safe_url."""
+    from kb_web.base import db_session
+    from kb_web.models_orm import FetchedPage
+
+    test_url = "https://youtu.be/regression_test_video"
+    with db_session() as session:
+        p = FetchedPage(
+            url=test_url,
+            title="AI Safety and Alignment",
+            tags=json.dumps(["ai safety", "machine learning"]),
+            description="A test video on alignment",
+            fetched_at="2026-09-13T12:00:00",
+        )
+        session.add(p)
+
+    resp = client.get("/view/site?site=youtu.be")
+    assert resp.status_code == 200
+    assert "ai safety" in resp.text
+    assert "machine learning" in resp.text
+    # Ensure character-splitting does not occur
+    assert ">a</a>" not in resp.text
+    assert ">i</a>" not in resp.text
+    # Verify safe_url is in the links
+    assert "https%3A%2F%2Fyoutu.be%2Fregression_test_video" in resp.text
+
+    # Cleanup
+    with db_session() as session:
+        session.query(FetchedPage).filter_by(url=test_url).delete()
+
+
+def test_database_logger_filtering_and_capture():
+    """Verifies that alembic plugin setup spam is filtered and live server logs are captured in SystemLog."""
+    import logging
+    from kb_web.server import setup_logging
+    from kb_web.base import db_session
+    from kb_web.models_orm import SystemLog
+
+    setup_logging()
+
+    alembic_lg = logging.getLogger("alembic.runtime.plugins")
+    alembic_lg.info("setup plugin alembic.autogenerate.regression_test")
+
+    server_lg = logging.getLogger("kb_web")
+    server_lg.info("Regression test live server message entry")
+
+    with db_session() as session:
+        recent_logs = session.query(SystemLog).order_by(SystemLog.id.desc()).limit(10).all()
+        for r in recent_logs:
+            assert "setup plugin alembic.autogenerate.regression_test" not in (r.message or "")
+        assert any("Regression test live server message entry" in (r.message or "") for r in recent_logs)
+

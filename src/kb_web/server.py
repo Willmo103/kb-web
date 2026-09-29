@@ -6,26 +6,27 @@ import os
 import logging
 import traceback
 from contextlib import asynccontextmanager
+from urllib.parse import quote_plus
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .base import config
+from .base import config, is_request_authenticated
 from .gotify import post_error_to_gotify
 
 
-# Setup logging using SQLite database table system_logs
+# Setup logging using system_logs database table
 def setup_logging():
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logger.handlers = []
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
 
     # Console Handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(
-        logging.Formatter("[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
-    )
-    logger.addHandler(console_handler)
+    if not any(isinstance(h, logging.StreamHandler) and h.__class__.__name__ != "DatabaseLogHandler" for h in root_logger.handlers):
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(
+            logging.Formatter("[%(asctime)s] %(levelname)s in %(module)s: %(message)s")
+        )
+        root_logger.addHandler(console_handler)
 
     # Database Logging Handler
     try:
@@ -33,11 +34,20 @@ def setup_logging():
 
         db_handler = DatabaseLogHandler()
         db_handler.setFormatter(logging.Formatter("%(message)s"))
-        logger.addHandler(db_handler)
+
+        # Attach to root if not already present
+        if not any(isinstance(h, DatabaseLogHandler) for h in root_logger.handlers):
+            root_logger.addHandler(db_handler)
+
+        # Attach directly to application and server loggers to survive worker process resets
+        for logger_name in ("kb_web", "uvicorn", "uvicorn.error", "uvicorn.access"):
+            lg = logging.getLogger(logger_name)
+            lg.disabled = False
+            lg.setLevel(logging.INFO)
+            if not any(isinstance(h, DatabaseLogHandler) for h in lg.handlers):
+                lg.addHandler(db_handler)
     except Exception as e:
         print(f"Warning: Failed to setup DatabaseLogHandler: {e}")
-
-    logging.getLogger("kb_web").setLevel(logging.INFO)
 
 
 setup_logging()
@@ -46,6 +56,9 @@ logger = logging.getLogger("kb_web")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure database logging handlers remain attached after worker process initialization
+    setup_logging()
+
     # Run database migrations on startup
     try:
         from kb_web.scripts.deploy_migrations import deploy
@@ -53,11 +66,43 @@ async def lifespan(app: FastAPI):
         deploy()
     except Exception as e:
         logger.error(f"Failed to run database migrations on startup: {e}")
+
+    # Security posture check on startup
+    if config.admin_password == "admin123":
+        logger.warning(
+            "CRITICAL SECURITY WARNING: Default administrator password ('admin123') is active! "
+            "Because this server is accessible on the open internet, change your password immediately."
+        )
+    if config.api_key == "kb-secret-key":
+        logger.warning(
+            "SECURITY NOTICE: Default API key ('kb-secret-key') is active. "
+            "Please configure a unique KB_API_KEY in production."
+        )
+
     yield
 
 
 # Instantiate core application
 app = FastAPI(title="Knowledge Base Web Importer", lifespan=lifespan)
+
+
+# Public exact paths that do not require prior session authentication
+PUBLIC_EXACT_PATHS = {
+    "/login",
+    "/logout",
+    "/favicon.ico",
+    "/icon.png",
+    "/manifest.json",
+    "/sw.js",
+}
+
+
+def _inject_security_headers(response: Response) -> None:
+    """Injects industry-standard HTTP security headers onto all outgoing responses."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
 
 # Request logging middleware to trace request lifecycle and performance
@@ -86,6 +131,51 @@ async def log_request_middleware(request: Request, call_next):
             exc_info=True,
         )
         raise e
+
+
+# Global site security and authentication guard middleware
+@app.middleware("http")
+async def security_and_auth_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # 1. Allow public metadata and login/logout paths
+    if path in PUBLIC_EXACT_PATHS:
+        response = await call_next(request)
+        _inject_security_headers(response)
+        return response
+
+    # 2. Check if request is authenticated via session cookie or valid API key
+    if not is_request_authenticated(request):
+        # API requests or JSON requests receive 401 Unauthorized JSON
+        accept_header = request.headers.get("accept", "")
+        if path.startswith("/api/") or "application/json" in accept_header:
+            response = JSONResponse(
+                status_code=401,
+                content={"detail": "Unauthorized: Authentication required."},
+            )
+            _inject_security_headers(response)
+            return response
+
+        # Media requests receive 401 Unauthorized plain text
+        if path.startswith("/media/"):
+            response = Response(
+                content="Unauthorized: Authentication required to access media assets.",
+                status_code=401,
+                media_type="text/plain",
+            )
+            _inject_security_headers(response)
+            return response
+
+        # Web browser navigation receives 303 redirect to /login?next={url}
+        redirect_url = f"/login?next={quote_plus(str(request.url))}"
+        response = RedirectResponse(url=redirect_url, status_code=303)
+        _inject_security_headers(response)
+        return response
+
+    # Request is authenticated
+    response = await call_next(request)
+    _inject_security_headers(response)
+    return response
 
 
 # Exception handler posting internal errors to Gotify
@@ -150,6 +240,7 @@ def get_manifest() -> dict:
         "share_target": {
             "action": "/import/shared-url",
             "method": "GET",
+            "enctype": "application/x-www-form-urlencoded",
             "params": {"title": "title", "text": "text", "url": "url"},
         },
     }
@@ -157,9 +248,12 @@ def get_manifest() -> dict:
 
 @app.get("/sw.js", response_class=HTMLResponse)
 def get_service_worker() -> HTMLResponse:
-    """Serves a blank Service Worker required by mobile PWA client specifications."""
+    """Serves a blank Service Worker required by mobile PWA client specifications without no-op fetch warnings."""
     return HTMLResponse(
-        content="self.addEventListener('fetch', function(event) {});",
+        content=(
+            "self.addEventListener('install', function(event) { self.skipWaiting(); });\n"
+            "self.addEventListener('activate', function(event) { event.waitUntil(clients.claim()); });\n"
+        ),
         media_type="application/javascript",
     )
 
@@ -172,17 +266,39 @@ app.mount("/media", StaticFiles(directory=str(media_dir)), name="media")
 
 
 # Import and register routers
-from .routers import auth, pages, sites, admin, api, collections, graph, cli_api, links  # noqa: E402
+from .routers import (  # noqa: E402
+    auth,
+    pages,
+    sites,
+    admin,
+    api,
+    collections,
+    graph,
+    cli_api,
+    links,
+    rest_api,
+    conversations,
+    embeddings,
+    notes,
+    reports,
+    workspaces,
+)
 
 app.include_router(auth.router)
 app.include_router(pages.router)
 app.include_router(sites.router)
 app.include_router(admin.router)
 app.include_router(api.router)
+app.include_router(rest_api.router)
 app.include_router(collections.router)
 app.include_router(graph.router)
 app.include_router(cli_api.router)
 app.include_router(links.router)
+app.include_router(conversations.router)
+app.include_router(embeddings.router)
+app.include_router(notes.router)
+app.include_router(reports.router)
+app.include_router(workspaces.router)
 
 
 # --- Re-export utility functions for backward test compatibility ---
