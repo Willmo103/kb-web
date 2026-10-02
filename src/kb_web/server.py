@@ -94,7 +94,14 @@ PUBLIC_EXACT_PATHS = {
     "/icon.png",
     "/manifest.json",
     "/sw.js",
+    "/api/health",
 }
+
+
+@app.get("/api/health")
+def health_check():
+    """Health check endpoint for CLI restart polling, service checks, and monitors."""
+    return {"status": "ok", "app": "kb-web"}
 
 
 def _inject_security_headers(response: Response) -> None:

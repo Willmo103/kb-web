@@ -378,6 +378,7 @@ class Workspace(Base):
     updated_at = Column(String)
 
     files = relationship("WorkspaceFile", back_populates="workspace", cascade="all, delete-orphan", lazy="joined")
+    snapshots = relationship("WorkspaceSnapshot", back_populates="workspace", cascade="all, delete-orphan", lazy="select")
 
 
 class WorkspaceFile(Base):
@@ -391,6 +392,20 @@ class WorkspaceFile(Base):
     updated_at = Column(String)
 
     workspace = relationship("Workspace", back_populates="files")
+
+
+class WorkspaceSnapshot(Base):
+    __tablename__ = "workspace_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    version_tag = Column(String, nullable=False)
+    description = Column(Text, default="")
+    files_snapshot = Column(Text, nullable=False)  # JSON-encoded dict of file_path -> {content, language}
+    is_frozen = Column(Integer, default=1)
+    created_at = Column(String)
+
+    workspace = relationship("Workspace", back_populates="snapshots")
 
 
 metadata = Base.metadata

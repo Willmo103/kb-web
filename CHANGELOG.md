@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-10-02
+### Added
+- **Authentication & Power Loss Resilience**:
+  - Implemented persistent disk caching (`~/.kb/configs/db_settings_cache.json`) for configuration settings in `src/kb_web/config.py`. Prevents delayed database recovery or power failures from reverting administrator credentials back to development defaults (`admin123`).
+  - Added connection health resilience in `src/kb_web/base.py` (`get_engine`) with `pool_recycle=300`, `pool_pre_ping=True`, and 5-second connection timeout to avoid hanging connections.
+  - Added public `/api/health` endpoint returning system operational health without requiring session cookies.
+- **CLI Authentication Hardening & Remote Restart (Resolves CLI 401 Unauthorized)**:
+  - Updated `is_request_authenticated` and `verify_api_key` in `src/kb_web/base.py` to authenticate registered database CLI API keys (`CliApiKey` / `cli_api_keys`) as well as the master key. Resolves HTTP 401 Unauthorized errors on CLI ingestion.
+  - Added `POST /api/cli/system/restart` endpoint enabling authenticated remote server restart signals.
+  - Added `restart` command in `kb-web-cli/src/kb_web_cli/main.py` with automated health polling against `/api/health` to confirm server reboot.
+- **Workspace Versioning & Freeze-to-Article**:
+  - Created `WorkspaceSnapshot` ORM model in `src/kb_web/models_orm.py` and REST endpoints in `src/kb_web/routers/workspaces.py` for creating immutable tagged snapshots (`POST /api/workspaces/{id}/snapshots`), listing snapshots, and restoring workspace files (`POST /api/workspaces/{id}/snapshots/{snapshot_id}/restore`).
+  - Implemented `POST /api/workspaces/{id}/snapshots/{snapshot_id}/freeze-article` to compile snapshot file manifests and syntax-highlighted source code into permanent Knowledge Base articles (`FetchedPage`).
+  - Integrated version snapshots sidebar drawer, snapshot tagging, restore modal, and publish actions into the Monaco IDE in `src/kb_web/templates/workspace_ide.j2.html`.
+- **Coding Agent Tools & Native `ollama.systemone` Tev1 Decision Integration**:
+  - Upgraded project `ollama` dependency to `>=0.6.3` supporting native `ollama.systemone()`.
+  - Implemented `systemone` method on `LoggedOllamaClient` in `src/kb_web/base.py` with logging to database table `ollama_logs`.
+  - Created `src/kb_web/agent_tools.py` with structured tools: `tool_create_file` (with commentary annotations), `tool_read_file` (1-indexed line window slicing), and `tool_edit_file` (precise search-and-replace modification).
+  - Created `src/kb_web/workspace_agent.py` integrating `tev1:latest` structured decision gating for classifying intent (`choice`), target file selection, and reading need assessment (`noul`).
+  - Added CLI terminal agent harness in `kb-web-cli` (`kb-web-cli workspace agent <workspace_id>` and `kb-web-cli agent <workspace_id>`).
+
 ## [0.5.2] - 2026-09-29
 ### Fixed
 - **Jinja2 Autoescape & XSS Hardening (Resolves #75)**:

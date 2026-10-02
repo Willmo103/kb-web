@@ -163,18 +163,24 @@ uv run kb-web db reindex-videos
 
 ---
 
-## CLI Client Station (kb-cli)
+## CLI Client Station (kb-cli / kb-web-cli)
 
-`kb-web` includes a standalone console tool `kb-cli` for managing the LIVE server remotely.
+`kb-web` includes a standalone console tool `kb-web-cli` for managing the server remotely:
 
-- **Installation**: `kb-cli install` (prompts for LIVE server URL and CLI API key generated from Admin Dashboard).
-- **View Server Logs**: `kb-cli logs --limit 100` (inspect server logs remotely; limit choice is saved locally).
-- **Ingest URL**: `kb-cli import <url>`
-- **Query RAG Agent**: `kb-cli query "<prompt>"`
-- **List Items**: `kb-cli list`
-- **Actions**: `kb-cli action <action> <url>`
-- **Collections**: `kb-cli collections --list`
-- **Tags**: `kb-cli tags --list`
+- **Installation**: `kb-web-cli install` (prompts for server URL and CLI API key generated from Admin Dashboard).
+- **Remote Server Restart**: `kb-web-cli restart` (sends authenticated remote restart trigger and polls `/api/health` until restored).
+- **View Server Logs**: `kb-web-cli logs --limit 100` (inspect server logs remotely; limit choice is saved locally).
+- **Ingest URL**: `kb-web-cli import <url>`
+- **Query RAG Agent**: `kb-web-cli query "<prompt>"`
+- **List Items**: `kb-web-cli list`
+- **Actions**: `kb-web-cli action <action> <url>`
+- **Collections**: `kb-web-cli collections --list`
+- **Tags**: `kb-web-cli tags --list`
+- **Workspace Snapshots & Agent Harness**:
+  - `kb-web-cli workspace snapshots <ws_id>`: List all tagged snapshots for a workspace.
+  - `kb-web-cli workspace snapshot <ws_id> --tag v1.0.0 --desc "Stable release"`: Create an immutable tagged snapshot.
+  - `kb-web-cli workspace freeze <ws_id> <snapshot_id>`: Freeze snapshot and publish directly as a Knowledge Base article (`workspace://`).
+  - `kb-web-cli workspace agent <ws_id>`: Launch interactive terminal coding agent paired with native `ollama.systemone` `tev1` decision routing and file tool execution.
 
 ---
 
