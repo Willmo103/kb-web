@@ -97,6 +97,13 @@ The web interface features an integrated site-wide theme engine with an interact
 - **Aesthetic**: Deep slate/obsidian palette (`#090e17` / `#111827`) with crisp high-contrast typography and muted neon accents (electric cyan, neon violet, emerald, amber, rose).
 - **Persistence**: Persists preference across page visits via `localStorage` with zero-flash (`prefers-color-scheme`) theme loading.
 
+### 7. Autonomous Agentic RAG Reports & Configurable Pipeline
+Research queries trigger a multi-sub-agent retrieval pipeline (`/reports/rag` or `kb-web-cli rag report`):
+- **Retrieval Sub-Agents**: Parallel searches across taxonomy tags, vector chunk similarity (`pgvector` / SQLite fallback), and lexical full-text.
+- **Decision Gating Matrix**: Evaluates candidate quality and relevance using native `ollama.systemone` multi-question decision gating (up to 64 questions per turn).
+- **Customizable & Persistent Pipeline**: Fully configurable from the RAG screen (toggles for each search engine, doc retrieval limits, candidate pool size, top sources to synthesize, similarity thresholds, and custom gating questions) with persistence in the database.
+- **Synthesis & Export**: Top evidence sources are synthesized into a publication-grade research report with one-click export into Knowledge Base Notes.
+
 
 ---
 

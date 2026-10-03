@@ -43,7 +43,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Designed and implemented a high-contrast muted neon retro dark theme in `src/kb_web/templates/base.j2.html`.
   - Uses deep obsidian/slate backgrounds (`#090e17` / `#111827`), technological slate borders (`#1e293b`), high-contrast sharp typography (`#f8fafc` / `#cbd5e1`), and muted neon accents (electric cyan `#38bdf8`, neon violet `#c084fc`, emerald `#34d399`, amber `#fbbf24`, rose `#f87171`).
   - Added an interactive circular Moon/Sun toggle button (`theme-circle-toggle`) with smooth 360-degree rotation micro-animation and stateful SVG icon swapping across both authenticated and guest navigation headers.
-  - Implemented synchronous anti-flicker loader script in `<head>` honoring `localStorage` and `prefers-color-scheme` media query with 0ms flash of unstyled theme.
+- **Fully Configurable RAG Process & Gating Questions Persistence**:
+  - Implemented configurable RAG pipeline in `src/kb_web/rag_agent.py` supporting customizable search channels (toggles for tag search, vector cosine search, lexical text search), doc retrieval limits, candidate pool size, top sources to synthesize, minimum similarity threshold, and minimum decision score threshold.
+  - Added dynamic decision gating question management supporting up to 64 questions per turn via native `ollama.systemone` with dynamic batching.
+  - Implemented database persistence and retrieval for RAG configuration (`get_rag_pipeline_config`, `save_rag_pipeline_config`) using `SettingExternal(key="rag_pipeline_config")`.
+  - Added REST API endpoints in `src/kb_web/routers/rag_reports.py`: `GET /api/reports/rag/config`, `POST /api/reports/rag/config`, `POST /api/reports/rag/config/reset`.
+  - Added collapsible **Pipeline Configuration** panel in `src/kb_web/templates/rag_report.j2.html` allowing users to configure retrieval, customize gating questions, save to database, and reset to defaults directly from the RAG screen.
+- **Production UI Naming & Terminology Audit**:
+  - Audited site templates to remove internal developer shorthand, verbatim conversational terms, and library feature branding across buttons and links.
+  - Replaced "ERP Grid" with "Reporting".
+  - Replaced "tev1 Decision Gated" with "Decision Gated".
+  - Replaced "Engine Wiki Storage File" with "Article Profile".
+  - Replaced "Ollama Coding Agent" with "Coding Assistant".
+  - Codified permanent rule in `GEMINI.md`: Rule 6 (Production UI Naming & Terminology Standard).
 
 ## [0.5.2] - 2026-09-29
 ### Fixed

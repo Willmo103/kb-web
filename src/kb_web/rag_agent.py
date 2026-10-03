@@ -43,11 +43,126 @@ def _extract_query_keywords(query: str) -> List[str]:
 
 
 # ==============================================================================
+# PIPELINE CONFIGURATION & DEFAULTS
+# ==============================================================================
+
+DEFAULT_RAG_CONFIG: Dict[str, Any] = {
+    "searches": {
+        "use_tag_search": True,
+        "use_vector_search": True,
+        "use_text_search": True,
+    },
+    "limits": {
+        "tag_limit": 12,
+        "vector_limit": 15,
+        "text_limit": 15,
+        "max_candidates": 24,
+        "max_sources": 6,
+    },
+    "thresholds": {
+        "min_similarity": 0.35,
+        "min_decision_score": 50.0,
+    },
+    "models": {
+        "synthesis_model": "",
+        "decision_model": "tev1",
+    },
+    "gating_questions": [
+        {
+            "id": "relevance",
+            "enabled": True,
+            "type": "noul",
+            "name": "Relevance Check",
+            "instructions": "Does candidate contain relevant information directly addressing the user's research query?",
+            "criteria_true": "Content directly addresses or provides relevant facts for the query.",
+            "criteria_false": "Content is off-topic, unrelated, or lacks relevant facts.",
+        },
+        {
+            "id": "code_quality",
+            "enabled": True,
+            "type": "noul",
+            "name": "Code & Commands",
+            "instructions": "Does candidate contain actionable code snippets, commands, or concrete implementation details?",
+            "criteria_true": "Contains working code, terminal commands, or API schemas.",
+            "criteria_false": "No code or commands found.",
+        },
+        {
+            "id": "depth",
+            "enabled": True,
+            "type": "choice",
+            "name": "Technical Depth",
+            "instructions": "Rate the technical depth of the candidate.",
+            "criteria": {
+                "deep": "In-depth architecture, code implementation, or database schema.",
+                "overview": "High-level summary, concepts, or introduction.",
+                "shallow": "Superficial or tangential mention.",
+            },
+        },
+        {
+            "id": "factual",
+            "enabled": True,
+            "type": "noul",
+            "name": "Information Density",
+            "instructions": "Does candidate have high factual information density?",
+            "criteria_true": "High signal-to-noise ratio with concrete facts and data.",
+            "criteria_false": "Low density, boilerplate, or promotional content.",
+        },
+        {
+            "id": "include",
+            "enabled": True,
+            "type": "noul",
+            "name": "Synthesis Recommendation",
+            "instructions": "Should candidate be included as primary evidence in the research report?",
+            "criteria_true": "Recommended for citation and synthesis in the report.",
+            "criteria_false": "Exclude from final report synthesis.",
+        },
+    ],
+}
+
+
+def get_rag_pipeline_config(session: Session) -> Dict[str, Any]:
+    """Retrieves saved RAG pipeline configuration from database, merged with defaults."""
+    setting = session.query(SettingExternal).filter_by(key="rag_pipeline_config").first()
+    if setting and setting.value:
+        try:
+            stored = json.loads(setting.value)
+            merged = json.loads(json.dumps(DEFAULT_RAG_CONFIG))
+            for k, v in stored.items():
+                if isinstance(v, dict) and k in merged and isinstance(merged[k], dict):
+                    merged[k].update(v)
+                else:
+                    merged[k] = v
+            return merged
+        except Exception as e:
+            logger.warning(f"Failed to parse stored rag_pipeline_config: {e}")
+    return json.loads(json.dumps(DEFAULT_RAG_CONFIG))
+
+
+def save_rag_pipeline_config(session: Session, config_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Persists RAG pipeline configuration into database SettingExternal."""
+    setting = session.query(SettingExternal).filter_by(key="rag_pipeline_config").first()
+    if not setting:
+        setting = SettingExternal(key="rag_pipeline_config", value=json.dumps(config_data))
+        session.add(setting)
+    else:
+        setting.value = json.dumps(config_data)
+    session.commit()
+    return config_data
+
+
+# ==============================================================================
 # 1. RETRIEVAL SUB-AGENTS
 # ==============================================================================
 
-def tag_search_subagent(session: Session, query: str, limit: int = 12) -> List[Dict[str, Any]]:
+def tag_search_subagent(
+    session: Session,
+    query: str,
+    limit: int = 12,
+    enabled: bool = True,
+) -> List[Dict[str, Any]]:
     """Sub-agent that searches taxonomy and user tags matching or related to query terms."""
+    if not enabled:
+        return []
     keywords = _extract_query_keywords(query)
     if not keywords:
         return []
@@ -139,8 +254,12 @@ def vector_rag_subagent(
     query: str,
     active_model: str = "embeddinggemma",
     limit: int = 15,
+    enabled: bool = True,
+    min_similarity: float = 0.0,
 ) -> List[Dict[str, Any]]:
     """Sub-agent that embeds search query and performs cosine vector similarity search."""
+    if not enabled:
+        return []
     prompt = f"search_query: {query}" if ("gemma" in active_model or "nomic" in active_model) else query
     query_vector = None
     try:
@@ -171,6 +290,8 @@ def vector_rag_subagent(
                 if dist is None:
                     continue
                 sim = max(0.0, 1.0 - float(dist))
+                if sim < min_similarity:
+                    continue
                 results.append({
                     "url": chunk.source_id,
                     "title": chunk.source_title or chunk.source_id,
@@ -197,6 +318,8 @@ def vector_rag_subagent(
             if not vec:
                 continue
             sim = cosine_similarity(query_vector, vec)
+            if sim < min_similarity:
+                continue
             scored.append((sim, c))
 
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -215,8 +338,15 @@ def vector_rag_subagent(
     return results
 
 
-def text_search_subagent(session: Session, query: str, limit: int = 15) -> List[Dict[str, Any]]:
+def text_search_subagent(
+    session: Session,
+    query: str,
+    limit: int = 15,
+    enabled: bool = True,
+) -> List[Dict[str, Any]]:
     """Sub-agent that executes pure lexical and full-text keyword matching."""
+    if not enabled:
+        return []
     keywords = _extract_query_keywords(query)
     if not keywords:
         return []
@@ -357,7 +487,7 @@ def aggregate_candidates(
 
 
 # ==============================================================================
-# 2. TEV1 DECISION SCORING SUB-AGENT (UP TO 64 QUESTIONS PER TURN)
+# 2. DECISION SCORING SUB-AGENT (UP TO 64 QUESTIONS PER TURN)
 # ==============================================================================
 
 def tev1_scoring_subagent(
@@ -366,13 +496,24 @@ def tev1_scoring_subagent(
     candidates: List[Dict[str, Any]],
     tev1_model: str = "tev1",
     purpose: str = "",
+    gating_questions: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
-    """Evaluates candidates using tev1 via native ollama.systemone with up to 64 questions per turn."""
+    """Evaluates candidates using decision model via native ollama.systemone with up to 64 questions per turn."""
     if not candidates:
         return []
 
-    # Batch evaluate candidates (up to 8 candidates with 6 questions each = 48 questions, well within 64 limit)
-    batch_size = min(8, len(candidates))
+    # Resolve active gating questions
+    if gating_questions is None:
+        gating_questions = DEFAULT_RAG_CONFIG.get("gating_questions", [])
+
+    active_questions = [q for q in gating_questions if q.get("enabled", True)]
+    if not active_questions:
+        # Fallback if all gating questions are disabled
+        active_questions = DEFAULT_RAG_CONFIG.get("gating_questions", [])[:3]
+
+    q_count = max(1, len(active_questions))
+    # Ollama systemone allows up to 64 questions per turn. Batch accordingly:
+    batch_size = max(1, min(len(candidates), 64 // q_count))
     eval_candidates = candidates[:batch_size]
 
     state: Dict[str, Any] = {
@@ -384,7 +525,7 @@ def tev1_scoring_subagent(
                 "index": idx,
                 "title": c["title"],
                 "url": c["url"],
-                "match_types": c["match_types"],
+                "match_types": c.get("match_types", []),
                 "excerpt": c["snippet"][:400],
             }
             for idx, c in enumerate(eval_candidates)
@@ -394,60 +535,33 @@ def tev1_scoring_subagent(
     questions: Dict[str, Dict[str, Any]] = {}
     for idx, c in enumerate(eval_candidates):
         prefix = f"c{idx}"
-        questions[f"{prefix}_relevance"] = {
-            "type": "noul",
-            "instructions": f"Does Candidate {idx} ('{c['title'][:40]}') contain relevant information addressing the query '{query[:60]}'?",
-            "criteria": {
-                "true": "Content directly addresses or provides relevant facts for the query.",
-                "false": "Content is off-topic, unrelated, or lacks relevant facts.",
-            },
-        }
-        questions[f"{prefix}_code_quality"] = {
-            "type": "noul",
-            "instructions": f"Does Candidate {idx} contain actionable code snippets, commands, or concrete implementation details?",
-            "criteria": {
-                "true": "Contains working code, terminal commands, or API schemas.",
-                "false": "No code or commands found.",
-            },
-        }
-        questions[f"{prefix}_depth"] = {
-            "type": "choice",
-            "instructions": f"Rate the technical depth of Candidate {idx}.",
-            "criteria": {
-                "deep": "In-depth architecture, code implementation, or database schema.",
-                "overview": "High-level summary, concepts, or introduction.",
-                "shallow": "Superficial or tangential mention.",
-            },
-        }
-        questions[f"{prefix}_factual"] = {
-            "type": "noul",
-            "instructions": f"Does Candidate {idx} have high factual information density?",
-            "criteria": {
-                "true": "High signal-to-noise ratio with concrete facts and data.",
-                "false": "Low density, boilerplate, or promotional content.",
-            },
-        }
-        questions[f"{prefix}_domain"] = {
-            "type": "choice",
-            "instructions": f"Identify the primary domain of Candidate {idx}.",
-            "criteria": {
-                "backend_database": "Database, backend services, or ORM models.",
-                "frontend_ui": "UI templates, HTML, CSS, JavaScript, or browser extensions.",
-                "security_auth": "Authentication, tokens, security hardening, or rate limiting.",
-                "cli_tooling": "Command-line tools, scripts, or REPL harnesses.",
-                "general_knowledge": "General documentation or miscellaneous topics.",
-            },
-        }
-        questions[f"{prefix}_include"] = {
-            "type": "noul",
-            "instructions": f"Should Candidate {idx} be included as primary evidence in the RAG research report?",
-            "criteria": {
-                "true": "Recommended for citation and synthesis in the report.",
-                "false": "Exclude from final report synthesis.",
-            },
-        }
+        for q_def in active_questions:
+            qid = q_def.get("id", "q")
+            q_key = f"{prefix}_{qid}"
+            q_type = q_def.get("type", "noul")
+            q_instr = q_def.get("instructions", "")
 
-    scored_candidates = []
+            if q_type == "choice":
+                questions[q_key] = {
+                    "type": "choice",
+                    "instructions": f"Candidate {idx} ('{c['title'][:40]}'): {q_instr}",
+                    "criteria": q_def.get("criteria", {
+                        "deep": "Comprehensive, technical, or concrete implementation details.",
+                        "overview": "High-level summary or conceptual overview.",
+                        "shallow": "Superficial or tangential mention.",
+                    }),
+                }
+            else:
+                questions[q_key] = {
+                    "type": "noul",
+                    "instructions": f"Candidate {idx} ('{c['title'][:40]}'): {q_instr} (Query: '{query[:60]}')",
+                    "criteria": {
+                        "true": q_def.get("criteria_true", "Satisfies criteria directly."),
+                        "false": q_def.get("criteria_false", "Does not satisfy criteria."),
+                    },
+                }
+
+    scored_candidates: List[Dict[str, Any]] = []
     try:
         resp = client.systemone(
             model=tev1_model,
@@ -458,73 +572,81 @@ def tev1_scoring_subagent(
 
         for idx, c in enumerate(eval_candidates):
             prefix = f"c{idx}"
-            rel_ans = answers.get(f"{prefix}_relevance")
-            code_ans = answers.get(f"{prefix}_code_quality")
-            depth_ans = answers.get(f"{prefix}_depth")
-            fact_ans = answers.get(f"{prefix}_factual")
-            domain_ans = answers.get(f"{prefix}_domain")
-            inc_ans = answers.get(f"{prefix}_include")
+            scores_dict: Dict[str, Any] = {}
+            score_acc = 0.0
 
-            rel_score = float(getattr(rel_ans, "noul", 0.5))
-            code_score = float(getattr(code_ans, "noul", 0.0))
-            depth_choice = getattr(depth_ans, "choice", "overview")
-            depth_weight = 1.0 if depth_choice == "deep" else (0.6 if depth_choice == "overview" else 0.2)
-            fact_score = float(getattr(fact_ans, "noul", 0.5))
-            domain_choice = getattr(domain_ans, "choice", "general_knowledge")
-            inc_score = float(getattr(inc_ans, "noul", 0.5))
+            for q_def in active_questions:
+                qid = q_def.get("id", "q")
+                q_key = f"{prefix}_{qid}"
+                ans = answers.get(q_key)
 
-            provenance_boost = min(0.3, c.get("provenance_count", 1) * 0.1)
+                if q_def.get("type") == "choice":
+                    choice_val = getattr(ans, "choice", "overview")
+                    scores_dict[qid] = choice_val
+                    if choice_val == "deep":
+                        score_acc += 1.0
+                    elif choice_val == "overview":
+                        score_acc += 0.6
+                    else:
+                        score_acc += 0.2
+                else:
+                    noul_val = float(getattr(ans, "noul", 0.5))
+                    scores_dict[qid] = round(noul_val * 100, 1)
+                    score_acc += noul_val
 
-            # Composite weighted formula
-            composite = (
-                (rel_score * 0.35)
-                + (fact_score * 0.20)
-                + (depth_weight * 0.20)
-                + (code_score * 0.10)
-                + (inc_score * 0.10)
-                + provenance_boost
-            )
+            avg_score = score_acc / q_count
+            provenance_boost = min(0.25, c.get("provenance_count", 1) * 0.08)
+            composite = min(1.0, (avg_score * 0.8) + provenance_boost)
 
-            c["tev1_eval"] = {
-                "relevance": round(rel_score * 100, 1),
-                "has_code": bool(code_score > 0.5),
-                "depth": depth_choice,
-                "factual": round(fact_score * 100, 1),
-                "domain": domain_choice,
-                "include": bool(inc_score > 0.4),
+            eval_summary = {
+                "scores": scores_dict,
+                "relevance": scores_dict.get("relevance", round(composite * 100, 1)),
+                "depth": scores_dict.get("depth", "overview"),
+                "has_code": scores_dict.get("code_quality", 0) > 50 if isinstance(scores_dict.get("code_quality"), (int, float)) else ("```" in c.get("snippet", "")),
+                "factual": scores_dict.get("factual", 75.0),
+                "include": scores_dict.get("include", 100) > 40 if isinstance(scores_dict.get("include"), (int, float)) else True,
                 "composite_score": round(composite * 100, 1),
             }
+
+            c["decision_eval"] = eval_summary
+            c["tev1_eval"] = eval_summary
             c["final_score"] = composite
             scored_candidates.append(c)
 
     except Exception as e:
-        logger.warning(f"tev1 systemone evaluation failed: {e}. Applying fallback ranking.")
+        logger.warning(f"Decision systemone evaluation failed: {e}. Applying fallback ranking.")
         for idx, c in enumerate(eval_candidates):
             prov = c.get("provenance_count", 1)
-            c["tev1_eval"] = {
+            comp_score = round(min(100.0, c.get("base_score", 0.5) * 50 + prov * 25), 1)
+            eval_summary = {
+                "scores": {"fallback": True},
                 "relevance": round(min(100.0, c.get("base_score", 0.5) * 60 + prov * 20), 1),
-                "has_code": "```" in c.get("snippet", "") or "def " in c.get("snippet", ""),
                 "depth": "deep" if len(c.get("snippet", "")) > 300 else "overview",
+                "has_code": "```" in c.get("snippet", "") or "def " in c.get("snippet", ""),
                 "factual": 75.0,
-                "domain": "general_knowledge",
                 "include": True,
-                "composite_score": round(c.get("base_score", 0.5) * 50 + prov * 25, 1),
+                "composite_score": comp_score,
             }
-            c["final_score"] = c["tev1_eval"]["composite_score"] / 100.0
+            c["decision_eval"] = eval_summary
+            c["tev1_eval"] = eval_summary
+            c["final_score"] = comp_score / 100.0
             scored_candidates.append(c)
 
     # Append remaining un-evaluated candidates with default fallback
     for c in candidates[batch_size:]:
         prov = c.get("provenance_count", 1)
-        c["tev1_eval"] = {
+        comp_score = round(prov * 20.0, 1)
+        eval_summary = {
+            "scores": {"fallback": True},
             "relevance": 50.0,
-            "has_code": "```" in c.get("snippet", ""),
             "depth": "overview",
+            "has_code": "```" in c.get("snippet", ""),
             "factual": 50.0,
-            "domain": "general_knowledge",
             "include": False,
-            "composite_score": round(prov * 20.0, 1),
+            "composite_score": comp_score,
         }
+        c["decision_eval"] = eval_summary
+        c["tev1_eval"] = eval_summary
         c["final_score"] = prov * 0.2
         scored_candidates.append(c)
 
@@ -542,22 +664,31 @@ def compile_rag_report(
     vetted_candidates: List[Dict[str, Any]],
     synthesis_model: str = "gemma4:latest",
     purpose: str = "",
+    max_sources: int = 6,
+    min_decision_score: float = 50.0,
 ) -> Dict[str, Any]:
     """Compiles vetted multi-agent evidence into a structured Markdown research report."""
-    top_evidence = vetted_candidates[:8]
+    qualified = [
+        c for c in vetted_candidates
+        if c.get("decision_eval", {}).get("composite_score", 0) >= min_decision_score
+    ]
+    if not qualified:
+        qualified = vetted_candidates
+
+    top_evidence = qualified[:max_sources]
 
     evidence_text = ""
     for idx, c in enumerate(top_evidence, 1):
-        tev = c.get("tev1_eval", {})
+        dec = c.get("decision_eval", c.get("tev1_eval", {}))
         evidence_text += f"\n### Source [{idx}]: {c['title']}\n"
         evidence_text += f"- **URL**: {c['url']}\n"
         evidence_text += f"- **Discovery Channels**: {', '.join(c.get('match_types', []))}\n"
-        evidence_text += f"- **tev1 Relevance**: {tev.get('relevance', 'N/A')}%\n"
-        evidence_text += f"- **Technical Depth**: {tev.get('depth', 'N/A')}\n"
+        evidence_text += f"- **Relevance Score**: {dec.get('relevance', 'N/A')}%\n"
+        evidence_text += f"- **Technical Depth**: {dec.get('depth', 'N/A')}\n"
         evidence_text += f"- **Excerpt**:\n{c.get('snippet', '')[:800]}\n"
 
     system_prompt = (
-        "You are the expert Senior Research & RAG Synthesis Agent for kb-web.\n"
+        "You are the expert Senior Research & Synthesis Agent for kb-web.\n"
         "Your task is to analyze the user's research query and synthesize the provided vetted evidence "
         "into a comprehensive, publication-grade Markdown research report.\n\n"
         "Structure your output strictly using the following Markdown sections:\n"
@@ -569,7 +700,7 @@ def compile_rag_report(
         "## Technical Architecture & Code Examples\n"
         "[Concrete code snippets, configuration rules, SQL queries, or commands extracted from evidence]\n\n"
         "## Evidence & Citations Table\n"
-        "| # | Source Title | Channel | tev1 Score | URL |\n"
+        "| # | Source Title | Channel | Decision Score | URL |\n"
         "|---|---|---|---|---|\n"
         "[Fill table rows based on sources provided]\n\n"
         "Do not invent false details. If certain specifics are not covered in the evidence, state so clearly."
@@ -602,32 +733,33 @@ def compile_rag_report(
 
         # Extract title
         title_match = re.search(r"^#\s+(.+)$", report_md, re.MULTILINE)
-        report_title = title_match.group(1).strip() if title_match else f"RAG Report: {query[:60]}"
+        report_title = title_match.group(1).strip() if title_match else f"Research Report: {query[:60]}"
 
     except Exception as e:
         logger.warning(f"Report synthesis LLM failed ({synthesis_model}): {e}. Building structured fallback report.")
-        report_title = f"RAG Research Report: {query[:60]}"
+        report_title = f"Research Report: {query[:60]}"
         rows = []
         for idx, c in enumerate(top_evidence, 1):
-            t = c.get("tev1_eval", {})
+            t = c.get("decision_eval", c.get("tev1_eval", {}))
+            score_val = t.get("composite_score", t.get("relevance", "N/A"))
             rows.append(
-                f"| {idx} | {c['title'][:40]} | {', '.join(c.get('match_types', []))} | {t.get('relevance', 'N/A')}% | [{c['url'][:30]}]({c['url']}) |"
+                f"| {idx} | {c['title'][:40]} | {', '.join(c.get('match_types', []))} | {score_val}% | [{c['url'][:30]}]({c['url']}) |"
             )
         table_str = "\n".join(rows)
 
         report_md = f"""# {report_title}
 
 ## Executive Summary
-This report was generated using multi-sub-agent retrieval (tag, vector, and text search) paired with `tev1` structured decision scoring across the Knowledge Base.
+This report was generated using multi-sub-agent retrieval (tag, vector, and lexical search) paired with structured decision scoring across the Knowledge Base.
 
 **Query Objective**: {query}
 
 ## Key Findings & Core Insights
 - Evaluated **{len(vetted_candidates)}** candidates across taxonomy tags, vector chunk embeddings, and lexical search.
-- **{len(top_evidence)}** primary evidence sources were selected through `tev1` decision scoring.
+- **{len(top_evidence)}** primary evidence sources were selected through decision scoring.
 
 ## Evidence & Citations Table
-| # | Source Title | Channel | tev1 Score | URL |
+| # | Source Title | Channel | Decision Score | URL |
 |---|---|---|---|---|
 {table_str}
 
@@ -643,10 +775,11 @@ This report was generated using multi-sub-agent retrieval (tag, vector, and text
                 "url": c["url"],
                 "source_type": c.get("source_type", "article"),
                 "match_types": c.get("match_types", []),
-                "tev1_score": c.get("tev1_eval", {}).get("composite_score", 0),
-                "relevance": c.get("tev1_eval", {}).get("relevance", 0),
-                "depth": c.get("tev1_eval", {}).get("depth", "overview"),
-                "has_code": c.get("tev1_eval", {}).get("has_code", False),
+                "decision_score": c.get("decision_eval", {}).get("composite_score", 0),
+                "tev1_score": c.get("decision_eval", {}).get("composite_score", 0),
+                "relevance": c.get("decision_eval", {}).get("relevance", 0),
+                "depth": c.get("decision_eval", {}).get("depth", "overview"),
+                "has_code": c.get("decision_eval", {}).get("has_code", False),
             }
             for c in top_evidence
         ],
@@ -666,36 +799,80 @@ def run_agentic_rag_pipeline(
     client: Optional[Any] = None,
     synthesis_model: Optional[str] = None,
     active_embedding_model: Optional[str] = None,
-    tev1_model: str = "tev1",
+    decision_model: Optional[str] = None,
+    tev1_model: Optional[str] = None,
+    pipeline_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Coordinates full end-to-end multi-agent RAG report generation."""
+    """Coordinates full end-to-end multi-agent RAG report generation with configurable pipeline."""
     if client is None:
         client = _get_ollama_client()
+
+    # Load stored or default configuration
+    if pipeline_config is None:
+        pipeline_config = get_rag_pipeline_config(session)
+
+    searches = pipeline_config.get("searches", {})
+    limits = pipeline_config.get("limits", {})
+    thresholds = pipeline_config.get("thresholds", {})
+    models = pipeline_config.get("models", {})
+    gating_questions = pipeline_config.get("gating_questions", [])
+
+    use_tags = searches.get("use_tag_search", True)
+    use_vector = searches.get("use_vector_search", True)
+    use_text = searches.get("use_text_search", True)
+
+    tag_limit = int(limits.get("tag_limit", 12))
+    vector_limit = int(limits.get("vector_limit", 15))
+    text_limit = int(limits.get("text_limit", 15))
+    max_candidates = int(limits.get("max_candidates", 24))
+    max_sources = int(limits.get("max_sources", 6))
+
+    min_similarity = float(thresholds.get("min_similarity", 0.35))
+    min_decision_score = float(thresholds.get("min_decision_score", 50.0))
+
+    chosen_decision_model = (
+        decision_model
+        or tev1_model
+        or models.get("decision_model")
+        or "tev1"
+    )
 
     if not active_embedding_model:
         setting = session.query(SettingExternal).filter_by(key="active_embedding_model").first()
         active_embedding_model = setting.value if setting else "embeddinggemma"
 
-    if not synthesis_model:
-        synthesis_model = getattr(client, "model", "gemma4:latest")
+    chosen_synthesis_model = (
+        synthesis_model
+        or models.get("synthesis_model")
+        or getattr(client, "model", "gemma4:latest")
+    )
 
-    logger.info(f"Initiating Agentic RAG Pipeline for query: '{query}'")
+    logger.info(f"Initiating Configured RAG Pipeline for query: '{query}'")
 
     # Step 1: Parallel retrieval sub-agents
-    tag_hits = tag_search_subagent(session, query, limit=12)
-    vector_hits = vector_rag_subagent(session, client, query, active_model=active_embedding_model, limit=15)
-    text_hits = text_search_subagent(session, query, limit=15)
+    tag_hits = tag_search_subagent(session, query, limit=tag_limit, enabled=use_tags)
+    vector_hits = vector_rag_subagent(
+        session,
+        client,
+        query,
+        active_model=active_embedding_model,
+        limit=vector_limit,
+        enabled=use_vector,
+        min_similarity=min_similarity,
+    )
+    text_hits = text_search_subagent(session, query, limit=text_limit, enabled=use_text)
 
     # Step 2: Deduplication and provenance aggregation
-    candidates = aggregate_candidates(tag_hits, vector_hits, text_hits, max_candidates=24)
+    candidates = aggregate_candidates(tag_hits, vector_hits, text_hits, max_candidates=max_candidates)
 
-    # Step 3: Tev1 decision scoring & gating (up to 64 questions per turn)
+    # Step 3: Decision scoring & gating (up to 64 questions per turn)
     vetted_candidates = tev1_scoring_subagent(
         client=client,
         query=query,
         candidates=candidates,
-        tev1_model=tev1_model,
+        tev1_model=chosen_decision_model,
         purpose=purpose,
+        gating_questions=gating_questions,
     )
 
     # Step 4: Report synthesis
@@ -703,9 +880,21 @@ def run_agentic_rag_pipeline(
         client=client,
         query=query,
         vetted_candidates=vetted_candidates,
-        synthesis_model=synthesis_model,
+        synthesis_model=chosen_synthesis_model,
         purpose=purpose,
+        max_sources=max_sources,
+        min_decision_score=min_decision_score,
     )
+
+    eval_results = [
+        {
+            "url": c["url"],
+            "title": c["title"],
+            "match_types": c.get("match_types", []),
+            "eval": c.get("decision_eval", c.get("tev1_eval", {})),
+        }
+        for c in vetted_candidates[:12]
+    ]
 
     return {
         "query": query,
@@ -720,13 +909,7 @@ def run_agentic_rag_pipeline(
             "vetted_sources": len(report_data["sources"]),
         },
         "sources": report_data["sources"],
-        "tev1_evaluations": [
-            {
-                "url": c["url"],
-                "title": c["title"],
-                "match_types": c.get("match_types", []),
-                "eval": c.get("tev1_eval", {}),
-            }
-            for c in vetted_candidates[:12]
-        ],
+        "decision_evaluations": eval_results,
+        "tev1_evaluations": eval_results,
+        "pipeline_config": pipeline_config,
     }

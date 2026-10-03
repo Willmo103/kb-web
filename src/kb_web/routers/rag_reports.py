@@ -23,7 +23,12 @@ from pydantic import BaseModel, Field
 
 from ..base import db_session, config, _jinja_env, verify_auth, COOKIE_NAME, verify_session_token
 from ..models_orm import RagReport, Note, SettingExternal, SettingOllama
-from ..rag_agent import run_agentic_rag_pipeline
+from ..rag_agent import (
+    run_agentic_rag_pipeline,
+    get_rag_pipeline_config,
+    save_rag_pipeline_config,
+    DEFAULT_RAG_CONFIG,
+)
 from ..utils import _get_ollama_client
 
 logger = logging.getLogger(__name__)
@@ -35,7 +40,9 @@ class RagGenerateRequest(BaseModel):
     query: str = Field(..., min_length=2, description="Research query or task")
     purpose: Optional[str] = Field("", description="Optional research goal or focus")
     synthesis_model: Optional[str] = Field(None, description="LLM synthesis model override")
-    tev1_model: Optional[str] = Field("tev1", description="Decision model name")
+    decision_model: Optional[str] = Field(None, description="Decision model override")
+    tev1_model: Optional[str] = Field(None, description="Legacy alias for decision model")
+    pipeline_config: Optional[Dict[str, Any]] = Field(None, description="Per-run pipeline configuration override")
 
 
 # ==============================================================================
@@ -53,6 +60,7 @@ def view_rag_report_generator(
     is_admin = bool(token and verify_session_token(token))
 
     with db_session() as session:
+        rag_config = get_rag_pipeline_config(session)
         # Load recent reports for sidebar
         recent_reports = (
             session.query(RagReport)
@@ -91,6 +99,7 @@ def view_rag_report_generator(
                     "query": active_obj.query,
                     "report_markdown": active_obj.report_markdown,
                     "sources": sources,
+                    "decision_evaluations": evals,
                     "tev1_evaluations": evals,
                     "created_at": active_obj.created_at,
                 }
@@ -118,6 +127,7 @@ def view_rag_report_generator(
             recent_reports=reports_list,
             available_models=available_models,
             default_model=default_model,
+            rag_config=rag_config,
             is_admin=is_admin,
         )
     )
@@ -127,12 +137,42 @@ def view_rag_report_generator(
 # REST API ENDPOINTS
 # ==============================================================================
 
+@router.get("/api/reports/rag/config")
+def get_rag_config_api(
+    token: Optional[str] = Depends(verify_auth),
+) -> Dict[str, Any]:
+    """Retrieves saved RAG pipeline configuration."""
+    with db_session() as session:
+        return get_rag_pipeline_config(session)
+
+
+@router.post("/api/reports/rag/config")
+def save_rag_config_api(
+    payload: Dict[str, Any],
+    token: Optional[str] = Depends(verify_auth),
+) -> Dict[str, Any]:
+    """Persists customized RAG pipeline configuration."""
+    with db_session() as session:
+        saved = save_rag_pipeline_config(session, payload)
+        return {"status": "saved", "config": saved}
+
+
+@router.post("/api/reports/rag/config/reset")
+def reset_rag_config_api(
+    token: Optional[str] = Depends(verify_auth),
+) -> Dict[str, Any]:
+    """Resets RAG pipeline configuration to defaults."""
+    with db_session() as session:
+        saved = save_rag_pipeline_config(session, DEFAULT_RAG_CONFIG)
+        return {"status": "reset", "config": saved}
+
+
 @router.post("/api/reports/rag/generate")
 def generate_rag_report_api(
     payload: RagGenerateRequest,
     token: Optional[str] = Depends(verify_auth),
 ) -> Dict[str, Any]:
-    """Executes the full agentic multi-sub-agent RAG workflow with tev1 decision gating."""
+    """Executes the full agentic multi-sub-agent RAG workflow with decision gating."""
     query = payload.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="Query cannot be empty")
@@ -158,7 +198,8 @@ def generate_rag_report_api(
             client=client,
             synthesis_model=synthesis_model,
             active_embedding_model=active_embedding_model,
-            tev1_model=payload.tev1_model or "tev1",
+            decision_model=payload.decision_model or payload.tev1_model,
+            pipeline_config=payload.pipeline_config,
         )
 
         # Persist report in database
@@ -168,7 +209,7 @@ def generate_rag_report_api(
             title=result["title"],
             report_markdown=result["report_markdown"],
             sources_json=json.dumps(result["sources"]),
-            tev1_evaluations_json=json.dumps(result["tev1_evaluations"]),
+            tev1_evaluations_json=json.dumps(result.get("decision_evaluations", result.get("tev1_evaluations", []))),
             model_synthesis=synthesis_model,
             created_at=now_str,
         )
@@ -247,6 +288,7 @@ def get_rag_report_api(
             "query": report.query,
             "report_markdown": report.report_markdown,
             "sources": sources,
+            "decision_evaluations": evals,
             "tev1_evaluations": evals,
             "model_synthesis": report.model_synthesis,
             "created_at": report.created_at,

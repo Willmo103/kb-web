@@ -13,16 +13,16 @@
                 <span class="text-3xl">🔬</span>
                 <h1 class="text-2xl font-black text-gray-900 tracking-tight">Agentic RAG Report Generator</h1>
                 <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">
-                    tev1 Decision Gated
+                    Decision Gated
                 </span>
             </div>
             <p class="text-sm text-gray-500">
-                Multi-sub-agent research across taxonomy tags, vector chunk embeddings, and lexical search evaluated with up to 64 <code class="text-indigo-600 font-mono text-xs">tev1</code> questions per turn.
+                Multi-sub-agent research across taxonomy tags, vector chunk embeddings, and lexical search evaluated with structured decision gating.
             </p>
         </div>
         <div class="flex items-center gap-2">
             <a href="/reports" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition">
-                <span>📊</span> ERP Grid
+                <span>📊</span> Reporting
             </a>
             <a href="/notes" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition">
                 <span>📝</span> Notes
@@ -32,7 +32,7 @@
 
     <!-- Main Grid: Controls + Report vs Recent Sidebar -->
     <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
-        <!-- Left 3 Columns: Query Input, Pipeline Status, and Report Output -->
+        <!-- Left 3 Columns: Query Input, Pipeline Configuration, Status, and Report Output -->
         <div class="lg:col-span-3 space-y-6">
             
             <!-- Research Query Card -->
@@ -80,15 +80,15 @@
                                 </select>
                             </div>
                             <div>
-                                <label for="ragTev1ModelSelect" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1.5">
+                                <label for="ragDecisionModelInput" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1.5">
                                     Decision Model
                                 </label>
                                 <input
                                     type="text"
-                                    id="ragTev1ModelSelect"
-                                    value="tev1"
+                                    id="ragDecisionModelInput"
+                                    value="{{ rag_config.models.decision_model if rag_config and rag_config.models else 'tev1' }}"
                                     class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono text-gray-800 bg-gray-50"
-                                    title="Decision gating model via ollama.systemone"
+                                    title="Decision gating model"
                                 />
                             </div>
                         </div>
@@ -120,6 +120,144 @@
                 </form>
             </div>
 
+            <!-- Pipeline Configuration Card (Collapsible) -->
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden transition">
+                <details id="pipelineConfigDetails" class="group">
+                    <summary class="flex items-center justify-between p-4 cursor-pointer select-none bg-slate-50 hover:bg-slate-100 transition">
+                        <div class="flex items-center gap-2 text-xs font-bold text-gray-700 uppercase tracking-wider">
+                            <span>⚙️</span>
+                            <span>Pipeline Configuration</span>
+                            <span id="cfgSummaryBadge" class="ml-2 text-[11px] px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-mono font-medium">
+                                Active Settings
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span id="configSaveAlert" class="text-xs font-semibold text-emerald-600 hidden">✓ Saved</span>
+                            <span class="text-xs text-indigo-600 font-semibold group-open:rotate-180 transition transform">▼</span>
+                        </div>
+                    </summary>
+
+                    <div class="p-5 space-y-6 border-t border-gray-200 bg-white">
+                        <!-- 1. Search Sub-Agents & Limits -->
+                        <div>
+                            <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                                <span>🔍</span> Search Engines & Retrieval Limits
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <!-- Tag Search -->
+                                <div class="p-3 rounded-xl border border-gray-200 bg-slate-50/50 space-y-2">
+                                    <div class="flex items-center justify-between">
+                                        <label for="cfgTagSearch" class="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
+                                            <input type="checkbox" id="cfgTagSearch" class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4" />
+                                            <span>🏷️ Tag Search</span>
+                                        </label>
+                                        <span class="text-[10px] text-gray-400 font-mono">Taxonomy</span>
+                                    </div>
+                                    <div class="flex items-center justify-between text-xs pt-1">
+                                        <label for="cfgTagLimit" class="text-gray-500 text-[11px]">Doc Limit:</label>
+                                        <input type="number" id="cfgTagLimit" min="1" max="50" class="w-16 p-1 text-xs border border-gray-300 rounded text-center font-mono" />
+                                    </div>
+                                </div>
+
+                                <!-- Vector Search -->
+                                <div class="p-3 rounded-xl border border-gray-200 bg-slate-50/50 space-y-2">
+                                    <div class="flex items-center justify-between">
+                                        <label for="cfgVectorSearch" class="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
+                                            <input type="checkbox" id="cfgVectorSearch" class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4" />
+                                            <span>🧠 Vector Search</span>
+                                        </label>
+                                        <span class="text-[10px] text-gray-400 font-mono">Cosine</span>
+                                    </div>
+                                    <div class="flex items-center justify-between text-xs pt-1">
+                                        <label for="cfgVectorLimit" class="text-gray-500 text-[11px]">Doc Limit:</label>
+                                        <input type="number" id="cfgVectorLimit" min="1" max="50" class="w-16 p-1 text-xs border border-gray-300 rounded text-center font-mono" />
+                                    </div>
+                                </div>
+
+                                <!-- Text Search -->
+                                <div class="p-3 rounded-xl border border-gray-200 bg-slate-50/50 space-y-2">
+                                    <div class="flex items-center justify-between">
+                                        <label for="cfgTextSearch" class="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
+                                            <input type="checkbox" id="cfgTextSearch" class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4" />
+                                            <span>📄 Full-Text Search</span>
+                                        </label>
+                                        <span class="text-[10px] text-gray-400 font-mono">Lexical</span>
+                                    </div>
+                                    <div class="flex items-center justify-between text-xs pt-1">
+                                        <label for="cfgTextLimit" class="text-gray-500 text-[11px]">Doc Limit:</label>
+                                        <input type="number" id="cfgTextLimit" min="1" max="50" class="w-16 p-1 text-xs border border-gray-300 rounded text-center font-mono" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Candidate Pool & Thresholds -->
+                        <div class="pt-4 border-t border-gray-100">
+                            <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                                <span>🎯</span> Synthesis Pool & Quality Thresholds
+                            </h4>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div class="p-3 rounded-xl border border-gray-200 bg-slate-50/50 space-y-1">
+                                    <label for="cfgMaxCandidates" class="block text-[11px] font-semibold text-gray-600">Candidate Pool Size</label>
+                                    <input type="number" id="cfgMaxCandidates" min="5" max="100" class="w-full p-1.5 text-xs border border-gray-300 rounded text-center font-mono" />
+                                </div>
+                                <div class="p-3 rounded-xl border border-gray-200 bg-slate-50/50 space-y-1">
+                                    <label for="cfgMaxSources" class="block text-[11px] font-semibold text-gray-600">Top Sources to Synthesize</label>
+                                    <input type="number" id="cfgMaxSources" min="1" max="20" class="w-full p-1.5 text-xs border border-gray-300 rounded text-center font-mono" />
+                                </div>
+                                <div class="p-3 rounded-xl border border-gray-200 bg-slate-50/50 space-y-1">
+                                    <label for="cfgMinSimilarity" class="block text-[11px] font-semibold text-gray-600">Min Vector Similarity</label>
+                                    <input type="number" id="cfgMinSimilarity" step="0.05" min="0" max="1" class="w-full p-1.5 text-xs border border-gray-300 rounded text-center font-mono" />
+                                </div>
+                                <div class="p-3 rounded-xl border border-gray-200 bg-slate-50/50 space-y-1">
+                                    <label for="cfgMinDecisionScore" class="block text-[11px] font-semibold text-gray-600">Min Decision Score (%)</label>
+                                    <input type="number" id="cfgMinDecisionScore" step="5" min="0" max="100" class="w-full p-1.5 text-xs border border-gray-300 rounded text-center font-mono" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Decision Gating Questions Manager -->
+                        <div class="pt-4 border-t border-gray-100">
+                            <div class="flex items-center justify-between mb-3">
+                                <div>
+                                    <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>⚡</span> Decision Gating Questions
+                                    </h4>
+                                    <p class="text-[11px] text-gray-400 mt-0.5">Evaluated per candidate (up to 64 questions per turn).</p>
+                                </div>
+                                <button type="button" onclick="addNewGatingQuestion()" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition">
+                                    <span>+</span> Add Question
+                                </button>
+                            </div>
+                            <div id="gatingQuestionsList" class="space-y-3">
+                                <!-- Populated dynamically by renderConfigUI -->
+                            </div>
+                        </div>
+
+                        <!-- Configuration Controls Footer -->
+                        <div class="pt-4 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3">
+                            <button
+                                type="button"
+                                onclick="resetPipelineConfig()"
+                                class="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-100 transition"
+                            >
+                                ↺ Reset to Defaults
+                            </button>
+                            <div class="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    id="saveConfigBtn"
+                                    onclick="savePipelineConfig()"
+                                    class="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition"
+                                >
+                                    <span>💾</span> Save Configuration
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+
             <!-- Pipeline Status Stepper Card (Visible during execution and after) -->
             <div id="pipelineStatusCard" class="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 shadow-sm hidden">
                 <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
@@ -134,19 +272,19 @@
                     <!-- Sub-Agent 1: Tag Search -->
                     <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
                         <div class="flex items-center justify-between text-slate-400 mb-1">
-                            <span class="font-bold flex items-center gap-1.5">🏷️ Tag Agent</span>
+                            <span class="font-bold flex items-center gap-1.5">🏷️ Tag Search</span>
                             <span id="tagHitBadge" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-mono">0 hits</span>
                         </div>
                         <p class="text-[11px] text-slate-400">Scans taxonomy & tag labels</p>
                     </div>
 
-                    <!-- Sub-Agent 2: Vector RAG -->
+                    <!-- Sub-Agent 2: Vector Search -->
                     <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
                         <div class="flex items-center justify-between text-slate-400 mb-1">
-                            <span class="font-bold flex items-center gap-1.5">🧠 Vector RAG</span>
+                            <span class="font-bold flex items-center gap-1.5">🧠 Vector Search</span>
                             <span id="vectorHitBadge" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-mono">0 hits</span>
                         </div>
-                        <p class="text-[11px] text-slate-400">Embedding cosine similarity</p>
+                        <p class="text-[11px] text-slate-400">Embedding similarity</p>
                     </div>
 
                     <!-- Sub-Agent 3: Text Search -->
@@ -158,24 +296,24 @@
                         <p class="text-[11px] text-slate-400">Lexical keyword matching</p>
                     </div>
 
-                    <!-- Tev1 Decision Gating -->
+                    <!-- Decision Gating -->
                     <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
                         <div class="flex items-center justify-between text-slate-400 mb-1">
-                            <span class="font-bold text-amber-400 flex items-center gap-1.5">⚡ tev1 Gating</span>
+                            <span class="font-bold text-amber-400 flex items-center gap-1.5">⚡ Decision Gating</span>
                             <span id="vettedHitBadge" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 font-mono border border-amber-700/40">0 vetted</span>
                         </div>
-                        <p class="text-[11px] text-slate-400">Up to 64 decision questions</p>
+                        <p class="text-[11px] text-slate-400">Structured decision scoring</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Tev1 Decision Matrix Breakdown (Collapsible) -->
+            <!-- Decision Matrix Breakdown (Collapsible) -->
             <div id="decisionMatrixCard" class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hidden">
                 <details class="group">
                     <summary class="flex items-center justify-between p-4 cursor-pointer select-none bg-slate-50 hover:bg-slate-100 transition">
                         <div class="flex items-center gap-2 text-xs font-bold text-gray-700 uppercase tracking-wider">
                             <span>⚡</span>
-                            <span>tev1 Decision Scoring Matrix</span>
+                            <span>Decision Scoring Matrix</span>
                             <span id="matrixCountBadge" class="ml-1 text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-mono">0 sources</span>
                         </div>
                         <span class="text-xs text-indigo-600 font-semibold group-open:rotate-180 transition transform">▼</span>
@@ -297,10 +435,10 @@
             <!-- Architecture Info Card -->
             <div class="bg-indigo-900 text-white rounded-2xl p-5 shadow-sm space-y-3 text-xs">
                 <div class="flex items-center gap-1.5 font-bold text-indigo-300 uppercase tracking-wider text-[11px]">
-                    <span>ℹ️</span> Multi-Agent RAG Stack
+                    <span>ℹ️</span> Multi-Agent RAG Pipeline
                 </div>
                 <p class="text-indigo-100 leading-relaxed text-[11px]">
-                    Unlike generic RAG pipelines, kb-web deploys specialized sub-agents for taxonomy tags, chunk vectors, and text, then uses <code class="bg-indigo-950 px-1 py-0.5 rounded text-amber-300 font-mono">tev1</code> to ask up to 64 targeted relevance and quality questions before synthesis.
+                    Deploys parallel sub-agents for taxonomy tags, chunk vector similarity, and lexical search, vetting candidates with structured multi-question decision gating before final report synthesis.
                 </p>
                 <div class="pt-2 border-t border-indigo-800 text-[10px] font-mono text-indigo-300">
                     CLI Equivalent: <br/>
@@ -315,6 +453,186 @@
     let currentReportData = null;
     let timerInterval = null;
     let timerSeconds = 0;
+    let activeConfig = {{ (rag_config if rag_config else {}) | tojson }};
+
+    // =========================================================================
+    // PIPELINE CONFIGURATION MANAGEMENT
+    // =========================================================================
+
+    function populateConfigForm(cfg) {
+        if (!cfg) return;
+        activeConfig = JSON.parse(JSON.stringify(cfg));
+
+        // Searches
+        const s = cfg.searches || {};
+        document.getElementById("cfgTagSearch").checked = s.use_tag_search !== false;
+        document.getElementById("cfgVectorSearch").checked = s.use_vector_search !== false;
+        document.getElementById("cfgTextSearch").checked = s.use_text_search !== false;
+
+        // Limits
+        const l = cfg.limits || {};
+        document.getElementById("cfgTagLimit").value = l.tag_limit || 12;
+        document.getElementById("cfgVectorLimit").value = l.vector_limit || 15;
+        document.getElementById("cfgTextLimit").value = l.text_limit || 15;
+        document.getElementById("cfgMaxCandidates").value = l.max_candidates || 24;
+        document.getElementById("cfgMaxSources").value = l.max_sources || 6;
+
+        // Thresholds
+        const t = cfg.thresholds || {};
+        document.getElementById("cfgMinSimilarity").value = t.min_similarity !== undefined ? t.min_similarity : 0.35;
+        document.getElementById("cfgMinDecisionScore").value = t.min_decision_score !== undefined ? t.min_decision_score : 50;
+
+        // Models
+        const m = cfg.models || {};
+        if (m.decision_model) {
+            document.getElementById("ragDecisionModelInput").value = m.decision_model;
+        }
+
+        renderGatingQuestionsList();
+    }
+
+    function renderGatingQuestionsList() {
+        const container = document.getElementById("gatingQuestionsList");
+        container.innerHTML = "";
+        const questions = activeConfig.gating_questions || [];
+
+        questions.forEach((q, idx) => {
+            const card = document.createElement("div");
+            card.className = "p-3 rounded-xl border border-gray-200 bg-slate-50/70 space-y-2 text-xs";
+            card.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <label class="flex items-center gap-2 font-bold text-gray-800 cursor-pointer">
+                        <input type="checkbox" onchange="toggleQuestionEnabled(${idx}, this.checked)" ${q.enabled ? 'checked' : ''} class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4" />
+                        <span>${q.name || q.id}</span>
+                        <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">${q.type || 'noul'}</span>
+                    </label>
+                    <div class="flex items-center gap-1">
+                        <button type="button" onclick="deleteGatingQuestion(${idx})" class="text-rose-500 hover:text-rose-700 p-1 text-[11px]" title="Delete question">🗑️</button>
+                    </div>
+                </div>
+                <div>
+                    <input type="text" value="${escapeHtml(q.instructions || '')}" onchange="updateQuestionInstructions(${idx}, this.value)" class="w-full text-xs p-1.5 border border-gray-300 rounded font-sans text-gray-700 bg-white" placeholder="Question instructions for decision model..." />
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    function toggleQuestionEnabled(idx, checked) {
+        if (activeConfig.gating_questions && activeConfig.gating_questions[idx]) {
+            activeConfig.gating_questions[idx].enabled = checked;
+        }
+    }
+
+    function updateQuestionInstructions(idx, text) {
+        if (activeConfig.gating_questions && activeConfig.gating_questions[idx]) {
+            activeConfig.gating_questions[idx].instructions = text;
+        }
+    }
+
+    function deleteGatingQuestion(idx) {
+        if (confirm("Remove this gating question?")) {
+            activeConfig.gating_questions.splice(idx, 1);
+            renderGatingQuestionsList();
+        }
+    }
+
+    function addNewGatingQuestion() {
+        const name = prompt("Enter a short name for the gating question (e.g., 'Security Review'):");
+        if (!name) return;
+        const instructions = prompt("Enter instructions for the decision model:", `Does candidate provide actionable information for ${name}?`);
+        if (!instructions) return;
+
+        const newId = name.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+        if (!activeConfig.gating_questions) activeConfig.gating_questions = [];
+        activeConfig.gating_questions.push({
+            id: newId,
+            enabled: true,
+            type: "noul",
+            name: name,
+            instructions: instructions,
+            criteria_true: "Meets question criteria directly.",
+            criteria_false: "Does not meet question criteria.",
+        });
+        renderGatingQuestionsList();
+    }
+
+    function collectCurrentPipelineConfig() {
+        return {
+            searches: {
+                use_tag_search: document.getElementById("cfgTagSearch").checked,
+                use_vector_search: document.getElementById("cfgVectorSearch").checked,
+                use_text_search: document.getElementById("cfgTextSearch").checked,
+            },
+            limits: {
+                tag_limit: parseInt(document.getElementById("cfgTagLimit").value, 10) || 12,
+                vector_limit: parseInt(document.getElementById("cfgVectorLimit").value, 10) || 15,
+                text_limit: parseInt(document.getElementById("cfgTextLimit").value, 10) || 15,
+                max_candidates: parseInt(document.getElementById("cfgMaxCandidates").value, 10) || 24,
+                max_sources: parseInt(document.getElementById("cfgMaxSources").value, 10) || 6,
+            },
+            thresholds: {
+                min_similarity: parseFloat(document.getElementById("cfgMinSimilarity").value) || 0.35,
+                min_decision_score: parseFloat(document.getElementById("cfgMinDecisionScore").value) || 50.0,
+            },
+            models: {
+                synthesis_model: document.getElementById("ragSynthesisModelSelect").value,
+                decision_model: document.getElementById("ragDecisionModelInput").value.trim() || "tev1",
+            },
+            gating_questions: activeConfig.gating_questions || [],
+        };
+    }
+
+    async function savePipelineConfig() {
+        const saveBtn = document.getElementById("saveConfigBtn");
+        const alertSpan = document.getElementById("configSaveAlert");
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving...";
+
+        const configToSave = collectCurrentPipelineConfig();
+        try {
+            const res = await fetch("/api/reports/rag/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(configToSave),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                populateConfigForm(data.config);
+                alertSpan.classList.remove("hidden");
+                setTimeout(() => alertSpan.classList.add("hidden"), 3000);
+            } else {
+                alert("Failed to save configuration.");
+            }
+        } catch (e) {
+            alert("Error saving configuration: " + e);
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.textContent = "💾 Save Configuration";
+        }
+    }
+
+    async function resetPipelineConfig() {
+        if (!confirm("Reset all RAG pipeline settings to system defaults?")) return;
+        try {
+            const res = await fetch("/api/reports/rag/config/reset", { method: "POST" });
+            if (res.ok) {
+                const data = await res.json();
+                populateConfigForm(data.config);
+                alert("Configuration reset to defaults.");
+            }
+        } catch (e) {
+            alert("Failed to reset configuration: " + e);
+        }
+    }
+
+    function escapeHtml(text) {
+        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    // =========================================================================
+    // EXECUTION & REPORT GENERATION
+    // =========================================================================
 
     function setQueryPreset(text) {
         document.getElementById("ragQueryInput").value = text;
@@ -326,7 +644,7 @@
         const query = document.getElementById("ragQueryInput").value.trim();
         const purpose = document.getElementById("ragPurposeInput").value.trim();
         const synthesisModel = document.getElementById("ragSynthesisModelSelect").value;
-        const tev1Model = document.getElementById("ragTev1ModelSelect").value.trim() || "tev1";
+        const decisionModel = document.getElementById("ragDecisionModelInput").value.trim() || "tev1";
 
         if (!query) return;
 
@@ -353,6 +671,7 @@
         }, 1000);
 
         try {
+            const pipelineConfig = collectCurrentPipelineConfig();
             const res = await fetch("/api/reports/rag/generate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -360,7 +679,8 @@
                     query: query,
                     purpose: purpose,
                     synthesis_model: synthesisModel,
-                    tev1_model: tev1Model,
+                    decision_model: decisionModel,
+                    pipeline_config: pipelineConfig,
                 }),
             });
 
@@ -397,7 +717,7 @@
         document.getElementById("pipelineStatusTitle").textContent = "Research Report Synthesized Successfully!";
 
         // Update Decision Matrix Table
-        const evals = data.tev1_evaluations || [];
+        const evals = data.decision_evaluations || data.tev1_evaluations || [];
         document.getElementById("matrixCountBadge").textContent = `${evals.length} evaluated`;
         const tbody = document.getElementById("decisionMatrixTableBody");
         tbody.innerHTML = "";
@@ -515,5 +835,11 @@
             btn.textContent = "💾 Save to Notes";
         }
     }
+
+    // Initialize configuration on page load
+    document.addEventListener("DOMContentLoaded", () => {
+        populateConfigForm(activeConfig);
+    });
 </script>
 {% endblock %}
+

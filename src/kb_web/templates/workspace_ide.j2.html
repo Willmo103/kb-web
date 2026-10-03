@@ -172,15 +172,15 @@
         <span class="hidden sm:inline">Export ZIP</span>
       </a>
 
-      <!-- Ollama Status Pill -->
+      <!-- AI Model Status Pill -->
       <button
         onclick="openSettingsModal()"
         id="ollamaStatusBadge"
         class="flex items-center gap-1.5 bg-[#21262d] hover:bg-[#30363d] text-slate-300 px-2.5 py-1.5 rounded border border-[#30363d] text-xs transition"
-        title="Click to configure Ollama"
+        title="Click to configure AI Assistant"
       >
         <span id="ollamaDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
-        <span id="ollamaModelName" class="font-mono text-[11px] hidden md:inline">Ollama: {{ ollama_model }}</span>
+        <span id="ollamaModelName" class="font-mono text-[11px] hidden md:inline">Model: {{ ollama_model }}</span>
       </button>
 
       <!-- Settings Gear -->
@@ -210,7 +210,7 @@
         onclick="toggleSideTab('ai')"
         id="actBtn-ai"
         class="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-[#21262d] relative"
-        title="Ollama AI Agent"
+        title="Coding Assistant"
       >
         <i data-lucide="bot" class="w-5 h-5"></i>
         <span id="aiActiveBadge" class="hidden absolute top-1 right-1 w-2 h-2 rounded-full bg-indigo-500"></span>
@@ -269,7 +269,7 @@
         <div class="px-3 py-2 border-b border-[#30363d] flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider bg-[#12161c]">
           <div class="flex items-center gap-1.5 text-indigo-400">
             <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-            <span>Ollama Coding Agent</span>
+            <span>Coding Assistant</span>
           </div>
           <button onclick="clearChatHistory()" class="text-[10px] lowercase text-slate-500 hover:text-slate-300" title="Clear chat messages">
             clear
@@ -310,7 +310,7 @@
               </div>
               <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700/60 flex items-center gap-1">
                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                tev1 Gated
+                Decision Gated
               </span>
             </div>
             
@@ -499,7 +499,7 @@
 
           <!-- AI Logs Output -->
           <div id="drawerPane-agentLog" class="w-full h-full p-2.5 overflow-y-auto font-mono text-[11px] leading-relaxed text-indigo-300 select-text hidden">
-            <div class="text-slate-500">// Ollama Agent stream traces and tool outputs will appear here.</div>
+            <div class="text-slate-500">// Agent stream traces and tool outputs will appear here.</div>
           </div>
         </div>
       </div>
@@ -538,7 +538,7 @@
       <div class="px-5 py-3.5 border-b border-[#30363d] flex items-center justify-between">
         <div class="flex items-center gap-2">
           <i data-lucide="cpu" class="w-4 h-4 text-indigo-400"></i>
-          <h3 class="text-sm font-semibold text-slate-100">AI Agent & Ollama Configuration</h3>
+          <h3 class="text-sm font-semibold text-slate-100">AI Assistant Configuration</h3>
         </div>
         <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
@@ -547,7 +547,7 @@
 
       <div class="p-5 space-y-4 text-xs">
         <div>
-          <label class="block font-medium text-slate-300 mb-1">Ollama API Endpoint:</label>
+          <label class="block font-medium text-slate-300 mb-1">LLM API Endpoint:</label>
           <input
             type="text"
             id="settingOllamaUrl"
@@ -1672,7 +1672,7 @@
       const selectHeader = document.getElementById("workspaceAgentModelSelect");
       if (selectHeader) selectHeader.value = ollamaConfig.model;
       const modelNameBadge = document.getElementById("ollamaModelName");
-      if (modelNameBadge) modelNameBadge.textContent = `Ollama: ${ollamaConfig.model}`;
+      if (modelNameBadge) modelNameBadge.textContent = `Model: ${ollamaConfig.model}`;
       localStorage.setItem(`ws_model_${WORKSPACE_ID}`, ollamaConfig.model);
       logConsole(`Active AI Model set to: ${ollamaConfig.model}`);
     }

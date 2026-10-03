@@ -60,3 +60,24 @@
      - Moon/Sun circle toggle button ("Moon/Sun circle toggle. I think its cute").
      - Smooth rotation and switch transition between Sun (☀️) and Moon (🌙).
      - Persists theme choice across page loads via `localStorage` (with immediate inline script in `<head>` to prevent flash of light theme / FOUC).
+
+---
+
+## Turn 4 - Full RAG Process Configuration & UI Label Normalization Audit
+- **Date**: 2026-10-03
+- **Context & Feedback**:
+  1. **Configurable RAG Process & Persistence**:
+     - The user needs to configure the *entire* RAG process directly in the RAG screen:
+       - Number of documents retrieved per sub-agent, total candidate pool size, and top sources to synthesize.
+       - Minimum similarity / score thresholds.
+       - Active search engines: toggles for Tag Search, Vector Search, and Full-Text Search.
+       - Customizable decision gating questions and criteria evaluated by the decision model.
+       - Persist this configuration so it survives page reloads and can be modified, saved, or reset in the UI.
+  2. **UI Labeling Normalization & Extraneous Branding Audit**:
+     - Remove extraneous model name and package feature branding ("tev1", library internals) from buttons, badges, and headers across the site. The user knows what backend is running and wants clean, production-grade labels.
+     - Normalize all robotic, hyper-specific, or developer jargon labels across templates:
+       - E.g. "ERP Grid" -> "Reporting".
+       - E.g. "tev1 Decision Gated" -> clean badge or remove extraneous tags.
+       - E.g. "Engine Wiki Storage File" -> "Article".
+     - Codify the permanent rule: Never use verbatim chat phrasing or package-internal names in production UI; use standard, clean, natural naming. Testing labels may be used in test scripts if needed to locate elements, but production UI must be standard and normal.
+

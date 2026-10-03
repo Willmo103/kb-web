@@ -77,7 +77,19 @@ This sprint iteration addresses server reboot authentication recovery, CLI 401 U
 ### 8. Site-Wide Muted Neon Dark Mode & Moon/Sun Circle Toggle
 - **High-Contrast Muted Neon Palette**: Implemented in [`src/kb_web/templates/base.j2.html`](file:///c:/src/kb-web/src/kb_web/templates/base.j2.html) using deep obsidian/slate backgrounds (`#090e17` / `#111827`), technological slate borders (`#1e293b`), high-contrast crisp text (`#f8fafc` / `#cbd5e1`), and muted neon accents (electric cyan `#38bdf8`, neon violet `#c084fc`, emerald `#34d399`, amber `#fbbf24`, rose `#f87171`).
 - **Moon/Sun Circle Toggle Button**: Added circular button (`theme-circle-toggle`) with smooth 360-degree rotation animation, swapping amber sun (☀️) and cyan glowing moon (🌙) icons across both authenticated and guest navigation headers.
-- **Anti-Flicker & Persistence**: Synchronous inline script in `<head>` immediately evaluates `localStorage` and system `prefers-color-scheme` to prevent white theme flash.
+### 9. Configurable RAG Pipeline & Production UI Terminology Audit
+- **Full RAG Pipeline Configuration**:
+  - In [`src/kb_web/rag_agent.py`](file:///c:/src/kb-web/src/kb_web/rag_agent.py), added configurable limits (tag, vector, text, pool size, top sources), thresholds (min vector similarity, min decision score), search toggles, and dynamic decision gating questions manager.
+  - Implemented database persistence via `SettingExternal(key="rag_pipeline_config")` (`get_rag_pipeline_config`, `save_rag_pipeline_config`).
+  - Added REST endpoints in [`src/kb_web/routers/rag_reports.py`](file:///c:/src/kb-web/src/kb_web/routers/rag_reports.py): `GET /api/reports/rag/config`, `POST /api/reports/rag/config`, `POST /api/reports/rag/config/reset`.
+  - Added an expandable/collapsible **Pipeline Configuration** panel in [`src/kb_web/templates/rag_report.j2.html`](file:///c:/src/kb-web/src/kb_web/templates/rag_report.j2.html) allowing users to tweak parameters, toggle searches, add/edit/delete gating questions, and click "Save Configuration" directly on the RAG screen.
+- **Production UI Naming & Terminology Standard**:
+  - Audited site-wide templates to eliminate internal developer shorthand, verbatim conversational terms, and library feature branding across buttons and links.
+  - Replaced "ERP Grid" with "Reporting".
+  - Replaced "tev1 Decision Gated" with "Decision Gated".
+  - Replaced "Engine Wiki Storage File" with "Article Profile".
+  - Replaced "Ollama Coding Agent" with "Coding Assistant".
+  - Codified permanent rule in [`GEMINI.md`](file:///c:/src/kb-web/GEMINI.md): Rule 6 (Production UI Naming & Terminology Standard).
 
 ---
 
@@ -85,12 +97,13 @@ This sprint iteration addresses server reboot authentication recovery, CLI 401 U
 
 1. **Automated Test Suite**:
    - [`tests/test_cli_auth_and_workspaces.py`](file:///c:/src/kb-web/tests/test_cli_auth_and_workspaces.py): 7 tests passing.
-   - [`tests/test_rag_agent_and_reports.py`](file:///c:/src/kb-web/tests/test_rag_agent_and_reports.py): 7 tests passing (tag, vector, text sub-agents, `tev1` decision scoring matrix, report compilation, REST API workflow, chat drawer removal, CLI, and dark mode toggle/theme integration).
-   - Full pytest run: **113 passed** (0 failures).
+   - [`tests/test_rag_agent_and_reports.py`](file:///c:/src/kb-web/tests/test_rag_agent_and_reports.py): **10 tests passing** (tag/vector/text sub-agents, decision scoring matrix, fallback compilation, REST API workflow, redirect of /conversations, CLI commands, dark mode theme/toggle, RAG pipeline configuration API and persistence, custom pipeline execution, and clean labels audit).
+   - Full pytest run: **116 passed** (0 failures).
 2. **Template Verification**:
    - `.agents/skills/ui-component-uat-check/scripts/verify_ui_templates.py`: **22 HTML templates verified**, 0 warnings.
 3. **Build Pipeline**:
-   - `build.py`: Successfully completed `uv sync`, `pytest` (113 passed), `uv build` for `kb-web-0.2.0`, and `uv build` for `kb-web-cli-0.1.0`.
+   - `build.py`: Successfully completed `uv sync`, `pytest` (116 passed), `uv build` for `kb-web-0.2.0`, and `uv build` for `kb-web-cli-0.1.0`.
 4. **VCS UAT Artifacts**:
-   - Generated report in `uat/reports/` and execution log in `uat/logs/`.
+   - Generated report in `uat/reports/uat_report_Configurable RAG Pipeline & Clean UI Labels_20261003_032139.md` and execution log in `uat/logs/test_log_Configurable RAG Pipeline & Clean UI Labels_20261003_032139.log`.
+
 

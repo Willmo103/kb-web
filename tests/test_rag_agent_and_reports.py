@@ -235,7 +235,7 @@ def test_report_compilation_and_fallback():
         vetted_candidates=vetted,
         synthesis_model="failing-model",
     )
-    assert "RAG Research Report" in fallback_report["title"]
+    assert "Research Report" in fallback_report["title"]
     assert "Evidence & Citations Table" in fallback_report["report_markdown"]
     assert len(fallback_report["sources"]) == 1
 
@@ -268,7 +268,7 @@ def test_rag_reports_api_workflow(auth_client, monkeypatch):
     ui_res = auth_client.get("/reports/rag")
     assert ui_res.status_code == 200
     assert "Agentic RAG Report Generator" in ui_res.text
-    assert "tev1 Decision Gated" in ui_res.text
+    assert "Decision Gated" in ui_res.text
 
     # 2. Test POST /api/reports/rag/generate
     gen_res = auth_client.post(
@@ -394,4 +394,149 @@ def test_site_wide_dark_mode_theme_and_toggle(client, auth_client):
     assert rag_res.status_code == 200
     assert "theme-circle-toggle" in rag_res.text
     assert "toggleThemeMode()" in rag_res.text
+
+
+def test_rag_pipeline_configuration_api_and_persistence(auth_client):
+    """Verifies that RAG pipeline configuration can be fetched, customized, persisted, and reset."""
+    # 1. GET initial config
+    res = auth_client.get("/api/reports/rag/config")
+    assert res.status_code == 200
+    cfg = res.json()
+    assert "searches" in cfg
+    assert "limits" in cfg
+    assert "thresholds" in cfg
+    assert "gating_questions" in cfg
+    assert cfg["searches"]["use_tag_search"] is True
+
+    # 2. POST updated config
+    custom_cfg = json.loads(json.dumps(cfg))
+    custom_cfg["limits"]["tag_limit"] = 7
+    custom_cfg["thresholds"]["min_decision_score"] = 65.0
+    custom_cfg["searches"]["use_text_search"] = False
+    custom_cfg["gating_questions"].append({
+        "id": "security_audit",
+        "enabled": True,
+        "type": "noul",
+        "name": "Security Audit",
+        "instructions": "Does this candidate address security hardening?",
+        "criteria_true": "Mentions hardening or tokens.",
+        "criteria_false": "No security details.",
+    })
+
+    save_res = auth_client.post("/api/reports/rag/config", json=custom_cfg)
+    assert save_res.status_code == 200
+    saved = save_res.json()["config"]
+    assert saved["limits"]["tag_limit"] == 7
+    assert saved["thresholds"]["min_decision_score"] == 65.0
+    assert saved["searches"]["use_text_search"] is False
+    assert any(q["id"] == "security_audit" for q in saved["gating_questions"])
+
+    # 3. Verify persistence on subsequent GET
+    get_res = auth_client.get("/api/reports/rag/config")
+    assert get_res.status_code == 200
+    persisted = get_res.json()
+    assert persisted["limits"]["tag_limit"] == 7
+    assert persisted["thresholds"]["min_decision_score"] == 65.0
+    assert persisted["searches"]["use_text_search"] is False
+
+    # 4. POST reset
+    reset_res = auth_client.post("/api/reports/rag/config/reset")
+    assert reset_res.status_code == 200
+    reset_cfg = reset_res.json()["config"]
+    assert reset_cfg["searches"]["use_text_search"] is True
+    assert reset_cfg["limits"]["tag_limit"] == 12
+
+
+def test_rag_pipeline_with_custom_config_execution():
+    """Verifies that run_agentic_rag_pipeline respects custom per-run pipeline_config."""
+    mock_client = MagicMock()
+    mock_client.systemone.return_value = MagicMock(
+        answers={
+            "c0_relevance": MagicMock(noul=0.9),
+            "c0_depth": MagicMock(choice="deep"),
+        }
+    )
+    mock_client.chat.return_value = MagicMock(
+        message=MagicMock(content="# Custom Config Synthesis\n\n## Executive Summary\nReport using custom configuration.")
+    )
+
+    custom_pipeline_config = {
+        "searches": {
+            "use_tag_search": True,
+            "use_vector_search": False,
+            "use_text_search": False,
+        },
+        "limits": {
+            "tag_limit": 4,
+            "max_candidates": 4,
+            "max_sources": 2,
+        },
+        "thresholds": {
+            "min_similarity": 0.5,
+            "min_decision_score": 40.0,
+        },
+        "models": {
+            "decision_model": "tev1",
+            "synthesis_model": "gemma4:latest",
+        },
+        "gating_questions": [
+            {
+                "id": "relevance",
+                "enabled": True,
+                "type": "noul",
+                "instructions": "Is it relevant?",
+                "criteria_true": "Yes",
+                "criteria_false": "No",
+            }
+        ],
+    }
+
+    with db_session() as session:
+        result = run_agentic_rag_pipeline(
+            session=session,
+            query="Database indexing",
+            purpose="Testing custom config",
+            client=mock_client,
+            pipeline_config=custom_pipeline_config,
+        )
+
+        assert result["subagent_metrics"]["vector_hits"] == 0
+        assert result["subagent_metrics"]["text_hits"] == 0
+        assert len(result["sources"]) <= 2
+        assert "Custom Config Synthesis" in result["title"]
+        assert "pipeline_config" in result
+
+
+def test_clean_labels_audit(auth_client):
+    """Verifies that extraneous package jargon, verbatim slang, and 'ERP Grid' are absent from production UI."""
+    # 1. RAG generator UI
+    rag_res = auth_client.get("/reports/rag")
+    assert rag_res.status_code == 200
+    assert "ERP Grid" not in rag_res.text
+    assert "Reporting" in rag_res.text
+    assert "tev1 Decision Gated" not in rag_res.text
+    assert "Decision Gated" in rag_res.text
+    assert "Pipeline Configuration" in rag_res.text
+    assert "Decision Scoring Matrix" in rag_res.text
+
+    # 2. View page UI
+    test_page_url = "https://example.com/clean-labels-test"
+    with db_session() as session:
+        if not session.query(FetchedPage).filter_by(url=test_page_url).first():
+            session.add(
+                FetchedPage(
+                    url=test_page_url,
+                    title="Clean Labels Page Test",
+                    description="Test page for UI labels.",
+                    md_content="# Content\nSome body.",
+                    fetched_at="2026-10-02T12:00:00",
+                )
+            )
+            session.commit()
+
+    page_res = auth_client.get(f"/view/page?url={test_page_url}")
+    assert page_res.status_code == 200
+    assert "Engine Wiki Storage File" not in page_res.text
+    assert "Article Profile" in page_res.text
+
 
