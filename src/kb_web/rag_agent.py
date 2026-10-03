@@ -896,6 +896,34 @@ def run_agentic_rag_pipeline(
         for c in vetted_candidates[:12]
     ]
 
+    # Post generation event to cross-agent memory board
+    try:
+        from .agent_memory import post_agent_memory
+        post_agent_memory(
+            session=session,
+            agent_name="RAGAgent",
+            channel="rag",
+            topic="report_generated",
+            content=(
+                f"Generated research report '{report_data['title']}' for query '{query[:60]}'. "
+                f"Retrieved {len(candidates)} candidates, vetted {len(report_data['sources'])} sources."
+            ),
+            memory_type="artifact",
+            metadata={
+                "query": query,
+                "title": report_data["title"],
+                "sources_count": len(report_data["sources"]),
+                "subagent_metrics": {
+                    "tag_hits": len(tag_hits),
+                    "vector_hits": len(vector_hits),
+                    "text_hits": len(text_hits),
+                    "total_candidates": len(candidates),
+                },
+            },
+        )
+    except Exception as e:
+        logger.warning(f"Failed to post RAG agent memory: {e}")
+
     return {
         "query": query,
         "purpose": purpose,

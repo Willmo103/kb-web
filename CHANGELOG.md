@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.3] - 2026-10-02
 ### Added
+- **Notes Ingestion Pipeline (Titling, Tagging, Link Extraction, Skip Wiki)**:
+  - Added strict web URL extraction (`extract_valid_urls`) in `src/kb_web/utils.py` filtering for valid HTTP/HTTPS URLs while rejecting local relative paths, internal anchor fragments, non-web schemes (`file:`, `mailto:`, `javascript:`), and stripping trailing punctuation.
+  - Added automatic note titling (`generate_note_title`) synthesizing concise, accurate titles from markdown headings or content when notes are untitled or blank.
+  - Updated note background ingestion in `src/kb_web/routers/notes.py`: applies automatic titling, extracts web links (saved to `Note.links` as JSON array and mirrored to `FetchedPage.links`), and assigns tags, while explicitly **skipping AI wiki generation**.
+  - Linked note enrichment events directly to the cross-agent message board.
+- **Autonomous Category Taxonomy State Machine & Decision Integration**:
+  - Created autonomous, self-organizing category taxonomy engine in `src/kb_web/taxonomy_state_machine.py` completely independent of existing user collections.
+  - **Cold Start**: Initiates with 0 categories; the inaugural item prompts the LLM to invent the first category and its initial authoritative wiki documentation.
+  - **Top-Down Decision Gate**: Evaluates incoming items against existing categories using `tev1` (`ollama.systemone`) with a top-down choice question across leaf branches or `new_category`, followed by a `fit_confidence` noul verification check.
+  - **Living Category Wiki Docs**: Every category possesses a living `doc` wiki attribute updated and synthesized by an LLM upon each new item assignment.
+  - **10-Item Threshold & Inner Partitioning Loop**: When any category reaches 10 items, global item additions are paused (`is_partitioning_paused()`), and all 10 items are partitioned into 2 or more distinct child sub-categories. The parent category is transformed into a pure group container (`is_container=1`, direct `item_count=0`), and global additions unpause once the inner loop concludes.
+  - **Tree Representation**: Tree structure formatted hierarchically for classifier prompts (`format_category_tree_for_prompt`) and visualized in the interactive web ontology browser.
+  - **Autonomous Background Crawler**: Scheduled background indexing task (`crawl_and_classify_all`) that crawls unclassified articles, notes, videos, and studio workspaces sequentially through the decision state machine.
+  - **Taxonomy Web Studio & REST Endpoints**: Interactive tree browser, living wiki reader, and crawler controls at `/taxonomy` (`src/kb_web/templates/taxonomy.j2.html`) and `/api/taxonomy/*`.
+- **Centralized Agent Memory & Cross-Agent Message Board**:
+  - Created persistent shared memory engine in `src/kb_web/agent_memory.py` backed by `AgentMessage` ORM model.
+  - Channel-based coordination (`#taxonomy`, `#ingestion`, `#workspaces`, `#rag`) and structured memory types (`decision`, `observation`, `lifecycle`, `state_machine`, `artifact`).
+  - Added `tool_post_memory` in `src/kb_web/agent_tools.py` and wired automatic logging across all agent workflows (`workspace_agent.py`, `rag_agent.py`, `notes.py`, `taxonomy_state_machine.py`).
+  - Added dedicated Agent Message Board UI at `/agents/board` (`src/kb_web/templates/agent_board.j2.html`) with channel tabs, agent filters, live feed, and post modal.
+  - Added top-level navigation links (`🗂️ Taxonomy` and `🧠 Board`) in `src/kb_web/templates/base.j2.html`.
+- **CLI Subcommand Suites**:
+  - Added `kb-web-cli taxonomy crawl` (with `--limit`) and `kb-web-cli taxonomy tree`.
+  - Added `kb-web-cli board list` (with `--channel`, `--agent`, `--limit`).
 - **Authentication & Power Loss Resilience**:
   - Implemented persistent disk caching (`~/.kb/configs/db_settings_cache.json`) for configuration settings in `src/kb_web/config.py`. Prevents delayed database recovery or power failures from reverting administrator credentials back to development defaults (`admin123`).
   - Added connection health resilience in `src/kb_web/base.py` (`get_engine`) with `pool_recycle=300`, `pool_pre_ping=True`, and 5-second connection timeout to avoid hanging connections.

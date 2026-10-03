@@ -181,3 +181,27 @@ def tool_edit_file(
         "replacements": count,
         "bytes": len(new_content),
     }
+
+
+def tool_post_memory(
+    session: Session,
+    agent_name: str,
+    channel: str,
+    topic: str,
+    content: str,
+    memory_type: str = "observation",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Posts an observation, decision, or state transition to the cross-agent message board."""
+    from .agent_memory import post_agent_memory
+
+    return post_agent_memory(
+        session=session,
+        agent_name=agent_name,
+        channel=channel,
+        topic=topic,
+        content=content,
+        memory_type=memory_type,
+        metadata=metadata,
+    )
+

@@ -22,7 +22,9 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - **Semantic RAG Chunk Search**: High-dimensional chunk vector search across articles, notes, and videos directly from the homepage with jump-link document anchor highlights.
 - **Multi-Model Embeddings & Comparison**: Side-by-side vector model comparison explorer (`/similarity/compare`), background reindexing, and active model source toggling.
 - **Article Chat & Conversations Hub**: Sliding interactive Ollama chat drawer on articles and global dashboard (`/conversations`) preserving persistent discussion threads.
-- **Personal Knowledge Notes & Monaco Editor**: Note and code paste ingestion (`/notes`), directory tree grouping, integrated full-page Monaco Editor (`/notes/editor`), and Obsidian vault `.zip` mirroring.
+- **Personal Knowledge Notes & Monaco Editor**: Note and code paste ingestion (`/notes`), directory tree grouping, integrated full-page Monaco Editor (`/notes/editor`), and Obsidian vault `.zip` mirroring. Background ingestion applies titling, tagging, and filtered URL extraction while skipping AI wiki generation.
+- **Autonomous Category Taxonomy State Machine**: Self-organizing knowledge taxonomy (`/taxonomy`) powered by `tev1` decision gates and living category wiki docs. Features cold-start category creation, 10-item partitioning inner loops into sub-categories, container branches, and automated crawling (`crawl_and_classify_all`).
+- **Centralized Agent Memory & Message Board**: Cross-agent message board (`/agents/board`) coordinating lifecycle events, decision rationales, and pipeline observations across all autonomous workers.
 - **Admin Portal Tabbed Layout**: Ergonomic, 5-tab dashboard with persistent tab state across General, Prompts, Backups, Media, and Diagnostics.
 - **Custom Report Builder & ERP Data Grid**: Multi-table data grid (`/reports`) with dynamic joins, filtering, saved views, and high-volume streaming exports in `.csv`, `.json`, and native Excel `.xlsx`.
 - **In-Browser Replit-Lite Workspaces & Pyodide Python WASM**: Full browser-based coding studio (`/workspaces`) with persistent multi-file workspaces stored in the database, Monaco Editor, live Pyodide Python 3 WASM execution runtime, sandboxed HTML/JS preview with console log interceptor, ZIP archive bundling, and ephemeral Ollama coding agent with interactive diff review and merge.
@@ -32,10 +34,15 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 ## Codebase Structure
 
 - `src/kb_web/config.py`: Configuration class extending the base `kb_core` configuration to support LLM, API keys, and web UI variables.
-- `src/kb_web/models_orm.py`: SQLAlchemy ORM models, pgvector type decorator, and `vw_page_cards` view schema.
+- `src/kb_web/models_orm.py`: SQLAlchemy ORM models, pgvector type decorator, `TaxonomyCategory`, `TaxonomyItem`, `AgentMessage`, and `vw_page_cards` view schema.
 - `src/kb_web/models.py`: Pydantic validation schemas (`ParsedUrl` and `HTMLPage`) representing stored pages.
 - `src/kb_web/server.py`: FastAPI application routing, route guards, and background tasks.
+- `src/kb_web/taxonomy_state_machine.py`: Autonomous ontology classifier, `tev1` decision gate, 10-item partitioning loop, and crawler.
+- `src/kb_web/agent_memory.py`: Cross-agent memory engine, channel dispatcher, and metrics aggregator.
+- `src/kb_web/agent_tools.py`: Workspace agent primitives (`create_file`, `read_file`, `edit_file`, `post_memory`).
 - `src/kb_web/routers/rest_api.py`: Public JSON REST API endpoints (`/api/articles`, `/api/videos`, `/api/sites`, `/api/tags`).
+- `src/kb_web/routers/taxonomy.py`: Interactive taxonomy tree browser, category wiki inspector, and crawling endpoints.
+- `src/kb_web/routers/agent_board.py`: Agent memory board UI and REST endpoints.
 - `src/kb_web/routers/pages.py`: Web UI page controller with pagination and virtual site indexing.
 - `src/kb_web/routers/conversations.py`: Persistent article-level and global Ollama chat conversations.
 - `src/kb_web/routers/embeddings.py`: Multi-model embedding management, reindexing, and side-by-side comparison.

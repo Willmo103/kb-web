@@ -1,153 +1,168 @@
-# Implementation Plan: Agentic RAG Report Generator & Elimination of File Chat
+# Implementation Plan: Notes Processing, Autonomous Taxonomy State Machine & Agent Memory Message Board
 
 ## Context & Objectives
-1. **Eliminate "Chat with a File"**:
-   - Retire the single-article chat drawer on `view_page.j2.html` and its associated `/api/conversations/chat` article coupling.
-   - Replace the legacy `/conversations` navigation with **RAG Reports** (`/reports/rag`).
-2. **Agentic RAG Report Generator**:
-   - Build a multi-agent RAG research system that executes queries against the knowledge base.
-   - Orchestrates 3 parallel retrieval sub-agents:
-     - **Tag-Searching Sub-Agent**: queries taxonomy and associated tags.
-     - **Vector Query-RAG Sub-Agent**: embeds queries/sub-queries and queries vector embeddings (`ChunkEmbedding` / pgvector).
-     - **Pure Text Search Sub-Agent**: full-text/keyword search across titles, markdown content, and notes.
-   - **Tev1 Decision Scoring Sub-Agent (up to 64 questions per turn)**:
-     - Leverages native `ollama.systemone` with model `tev1` to evaluate candidate articles and chunks across structured criteria (relevance, actionable code, technical depth, factual density, domain alignment, etc.) using up to 64 questions per turn.
-   - **Report Compiler Agent**:
-     - Synthesizes top-ranked evidence into a rich, structured Markdown report with executive summary, answers, code snippets, and evidence citations.
-   - **Web UI & CLI**:
-     - Interactive web UI at `/reports/rag` with live sub-agent status, `tev1` decision scoring matrix, and rendered Markdown report viewer.
-     - CLI command `kb-web-cli rag report "<query>"` with terminal streaming.
+
+1. **Notes Processing Pipeline**:
+   - Apply automated tagging, titling (if title is empty or generic), and link extraction (strictly filtered for valid web URLs `http://` / `https://`) to Notes (`Note`).
+   - **Skip wiki generation** for notes (preserving the user's authentic note text without LLM rewriting).
+2. **Autonomous Category Taxonomy State Machine**:
+   - Completely independent from manual user collections (`Collection`).
+   - Self-organizing hierarchical category taxonomy (`TaxonomyCategory`, `TaxonomyItem`).
+   - **Cold Start**: Starts with 0 categories. The first item prompts the LLM to create Category #1 and its documentation (`doc`).
+   - **Decision Gating (`tev1`)**: For subsequent items (articles, notes, videos, workspace snapshots), the decision model evaluates whether the item fits an existing category branch. If it fits, it is assigned and the category `doc` (category wiki) is updated. If not, the LLM creates a new category.
+   - **Inner Partitioning Loop (10-Item Threshold)**:
+     - Upon the 10th item being added to any category (or sub-category), the state machine enters `PAUSED_FOR_PARTITION`.
+     - The LLM identifies a cohesive sub-theme and spawns a child sub-category.
+     - At least half (>= 5) of the items are moved into the child sub-category.
+     - Once the inner loop completes, global processing unpauses.
+   - **Tree-Structured Classifier Input**:
+     - When categories have sub-categories, they are structured and presented to the classifier as a tree.
+   - **Continuous Pipeline**:
+     - Can be run as a background crawler across existing database records or triggered incrementally when new items arrive.
+3. **Agent Memory Message Board**:
+   - Centralized persistent message board (`AgentMessage`) where all autonomous agents (Taxonomy State Machine, Workspace Coding Assistant, RAG Agent, Notes Ingestion) post and read messages, decisions, and system memory.
+   - Agent memory tools: `post_agent_memory`, `read_agent_memory`.
+   - UI viewer for monitoring multi-agent communications.
 
 ---
 
-## Architectural Workflow (Mermaid Diagram)
+## State Machine Architecture & Workflow (Mermaid Diagram)
 
 ```mermaid
-flowchart TD
-    UserQuery(["User Query / Research Topic"]) --> Orchestrator["RAG Query Orchestrator & Decomposer"]
+stateDiagram-v2
+    [*] --> Idle: System Startup / Idle
 
-    subgraph ParallelRetrieval ["Phase 1: Multi-Agent Parallel Retrieval"]
-        Orchestrator --> SubAgentTag["🏷️ Tag-Searching Sub-Agent<br/>(Taxonomy & Label Matches)"]
-        Orchestrator --> SubAgentVector["🧠 Vector Query-RAG Sub-Agent<br/>(Embeddings & Chunk Cosine Search)"]
-        Orchestrator --> SubAgentText["🔍 Pure Text Search Sub-Agent<br/>(Full-Text & Keyword Matching)"]
-    end
+    state "Idle / Ready" as Idle
+    state "Fetch Next Unclassified Item" as FetchItem
+    state "Cold Start: First Category" as ColdStart
+    state "Evaluate Fit with tev1" as DecisionFit
+    state "LLM Category Synthesis" as CreateCategory
+    state "Assign Item & Update Category Doc" as AssignItem
+    state "Check 10-Item Threshold" as CheckThreshold
+    state "Inner Loop: Partition Sub-Category" as Partitioning
+    state "Global Queue Paused" as PausedGlobal
 
-    SubAgentTag --> CandidatePool[("Aggregated Candidate Pool<br/>(Articles, Chunks & Notes)")]
-    SubAgentVector --> CandidatePool
-    SubAgentText --> CandidatePool
+    Idle --> FetchItem: Trigger Background Job / Ingest Item
+    FetchItem --> Idle: No More Unclassified Items
 
-    subgraph Tev1Gating ["Phase 2: Tev1 Decision Scoring & Gating Engine"]
-        CandidatePool --> BatchBuilder["Batch State Formatter<br/>(Prompt + Candidate Excerpts)"]
-        BatchBuilder --> Tev1SystemOne["⚡ tev1:latest via ollama.systemone<br/>(Up to 64 Questions per Turn)"]
-        
-        subgraph QuestionsMatrix ["Tev1 Evaluation Questions Matrix (up to 64 questions)"]
-            Q1["q_relevance (noul): Query relevance"]
-            Q2["q_actionable_code (noul): Code & commands"]
-            Q3["q_technical_depth (choice): Deep vs shallow"]
-            Q4["q_factual_accuracy (noul): Concrete facts"]
-            Q5["q_primary_domain (choice): Tech domain"]
-            Q6["q_include (noul): Synthesis recommendation"]
-        end
-        Tev1SystemOne -.-> QuestionsMatrix
-        QuestionsMatrix -.-> Scorer["Composite Weighted Ranking Engine<br/>Score = 0.4*Rel + 0.2*Fact + 0.2*Depth + 0.1*Code + 0.1*Provenance"]
-    end
+    FetchItem --> ColdStart: Category Count == 0
+    ColdStart --> AssignItem: First Category & Doc Created
 
-    Scorer --> TopEvidence["Vetted Top-K Evidence & Citations"]
+    FetchItem --> DecisionFit: Existing Categories > 0
+    
+    note right of DecisionFit
+        tev1 evaluates candidate tree branches:
+        Does item belong to existing category?
+    end note
 
-    subgraph SynthesisPhase ["Phase 3: Synthesis & Report Generation"]
-        TopEvidence --> ReportCompiler["📝 Report Compiler & Synthesizer<br/>(Ollama LLM Engine)"]
-        ReportCompiler --> FinalReport["Markdown RAG Research Report<br/>- Executive Summary<br/>- Key Insights & Direct Answers<br/>- Code Snippets & Architecture<br/>- Evidence & Source Table"]
-    end
+    DecisionFit --> AssignItem: Decision Model Returns Best Fit Category
+    DecisionFit --> CreateCategory: Decision Model Returns "No Fit / New Category"
+    CreateCategory --> AssignItem: New Category Created by LLM
 
-    subgraph DeliveryChannels ["Phase 4: Presentation & Persistence"]
-        FinalReport --> WebUI["Web UI (/reports/rag)<br/>(Interactive Viewer & Tev1 Matrix)"]
-        FinalReport --> CLITool["CLI (kb-web-cli rag report)"]
-        FinalReport --> NoteStorage["Knowledge Base Note / Article<br/>(Saved to Database)"]
-    end
+    AssignItem --> CheckThreshold: Item Count Incremented & Doc Updated
+    
+    CheckThreshold --> FetchItem: Category Item Count < 10
+    CheckThreshold --> PausedGlobal: Category Item Count >= 10 (10th Item Added)
+
+    state PausedGlobal {
+        [*] --> Partitioning
+        Partitioning --> SubCategoryCreated: LLM Identifies Sub-Theme
+        SubCategoryCreated --> ReassignItems: Move >= 5 Items to Sub-Category
+        ReassignItems --> UpdateDocs: Update Parent & Child Wiki Docs
+        UpdateDocs --> [*]
+    }
+
+    PausedGlobal --> FetchItem: Partitioning Complete (Unpause Queue)
 ```
 
 ---
 
-## Detailed Implementation Slices
+## Proposed Schema & Models (`src/kb_web/models_orm.py`)
 
-### Slice 1: Retire Single-Article Chat ("Chat with a File")
-- **`src/kb_web/templates/view_page.j2.html`**:
-  - Remove `<button onclick="openChatDrawer()">💬 Chat About Article</button>`.
-  - Remove chat drawer backdrop, modal markup, and client JS (`openChatDrawer`, `closeChatDrawer`, `sendChatMessage`, etc.).
-- **`src/kb_web/templates/base.j2.html` & `src/kb_web/templates/pages_list.j2.html`**:
-  - Replace navigation links from `/conversations` to `/reports/rag` ("RAG Reports").
-- **`src/kb_web/routers/conversations.py`**:
-  - Add 301/302 redirect from `/conversations` to `/reports/rag`.
-  - Deprecate `/api/conversations/chat` cleanly.
+### 1. `TaxonomyCategory`
+- `id`: Integer primary key, autoincrement
+- `name`: String (e.g., "PostgreSQL & Database Internals")
+- `slug`: String unique index
+- `parent_id`: Integer, ForeignKey("taxonomy_categories.id"), nullable (for tree hierarchy)
+- `doc`: Text (the evolving category wiki documentation synthesized by LLM)
+- `item_count`: Integer, default 0
+- `depth`: Integer, default 0
+- `created_at`: String (ISO timestamp)
+- `updated_at`: String (ISO timestamp)
+- `children`: relationship to self (`parent_id`)
 
-### Slice 2: Multi-Sub-Agent Retrieval & Tev1 Decision Scoring Engine
-- **New File**: `src/kb_web/rag_agent.py`
-  - `tag_search_subagent(session, query, limit=10)`:
-    - Scans `FetchedPage.tags` and `Note.tags`.
-    - Tokenizes query and identifies matching tags; loads articles/notes tagged with matching terms.
-  - `vector_rag_subagent(session, client, query, active_model, limit=15)`:
-    - Generates query embedding (`search_query: {query}`).
-    - Searches `ChunkEmbedding` using pgvector or cosine similarity.
-  - `text_search_subagent(session, query, limit=15)`:
-    - Performs multi-keyword search across `FetchedPage` (title, description, md_content) and `Note` (title, content, wiki_summary).
-  - `tev1_scoring_subagent(client, query, candidates, tev1_model="tev1")`:
-    - Batches candidate items (or evaluates candidates) with native `client.systemone`.
-    - Formulates up to 64 questions covering:
-      - `relevance`: relevance to the specific research prompt.
-      - `actionable_code`: presence of real code, config, or CLI examples.
-      - `technical_depth`: deep architectural/implementation vs surface-level.
-      - `factual_accuracy`: high signal density vs boilerplate.
-      - `primary_domain`: classification into relevant engineering domain.
-      - `include_in_report`: explicit gating recommendation.
-    - Computes composite weighted scores and filters/ranks the top evidence.
-  - `compile_rag_report(client, query, vetted_evidence, synthesis_model)`:
-    - Formulates structured prompt with vetted candidate excerpts and citations.
-    - Generates structured Markdown report.
-    - Returns report markdown, structured metadata, and `tev1` evaluation table.
+### 2. `TaxonomyItem`
+- `id`: Integer primary key, autoincrement
+- `category_id`: Integer, ForeignKey("taxonomy_categories.id"), index=True
+- `item_type`: String ("article", "note", "video", "workspace_snapshot")
+- `item_id`: String (e.g. URL for articles/notes/videos, snapshot id for workspaces)
+- `item_title`: String
+- `fit_score`: Float (decision model confidence score)
+- `assigned_at`: String (ISO timestamp)
 
-### Slice 3: REST API & Database Storage
-- **`src/kb_web/models_orm.py`**:
-  - Add `RagReport` model: `id`, `query`, `report_markdown`, `sources_json`, `tev1_evaluations_json`, `created_at`.
-- **`src/kb_web/routers/rag_reports.py`**:
-  - `POST /api/reports/rag/generate`: executes agentic RAG workflow and returns report + `tev1` decision data.
-  - `GET /api/reports/rag`: lists saved RAG reports.
-  - `GET /api/reports/rag/{id}`: retrieves report details.
-  - `POST /api/reports/rag/{id}/save-to-notes`: exports the report as a Knowledge Base note (`Note`).
-  - `DELETE /api/reports/rag/{id}`: deletes report.
-  - `GET /reports/rag`: HTML interface.
-- **`src/kb_web/server.py`**:
-  - Mount `rag_reports.py` router.
+### 3. `AgentMessage` (Agent Memory & Message Board)
+- `id`: Integer primary key, autoincrement
+- `agent_name`: String (e.g. "TaxonomyStateMachine", "WorkspaceAssistant", "RagAgent", "NotesIngestion")
+- `channel`: String (e.g. "taxonomy", "workspaces", "notes", "system")
+- `topic`: String
+- `content`: Text
+- `memory_type`: String ("decision", "state_transition", "milestone", "coordination")
+- `metadata_json`: Text (structured JSON payload)
+- `created_at`: String (ISO timestamp)
 
-### Slice 4: Modern Web UI (`/reports/rag`)
-- **`src/kb_web/templates/rag_report.j2.html`**:
-  - Hero query input form with model selection and research focus options.
-  - Sub-agent execution cards:
-    - 🏷️ Tag Searcher (found N tag matches)
-    - 🧠 Vector RAG Searcher (found N chunk matches)
-    - 🔍 Pure Text Searcher (found N text matches)
-  - `tev1` Decision Gating Matrix:
-    - Visual table showing each candidate, sub-agent origin, `tev1` relevance %, depth, actionable code badge, and inclusion verdict.
-  - Markdown Report View:
-    - Rendered HTML with syntax highlighting.
-    - Action buttons: "Copy Markdown", "Download .md", "Save as KB Note".
-  - Recent Reports Sidebar: quick browsing of past generated reports.
+### 4. `Note` Model Enhancement
+- Add `links`: Column(Text) — JSON-encoded array of extracted valid URLs (`https?://...`).
 
-### Slice 5: CLI Subcommand (`kb-web-cli rag report`)
-- **`kb-web-cli/src/kb_web_cli/main.py`**:
-  - `rag_app = typer.Typer(name="rag")`
-  - `kb-web-cli rag report "<query>" [--output report.md] [--model <model>]`
-  - Real-time terminal output showing sub-agent retrieval counts, `tev1` scoring summary, and rendered report.
+---
 
-### Slice 6: Automated Testing & Verification
-- **Unit Tests (`tests/test_rag_agent_and_reports.py`)**:
-  - Test Tag-searching sub-agent.
-  - Test Vector RAG sub-agent with mock embeddings.
-  - Test Pure Text search sub-agent.
-  - Test `tev1` decision scoring (verifying multi-question handling up to 64 questions and composite ranking).
-  - Test Report compilation and REST endpoints.
-  - Test CLI `rag report` command.
-  - Test removal of article chat drawer and redirect from `/conversations`.
-- Run `verify_ui_templates.py`.
-- Run `uv run pytest`.
-- Run `uv run python build.py`.
-- Generate UAT testing artifact.
+## State Machine Questions & Prompts Design
+
+### Step 1: Decision Gating Fit Question (`tev1` via `ollama.systemone`)
+- **State**: `item_title`, `item_excerpt`, and a formatted tree of existing categories with their short doc summaries.
+- **Question**:
+  ```python
+  {
+      "best_fit_category": {
+          "type": "choice",
+          "instructions": "Which category in the taxonomy tree does this item belong to conceptually, or should a new category be created?",
+          "criteria": {
+              "cat_<id>": "Detailed criteria matching category <id> domain and doc summary.",
+              # ... for candidate categories ...
+              "new_category": "The item introduces a distinct subject or domain that does not fit any existing category."
+          }
+      },
+      "confidence": {
+          "type": "noul",
+          "instructions": "Is there strong thematic alignment with the selected category?",
+          "criteria": {
+              "true": "High conceptual overlap and relevance.",
+              "false": "Marginal or poor fit."
+          }
+      }
+  }
+  ```
+
+### Step 2: LLM New Category Synthesis (Prompt)
+- If `new_category` is chosen or confidence is false:
+  - System Prompt: Generates concise, professional category name, slug, and initial 2-3 paragraph `doc` (category wiki) explaining the category scope and why this item belongs in it.
+
+### Step 3: Inner Loop (10-Item Partitioning)
+- When `category.item_count >= 10`:
+  - Fetch all items currently in category.
+  - LLM prompts with all 10 item titles and excerpts.
+  - LLM identifies a cohesive sub-theme that contains between 5 and 9 of the items.
+  - Spawns child `TaxonomyCategory(parent_id=current_cat.id)`.
+  - Re-links the matching `TaxonomyItem` records to the new child category ID.
+  - Re-computes item counts for parent and child.
+  - Updates parent `doc` and child `doc`.
+  - Posts milestone event to `AgentMessage`.
+
+---
+
+## Agent Memory Tool Specification
+- `post_agent_memory(agent_name, channel, topic, content, memory_type="decision", metadata=None)`
+- `read_agent_memory(channel=None, memory_type=None, limit=20)`
+- Required integration:
+  - Taxonomy state machine posts state transitions, category creations, partition events.
+  - Workspace coding agent consults and posts active tasks.
+  - RAG report compiler checks memory for past research contexts.

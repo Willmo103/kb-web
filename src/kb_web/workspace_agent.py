@@ -160,7 +160,12 @@ def execute_agent_step(
         "   ```tool:read_file\n"
         '   {"file_path": "path/file.ext", "start_line": 1, "end_line": 100}\n'
         "   ```\n\n"
-        "4. Standard file block (also accepted):\n"
+        "4. post_memory: Post an observation, decision, or update to the cross-agent message board.\n"
+        "   Syntax:\n"
+        "   ```tool:post_memory\n"
+        '   {"channel": "workspaces", "topic": "task_update", "content": "Explanation or coordination message"}\n'
+        "   ```\n\n"
+        "5. Standard file block (also accepted):\n"
         "   ```file:path/to/file.ext\n"
         "   <full file content>\n"
         "   ```\n"
@@ -246,6 +251,25 @@ def execute_agent_step(
         except Exception as err:
             logger.warning(f"Error executing read_file tool call: {err}")
 
+    # Parse ```tool:post_memory JSON
+    memory_pattern = re.compile(r"```tool:post_memory\s*\n(.*?)\n```", re.DOTALL)
+    for match in memory_pattern.finditer(reply_content):
+        try:
+            data = json.loads(match.group(1).strip())
+            from .agent_tools import tool_post_memory
+            res = tool_post_memory(
+                session=session,
+                agent_name=f"WorkspaceAgent:{ws.name}",
+                channel=data.get("channel", "workspaces"),
+                topic=data.get("topic", "progress"),
+                content=data.get("content", ""),
+                memory_type=data.get("memory_type", "observation"),
+                metadata=data.get("metadata"),
+            )
+            executed_tools.append({"tool": "post_memory", "result": res})
+        except Exception as err:
+            logger.warning(f"Error executing post_memory tool call: {err}")
+
     # Backward-compatible ```file:path parsing
     file_block_pattern = re.compile(r"```file:([^\n]+)\n(.*?)\n```", re.DOTALL)
     for match in file_block_pattern.finditer(reply_content):
@@ -262,6 +286,29 @@ def execute_agent_step(
             executed_tools.append(res)
         except Exception as err:
             logger.warning(f"Error saving file block: {err}")
+
+    # Automatically post turn summary to Agent Memory Board
+    try:
+        from .agent_memory import post_agent_memory
+        post_agent_memory(
+            session=session,
+            agent_name="WorkspaceAgent",
+            channel="workspaces",
+            topic="agent_step",
+            content=(
+                f"Workspace '{ws.name}': processed user prompt with intent '{decision.get('intent')}'. "
+                f"Executed {len(executed_tools)} tool call(s)."
+            ),
+            memory_type="decision",
+            metadata={
+                "workspace_id": ws.id,
+                "workspace_name": ws.name,
+                "intent": decision.get("intent"),
+                "tools_count": len(executed_tools),
+            },
+        )
+    except Exception as e:
+        logger.warning(f"Failed to post workspace agent step memory: {e}")
 
     return {
         "status": "success",

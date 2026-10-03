@@ -290,6 +290,8 @@ from .routers import (  # noqa: E402
     reports,
     rag_reports,
     workspaces,
+    taxonomy,
+    agent_board,
 )
 
 app.include_router(auth.router)
@@ -308,6 +310,8 @@ app.include_router(notes.router)
 app.include_router(reports.router)
 app.include_router(rag_reports.router)
 app.include_router(workspaces.router)
+app.include_router(taxonomy.router)
+app.include_router(agent_board.router)
 
 
 # --- Re-export utility functions for backward test compatibility ---
