@@ -29,6 +29,9 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 > - Gather user feedback using interactive custom HTML forms (`collect-uat-feedback-and-create-issues`).
 > - Automatically parse form JSON into actionable agent issues (`parse_uat_issues.py`).
 > - Generate and commit VCS testing artifacts in `uat/reports/` (`generate-uat-testing-artifact`).
+>
+> **6. Production UI Naming & Terminology Standard**
+> Never specify or copy verbatim conversational phrasing, internal developer jargon, or installed package branding (e.g. `tev1`, specific library feature tags, or casual chat phrasing like "ERP Grid") onto user-facing buttons, links, navigation, or headings in production code. Always normalize UI text into standard, professional, descriptive user labels (e.g., use "Reporting" instead of "ERP Grid", "Decision Gated" instead of "tev1 Decision Gated", "Article Profile" instead of "Engine Wiki Storage File", "Coding Assistant" instead of "Ollama Coding Agent"). Informal or verbatim conversational terms are strictly prohibited in production UI; if and only if helpful for locating elements during testing, such terms may be used in test descriptions, but production UI must always remain clean, intuitive, and normal.
 
 ---
 
@@ -44,6 +47,7 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 7. **Database View & Pagination**: Serve indexed web cards via pre-aggregated PostgreSQL view `vw_page_cards` with responsive UI pagination. Note: SQLite is being phased out in favor of PostgreSQL.
 8. **In-Browser Workspaces & Python WASM**: Host persistent multi-file coding workspaces (`/workspaces`) with Monaco Editor, Pyodide Python WASM, sandboxed web preview, and ephemeral Ollama agent pairing.
 9. **Full-Site Authentication & Hardening**: Protect all UI and REST endpoints behind session cookies or API keys, brute-force rate limiter on login, security headers, ZipSlip prevention, and default credential alerts.
+10. **Agentic RAG & Tev1 Decision Scoring**: Multi-sub-agent retrieval engine (tag taxonomy search, vector chunk search, full-text lexical search) coupled with native `ollama.systemone` `tev1` multi-question decision gating (up to 64 questions per turn) to vet candidates and compile publication-grade research reports (`/reports/rag`, `kb-web-cli rag report`).
 
 ---
 

@@ -655,3 +655,34 @@ def get_cli_logs(
                 "traceback": r.traceback
             })
         return res
+
+
+@router.post("/system/restart")
+def restart_server(api_key: str = Depends(verify_api_key)):
+    """Triggers an orderly restart of the kb-web application process.
+    Systemd or Docker service managers will automatically restart the process.
+    """
+    import os
+    import signal
+    import sys
+    import threading
+    import time
+
+    if "pytest" in sys.modules:
+        return {
+            "status": "restarting",
+            "message": "Server restart scheduled. Service manager will restart the process automatically.",
+        }
+
+    def _delayed_exit():
+        time.sleep(0.5)
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except Exception:
+            os._exit(0)
+
+    threading.Thread(target=_delayed_exit, daemon=True).start()
+    return {
+        "status": "restarting",
+        "message": "Server restart scheduled. Service manager will restart the process automatically.",
+    }

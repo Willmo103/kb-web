@@ -310,9 +310,54 @@ class Note(Base):
     folder_path = Column(String, default="")
     vault_name = Column(String, default="Personal")
     tags = Column(Text)  # JSON-encoded array
+    links = Column(Text, default="[]")  # JSON-encoded array of actual valid URLs
     wiki_summary = Column(Text)
     created_at = Column(String)
     updated_at = Column(String)
+
+
+class TaxonomyCategory(Base):
+    __tablename__ = "taxonomy_categories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    slug = Column(String, unique=True, index=True)
+    parent_id = Column(Integer, ForeignKey("taxonomy_categories.id"), nullable=True)
+    doc = Column(Text)  # Dynamic category wiki documentation
+    item_count = Column(Integer, default=0)
+    depth = Column(Integer, default=0)
+    is_container = Column(Integer, default=0)  # 1 when partitioned into sub-categories
+    created_at = Column(String)
+    updated_at = Column(String)
+
+    parent = relationship("TaxonomyCategory", remote_side=[id], backref="children")
+
+
+class TaxonomyItem(Base):
+    __tablename__ = "taxonomy_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    category_id = Column(Integer, ForeignKey("taxonomy_categories.id"), index=True)
+    item_type = Column(String)  # 'article', 'note', 'video', 'workspace_snapshot'
+    item_id = Column(String, index=True)  # URL or ID
+    item_title = Column(String)
+    fit_score = Column(Float, default=1.0)
+    assigned_at = Column(String)
+
+    category = relationship("TaxonomyCategory", backref="items")
+
+
+class AgentMessage(Base):
+    __tablename__ = "agent_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_name = Column(String, index=True)
+    channel = Column(String, default="general", index=True)
+    topic = Column(String)
+    content = Column(Text)
+    memory_type = Column(String, default="decision")  # 'decision', 'state_transition', 'milestone', 'coordination', 'knowledge'
+    metadata_json = Column(Text, default="{}")
+    created_at = Column(String, index=True)
 
 
 class ChatConversation(Base):
@@ -378,6 +423,7 @@ class Workspace(Base):
     updated_at = Column(String)
 
     files = relationship("WorkspaceFile", back_populates="workspace", cascade="all, delete-orphan", lazy="joined")
+    snapshots = relationship("WorkspaceSnapshot", back_populates="workspace", cascade="all, delete-orphan", lazy="select")
 
 
 class WorkspaceFile(Base):
@@ -391,6 +437,33 @@ class WorkspaceFile(Base):
     updated_at = Column(String)
 
     workspace = relationship("Workspace", back_populates="files")
+
+
+class WorkspaceSnapshot(Base):
+    __tablename__ = "workspace_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    version_tag = Column(String, nullable=False)
+    description = Column(Text, default="")
+    files_snapshot = Column(Text, nullable=False)  # JSON-encoded dict of file_path -> {content, language}
+    is_frozen = Column(Integer, default=1)
+    created_at = Column(String)
+
+    workspace = relationship("Workspace", back_populates="snapshots")
+
+
+class RagReport(Base):
+    __tablename__ = "rag_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    query = Column(String, nullable=False, index=True)
+    title = Column(String, default="RAG Research Report")
+    report_markdown = Column(Text, nullable=False)
+    sources_json = Column(Text, default="[]")  # JSON-encoded array of cited sources
+    tev1_evaluations_json = Column(Text, default="{}")  # JSON-encoded decision evaluations
+    model_synthesis = Column(String, default="")
+    created_at = Column(String)
 
 
 metadata = Base.metadata
@@ -483,13 +556,30 @@ def ensure_views_and_indexes(engine):
             except Exception:
                 pass
 
-            try:
-                if dialect == "postgresql":
+            if dialect == "postgresql":
+                try:
                     conn.execute(text("ALTER TABLE chunk_embeddings ADD COLUMN IF NOT EXISTS model_name VARCHAR DEFAULT 'embeddinggemma';"))
-                else:
-                    conn.execute(text("ALTER TABLE chunk_embeddings ADD COLUMN model_name TEXT DEFAULT 'embeddinggemma';"))
-            except Exception:
-                pass
+                except Exception:
+                    pass
+                try:
+                    conn.execute(text("ALTER TABLE notes ADD COLUMN IF NOT EXISTS links TEXT DEFAULT '[]';"))
+                except Exception:
+                    pass
+            else:
+                try:
+                    table_info = conn.execute(text("PRAGMA table_info(chunk_embeddings);")).fetchall()
+                    cols = [r[1] for r in table_info]
+                    if table_info and "model_name" not in cols:
+                        conn.execute(text("ALTER TABLE chunk_embeddings ADD COLUMN model_name TEXT DEFAULT 'embeddinggemma';"))
+                except Exception:
+                    pass
+                try:
+                    table_info = conn.execute(text("PRAGMA table_info(notes);")).fetchall()
+                    cols = [r[1] for r in table_info]
+                    if table_info and "links" not in cols:
+                        conn.execute(text("ALTER TABLE notes ADD COLUMN links TEXT DEFAULT '[]';"))
+                except Exception:
+                    pass
 
             if dialect == "postgresql":
                 try:

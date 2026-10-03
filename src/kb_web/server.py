@@ -94,7 +94,14 @@ PUBLIC_EXACT_PATHS = {
     "/icon.png",
     "/manifest.json",
     "/sw.js",
+    "/api/health",
 }
+
+
+@app.get("/api/health")
+def health_check():
+    """Health check endpoint for CLI restart polling, service checks, and monitors."""
+    return {"status": "ok", "app": "kb-web"}
 
 
 def _inject_security_headers(response: Response) -> None:
@@ -281,7 +288,10 @@ from .routers import (  # noqa: E402
     embeddings,
     notes,
     reports,
+    rag_reports,
     workspaces,
+    taxonomy,
+    agent_board,
 )
 
 app.include_router(auth.router)
@@ -298,7 +308,10 @@ app.include_router(conversations.router)
 app.include_router(embeddings.router)
 app.include_router(notes.router)
 app.include_router(reports.router)
+app.include_router(rag_reports.router)
 app.include_router(workspaces.router)
+app.include_router(taxonomy.router)
+app.include_router(agent_board.router)
 
 
 # --- Re-export utility functions for backward test compatibility ---
