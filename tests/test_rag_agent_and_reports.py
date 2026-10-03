@@ -366,3 +366,32 @@ def test_cli_rag_report_help():
     assert res_report_help.exit_code == 0
     assert "--output" in res_report_help.stdout
     assert "--save-notes" in res_report_help.stdout
+
+
+def test_site_wide_dark_mode_theme_and_toggle(client, auth_client):
+    """Verifies that the Moon/Sun circle toggle and muted neon dark mode theme are present across pages."""
+    # 1. Check authenticated page (/pages)
+    pages_res = auth_client.get("/pages")
+    assert pages_res.status_code == 200
+    assert "theme-circle-toggle" in pages_res.text
+    assert "theme-sun-icon" in pages_res.text
+    assert "theme-moon-icon" in pages_res.text
+    assert "toggleThemeMode()" in pages_res.text
+    assert "html.dark body" in pages_res.text
+    assert "html.dark .bg-white" in pages_res.text
+    assert "localStorage.getItem('kb_theme')" in pages_res.text
+
+    # 2. Check unauthenticated login page (/login)
+    login_res = client.get("/login")
+    assert login_res.status_code == 200
+    assert "theme-circle-toggle" in login_res.text
+    assert "theme-sun-icon" in login_res.text
+    assert "theme-moon-icon" in login_res.text
+    assert "toggleThemeMode()" in login_res.text
+
+    # 3. Check RAG reports page (/reports/rag)
+    rag_res = auth_client.get("/reports/rag")
+    assert rag_res.status_code == 200
+    assert "theme-circle-toggle" in rag_res.text
+    assert "toggleThemeMode()" in rag_res.text
+

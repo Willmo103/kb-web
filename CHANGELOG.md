@@ -39,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added CLI command in `kb-web-cli/src/kb_web_cli/main.py`: `kb-web-cli rag report "<query>"` with `--purpose`, `--output`, `--model`, and `--save-notes` flags.
 - **Workspace Agent Welcome Card Update (UAT Feedback Resolution)**:
   - Updated the workspace IDE agent welcome card in `src/kb_web/templates/workspace_ide.j2.html` with `tev1 Gated` badge, active tool definitions (`create_file`, `read_file`, `edit_file`), and CLI command reference (`kb-web-cli workspace agent <ws_id>`).
+- **Site-Wide Muted Neon Dark Mode & Moon/Sun Circle Toggle (Resolves Feature Request)**:
+  - Designed and implemented a high-contrast muted neon retro dark theme in `src/kb_web/templates/base.j2.html`.
+  - Uses deep obsidian/slate backgrounds (`#090e17` / `#111827`), technological slate borders (`#1e293b`), high-contrast sharp typography (`#f8fafc` / `#cbd5e1`), and muted neon accents (electric cyan `#38bdf8`, neon violet `#c084fc`, emerald `#34d399`, amber `#fbbf24`, rose `#f87171`).
+  - Added an interactive circular Moon/Sun toggle button (`theme-circle-toggle`) with smooth 360-degree rotation micro-animation and stateful SVG icon swapping across both authenticated and guest navigation headers.
+  - Implemented synchronous anti-flicker loader script in `<head>` honoring `localStorage` and `prefers-color-scheme` media query with 0ms flash of unstyled theme.
 
 ## [0.5.2] - 2026-09-29
 ### Fixed

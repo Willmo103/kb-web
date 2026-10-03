@@ -92,6 +92,12 @@ Every HTTP response automatically includes enterprise security headers:
 ### 5. Default Credential Alerts
 The application actively detects whether default development credentials (`admin123` or `kb-secret-key`) remain active, logging security warnings on server boot and rendering prominent dismissible alert banners in the Admin Portal.
 
+### 6. High-Contrast Muted Neon Dark Mode
+The web interface features an integrated site-wide theme engine with an interactive circular Moon/Sun toggle in the navigation bar. Supports:
+- **Aesthetic**: Deep slate/obsidian palette (`#090e17` / `#111827`) with crisp high-contrast typography and muted neon accents (electric cyan, neon violet, emerald, amber, rose).
+- **Persistence**: Persists preference across page visits via `localStorage` with zero-flash (`prefers-color-scheme`) theme loading.
+
+
 ---
 
 ## Configuration Settings

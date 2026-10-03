@@ -74,17 +74,23 @@ This sprint iteration addresses server reboot authentication recovery, CLI 401 U
   - Active tool cards: `create_file` (with commentary annotations), `read_file` (window slice inspection), `edit_file` (precise search-and-replace).
   - Direct CLI launch reference: `kb-web-cli workspace agent <ws_id>`.
 
+### 8. Site-Wide Muted Neon Dark Mode & Moon/Sun Circle Toggle
+- **High-Contrast Muted Neon Palette**: Implemented in [`src/kb_web/templates/base.j2.html`](file:///c:/src/kb-web/src/kb_web/templates/base.j2.html) using deep obsidian/slate backgrounds (`#090e17` / `#111827`), technological slate borders (`#1e293b`), high-contrast crisp text (`#f8fafc` / `#cbd5e1`), and muted neon accents (electric cyan `#38bdf8`, neon violet `#c084fc`, emerald `#34d399`, amber `#fbbf24`, rose `#f87171`).
+- **Moon/Sun Circle Toggle Button**: Added circular button (`theme-circle-toggle`) with smooth 360-degree rotation animation, swapping amber sun (☀️) and cyan glowing moon (🌙) icons across both authenticated and guest navigation headers.
+- **Anti-Flicker & Persistence**: Synchronous inline script in `<head>` immediately evaluates `localStorage` and system `prefers-color-scheme` to prevent white theme flash.
+
 ---
 
 ## Verification & Testing Results
 
 1. **Automated Test Suite**:
    - [`tests/test_cli_auth_and_workspaces.py`](file:///c:/src/kb-web/tests/test_cli_auth_and_workspaces.py): 7 tests passing.
-   - [`tests/test_rag_agent_and_reports.py`](file:///c:/src/kb-web/tests/test_rag_agent_and_reports.py): 6 tests passing (tag, vector, text sub-agents, `tev1` decision scoring matrix, report compilation, REST API workflow, chat drawer removal, and CLI).
-   - Full pytest run: **112 passed** (0 failures).
+   - [`tests/test_rag_agent_and_reports.py`](file:///c:/src/kb-web/tests/test_rag_agent_and_reports.py): 7 tests passing (tag, vector, text sub-agents, `tev1` decision scoring matrix, report compilation, REST API workflow, chat drawer removal, CLI, and dark mode toggle/theme integration).
+   - Full pytest run: **113 passed** (0 failures).
 2. **Template Verification**:
    - `.agents/skills/ui-component-uat-check/scripts/verify_ui_templates.py`: **22 HTML templates verified**, 0 warnings.
 3. **Build Pipeline**:
-   - `build.py`: Successfully completed `uv sync`, `pytest` (112 passed), `uv build` for `kb-web-0.2.0`, and `uv build` for `kb-web-cli-0.1.0`.
+   - `build.py`: Successfully completed `uv sync`, `pytest` (113 passed), `uv build` for `kb-web-0.2.0`, and `uv build` for `kb-web-cli-0.1.0`.
 4. **VCS UAT Artifacts**:
    - Generated report in `uat/reports/` and execution log in `uat/logs/`.
+

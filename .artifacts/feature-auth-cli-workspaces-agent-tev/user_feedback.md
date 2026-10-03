@@ -45,3 +45,18 @@
   4. **UAT Tester Fix - Workspace Agent Welcome Card**:
      - The UAT tester noted that the initial welcome card in the workspace IDE agent panel still displayed the legacy static text ("Tip: I automatically detect ```file:path/to/file.ext``` blocks with instant Apply to Workspace buttons").
      - Requested: Update the welcome card to explicitly highlight the newly implemented agent tools (`create_file`, `read_file`, `edit_file`), `tev1` decision gating, and the CLI terminal pairing command.
+
+---
+
+## Turn 3 - Site-Wide Dark Mode Toggle (Muted Neon / Cyber Retro Dark)
+- **Date**: 2026-10-03
+- **Context & Feedback**:
+  1. **Site-Wide Dark Mode Toggle**:
+     - User requested a site-wide `dark` mode toggle across the entire application.
+     - Placed in the base HTML template (`base.j2.html`) so it is globally available in the navigation header across all pages.
+  2. **Aesthetic Direction**:
+     - High-contrast neon, but muted/dulled (e.g. cyber/retro dark aesthetic: deep obsidian/slate backgrounds `#0b0f19` / `#0f172a`, muted neon cyan/teal/violet/amber accents, borders with subtle glowing/neon tint `#1e293b`/`#334155`, high contrast crisp text `#f8fafc` / `#e2e8f0`).
+  3. **Toggle UI Component**:
+     - Moon/Sun circle toggle button ("Moon/Sun circle toggle. I think its cute").
+     - Smooth rotation and switch transition between Sun (☀️) and Moon (🌙).
+     - Persists theme choice across page loads via `localStorage` (with immediate inline script in `<head>` to prevent flash of light theme / FOUC).
