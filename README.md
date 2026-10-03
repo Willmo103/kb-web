@@ -181,6 +181,8 @@ uv run kb-web db reindex-videos
   - `kb-web-cli workspace snapshot <ws_id> --tag v1.0.0 --desc "Stable release"`: Create an immutable tagged snapshot.
   - `kb-web-cli workspace freeze <ws_id> <snapshot_id>`: Freeze snapshot and publish directly as a Knowledge Base article (`workspace://`).
   - `kb-web-cli workspace agent <ws_id>`: Launch interactive terminal coding agent paired with native `ollama.systemone` `tev1` decision routing and file tool execution.
+- **Autonomous Agentic RAG Reports**:
+  - `kb-web-cli rag report "<query>"`: Run multi-sub-agent retrieval (taxonomy tags, vector embeddings, full-text) with `tev1` decision matrix vetting (up to 64 questions per turn) and synthesize publication-grade research reports. Supports `--purpose`, `--output`, `--model`, and `--save-notes`.
 
 ---
 

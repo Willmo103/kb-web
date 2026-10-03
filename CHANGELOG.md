@@ -25,6 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Created `src/kb_web/agent_tools.py` with structured tools: `tool_create_file` (with commentary annotations), `tool_read_file` (1-indexed line window slicing), and `tool_edit_file` (precise search-and-replace modification).
   - Created `src/kb_web/workspace_agent.py` integrating `tev1:latest` structured decision gating for classifying intent (`choice`), target file selection, and reading need assessment (`noul`).
   - Added CLI terminal agent harness in `kb-web-cli` (`kb-web-cli workspace agent <workspace_id>` and `kb-web-cli agent <workspace_id>`).
+- **Autonomous Agentic RAG Report Generator & Tev1 Decision Scoring (Resolves Feature Request)**:
+  - Eliminated the single-article chat drawer on `src/kb_web/templates/view_page.j2.html` and replaced legacy `/conversations` routes with HTTP 302 redirect to `/reports/rag`.
+  - Built multi-sub-agent retrieval engine in `src/kb_web/rag_agent.py`:
+    - `tag_search_subagent`: taxonomy and article/note tag matching.
+    - `vector_rag_subagent`: query embedding similarity search across `ChunkEmbedding` (supports PostgreSQL `pgvector` and SQLite cosine fallback).
+    - `text_search_subagent`: full-text lexical search across titles, markdown content, and note bodies.
+    - `aggregate_candidates`: provenance boosting and candidate deduplication.
+    - `tev1_scoring_subagent`: evaluates retrieved candidates against user query and research purpose using native `ollama.systemone` with up to 64 questions per turn across 6 technical dimensions (relevance, code actionability, technical depth, architectural authority, factual density, synthesis readiness).
+    - `compile_rag_report`: synthesizes top-scored candidates into a structured publication-grade Markdown research report.
+  - Added RAG report UI in `src/kb_web/templates/rag_report.j2.html` with query input, presets, live pipeline stepper, `tev1` decision matrix table, rendered report markdown viewer with Copy/Download/Save to Notes buttons, and recent reports drawer.
+  - Implemented REST endpoints in `src/kb_web/routers/rag_reports.py`: `GET /reports/rag`, `POST /api/reports/rag/generate`, `GET /api/reports/rag`, `GET /api/reports/rag/{id}`, `POST /api/reports/rag/{id}/save-to-notes`, and `DELETE /api/reports/rag/{id}`.
+  - Added CLI command in `kb-web-cli/src/kb_web_cli/main.py`: `kb-web-cli rag report "<query>"` with `--purpose`, `--output`, `--model`, and `--save-notes` flags.
+- **Workspace Agent Welcome Card Update (UAT Feedback Resolution)**:
+  - Updated the workspace IDE agent welcome card in `src/kb_web/templates/workspace_ide.j2.html` with `tev1 Gated` badge, active tool definitions (`create_file`, `read_file`, `edit_file`), and CLI command reference (`kb-web-cli workspace agent <ws_id>`).
 
 ## [0.5.2] - 2026-09-29
 ### Fixed

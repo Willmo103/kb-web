@@ -408,6 +408,19 @@ class WorkspaceSnapshot(Base):
     workspace = relationship("Workspace", back_populates="snapshots")
 
 
+class RagReport(Base):
+    __tablename__ = "rag_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    query = Column(String, nullable=False, index=True)
+    title = Column(String, default="RAG Research Report")
+    report_markdown = Column(Text, nullable=False)
+    sources_json = Column(Text, default="[]")  # JSON-encoded array of cited sources
+    tev1_evaluations_json = Column(Text, default="{}")  # JSON-encoded decision evaluations
+    model_synthesis = Column(String, default="")
+    created_at = Column(String)
+
+
 metadata = Base.metadata
 
 

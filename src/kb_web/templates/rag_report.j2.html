@@ -1,0 +1,519 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Agentic RAG Report Generator - kb-web{% endblock %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Header Section -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between pb-6 mb-6 border-b border-gray-200 gap-4">
+        <div>
+            <div class="flex items-center gap-2 mb-1">
+                <span class="text-3xl">🔬</span>
+                <h1 class="text-2xl font-black text-gray-900 tracking-tight">Agentic RAG Report Generator</h1>
+                <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                    tev1 Decision Gated
+                </span>
+            </div>
+            <p class="text-sm text-gray-500">
+                Multi-sub-agent research across taxonomy tags, vector chunk embeddings, and lexical search evaluated with up to 64 <code class="text-indigo-600 font-mono text-xs">tev1</code> questions per turn.
+            </p>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="/reports" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition">
+                <span>📊</span> ERP Grid
+            </a>
+            <a href="/notes" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition">
+                <span>📝</span> Notes
+            </a>
+        </div>
+    </div>
+
+    <!-- Main Grid: Controls + Report vs Recent Sidebar -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <!-- Left 3 Columns: Query Input, Pipeline Status, and Report Output -->
+        <div class="lg:col-span-3 space-y-6">
+            
+            <!-- Research Query Card -->
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden p-6 transition hover:shadow-md">
+                <form id="ragQueryForm" onsubmit="handleGenerateReport(event)" class="space-y-4">
+                    <div>
+                        <label for="ragQueryInput" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1.5 flex items-center justify-between">
+                            <span>Research Query or Topic</span>
+                            <span class="text-[11px] font-normal text-gray-400">Ask a question or specify an architectural topic</span>
+                        </label>
+                        <textarea
+                            id="ragQueryInput"
+                            rows="3"
+                            placeholder="e.g. Compare PostgreSQL vs SQLite database view performance and replication architecture in kb-web..."
+                            class="w-full text-sm p-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition resize-none font-sans text-gray-800 leading-relaxed shadow-inner"
+                            required
+                        >{{ initial_query }}</textarea>
+                    </div>
+
+                    <!-- Purpose & Model Options Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                        <div>
+                            <label for="ragPurposeInput" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1.5">
+                                Research Objective / Focus <span class="font-normal text-gray-400 lowercase">(optional)</span>
+                            </label>
+                            <input
+                                type="text"
+                                id="ragPurposeInput"
+                                placeholder="e.g. Focus on code snippets and schema definitions"
+                                class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-gray-800"
+                            />
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label for="ragSynthesisModelSelect" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1.5">
+                                    Synthesis Model
+                                </label>
+                                <select
+                                    id="ragSynthesisModelSelect"
+                                    class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono text-gray-800 bg-white"
+                                >
+                                    {% for m in available_models %}
+                                    <option value="{{ m }}" {% if m == default_model %}selected{% endif %}>{{ m }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label for="ragTev1ModelSelect" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1.5">
+                                    Decision Model
+                                </label>
+                                <input
+                                    type="text"
+                                    id="ragTev1ModelSelect"
+                                    value="tev1"
+                                    class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono text-gray-800 bg-gray-50"
+                                    title="Decision gating model via ollama.systemone"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Example Chips & Submit Button -->
+                    <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+                        <div class="flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
+                            <span class="font-semibold text-gray-400 mr-1">Presets:</span>
+                            <button type="button" onclick="setQueryPreset('PostgreSQL vs SQLite database view optimization and pgvector indexing')" class="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition text-[11px]">
+                                🐘 DB Views & Vector
+                            </button>
+                            <button type="button" onclick="setQueryPreset('CLI API key authentication hardening and remote restart mechanism')" class="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition text-[11px]">
+                                🔐 CLI Auth Hardening
+                            </button>
+                            <button type="button" onclick="setQueryPreset('Pyodide Python WASM in-browser workspace architecture and Monaco editor')" class="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition text-[11px]">
+                                💻 Pyodide Studio
+                            </button>
+                        </div>
+                        <button
+                            type="submit"
+                            id="ragSubmitBtn"
+                            class="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs rounded-xl shadow transition transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <span id="btnIcon">⚡</span>
+                            <span id="btnText">Synthesize RAG Report</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Pipeline Status Stepper Card (Visible during execution and after) -->
+            <div id="pipelineStatusCard" class="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 shadow-sm hidden">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+                    <div class="flex items-center gap-2 font-mono text-xs text-indigo-400 font-bold uppercase tracking-wider">
+                        <span id="pipelineSpinner" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span id="pipelineStatusTitle">Multi-Sub-Agent Pipeline Active</span>
+                    </div>
+                    <span id="pipelineTimer" class="text-[11px] font-mono text-slate-400">0s</span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+                    <!-- Sub-Agent 1: Tag Search -->
+                    <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                        <div class="flex items-center justify-between text-slate-400 mb-1">
+                            <span class="font-bold flex items-center gap-1.5">🏷️ Tag Agent</span>
+                            <span id="tagHitBadge" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-mono">0 hits</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400">Scans taxonomy & tag labels</p>
+                    </div>
+
+                    <!-- Sub-Agent 2: Vector RAG -->
+                    <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                        <div class="flex items-center justify-between text-slate-400 mb-1">
+                            <span class="font-bold flex items-center gap-1.5">🧠 Vector RAG</span>
+                            <span id="vectorHitBadge" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-mono">0 hits</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400">Embedding cosine similarity</p>
+                    </div>
+
+                    <!-- Sub-Agent 3: Text Search -->
+                    <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                        <div class="flex items-center justify-between text-slate-400 mb-1">
+                            <span class="font-bold flex items-center gap-1.5">🔍 Text Search</span>
+                            <span id="textHitBadge" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-mono">0 hits</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400">Lexical keyword matching</p>
+                    </div>
+
+                    <!-- Tev1 Decision Gating -->
+                    <div class="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                        <div class="flex items-center justify-between text-slate-400 mb-1">
+                            <span class="font-bold text-amber-400 flex items-center gap-1.5">⚡ tev1 Gating</span>
+                            <span id="vettedHitBadge" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 font-mono border border-amber-700/40">0 vetted</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400">Up to 64 decision questions</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tev1 Decision Matrix Breakdown (Collapsible) -->
+            <div id="decisionMatrixCard" class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hidden">
+                <details class="group">
+                    <summary class="flex items-center justify-between p-4 cursor-pointer select-none bg-slate-50 hover:bg-slate-100 transition">
+                        <div class="flex items-center gap-2 text-xs font-bold text-gray-700 uppercase tracking-wider">
+                            <span>⚡</span>
+                            <span>tev1 Decision Scoring Matrix</span>
+                            <span id="matrixCountBadge" class="ml-1 text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-mono">0 sources</span>
+                        </div>
+                        <span class="text-xs text-indigo-600 font-semibold group-open:rotate-180 transition transform">▼</span>
+                    </summary>
+                    <div class="p-4 overflow-x-auto border-t border-gray-200">
+                        <table class="w-full text-left text-xs">
+                            <thead>
+                                <tr class="border-b border-gray-200 text-gray-500 font-mono text-[10px] uppercase">
+                                    <th class="pb-2">Evidence Source</th>
+                                    <th class="pb-2">Discovery Channels</th>
+                                    <th class="pb-2">Relevance</th>
+                                    <th class="pb-2">Depth</th>
+                                    <th class="pb-2">Code Snippets</th>
+                                    <th class="pb-2">Composite Score</th>
+                                    <th class="pb-2">Recommendation</th>
+                                </tr>
+                            </thead>
+                            <tbody id="decisionMatrixTableBody" class="divide-y divide-gray-100 text-gray-700">
+                                <!-- Dynamically populated rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            </div>
+
+            <!-- Generated Markdown Report Viewer -->
+            <div id="reportContainerCard" class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden {% if not active_report %}hidden{% endif %}">
+                <!-- Action Toolbar -->
+                <div class="p-4 bg-slate-50 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-center gap-2 truncate">
+                        <span class="text-xl">📄</span>
+                        <h2 id="reportTitleHeader" class="font-bold text-sm text-gray-900 truncate">
+                            {{ active_report.title if active_report else 'RAG Research Report' }}
+                        </h2>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onclick="copyReportMarkdown()"
+                            class="px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5"
+                            title="Copy raw markdown to clipboard"
+                        >
+                            <span>📋</span> Copy
+                        </button>
+                        <button
+                            type="button"
+                            onclick="downloadReportMarkdown()"
+                            class="px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5"
+                            title="Download markdown file"
+                        >
+                            <span>⬇️</span> Download .md
+                        </button>
+                        <button
+                            type="button"
+                            id="saveToNotesBtn"
+                            onclick="saveReportToNotes()"
+                            class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm transition flex items-center gap-1.5"
+                            title="Save report into Knowledge Base Notes"
+                        >
+                            <span>💾</span> Save to Notes
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Rendered Markdown Body -->
+                <div id="renderedReportContent" class="p-8 prose prose-indigo max-w-none text-gray-800 text-sm leading-relaxed overflow-x-auto">
+                    {% if active_report %}
+                    <!-- Render active report -->
+                    <script>
+                        document.addEventListener("DOMContentLoaded", () => {
+                            const raw = {{ active_report.report_markdown | tojson }};
+                            if (window.marked) {
+                                document.getElementById("renderedReportContent").innerHTML = marked.parse(raw);
+                            }
+                        });
+                    </script>
+                    {% endif %}
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right 1 Column: Recent Reports Sidebar -->
+        <div class="space-y-6">
+            <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+                <div class="flex items-center justify-between border-b border-gray-100 pb-3 mb-3">
+                    <h3 class="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>📚</span> Recent Reports
+                    </h3>
+                    <span class="text-[11px] font-mono text-gray-400">{{ recent_reports | length }} saved</span>
+                </div>
+
+                {% if recent_reports %}
+                <div class="space-y-2 max-h-[500px] overflow-y-auto pr-1 text-xs">
+                    {% for r in recent_reports %}
+                    <a
+                        href="/reports/rag?report_id={{ r.id }}"
+                        class="block p-2.5 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/50 transition group {% if active_report and active_report.id == r.id %}bg-indigo-50 border-indigo-300 font-semibold{% endif %}"
+                    >
+                        <div class="font-bold text-gray-900 group-hover:text-indigo-600 truncate mb-1">
+                            {{ r.title }}
+                        </div>
+                        <div class="text-[11px] text-gray-500 line-clamp-1 mb-1">
+                            {{ r.query }}
+                        </div>
+                        <div class="text-[10px] text-gray-400 font-mono">
+                            {{ r.created_at[:16].replace('T', ' ') if r.created_at else '' }}
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-8 text-gray-400 text-xs italic">
+                    No reports generated yet. Submit a query to produce your first synthesis!
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Architecture Info Card -->
+            <div class="bg-indigo-900 text-white rounded-2xl p-5 shadow-sm space-y-3 text-xs">
+                <div class="flex items-center gap-1.5 font-bold text-indigo-300 uppercase tracking-wider text-[11px]">
+                    <span>ℹ️</span> Multi-Agent RAG Stack
+                </div>
+                <p class="text-indigo-100 leading-relaxed text-[11px]">
+                    Unlike generic RAG pipelines, kb-web deploys specialized sub-agents for taxonomy tags, chunk vectors, and text, then uses <code class="bg-indigo-950 px-1 py-0.5 rounded text-amber-300 font-mono">tev1</code> to ask up to 64 targeted relevance and quality questions before synthesis.
+                </p>
+                <div class="pt-2 border-t border-indigo-800 text-[10px] font-mono text-indigo-300">
+                    CLI Equivalent: <br/>
+                    <code class="text-amber-200 font-mono">kb-web-cli rag report "query"</code>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentReportData = null;
+    let timerInterval = null;
+    let timerSeconds = 0;
+
+    function setQueryPreset(text) {
+        document.getElementById("ragQueryInput").value = text;
+        document.getElementById("ragQueryInput").focus();
+    }
+
+    async function handleGenerateReport(e) {
+        e.preventDefault();
+        const query = document.getElementById("ragQueryInput").value.trim();
+        const purpose = document.getElementById("ragPurposeInput").value.trim();
+        const synthesisModel = document.getElementById("ragSynthesisModelSelect").value;
+        const tev1Model = document.getElementById("ragTev1ModelSelect").value.trim() || "tev1";
+
+        if (!query) return;
+
+        // UI updates for loading
+        const submitBtn = document.getElementById("ragSubmitBtn");
+        const btnIcon = document.getElementById("btnIcon");
+        const btnText = document.getElementById("btnText");
+        submitBtn.disabled = true;
+        btnIcon.textContent = "⏳";
+        btnText.textContent = "Synthesizing...";
+
+        // Show status card and start timer
+        const statusCard = document.getElementById("pipelineStatusCard");
+        const statusTitle = document.getElementById("pipelineStatusTitle");
+        const timerElem = document.getElementById("pipelineTimer");
+        statusCard.classList.remove("hidden");
+        statusTitle.textContent = "Multi-Sub-Agent Pipeline Active";
+        timerSeconds = 0;
+        timerElem.textContent = "0s";
+        clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+            timerSeconds++;
+            timerElem.textContent = `${timerSeconds}s`;
+        }, 1000);
+
+        try {
+            const res = await fetch("/api/reports/rag/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    query: query,
+                    purpose: purpose,
+                    synthesis_model: synthesisModel,
+                    tev1_model: tev1Model,
+                }),
+            });
+
+            clearInterval(timerInterval);
+
+            if (!res.ok) {
+                const err = await res.json();
+                alert("RAG Generation Error: " + (err.detail || "Server error"));
+                return;
+            }
+
+            const data = await res.json();
+            currentReportData = data;
+            renderReportResults(data);
+
+        } catch (err) {
+            clearInterval(timerInterval);
+            console.error(err);
+            alert("Network error communicating with RAG report server: " + err);
+        } finally {
+            submitBtn.disabled = false;
+            btnIcon.textContent = "⚡";
+            btnText.textContent = "Synthesize RAG Report";
+        }
+    }
+
+    function renderReportResults(data) {
+        // Update metric badges
+        const metrics = data.subagent_metrics || {};
+        document.getElementById("tagHitBadge").textContent = `${metrics.tag_hits || 0} hits`;
+        document.getElementById("vectorHitBadge").textContent = `${metrics.vector_hits || 0} hits`;
+        document.getElementById("textHitBadge").textContent = `${metrics.text_hits || 0} hits`;
+        document.getElementById("vettedHitBadge").textContent = `${metrics.vetted_sources || 0} vetted`;
+        document.getElementById("pipelineStatusTitle").textContent = "Research Report Synthesized Successfully!";
+
+        // Update Decision Matrix Table
+        const evals = data.tev1_evaluations || [];
+        document.getElementById("matrixCountBadge").textContent = `${evals.length} evaluated`;
+        const tbody = document.getElementById("decisionMatrixTableBody");
+        tbody.innerHTML = "";
+
+        evals.forEach((item) => {
+            const ev = item.eval || {};
+            const tr = document.createElement("tr");
+            tr.className = "hover:bg-slate-50 transition";
+            
+            const relScore = ev.relevance !== undefined ? ev.relevance : 0;
+            const scoreColor = relScore >= 75 ? "text-emerald-600 bg-emerald-50 border-emerald-200" : (relScore >= 50 ? "text-indigo-600 bg-indigo-50 border-indigo-200" : "text-amber-600 bg-amber-50 border-amber-200");
+            
+            const channels = (item.match_types || []).map(m => `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-100 text-slate-700 border border-slate-200">${m}</span>`).join(" ");
+
+            tr.innerHTML = `
+                <td class="py-2.5 pr-2 font-medium text-gray-900 max-w-[200px] truncate" title="${item.title}">
+                    <a href="${item.url}" target="_blank" class="hover:text-indigo-600 underline">${item.title}</a>
+                </td>
+                <td class="py-2.5 pr-2">${channels}</td>
+                <td class="py-2.5 pr-2">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${scoreColor}">
+                        ${relScore}%
+                    </span>
+                </td>
+                <td class="py-2.5 pr-2">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-slate-100 text-slate-800">
+                        ${ev.depth || 'overview'}
+                    </span>
+                </td>
+                <td class="py-2.5 pr-2 font-mono text-[10px]">
+                    ${ev.has_code ? '<span class="text-emerald-600 font-bold">✓ Yes</span>' : '<span class="text-slate-400">No</span>'}
+                </td>
+                <td class="py-2.5 pr-2 font-mono font-bold text-gray-800">
+                    ${ev.composite_score !== undefined ? ev.composite_score + '%' : 'N/A'}
+                </td>
+                <td class="py-2.5">
+                    ${ev.include ? '<span class="text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded text-[10px] font-semibold">Included</span>' : '<span class="text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">Excluded</span>'}
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById("decisionMatrixCard").classList.remove("hidden");
+
+        // Render Markdown Report
+        document.getElementById("reportTitleHeader").textContent = data.title || "RAG Research Report";
+        const contentDiv = document.getElementById("renderedReportContent");
+        if (window.marked) {
+            contentDiv.innerHTML = marked.parse(data.report_markdown || "");
+        } else {
+            contentDiv.textContent = data.report_markdown || "";
+        }
+
+        const reportCard = document.getElementById("reportContainerCard");
+        reportCard.classList.remove("hidden");
+        reportCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function copyReportMarkdown() {
+        if (!currentReportData || !currentReportData.report_markdown) {
+            alert("No report markdown to copy.");
+            return;
+        }
+        navigator.clipboard.writeText(currentReportData.report_markdown).then(() => {
+            alert("Report Markdown copied to clipboard!");
+        });
+    }
+
+    function downloadReportMarkdown() {
+        if (!currentReportData || !currentReportData.report_markdown) {
+            alert("No report to download.");
+            return;
+        }
+        const blob = new Blob([currentReportData.report_markdown], { type: "text/markdown;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const cleanName = (currentReportData.title || "rag_report").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+        a.download = `${cleanName}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    async function saveReportToNotes() {
+        if (!currentReportData || !currentReportData.id) {
+            alert("Report must be generated or loaded first.");
+            return;
+        }
+        const btn = document.getElementById("saveToNotesBtn");
+        btn.disabled = true;
+        btn.textContent = "Saving...";
+
+        try {
+            const res = await fetch(`/api/reports/rag/${currentReportData.id}/save-to-notes`, {
+                method: "POST",
+            });
+            const data = await res.json();
+            if (res.ok) {
+                btn.textContent = "✓ Saved!";
+                btn.classList.remove("bg-emerald-600", "hover:bg-emerald-700");
+                btn.classList.add("bg-slate-600");
+                if (confirm("Report saved as Knowledge Base Note! Open in Monaco Notes Editor now?")) {
+                    window.location.href = data.edit_url;
+                }
+            } else {
+                alert("Failed to save to notes: " + (data.detail || "Unknown error"));
+                btn.disabled = false;
+                btn.textContent = "💾 Save to Notes";
+            }
+        } catch (e) {
+            alert("Network error: " + e);
+            btn.disabled = false;
+            btn.textContent = "💾 Save to Notes";
+        }
+    }
+</script>
+{% endblock %}

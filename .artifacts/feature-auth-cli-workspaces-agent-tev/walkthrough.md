@@ -1,7 +1,7 @@
-# Walkthrough: Authentication Hardening, Remote Restart, Workspace Versioning & Tev1 Gating
+# Walkthrough: Authentication Hardening, Remote Restart, Workspace Versioning, Tev1 Decision Gating & Agentic RAG Reports
 
 ## Overview
-This sprint addresses server reboot authentication recovery, CLI 401 Unauthorized errors, adds a remote restart command, introduces full workspace version snapshots with freeze-to-article publishing, and equips the coding agent with native `ollama>=0.6.3` `systemone` `tev1` decision gating and granular file tools.
+This sprint iteration addresses server reboot authentication recovery, CLI 401 Unauthorized errors, adds a remote restart command, introduces full workspace version snapshots with freeze-to-article publishing, equips the coding agent with native `ollama>=0.6.3` `systemone` `tev1` decision gating and granular file tools, replaces the legacy single-article chat drawer with an Autonomous Agentic RAG Report Generator, and updates the workspace IDE welcome card.
 
 ---
 
@@ -37,16 +37,54 @@ This sprint addresses server reboot authentication recovery, CLI 401 Unauthorize
 - **Tev1 Decision Gating**: Implemented in [`src/kb_web/workspace_agent.py`](file:///c:/src/kb-web/src/kb_web/workspace_agent.py). Queries `tev1` via `client.systemone` to classify intent (`choice`: `chat`, `read_file`, `create_file`, `edit_file`), identify the target file, and evaluate whether reading is needed (`noul`).
 - **CLI Terminal Harness**: Added `kb-web-cli workspace agent <workspace_id>` interactive pairing REPL in [`kb-web-cli/src/kb_web_cli/main.py`](file:///c:/src/kb-web/kb-web-cli/src/kb_web_cli/main.py).
 
+### 5. Elimination of Single-Article Chat & Navigation Update
+- **Article Chat Retirement**: Removed the single-article chat drawer, `#chat-drawer-backdrop`, and chat controller JavaScript from [`src/kb_web/templates/view_page.j2.html`](file:///c:/src/kb-web/src/kb_web/templates/view_page.j2.html). Replaced with an active "📊 RAG Research Report" button linking directly to `/reports/rag?q=...`.
+- **Navigation Updates**:
+  - Replaced `💬 Chat` link with `🔬 RAG` in [`src/kb_web/templates/base.j2.html`](file:///c:/src/kb-web/src/kb_web/templates/base.j2.html).
+  - Replaced `💬 Chat Threads` link with `🔬 RAG Reports` in [`src/kb_web/templates/pages_list.j2.html`](file:///c:/src/kb-web/src/kb_web/templates/pages_list.j2.html).
+  - Configured HTTP 302 redirect from `/conversations` to `/reports/rag` in [`src/kb_web/routers/conversations.py`](file:///c:/src/kb-web/src/kb_web/routers/conversations.py).
+
+### 6. Autonomous Agentic RAG Report Generator & Tev1 Decision Scoring
+- **Multi-Sub-Agent Engine ([`src/kb_web/rag_agent.py`](file:///c:/src/kb-web/src/kb_web/rag_agent.py))**:
+  - `tag_search_subagent`: crawls taxonomy and article/note tags for query matches.
+  - `vector_rag_subagent`: computes query embedding and runs similarity search against `ChunkEmbedding` (supports PostgreSQL `pgvector` `<->` cosine distance and SQLite vector fallback).
+  - `text_search_subagent`: performs full-text lexical search across titles, markdown content, and note bodies.
+  - `aggregate_candidates`: merges, deduplicates, and provenance-boosts candidates found across multiple sub-agents.
+  - `tev1_scoring_subagent`: evaluates candidate articles against user query and research purpose using native `ollama.systemone` with model `tev1`. Batches up to 48 questions (8 candidates x 6 technical criteria: relevance, code actionability, technical depth, architectural authority, factual density, synthesis readiness) in a single turn.
+  - `compile_rag_report`: compiles vetted primary evidence into a publication-grade Markdown research report with executive summary, answers, code, comparison table, and cited links.
+- **RAG Report Web Portal ([`src/kb_web/templates/rag_report.j2.html`](file:///c:/src/kb-web/src/kb_web/templates/rag_report.j2.html))**:
+  - Live query input with quick presets and optional purpose parameter.
+  - Real-time pipeline visualizer (sub-agent status, candidate metrics, `tev1` score badge).
+  - `tev1` decision scoring table displaying criteria questions, pass/fail status, and percentage confidence.
+  - Rendered Markdown report viewer with Copy to Clipboard, Download `.md`, and Save to Notes integration.
+  - Recent research reports sidebar drawer.
+- **REST API ([`src/kb_web/routers/rag_reports.py`](file:///c:/src/kb-web/src/kb_web/routers/rag_reports.py))**:
+  - `GET /reports/rag`: serves the RAG report UI.
+  - `POST /api/reports/rag/generate`: initiates the multi-sub-agent pipeline, runs `tev1` gating, and generates the report.
+  - `GET /api/reports/rag`: lists previous reports.
+  - `GET /api/reports/rag/{id}`: retrieves a single report.
+  - `POST /api/reports/rag/{id}/save-to-notes`: exports the synthesized report directly to Knowledge Base Notes.
+  - `DELETE /api/reports/rag/{id}`: deletes a report.
+- **CLI Command ([`kb-web-cli/src/kb_web_cli/main.py`](file:///c:/src/kb-web/kb-web-cli/src/kb_web_cli/main.py))**:
+  - `kb-web-cli rag report "<query>"` with `--purpose`, `--output`, `--model`, and `--save-notes` flags.
+
+### 7. UAT Tester Welcome Card Fix
+- Updated the AI Agent welcome card in [`src/kb_web/templates/workspace_ide.j2.html`](file:///c:/src/kb-web/src/kb_web/templates/workspace_ide.j2.html) with:
+  - `tev1 Gated` badge.
+  - Active tool cards: `create_file` (with commentary annotations), `read_file` (window slice inspection), `edit_file` (precise search-and-replace).
+  - Direct CLI launch reference: `kb-web-cli workspace agent <ws_id>`.
+
 ---
 
 ## Verification & Testing Results
 
-1. **Unit & Integration Tests**:
-   - Created [`tests/test_cli_auth_and_workspaces.py`](file:///c:/src/kb-web/tests/test_cli_auth_and_workspaces.py) testing `/api/health`, CLI API key auth, `/system/restart`, disk cache resilience, tool primitives, snapshot restore/freeze, and `tev1` mock gating.
-   - Full pytest run: **106 passed** (0 failures).
+1. **Automated Test Suite**:
+   - [`tests/test_cli_auth_and_workspaces.py`](file:///c:/src/kb-web/tests/test_cli_auth_and_workspaces.py): 7 tests passing.
+   - [`tests/test_rag_agent_and_reports.py`](file:///c:/src/kb-web/tests/test_rag_agent_and_reports.py): 6 tests passing (tag, vector, text sub-agents, `tev1` decision scoring matrix, report compilation, REST API workflow, chat drawer removal, and CLI).
+   - Full pytest run: **112 passed** (0 failures).
 2. **Template Verification**:
-   - `verify_ui_templates.py`: **21 HTML templates verified**, 0 warnings.
+   - `.agents/skills/ui-component-uat-check/scripts/verify_ui_templates.py`: **22 HTML templates verified**, 0 warnings.
 3. **Build Pipeline**:
-   - `build.py`: Successfully completed `uv sync`, `pytest` (106 passed), package builds, and CLI wheel builds.
+   - `build.py`: Successfully completed `uv sync`, `pytest` (112 passed), `uv build` for `kb-web-0.2.0`, and `uv build` for `kb-web-cli-0.1.0`.
 4. **VCS UAT Artifacts**:
    - Generated report in `uat/reports/` and execution log in `uat/logs/`.
