@@ -25,3 +25,23 @@
      - Incorporate the `tev1` decision model (`tev1:latest` / `tev1:4b`).
      - Use `ollama.systemone(...)` directly through the project's `ollama` dependency (updated to `>=0.6.3`) without requiring external SDK packages.
      - Use `tev1` in the agent harness for fast, structured decision making, classification, and gating.
+
+---
+
+## Turn 2 - Agentic RAG Report Generator & Elimination of File Chat
+- **Date**: 2026-10-02
+- **Context & Feedback**:
+  1. **Eliminate "Chat with a File" Feature**:
+     - The user noted that single-article chat ("chat with a file" drawer on `view_page.j2.html` / `/api/conversations/chat`) was poorly conceived and requested its complete elimination.
+  2. **Agentic RAG Report Generator**:
+     - Instead of chatting with a single file, the user wants a powerful RAG report generator where they can enter a query or question and trigger an agentic multi-sub-agent RAG workflow:
+       - **Tag-Searching Sub-Agent**: explores article and note tags matching or related to the user's research topic.
+       - **Query-RAG Sub-Agent**: formulates targeted search queries, embeds them, and executes vector similarity search against Qdrant / `ChunkEmbedding`.
+       - **Pure Text Search Sub-Agent**: conducts lexical / full-text search against article and note content, titles, and descriptions.
+       - **Tev1 Decision Scoring Sub-Agent (up to 64 questions per turn)**: uses `ollama.systemone` with model `tev1` to evaluate candidate articles/chunks against the user's research purpose using multi-criteria questions (relevance, code actionability, technical depth, freshness, information density, etc.) to vet and rank candidates.
+       - **Synthesis & Report Compiler Agent**: aggregates the top-ranked vetted candidates into a comprehensive Markdown research report with executive summary, answers, code, and source links.
+  3. **Visual Modeling**:
+     - The user requested that the architecture and workflow be modeled in a Mermaid diagram and presented in the implementation plan.
+  4. **UAT Tester Fix - Workspace Agent Welcome Card**:
+     - The UAT tester noted that the initial welcome card in the workspace IDE agent panel still displayed the legacy static text ("Tip: I automatically detect ```file:path/to/file.ext``` blocks with instant Apply to Workspace buttons").
+     - Requested: Update the welcome card to explicitly highlight the newly implemented agent tools (`create_file`, `read_file`, `edit_file`), `tev1` decision gating, and the CLI terminal pairing command.

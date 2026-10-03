@@ -302,16 +302,47 @@
 
         <!-- Chat messages -->
         <div id="aiChatMessages" class="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
-          <div class="bg-[#21262d] p-3 rounded-lg border border-[#30363d]">
-            <div class="flex items-center gap-1.5 font-semibold text-indigo-400 mb-1">
-              <i data-lucide="bot" class="w-3.5 h-3.5"></i>
-              <span>Ollama Agent</span>
+          <div class="bg-[#21262d] p-3 rounded-lg border border-[#30363d] space-y-2.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-1.5 font-semibold text-indigo-400">
+                <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+                <span>Autonomous Workspace Agent</span>
+              </div>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700/60 flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                tev1 Gated
+              </span>
             </div>
-            <p class="text-slate-300 leading-relaxed">
+            
+            <p class="text-slate-300 leading-relaxed text-xs">
               Hello! I am your local coding partner for <b>{{ workspace.name }}</b>. Ask me to create files, refactor features, write algorithms, or style your workspace.
             </p>
-            <div class="mt-2 pt-2 border-t border-[#30363d] text-[11px] text-slate-400">
-              Tip: I automatically detect <code class="bg-[#0d1117] px-1 py-0.5 rounded text-indigo-300">```file:path/to/file.ext</code> blocks with instant <b>Apply to Workspace</b> buttons that persist directly to the database!
+
+            <div class="pt-2 border-t border-[#30363d] space-y-1.5 text-[11px]">
+              <div class="font-semibold text-slate-400 uppercase tracking-wider text-[10px] flex items-center gap-1">
+                <i data-lucide="wrench" class="w-3 h-3 text-amber-400"></i> Active Agent Tools
+              </div>
+              <div class="grid grid-cols-1 gap-1 text-[11px] font-mono">
+                <div class="flex items-center justify-between bg-[#161b22] px-2 py-1 rounded border border-[#30363d]">
+                  <span class="text-emerald-400 font-bold">create_file</span>
+                  <span class="text-slate-400 text-[10px]">Create files & annotate</span>
+                </div>
+                <div class="flex items-center justify-between bg-[#161b22] px-2 py-1 rounded border border-[#30363d]">
+                  <span class="text-sky-400 font-bold">read_file</span>
+                  <span class="text-slate-400 text-[10px]">Inspect slice windows</span>
+                </div>
+                <div class="flex items-center justify-between bg-[#161b22] px-2 py-1 rounded border border-[#30363d]">
+                  <span class="text-amber-400 font-bold">edit_file</span>
+                  <span class="text-slate-400 text-[10px]">Target & replace diffs</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="pt-2 border-t border-[#30363d] text-[11px] text-slate-400">
+              <div class="flex items-center justify-between gap-1">
+                <span>CLI Terminal Pairing:</span>
+                <code class="bg-[#0d1117] px-1.5 py-0.5 rounded text-indigo-300 font-mono text-[10px]">kb-web-cli workspace agent {{ workspace.id }}</code>
+              </div>
             </div>
           </div>
         </div>
