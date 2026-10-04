@@ -5,8 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.3] - 2026-10-02
+## [0.5.3] - 2026-10-03
 ### Added
+- **Hierarchical Notes Folder Tree (Resolves Nested Directory View)**:
+  - Added recursive directory parser `build_nested_folder_tree(notes)` in `src/kb_web/routers/notes.py` organizing slash-delimited note paths (`work/dev/notes.md`) into a structured tree of nested folders and leaf files.
+  - Enhanced `/api/notes/tree` to return `nested_tree` alongside `tree` for full backward compatibility.
+  - Updated `src/kb_web/templates/notes_list.j2.html` with recursive macro `render_folder_node` featuring collapsible `<details open>` chevrons, folder and document icons, note count badges, and indented multi-level nesting.
+- **Prior 6-Class Item Classification Decision Gate & State Policy Directives**:
+  - Added `classify_item_class()` in `src/kb_web/taxonomy_state_machine.py` executing a preliminary `tev1` (`ollama.systemone`) choice decision across 6 canonical classes: `Personal`, `Documentation`, `Notes`, `Articles`, `Source Code`, and `Unclassifiable`.
+  - Injected structured `policies: [...]` arrays into the decision model `state` dict enforcing classification guidelines (e.g., personal lifestyle and dating content as `Personal`, API documentation and technical references as `Documentation`, code snippets as `Source Code`).
+  - Added handling for `Unclassifiable` items: records an observation memory to the `#taxonomy` channel on the cross-agent message board and bypasses category domain assignment.
+  - Added `item_class` column to `TaxonomyItem` ORM model and persisted classification across all assigned taxonomy items.
+- **Preliminary "Fits at All" Decision Gate (`fits_any_category`)**:
+  - Integrated preliminary `noul` gate question `fits_any_category` with explicit policy directives into `evaluate_category_fit_tev1()` prior to evaluating specific candidate categories.
+  - Bypasses category fit evaluation immediately and prompts clean new domain synthesis whenever an item does not fit existing categories at all.
+- **Meaningful Domain Naming & Generic Label Rejection**:
+  - Implemented `_is_generic_domain_name()` and `_derive_meaningful_domain_name()` in `src/kb_web/taxonomy_state_machine.py` enforcing meaningful, semantic domain names (e.g. "Personal Lifestyle & Dating", "DevOps & Cloud Infrastructure") and strictly rejecting generic numbered placeholders (`Domain 10`, `Category 3`).
+- **Thematic Domain Containment During Category Partitioning**:
+  - Enforced parent-child containment during 10-item partitioning inner loops in `partition_category()`: all newly synthesized sub-categories are pinned directly under the parent domain (`parent_id = category.id`), keeping reclassifications strictly inside the original chosen domain.
+- **Alembic Database Migration & CLI Rollback Support**:
+  - Created migration `migrations/versions/f92d84291a25_add_taxonomy_classification.py` for `taxonomy_categories` and `taxonomy_items` (including `item_class` column and indexes).
+  - Added `rollback()` and `rollback_single()` helper functions in `src/kb_web/scripts/deploy_migrations.py`.
+  - Added `kb-web-cli db rollback` CLI command in `src/kb_web/cli.py` supporting downgrades to specific revisions or relative steps (`-1`).
 - **Notes Ingestion Pipeline (Titling, Tagging, Link Extraction, Skip Wiki)**:
   - Added strict web URL extraction (`extract_valid_urls`) in `src/kb_web/utils.py` filtering for valid HTTP/HTTPS URLs while rejecting local relative paths, internal anchor fragments, non-web schemes (`file:`, `mailto:`, `javascript:`), and stripping trailing punctuation.
   - Added automatic note titling (`generate_note_title`) synthesizing concise, accurate titles from markdown headings or content when notes are untitled or blank.

@@ -303,8 +303,10 @@ def test_taxonomy_cold_start_and_subsequent_classification():
         # Step 2: Second item that fits via tev1 decision gate
         mock_tev1_resp = MagicMock()
         mock_tev1_resp.answers = {
+            "fits_any_category": MagicMock(noul=True),
             "category_choice": MagicMock(choice=f"cat_{cat1_id}"),
             "fit_confidence": MagicMock(noul=True),
+            "item_class": MagicMock(choice="Articles"),
         }
         mock_client.systemone.return_value = mock_tev1_resp
         mock_client.chat.return_value = {
@@ -330,8 +332,10 @@ def test_taxonomy_cold_start_and_subsequent_classification():
         # Step 3: Third item that DOES NOT fit -> Triggers new category synthesis
         mock_tev1_resp_new = MagicMock()
         mock_tev1_resp_new.answers = {
+            "fits_any_category": MagicMock(noul=False),
             "category_choice": MagicMock(choice="new_category"),
             "fit_confidence": MagicMock(noul=False),
+            "item_class": MagicMock(choice="Articles"),
         }
         mock_client.systemone.return_value = mock_tev1_resp_new
         mock_client.chat.return_value = {
@@ -342,6 +346,7 @@ def test_taxonomy_cold_start_and_subsequent_classification():
                 })
             }
         }
+
 
         res3 = classify_item(
             session=session,
@@ -480,3 +485,233 @@ def test_cli_taxonomy_and_board_commands():
 
     res_board = runner.invoke(cli_app, ["board", "list", "--limit", "5"])
     assert res_board.exit_code == 0
+
+
+# ==============================================================================
+# 5. PRIOR 6-CLASS GATE, FITS AT ALL, MEANINGFUL DOMAINS & NESTED TREE TESTS
+# ==============================================================================
+
+def test_classify_item_class_gate():
+    """Validates the prior 6-class item classification gate and policy state injection."""
+    from kb_web.taxonomy_state_machine import classify_item_class
+
+    mock_cli = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.answers = {"item_class": MagicMock(choice="Personal")}
+    mock_cli.systemone.return_value = mock_resp
+
+    cls_result = classify_item_class(
+        item_title="Date Ideas for Anniversary",
+        item_content="Romantic restaurant options, picnic in the park, stargazing.",
+        item_tags=["dating", "personal"],
+        client=mock_cli,
+        config=config,
+    )
+    assert cls_result == "Personal"
+    # Ensure policy directives were injected in the state
+    call_args = mock_cli.systemone.call_args[1]
+    assert "policies" in call_args["state"]
+    assert any("Personal" in p for p in call_args["state"]["policies"])
+
+    # Fallback heuristic tests when client fails
+    failing_cli = MagicMock()
+    failing_cli.systemone.side_effect = RuntimeError("Model offline")
+    assert classify_item_class("Empty", "", client=failing_cli) == "Unclassifiable"
+    assert classify_item_class("API Guide", "Comprehensive manual for REST endpoints", client=failing_cli) == "Documentation"
+    assert classify_item_class("Script", "def run():\n    import os\n    return os.name", client=failing_cli) == "Source Code"
+
+
+def test_unclassifiable_item_skips_domain_assignment():
+    """Validates that unclassifiable items are preserved with category_id=None and post to #taxonomy."""
+    with db_session() as session:
+        session.query(TaxonomyItem).delete()
+        session.commit()
+
+        mock_cli = MagicMock()
+        mock_cli.systemone.return_value = MagicMock(answers={"item_class": MagicMock(choice="Unclassifiable")})
+
+        res = classify_item(
+            session=session,
+            item_type="note",
+            item_id="note_99999",
+            item_title="Corrupted File",
+            item_content="??? binary junk ???",
+            client=mock_cli,
+            config=config,
+        )
+        assert res["status"] == "unclassifiable_skipped"
+        assert res["item_class"] == "Unclassifiable"
+
+        saved = session.query(TaxonomyItem).filter_by(item_id="note_99999").first()
+        assert saved is not None
+        assert saved.category_id is None
+        assert saved.item_class == "Unclassifiable"
+
+        # Check memory posted to #taxonomy
+        msgs = read_agent_memory(session=session, channel="taxonomy", topic="unclassifiable")
+        assert len(msgs) >= 1
+        assert "Unclassifiable" in msgs[0]["content"]
+
+
+def test_fits_at_all_decision_gate():
+    """Validates that when fits_any_category evaluates to False, category matching is bypassed."""
+    from kb_web.taxonomy_state_machine import evaluate_category_fit_tev1
+
+    cat = TaxonomyCategory(id=10, name="Quantum Physics", slug="quantum", parent_id=None, doc="Quantum mechanics.")
+    mock_cli = MagicMock()
+    # Model declares fits_any_category is False
+    mock_cli.systemone.return_value = MagicMock(answers={
+        "fits_any_category": MagicMock(noul=False),
+        "category_choice": MagicMock(choice="cat_10"),
+        "fit_confidence": MagicMock(noul=True),
+    })
+
+    chosen_id, is_confident = evaluate_category_fit_tev1(
+        item_title="Best French Sourdough Baguettes",
+        item_excerpt="Baking bread with poolish and high hydration dough.",
+        item_tags=["baking", "bread"],
+        candidate_categories=[cat],
+        client=mock_cli,
+        config=config,
+    )
+    assert chosen_id is None
+    assert is_confident is False
+
+
+def test_meaningful_domain_naming_replaces_domain_numbers():
+    """Validates that generic labels like 'Domain 10' are strictly rejected and replaced with meaningful names."""
+    from kb_web.taxonomy_state_machine import (
+        _is_generic_domain_name,
+        _derive_meaningful_domain_name,
+        _synthesize_new_category,
+    )
+
+    assert _is_generic_domain_name("Domain 10") is True
+    assert _is_generic_domain_name("Domain 24") is True
+    assert _is_generic_domain_name("Category 3") is True
+    assert _is_generic_domain_name("Personal Lifestyle & Dating") is False
+
+    derived = _derive_meaningful_domain_name("Date Ideas for Friday Night", ["dating"], "Personal")
+    assert derived == "Personal Lifestyle & Dating"
+
+    docker_derived = _derive_meaningful_domain_name("Cloudflared Docker Run Configuration", ["docker", "containers"], "Documentation")
+    assert docker_derived == "DevOps & Cloud Infrastructure"
+
+    # Test that _synthesize_new_category rejects 'Domain 10' and applies meaningful domain name
+    with db_session() as session:
+        mock_cli = MagicMock()
+        mock_cli.chat.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "category_name": "Domain 10",  # Generic placeholder from model
+                    "category_doc": "# Domain 10\n\nDate ideas.",
+                })
+            }
+        }
+        new_cat = _synthesize_new_category(
+            session=session,
+            item_title="Date Ideas for Friday Night",
+            item_excerpt="Dinner and movie.",
+            item_tags=["dating"],
+            existing_categories=[],
+            client=mock_cli,
+            config=config,
+            item_class="Personal",
+        )
+        assert new_cat.name != "Domain 10"
+        assert new_cat.name == "Personal Lifestyle & Dating"
+
+
+def test_sub_category_thematic_containment():
+    """Validates that child sub-categories remain strictly inside the parent domain (parent_id = parent.id)."""
+    with db_session() as session:
+        session.query(TaxonomyItem).delete()
+        session.query(TaxonomyCategory).delete()
+        session.commit()
+
+        parent = TaxonomyCategory(
+            name="Personal Lifestyle & Dating",
+            slug="personal-lifestyle-dating",
+            parent_id=None,
+            doc="# Personal Lifestyle & Dating",
+            item_count=10,
+            depth=0,
+            is_container=0,
+            created_at="2026-10-01T00:00:00",
+            updated_at="2026-10-01T00:00:00",
+        )
+        session.add(parent)
+        session.commit()
+        session.refresh(parent)
+
+        for i in range(10):
+            session.add(TaxonomyItem(
+                category_id=parent.id,
+                item_type="note",
+                item_id=f"note_date_{i}",
+                item_title=f"Date Idea {i}",
+                item_class="Personal",
+                assigned_at="2026-10-01T00:00:00",
+            ))
+        session.commit()
+
+        mock_cli = MagicMock()
+        mock_cli.chat.return_value = {
+            "message": {
+                "content": json.dumps({
+                    "sub_categories": [
+                        {"name": "Sub-Category 1", "doc": "Desc", "item_indices": [0, 1, 2, 3, 4]},
+                        {"name": "Sub-Category 2", "doc": "Desc", "item_indices": [5, 6, 7, 8, 9]},
+                    ]
+                })
+            }
+        }
+
+        partition_category(session=session, category_id=parent.id, client=mock_cli, config=config)
+
+        children = session.query(TaxonomyCategory).filter_by(parent_id=parent.id).all()
+        assert len(children) == 2
+        for child in children:
+            # Containment check: child points to parent
+            assert child.parent_id == parent.id
+            # Generic naming check: 'Sub-Category 1' normalized with parent prefix
+            assert "Personal Lifestyle & Dating" in child.name
+
+
+def test_notes_recursive_nested_tree_builder():
+    """Validates that slash-delimited folder paths are parsed into a true nested directory tree."""
+    from kb_web.routers.notes import build_nested_folder_tree
+
+    mock_notes = [
+        MagicMock(id=1, title="Root Note", vault_name="Personal", folder_path="", updated_at="2026-10-01"),
+        MagicMock(id=2, title="UV Script Running", vault_name="Personal", folder_path="dev_notes/agent skills/uv skill", updated_at="2026-10-01"),
+        MagicMock(id=3, title="Quickstart", vault_name="Personal", folder_path="dev_notes/agent skills", updated_at="2026-10-01"),
+        MagicMock(id=4, title="Test Images", vault_name="Personal", folder_path="dev_notes/TESTS", updated_at="2026-10-01"),
+    ]
+
+    nested = build_nested_folder_tree(mock_notes, item_transform=lambda n: {"id": n.id, "title": n.title})
+    assert "Personal" in nested
+    p_vault = nested["Personal"]
+    assert p_vault["total_count"] == 4
+    assert len(p_vault["notes"]) == 1  # Root Note
+    assert p_vault["notes"][0]["title"] == "Root Note"
+
+    # Check dev_notes subfolder
+    assert "dev_notes" in p_vault["subfolders"]
+    dev_notes = p_vault["subfolders"]["dev_notes"]
+    assert dev_notes["total_count"] == 3
+
+    # Check child folders under dev_notes
+    assert "agent skills" in dev_notes["subfolders"]
+    assert "TESTS" in dev_notes["subfolders"]
+
+    agent_skills = dev_notes["subfolders"]["agent skills"]
+    assert len(agent_skills["notes"]) == 1
+    assert agent_skills["notes"][0]["title"] == "Quickstart"
+
+    # Check nested uv skill under agent skills
+    assert "uv skill" in agent_skills["subfolders"]
+    uv_skill = agent_skills["subfolders"]["uv skill"]
+    assert len(uv_skill["notes"]) == 1
+    assert uv_skill["notes"][0]["title"] == "UV Script Running"
+

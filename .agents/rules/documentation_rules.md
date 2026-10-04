@@ -17,3 +17,7 @@ Agents working in `kb-web` are required to maintain strict self-documentation st
 
 ## 4. Preserving Comments & Inline Context
 - Preserve all existing code docstrings, type annotations, and descriptive comments unless the target code logic is explicitly rewritten or removed.
+
+## 5. Mandatory Implementation Plan Presentation
+- Whenever an implementation plan is created or updated and saved in `./.artifacts/`, the agent MUST ALWAYS present the implementation plan directly to the user in the response immediately after saving it in the artifacts folder, before asking for confirmation or proceeding to write code.
+

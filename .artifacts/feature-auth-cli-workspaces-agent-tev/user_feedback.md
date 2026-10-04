@@ -93,4 +93,41 @@
      - **10-Item Partitioning Strategy**: When a category reaches 10 items, partition all 10 items into 2 or more distinct child sub-categories, keeping the parent category as a pure group container.
      - **Agent Memory UI**: Dedicated top-level navigation item ("Agent Board" / `/agents/board`) with real-time logs, channel filters, and search.
 
+---
+
+## Turn 6 - Implementation Plan Presentation Rule, Notes Nested Tree, Meaningful Domain Names & Containment, Prior 6-Class Gating, and Policy Enforcement
+- **Date**: 2026-10-03
+- **Context & Feedback**:
+  1. **Implementation Plan Presentation Rule**:
+     - User requested a strict rule added that whenever implementation plans are saved in `.artifacts/`, the agent MUST ALWAYS present the plan directly to the user in the response before proceeding to execute or ask for sign-off.
+     - Codified in `GEMINI.md` under Chat Turn Instructions.
+  2. **Photo 1 - Notes Sidebar Nested Folder Tree Hierarchy**:
+     - In Photo 1, note folders with slash paths (e.g. `dev_notes/TESTS`, `dev_notes/SystemMessages`, `dev_notes/agent skills/uv skill`, `dev_notes/agent skills`) displayed as flat folder entries all on the same level.
+     - Requested: Display notes as a true recursive nested directory tree where parent folders contain child subfolders and files with collapsible tree navigation.
+  3. **Photo 2 - Meaningful Domain Naming & Sub-Category Containment**:
+     - In Photo 2, taxonomy categories were defaulting to generic labels like `Domain 10`, `Domain 11`, `Domain 12` covering items like "Date Ideas".
+     - Requested: The classification pipeline must strictly instruct agents and fallback synthesizers to name domains with meaningful, authoritative names (e.g. "Personal Lifestyle & Dating", "DevOps & Cloud Infrastructure"). Numeric placeholders and generic labels ("Domain X") are strictly prohibited.
+     - Sub-categories and reclassification must remain strictly **INSIDE** the original chosen domain (i.e. child sub-categories are thematic specializations within the parent domain boundary).
+  4. **"Fits at All" Decision Gate**:
+     - Add an explicit decision gate evaluating whether an incoming item fits any existing category *at all* before adding to any category or collection.
+     - If not, cleanly branch to create a new meaningful domain category.
+  5. **Prior 6-Class Item Classification Gate**:
+     - Run a prior classification check categorizing incoming items into 6 distinct classes:
+       - `Personal`: Personal notes, personal information, journal thoughts, date ideas.
+       - `Documentation`: Code resources, reference documents, technical manuals.
+       - `Notes`: General markdown notes that are not personal and not documentation or code.
+       - `Articles`: Web articles, news essays, YouTube video transcripts.
+       - `Source Code`: Flattened code, workspace snapshots, scripts.
+       - `Unclassifiable`: Catchall for corrupted, unreadable, or unclassifiable items.
+     - The determined item class is stored on `TaxonomyItem.item_class` and fed into subsequent decision gates.
+  6. **Policy Directives in Decision Model State**:
+     - Decision models perform significantly better when explicit "policy" directives are provided in the `state` object.
+     - Enforce structured policy directives in the `state` object for all `client.systemone` decision steps (thematic purity, domain containment, non-generic naming, class boundary rules).
+  7. **Rollback Latest Migrations & Purge Test Classification Information**:
+     - The user requested rolling back the latest migrations to remove the test classification information created during testing in the database.
+     - Add the migration script for revision `f92d84291a25` (`f92d84291a25_add_taxonomy_classification.py`) linking `e81c74291a23` -> `f92d84291a25` with full `upgrade()` and `downgrade()` logic.
+     - Execute the downgrade/rollback to remove the classification records and tables from the test/dev database, restoring a clean state for the new pipeline.
+
+
+
 

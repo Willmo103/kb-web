@@ -159,6 +159,9 @@ uv run kb-web db migrate-sqlite --target test
 # Deploy Alembic migrations across targets ('dev', 'test', 'live', or 'all')
 uv run kb-web db deploy --target all
 
+# Rollback Alembic migrations across targets to a revision or relative step (default: -1)
+uv run kb-web db rollback --target dev --revision -1
+
 # Export point-in-time multi-table JSON database snapshot to ~/.kb/kb-web_backups/
 uv run kb-web db snapshot --target live
 

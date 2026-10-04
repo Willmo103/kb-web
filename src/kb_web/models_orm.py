@@ -343,8 +343,10 @@ class TaxonomyItem(Base):
     item_title = Column(String)
     fit_score = Column(Float, default=1.0)
     assigned_at = Column(String)
+    item_class = Column(String(32), default="Notes", index=True)  # 'Personal', 'Documentation', 'Notes', 'Articles', 'Source Code', 'Unclassifiable'
 
     category = relationship("TaxonomyCategory", backref="items")
+
 
 
 class AgentMessage(Base):
@@ -653,6 +655,12 @@ def ensure_views_and_indexes(engine):
                     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fetched_pages_fetched_at ON fetched_pages (fetched_at DESC);"))
                     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_source_id ON collection_items (source_id);"))
                     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_youtube_videos_creator ON youtube_videos (creator);"))
+                except Exception:
+                    pass
+                try:
+                    cols = [row[1] for row in conn.execute(text("PRAGMA table_info(taxonomy_items);")).fetchall()]
+                    if cols and "item_class" not in cols:
+                        conn.execute(text("ALTER TABLE taxonomy_items ADD COLUMN item_class VARCHAR(32) DEFAULT 'Notes';"))
                 except Exception:
                     pass
                 try:

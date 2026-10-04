@@ -125,7 +125,74 @@ def _process_note_in_background(note_id: int):
         print(f"Taxonomy auto-classification skipped/failed for note {note_id}: {e}")
 
 
-# --- API Endpoints ---
+# --- Helpers & API Endpoints ---
+
+def build_nested_folder_tree(notes: list, item_transform=None) -> Dict[str, Any]:
+    """Builds a recursive nested folder tree per vault for hierarchical directory navigation.
+
+    Structure per vault:
+    {
+        "name": vault_name,
+        "subfolders": {
+            folder_segment: {
+                "name": folder_segment,
+                "path": cumulative_path,
+                "subfolders": { ... },
+                "notes": [ item, ... ],
+                "total_count": int,
+            }
+        },
+        "notes": [ item, ... ],
+        "total_count": int,
+    }
+    """
+    def _create_folder_node(name: str, path: str):
+        return {
+            "name": name,
+            "path": path,
+            "subfolders": {},
+            "notes": [],
+            "total_count": 0,
+        }
+
+    tree: Dict[str, Any] = {}
+    for n in notes:
+        v = n.vault_name or "Personal"
+        if v not in tree:
+            tree[v] = _create_folder_node(v, "")
+
+        item = item_transform(n) if item_transform else n
+
+        raw_path = (n.folder_path or "").strip("/\\").replace("\\", "/")
+        if not raw_path or raw_path.lower() == "root":
+            tree[v]["notes"].append(item)
+            continue
+
+        parts = [p.strip() for p in raw_path.split("/") if p.strip()]
+        current_node = tree[v]
+        curr_path_accum = []
+        for part in parts:
+            curr_path_accum.append(part)
+            full_part_path = "/".join(curr_path_accum)
+            if part not in current_node["subfolders"]:
+                current_node["subfolders"][part] = _create_folder_node(part, full_part_path)
+            current_node = current_node["subfolders"][part]
+
+        current_node["notes"].append(item)
+
+    # Calculate total_count recursively
+    def _sum_counts(node: Dict[str, Any]) -> int:
+        count = len(node["notes"])
+        for sub in node["subfolders"].values():
+            count += _sum_counts(sub)
+        node["total_count"] = count
+        return count
+
+    for v_node in tree.values():
+        _sum_counts(v_node)
+
+    return tree
+
 
 @router.get("/api/notes")
 def list_notes_api(
@@ -142,8 +209,18 @@ def list_notes_api(
             query = query.filter(Note.title.ilike(term) | Note.content.ilike(term))
 
         notes = query.order_by(Note.folder_path.asc(), Note.title.asc()).all()
-        
-        # Build hierarchy tree
+
+        # Build recursive nested tree
+        nested_tree = build_nested_folder_tree(notes, item_transform=lambda n: {
+            "id": n.id,
+            "title": n.title,
+            "url": n.url,
+            "safe_url": quote_plus(n.url),
+            "syntax": n.syntax,
+            "updated_at": n.updated_at,
+        })
+
+        # Flat hierarchy tree for backwards compatibility
         tree = {}
         for n in notes:
             v = n.vault_name or "Personal"
@@ -164,6 +241,7 @@ def list_notes_api(
         return {
             "total": len(notes),
             "tree": tree,
+            "nested_tree": nested_tree,
             "notes": [
                 {
                     "id": n.id,
@@ -178,6 +256,7 @@ def list_notes_api(
                 for n in notes
             ],
         }
+
 
 
 @router.post("/api/notes/paste")
@@ -394,20 +473,12 @@ def view_notes_dashboard(request: Request):
 
     with db_session() as session:
         notes = session.query(Note).order_by(Note.updated_at.desc()).all()
-        tree = {}
-        for n in notes:
-            v = n.vault_name or "Personal"
-            if v not in tree:
-                tree[v] = {}
-            folder = n.folder_path or "Root"
-            if folder not in tree[v]:
-                tree[v][folder] = []
-            tree[v][folder].append(n)
+        nested_tree = build_nested_folder_tree(notes)
 
         template = _jinja_env.get_template("notes_list.j2.html")
         html_content = template.render(
             notes=notes,
-            tree=tree,
+            tree=nested_tree,
             total=len(notes),
             is_admin=is_admin,
         )

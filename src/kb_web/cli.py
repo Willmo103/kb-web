@@ -135,6 +135,29 @@ def deploy_migrations(
         raise typer.Exit(code=1)
 
 
+@db_app.command("rollback")
+def rollback_migrations(
+    target: str = typer.Option(
+        "default", "--target", "-t", help="Target environment: 'dev', 'test', 'live', 'all', or 'default'."
+    ),
+    revision: str = typer.Option(
+        "e81c74291a23", "--revision", "-r", help="Target revision to downgrade to (defaults to e81c74291a23 to remove classification data)."
+    ),
+) -> None:
+    """Rolls back database migrations to a specified revision and purges recent feature test data."""
+    from .scripts.deploy_migrations import rollback
+
+    target_env = None if target == "default" else target
+    typer.echo(f"Rolling back migrations on target: '{target}' to revision: '{revision}'...")
+    try:
+        rollback(target=target_env, revision=revision)
+        typer.secho("\nDatabase rollback completed successfully!", fg=typer.colors.GREEN)
+    except Exception as e:
+        typer.secho(f"\nMigration rollback failed: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+
+
 @db_app.command("snapshot")
 def take_snapshot(
     target: str = typer.Option(

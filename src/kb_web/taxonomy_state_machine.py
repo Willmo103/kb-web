@@ -124,6 +124,57 @@ def _generate_category_slug(name: str) -> str:
     return s.strip("-") or f"category-{int(time.time())}"
 
 
+def _is_generic_domain_name(name: str) -> bool:
+    """Checks whether a category name is an uninformative, generic, or numbered placeholder."""
+    if not name or len(name.strip()) < 3:
+        return True
+    norm = name.strip().lower()
+    # Check for patterns like "Domain 1", "Domain 10", "Category 2", "Topic 4"
+    if re.match(r"^(domain|category|topic|sub-category|section)\s*\d*$", norm):
+        return True
+    return False
+
+
+def _derive_meaningful_domain_name(
+    item_title: str,
+    item_tags: Optional[List[str]] = None,
+    item_class: Optional[str] = None,
+) -> str:
+    """Intelligently synthesizes an authoritative 2-4 word knowledge domain title from item attributes.
+    Strictly forbids generic numbered placeholders like 'Domain X' or 'Category Y'.
+    """
+    tags = item_tags or []
+    cleaned_title = re.sub(r"^[📝📂⚡•#\s\-*]+", "", item_title).strip()
+    lower_title = cleaned_title.lower()
+    lower_tags = [t.lower() for t in tags]
+    combined_text = f"{lower_title} {' '.join(lower_tags)}"
+
+    # Topic-specific domain mapping
+    if any(k in combined_text for k in ["date", "dating", "relationship", "romance", "dinner"]):
+        return "Personal Lifestyle & Dating"
+    if any(k in combined_text for k in ["docker", "container", "k8s", "kubernetes", "podman", "cloudflared"]):
+        return "DevOps & Cloud Infrastructure"
+    if any(k in combined_text for k in ["song", "guitar", "tab", "chords", "music", "audio"]):
+        return "Music & Performing Arts"
+    if any(k in combined_text for k in ["sqlite", "postgres", "sql", "database", "docling", "qdrant"]):
+        return "Databases & Data Engineering"
+    if any(k in combined_text for k in ["python", "powershell", "script", "bash", "cli", "terminal"]):
+        return "Developer Tooling & Scripting"
+    if any(k in combined_text for k in ["ai", "llm", "gemma", "ollama", "agent", "transformer"]):
+        return "Artificial Intelligence & Agents"
+    if any(k in combined_text for k in ["cooking", "recipe", "culinary", "baking", "food"]):
+        return "Culinary Arts & Gastronomy"
+
+    # Fallback to item_class + title keywords
+    words = [w.capitalize() for w in re.findall(r"[A-Za-z0-9]+", cleaned_title) if len(w) > 2]
+    if words:
+        short_title = " ".join(words[:2])
+        cls_prefix = item_class or "General"
+        return f"{cls_prefix} - {short_title}"
+
+    return "General Knowledge & Research"
+
+
 def _create_cold_start_category(
     session: Session,
     item_title: str,
@@ -131,25 +182,30 @@ def _create_cold_start_category(
     item_tags: List[str],
     client: Any,
     config: Any,
+    item_class: Optional[str] = None,
 ) -> TaxonomyCategory:
     """Cold Start: Prompts the LLM to invent the inaugural top-level category when 0 categories exist."""
     prompt = (
         "You are an expert ontology and taxonomy architect. The knowledge base is currently empty with 0 categories.\n"
-        "Analyze the following incoming item and create the inaugural top-level category for it.\n\n"
+        "Analyze the following incoming item and create the inaugural top-level knowledge domain for it.\n\n"
+        f"Item Class: {item_class or 'Notes'}\n"
         f"Item Title: {item_title}\n"
         f"Item Tags: {', '.join(item_tags) if item_tags else 'None'}\n"
         f"Item Excerpt: {item_excerpt[:1000]}\n\n"
+        "DOMAIN NAMING MANDATE:\n"
+        "You MUST assign a descriptive, authoritative, 2-4 word knowledge domain title (e.g. 'Personal Lifestyle & Dating', 'DevOps & Cloud Infrastructure', 'Python & System Utilities').\n"
+        "You are STRICTLY FORBIDDEN from generating generic names, numeric suffixes, or placeholder labels like 'Domain X', 'Category Y', 'Topic Z', or numbered sequences.\n\n"
         "Respond with a strict JSON object:\n"
         "{\n"
-        '  "category_name": "Concise Category Title (2-4 words)",\n'
-        '  "category_doc": "Comprehensive initial markdown wiki doc (2-3 paragraphs) outlining the scope, topics, and criteria for this category."\n'
+        '  "category_name": "Authoritative Domain Title (2-4 words)",\n'
+        '  "category_doc": "Comprehensive initial markdown wiki doc (2-3 paragraphs) outlining the scope, topics, and criteria for this domain."\n'
         "}\n"
         "Do NOT include any filler before or after the JSON."
     )
 
     model = getattr(config, "ollama_model", "gemma2")
-    cat_name = "General Knowledge"
-    cat_doc = f"# General Knowledge\n\nInitial repository topic covering {item_title}."
+    cat_name = _derive_meaningful_domain_name(item_title, item_tags, item_class)
+    cat_doc = f"# {cat_name}\n\nInitial repository topic covering {item_title}."
 
     try:
         resp = client.chat(
@@ -161,7 +217,9 @@ def _create_cold_start_category(
         match = re.search(r"\{.*\}", content, re.DOTALL)
         if match:
             data = json.loads(match.group(0))
-            cat_name = data.get("category_name", cat_name).strip()
+            candidate_name = data.get("category_name", "").strip()
+            if candidate_name and not _is_generic_domain_name(candidate_name):
+                cat_name = candidate_name
             cat_doc = data.get("category_doc", cat_doc).strip()
     except Exception as e:
         logger.warning(f"Cold-start category generation LLM fallback: {e}")
@@ -205,26 +263,31 @@ def _synthesize_new_category(
     existing_categories: List[TaxonomyCategory],
     client: Any,
     config: Any,
+    item_class: Optional[str] = None,
 ) -> TaxonomyCategory:
     """Prompts LLM to create a new category that fits the incoming item without duplicating existing ones."""
     tree_text = format_category_tree_for_prompt(existing_categories)
     prompt = (
         "You are an expert ontology architect. An incoming item does not fit into any of our existing categories.\n"
-        "Review the existing category tree and create a NEW, distinct category for this item.\n\n"
+        "Review the existing category tree and create a NEW, distinct knowledge domain for this item.\n\n"
         f"Existing Category Tree:\n{tree_text}\n\n"
+        f"Item Class: {item_class or 'Notes'}\n"
         f"Incoming Item Title: {item_title}\n"
         f"Item Tags: {', '.join(item_tags) if item_tags else 'None'}\n"
         f"Item Excerpt: {item_excerpt[:1000]}\n\n"
+        "DOMAIN NAMING MANDATE:\n"
+        "You MUST assign a descriptive, authoritative, 2-4 word knowledge domain title (e.g. 'Personal Lifestyle & Dating', 'DevOps & Cloud Infrastructure', 'Developer Tooling & Scripting').\n"
+        "You are STRICTLY FORBIDDEN from generating generic names, numeric suffixes, or placeholder labels like 'Domain X', 'Category Y', 'Topic Z', or numbered sequences.\n\n"
         "Respond with a strict JSON object:\n"
         "{\n"
-        '  "category_name": "Distinct Category Title (2-4 words)",\n'
+        '  "category_name": "Authoritative Domain Title (2-4 words)",\n'
         '  "category_doc": "Comprehensive initial markdown wiki doc explaining the domain, scope, and related topics."\n'
         "}\n"
         "Do NOT include any filler before or after the JSON."
     )
 
     model = getattr(config, "ollama_model", "gemma2")
-    cat_name = f"Domain {len(existing_categories) + 1}"
+    cat_name = _derive_meaningful_domain_name(item_title, item_tags, item_class)
     cat_doc = f"# {cat_name}\n\nDedicated knowledge category covering {item_title}."
 
     try:
@@ -237,7 +300,9 @@ def _synthesize_new_category(
         match = re.search(r"\{.*\}", content, re.DOTALL)
         if match:
             data = json.loads(match.group(0))
-            cat_name = data.get("category_name", cat_name).strip()
+            candidate_name = data.get("category_name", "").strip()
+            if candidate_name and not _is_generic_domain_name(candidate_name):
+                cat_name = candidate_name
             cat_doc = data.get("category_doc", cat_doc).strip()
     except Exception as e:
         logger.warning(f"New category generation LLM fallback: {e}")
@@ -271,6 +336,7 @@ def _synthesize_new_category(
     )
 
     return cat
+
 
 
 def _update_category_wiki_doc(
@@ -354,6 +420,8 @@ def partition_category(
         prompt = (
             f"Category '{category.name}' has reached capacity with {len(items)} items.\n"
             "You MUST partition all 10 items into 2 or more distinct, cohesive child sub-categories.\n"
+            f"CONTAINMENT DIRECTIVE: All created sub-categories MUST be specialized child sub-domains strictly within the parent domain boundary of '{category.name}'. Never cross domain boundaries.\n"
+            f"DOMAIN NAMING DIRECTIVE: Assign clear, authoritative titles without generic numbering (e.g. '{category.name} - Core Foundations', '{category.name} - Applied Topics'). Generic labels like 'Sub-Category 1' or 'Domain X' are strictly forbidden.\n"
             f"Parent Category Wiki Doc:\n{(category.doc or '')[:800]}\n\n"
             f"Items to Partition:\n{items_summary}\n\n"
             "Requirements:\n"
@@ -363,8 +431,8 @@ def partition_category(
             "Format:\n"
             "{\n"
             '  "sub_categories": [\n'
-            '    {"name": "Sub-Category 1", "doc": "# Sub-Category 1\\nOverview...", "item_indices": [0, 2, 4, 6, 8]},\n'
-            '    {"name": "Sub-Category 2", "doc": "# Sub-Category 2\\nOverview...", "item_indices": [1, 3, 5, 7, 9]}\n'
+            f'    {{"name": "{category.name} - Core Concepts", "doc": "#{category.name} - Core Concepts\\nOverview...", "item_indices": [0, 2, 4, 6, 8]}},\n'
+            f'    {{"name": "{category.name} - Applied Topics", "doc": "#{category.name} - Applied Topics\\nOverview...", "item_indices": [1, 3, 5, 7, 9]}}\n'
             "  ]\n"
             "}\n"
             "Respond ONLY with the JSON."
@@ -410,8 +478,11 @@ def partition_category(
 
         for sub_spec in sub_categories_spec:
             sub_name = sub_spec.get("name", "Specialized Sub-Category").strip()
+            if _is_generic_domain_name(sub_name) or sub_name.lower().startswith("sub-category"):
+                sub_name = f"{category.name} - Specialized Focus {len(created_sub_cats) + 1}"
             sub_doc = sub_spec.get("doc", f"# {sub_name}\n\nSub-category wiki doc.").strip()
             indices = sub_spec.get("item_indices", [])
+
 
             valid_indices = [idx for idx in indices if 0 <= idx < len(items) and idx not in assigned_indices]
             if not valid_indices:
@@ -483,6 +554,93 @@ def partition_category(
         set_partitioning_paused(False)
 
 
+def classify_item_class(
+    item_title: str,
+    item_content: str,
+    item_tags: Optional[List[str]] = None,
+    client: Any = None,
+    config: Any = None,
+) -> str:
+    """Classifies an incoming item into one of 6 distinct classes using tev1 decision gating.
+
+    Classes:
+    - Personal: Personal notes, personal information, journal thoughts, date ideas.
+    - Documentation: Code resources, reference documents, technical manuals.
+    - Notes: Markdown notes that are not personal and not documentation or code.
+    - Articles: Web articles, news essays, YouTube video transcripts.
+    - Source Code: Flattened code, workspace snapshots, scripts.
+    - Unclassifiable: Catchall for corrupted, unreadable, or meaningless items.
+    """
+    cfg = config or default_config
+    cli = client or _get_ollama_client()
+    tags = item_tags or []
+    tev1_model = getattr(cfg, "tev1_model", "tev1")
+
+    state: Dict[str, Any] = {
+        "item_title": item_title,
+        "item_tags": tags,
+        "item_excerpt": item_content[:800],
+        "policies": [
+            "Policy 1 (Personal): Private thoughts, personal journal entries, relationship/dating ideas, lifestyle planning, and personal tasks must be classified as 'Personal'.",
+            "Policy 2 (Documentation): Reference materials, technical documentation, API guides, architecture manuals, and cheat sheets must be classified as 'Documentation'.",
+            "Policy 3 (Notes): Non-personal, non-code informational scratchpad notes, meeting summaries, or project scratchpads must be classified as 'Notes'.",
+            "Policy 4 (Articles): Published web articles, blog posts, news essays, and video transcripts must be classified as 'Articles'.",
+            "Policy 5 (Source Code): Code files, scripts, functions, algorithm implementations, and workspace project snapshots must be classified as 'Source Code'.",
+            "Policy 6 (Unclassifiable): Unreadable, corrupted, purely empty, or non-substantive text must be classified as 'Unclassifiable'.",
+        ],
+    }
+
+    questions: Dict[str, Dict[str, Any]] = {
+        "item_class": {
+            "type": "choice",
+            "instructions": (
+                f"Classify the incoming item '{item_title[:50]}' into exactly one of the 6 canonical classes. "
+                "Adhere strictly to the policy directives in the state object."
+            ),
+            "criteria": {
+                "Personal": "Private notes, dating/relationship ideas, personal journal reflections, personal plans.",
+                "Documentation": "Technical references, API manuals, architecture specs, cheat sheets.",
+                "Notes": "General markdown informational notes (not personal, not code, not external articles).",
+                "Articles": "External web articles, blog posts, news essays, YouTube video transcripts.",
+                "Source Code": "Scripts, code snippets, syntax implementations, workspace snapshots.",
+                "Unclassifiable": "Unreadable, corrupted, or non-substantive text.",
+            },
+        }
+    }
+
+    try:
+        resp = cli.systemone(
+            model=tev1_model,
+            state=state,
+            questions=questions,
+        )
+        answers = getattr(resp, "answers", {})
+        ans = answers.get("item_class")
+        choice = getattr(ans, "choice", None)
+        if choice in ["Personal", "Documentation", "Notes", "Articles", "Source Code", "Unclassifiable"]:
+            return choice
+    except Exception as e:
+        logger.warning(f"tev1 systemone item_class evaluation failed: {e}. Running heuristics.")
+
+    # Rule-based fallback
+    lower_title = item_title.lower()
+    lower_content = item_content[:500].lower()
+    combined = f"{lower_title} {lower_content} {' '.join(tags).lower()}"
+
+    if not item_content.strip() or len(item_content.strip()) < 5:
+        return "Unclassifiable"
+    if any(k in combined for k in ["date ideas", "dating", "personal", "journal", "diary"]):
+        return "Personal"
+    if any(k in combined for k in ["api reference", "documentation", "spec", "manual", "guide", "cheatsheet"]):
+        return "Documentation"
+    if any(k in combined for k in ["def ", "class ", "import ", "function ", "select ", "curl "]) and ("```" in item_content or len(item_content.splitlines()) >= 2):
+        return "Source Code"
+
+    if any(k in combined for k in ["http://", "https://", "youtube.com", "article", "author:"]):
+        return "Articles"
+    return "Notes"
+
+
 def evaluate_category_fit_tev1(
     item_title: str,
     item_excerpt: str,
@@ -490,6 +648,7 @@ def evaluate_category_fit_tev1(
     candidate_categories: List[TaxonomyCategory],
     client: Any,
     config: Any,
+    item_class: str = "Notes",
 ) -> Tuple[Optional[int], bool]:
     """Uses the tev1 decision model (via client.systemone) to evaluate candidate categories.
 
@@ -513,16 +672,31 @@ def evaluate_category_fit_tev1(
 
     state: Dict[str, Any] = {
         "item_title": item_title,
+        "item_class": item_class,
         "item_tags": item_tags,
         "item_excerpt": item_excerpt[:600],
         "category_tree": tree_representation,
+        "policies": [
+            "Policy 1 (Thematic Purity): An item must only be assigned to a category if its core topic directly aligns with that category's scope. Never force-fit an item into an unrelated category.",
+            "Policy 2 (Domain Meaning): Categories represent distinct, cohesive knowledge domains. If none of the existing categories match the item's topic, you must declare that it does not fit.",
+            "Policy 3 (Domain Containment): Sub-categories must strictly represent thematic specializations within the parent domain boundary.",
+            "Policy 4 (Exclusion of Numbered Labels): Generic placeholders or numbered titles (e.g. 'Domain 1', 'Category 2') are strictly forbidden.",
+        ],
     }
 
     questions: Dict[str, Dict[str, Any]] = {
+        "fits_any_category": {
+            "type": "noul",
+            "instructions": f"Does the incoming {item_class} item '{item_title[:50]}' clearly belong to ANY of the active categories listed in the ontology tree?",
+            "criteria": {
+                "true": "The item's core subject directly fits into at least one of the active categories in the tree.",
+                "false": "The item's subject does not fit any existing category at all and requires synthesizing a new domain.",
+            },
+        },
         "category_choice": {
             "type": "choice",
             "instructions": (
-                f"Evaluate the incoming item '{item_title[:50]}' against the knowledge ontology. "
+                f"Evaluate the incoming {item_class} item '{item_title[:50]}' against the knowledge ontology. "
                 "Select the single best fitting category key, or choose 'new_category' if it belongs elsewhere."
             ),
             "criteria": choices_criteria,
@@ -545,6 +719,11 @@ def evaluate_category_fit_tev1(
         )
         answers = getattr(resp, "answers", {})
 
+        fits_any_ans = answers.get("fits_any_category")
+        fits_any_val = getattr(fits_any_ans, "noul", True) if fits_any_ans else True
+        if not fits_any_val:
+            return None, False
+
         cat_ans = answers.get("category_choice")
         choice_val = getattr(cat_ans, "choice", "new_category") if cat_ans else "new_category"
 
@@ -562,6 +741,7 @@ def evaluate_category_fit_tev1(
 
     except Exception as e:
         logger.warning(f"tev1 systemone evaluation failed: {e}. Running LLM classification fallback.")
+
 
     # Fallback to standard Ollama LLM prompt
     try:
@@ -639,9 +819,54 @@ def classify_item(
                 "item_id": item_id,
             }
 
+        now_str = datetime.now().isoformat()
+
+        # 3. Prior 6-Class Item Classification Gate
+        item_class = classify_item_class(
+            item_title=item_title,
+            item_content=item_content,
+            item_tags=tags,
+            client=cli,
+            config=cfg,
+        )
+
+        # Handle Unclassifiable items (skip domain assignment, record on message board)
+        if item_class == "Unclassifiable":
+            tax_item = TaxonomyItem(
+                category_id=None,
+                item_type=item_type,
+                item_id=item_id,
+                item_title=item_title[:255],
+                fit_score=0.0,
+                assigned_at=now_str,
+                item_class="Unclassifiable",
+            )
+            session.add(tax_item)
+            session.commit()
+
+            post_agent_memory(
+                session=session,
+                agent_name="TaxonomyAgent",
+                channel="taxonomy",
+                topic="unclassifiable",
+                content=(
+                    f"Item '{item_title}' (Type: {item_type}, ID: {item_id}) classified as "
+                    "Unclassifiable. Skipping domain ontology placement."
+                ),
+                memory_type="observation",
+                metadata={"item_type": item_type, "item_id": item_id, "item_title": item_title, "item_class": "Unclassifiable"},
+            )
+
+            return {
+                "status": "unclassifiable_skipped",
+                "item_class": "Unclassifiable",
+                "item_id": item_id,
+                "item_title": item_title,
+            }
+
         all_categories = session.query(TaxonomyCategory).all()
 
-        # 3. Cold Start Check
+        # 4. Cold Start Check (0 initial categories)
         if not all_categories:
             cat = _create_cold_start_category(
                 session=session,
@@ -650,6 +875,7 @@ def classify_item(
                 item_tags=tags,
                 client=cli,
                 config=cfg,
+                item_class=item_class,
             )
             tax_item = TaxonomyItem(
                 category_id=cat.id,
@@ -657,7 +883,8 @@ def classify_item(
                 item_id=item_id,
                 item_title=item_title[:255],
                 fit_score=1.0,
-                assigned_at=datetime.now().isoformat(),
+                assigned_at=now_str,
+                item_class=item_class,
             )
             session.add(tax_item)
             cat.item_count = 1
@@ -667,13 +894,14 @@ def classify_item(
                 "status": "cold_start_created",
                 "category_id": cat.id,
                 "category_name": cat.name,
+                "item_class": item_class,
                 "action": "created_first_category",
             }
 
-        # 4. Filter for assignable candidate categories (leaf categories, not containers)
+        # 5. Filter for assignable candidate categories (leaf categories, not containers)
         assignable = [c for c in all_categories if not c.is_container]
         if not assignable:
-            # All categories are containers; create top-level leaf
+            # All categories are containers; evaluate against all
             assignable = all_categories
 
         chosen_cat_id, is_confident = evaluate_category_fit_tev1(
@@ -683,11 +911,10 @@ def classify_item(
             candidate_categories=assignable,
             client=cli,
             config=cfg,
+            item_class=item_class,
         )
 
-        now_str = datetime.now().isoformat()
-
-        # 5. Fit confirmed
+        # 6. Fit confirmed
         if chosen_cat_id is not None and is_confident:
             cat = session.query(TaxonomyCategory).filter_by(id=chosen_cat_id).first()
             if cat:
@@ -698,6 +925,7 @@ def classify_item(
                     item_title=item_title[:255],
                     fit_score=0.95,
                     assigned_at=now_str,
+                    item_class=item_class,
                 )
                 session.add(tax_item)
                 cat.item_count += 1
@@ -719,7 +947,7 @@ def classify_item(
                     channel="taxonomy",
                     topic="fit_assigned",
                     content=(
-                        f"Assigned {item_type} '{item_title}' to category '{cat.name}' (ID: {cat.id}) "
+                        f"Assigned {item_class} item '{item_title}' to category '{cat.name}' (ID: {cat.id}) "
                         f"[Item Count: {cat.item_count}]. Updated category wiki doc."
                     ),
                     memory_type="decision",
@@ -728,6 +956,7 @@ def classify_item(
                         "category_name": cat.name,
                         "item_type": item_type,
                         "item_id": item_id,
+                        "item_class": item_class,
                         "count": cat.item_count,
                     },
                 )
@@ -745,10 +974,11 @@ def classify_item(
                     "status": "assigned",
                     "category_id": cat.id,
                     "category_name": cat.name,
+                    "item_class": item_class,
                     "item_count": cat.item_count,
                 }
 
-        # 6. New Category synthesis
+        # 7. New Category synthesis
         new_cat = _synthesize_new_category(
             session=session,
             item_title=item_title,
@@ -757,6 +987,7 @@ def classify_item(
             existing_categories=all_categories,
             client=cli,
             config=cfg,
+            item_class=item_class,
         )
 
         tax_item = TaxonomyItem(
@@ -766,6 +997,7 @@ def classify_item(
             item_title=item_title[:255],
             fit_score=1.0,
             assigned_at=now_str,
+            item_class=item_class,
         )
         session.add(tax_item)
         new_cat.item_count = 1
@@ -775,8 +1007,10 @@ def classify_item(
             "status": "new_category_created",
             "category_id": new_cat.id,
             "category_name": new_cat.name,
+            "item_class": item_class,
             "item_count": 1,
         }
+
 
 
 def classify_single_item(item_type: str, item_id: Any) -> Dict[str, Any]:

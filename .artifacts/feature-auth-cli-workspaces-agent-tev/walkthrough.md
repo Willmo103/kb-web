@@ -30,6 +30,31 @@ This walkthrough documents the design, implementation, and verification of the A
 ### D. CLI Subcommand Suites
 - Added `kb-web-cli taxonomy crawl` (with `--limit`) and `kb-web-cli taxonomy tree` in [`src/kb_web/cli.py`](file:///c:/src/kb-web/src/kb_web/cli.py).
 - Added `kb-web-cli board list` (with `--channel`, `--agent`, `--limit`) in [`src/kb_web/cli.py`](file:///c:/src/kb-web/src/kb_web/cli.py).
+- Added `kb-web-cli db rollback` (with `--target`, `--revision`) in [`src/kb_web/cli.py`](file:///c:/src/kb-web/src/kb_web/cli.py).
+
+### E. Hierarchical Notes Folder Tree (Resolves Nested Directory View)
+- Added `build_nested_folder_tree(notes)` in [`src/kb_web/routers/notes.py`](file:///c:/src/kb-web/src/kb_web/routers/notes.py) to parse arbitrary slash-delimited paths into structured, recursive dictionary trees.
+- Enhanced `/api/notes/tree` to supply both `nested_tree` (recursive) and legacy `tree` (flat).
+- Implemented recursive macro `render_folder_node` in [`src/kb_web/templates/notes_list.j2.html`](file:///c:/src/kb-web/src/kb_web/templates/notes_list.j2.html) featuring collapsible `<details open>` chevrons, folder icons, note count badges, and indented child hierarchy.
+
+### F. Prior 6-Class Item Classification Gate & State Policy Directives
+- Implemented `classify_item_class()` in [`src/kb_web/taxonomy_state_machine.py`](file:///c:/src/kb-web/src/kb_web/taxonomy_state_machine.py) gating items into 6 canonical classes: `Personal`, `Documentation`, `Notes`, `Articles`, `Source Code`, `Unclassifiable`.
+- Embedded structured `policies: [...]` arrays in the decision state dict governing classification.
+- Unclassifiable items post observation alerts to `#taxonomy` on the Agent Message Board and bypass domain classification.
+- Added `item_class` column to `TaxonomyItem` ORM model.
+
+### G. Preliminary "Fits at All" Decision Gate (`fits_any_category`)
+- Added preliminary `noul` gate question `fits_any_category` to `evaluate_category_fit_tev1()` with explicit policy directives before evaluating candidate category fit.
+- Directly synthesizes a new domain if an item does not fit existing categories at all.
+
+### H. Meaningful Domain Naming & Sub-Category Containment
+- Implemented `_is_generic_domain_name()` and `_derive_meaningful_domain_name()` in [`src/kb_web/taxonomy_state_machine.py`](file:///c:/src/kb-web/src/kb_web/taxonomy_state_machine.py) enforcing descriptive semantic domain names and rejecting generic numbered labels (`Domain 10`, `Category 3`).
+- Pinned sub-categories during 10-item partitioning inside the parent domain (`parent_id = category.id`), keeping reclassifications strictly inside the original chosen domain.
+
+### I. Database Migration & Rollback Pipeline
+- Created migration `migrations/versions/f92d84291a25_add_taxonomy_classification.py`.
+- Added `rollback()` and `rollback_single()` in [`src/kb_web/scripts/deploy_migrations.py`](file:///c:/src/kb-web/src/kb_web/scripts/deploy_migrations.py).
+- Successfully executed rollback to purge old test data, followed by clean migration upgrade to head.
 
 ---
 
@@ -38,17 +63,35 @@ This walkthrough documents the design, implementation, and verification of the A
 ```mermaid
 stateDiagram-v2
     [*] --> Idle: Item Ingested (Article, Note, Video, Workspace)
-    Idle --> CheckPause: Ingestion Event
+    Idle --> ItemClassGate: Ingestion Event
+    
+    state ItemClassGate {
+        [*] --> Classify6Classes: Systemone Choice (Personal, Documentation, Notes, Articles, Source Code, Unclassifiable)
+        Classify6Classes --> SaveClass: Set item_class on TaxonomyItem
+        SaveClass --> [*]
+    }
+    
+    ItemClassGate --> UnclassifiableSkip: Class == "Unclassifiable"
+    UnclassifiableSkip --> PostMemory: Observation alert to #taxonomy
+    
+    ItemClassGate --> CheckPause: Class in [Personal, Documentation, Notes, Articles, Source Code]
     CheckPause --> WaitPause: is_partitioning_paused == True
     WaitPause --> CheckPause: Poll (0.5s)
     CheckPause --> CheckCategories: is_partitioning_paused == False
     
     CheckCategories --> ColdStart: Count == 0
-    ColdStart --> CreateFirstCategory: Prompt LLM for Name & Doc
+    ColdStart --> CreateFirstCategory: Synthesize Meaningful Domain Name & Living Doc
     CreateFirstCategory --> LinkItem: Save Category #1 & TaxonomyItem
     
-    CheckCategories --> BuildTree: Count > 0
-    BuildTree --> DecisionGate: Format Indented Tree Representation
+    CheckCategories --> FitsAtAllGate: Count > 0
+    
+    state FitsAtAllGate {
+        [*] --> PreliminaryNoul: fits_any_category (Noul Gate with Policies)
+        PreliminaryNoul --> [*]
+    }
+    
+    FitsAtAllGate --> SynthesizeNewCategory: fits_any_category == False
+    FitsAtAllGate --> DecisionGate: fits_any_category == True
     
     state DecisionGate {
         [*] --> SystemoneChoice: Choice Question (Leaf Branches vs new_category)
@@ -57,11 +100,11 @@ stateDiagram-v2
     }
     
     DecisionGate --> AssignCategory: Cat Choice & Confident == True
-    AssignCategory --> UpdateWikiDoc: Prompt LLM to update Category Doc
+    AssignCategory --> UpdateWikiDoc: Prompt LLM to update Living Category Doc
     UpdateWikiDoc --> Check10ItemLimit: category.item_count += 1
     
     DecisionGate --> SynthesizeNewCategory: new_category or Low Confidence
-    SynthesizeNewCategory --> LinkItem: Create Category & TaxonomyItem
+    SynthesizeNewCategory --> LinkItem: Derive Meaningful Domain & Save TaxonomyItem
     
     Check10ItemLimit --> Idle: item_count < 10
     Check10ItemLimit --> InnerPartitionLoop: item_count >= 10
@@ -69,8 +112,8 @@ stateDiagram-v2
     state InnerPartitionLoop {
         [*] --> SetGlobalPause: is_partitioning_paused = True
         SetGlobalPause --> Fetch10Items: Load all 10 Assigned Items
-        Fetch10Items --> LLMPartitionPrompt: Prompt LLM for >=2 Sub-Categories
-        LLMPartitionPrompt --> CreateSubCategories: Insert Child TaxonomyCategories (depth + 1)
+        Fetch10Items --> LLMPartitionPrompt: Synthesize Meaningful Sub-Domains (Inside Parent)
+        LLMPartitionPrompt --> CreateSubCategories: Insert Child TaxonomyCategories (parent_id = category.id)
         CreateSubCategories --> ReassignItems: Set item.category_id = sub_category.id
         ReassignItems --> ConvertParentContainer: Parent is_container = 1, item_count = 0
         ConvertParentContainer --> ReleaseGlobalPause: is_partitioning_paused = False
@@ -91,10 +134,11 @@ stateDiagram-v2
   ```bash
   uv run pytest
   ```
-  Result: **126 passed, 0 failures** across all test suites including:
-  - `tests/test_taxonomy_and_agent_memory.py`: 10 passed (URL filtering, note titling, wiki skipping, agent memory, cold start, decision gate, 10-item partitioning loop, and CLI).
+  Result: **132 passed, 0 failures** across all test suites including:
+  - `tests/test_taxonomy_and_agent_memory.py`: 16 passed (URL filtering, note titling, wiki skipping, agent memory, cold start, decision gate, 10-item partitioning loop, CLI, hierarchical notes tree, 6-class gate, fits-at-all gate, meaningful domain naming, and sub-category containment).
   - `tests/test_sprint6_features.py`: 13 passed (RAG semantic search, model comparison, notes, and workspaces).
-  - `tests/test_server.py`, `tests/test_rest_api.py`, `tests/test_security_hardening.py`, `tests/test_cli_auth_and_workspaces.py`: all passed.
+  - `tests/test_cli_auth_and_workspaces.py`: 7 passed.
+  - `tests/test_server.py`, `tests/test_rest_api.py`, `tests/test_security_hardening.py`, `tests/test_crawler.py`, `tests/test_db_cli.py`, `tests/test_qdrant_sync.py`: all passed.
 
 ### B. UI Component Check
 - Executed `verify_ui_templates.py`:
@@ -111,6 +155,6 @@ stateDiagram-v2
   Result: **Successfully compiled wheels and source distributions for `kb_web` and `kb_web_cli`**.
 
 ### D. VCS UAT Testing Artifacts
-- Generated standardized VCS reports in `uat/`:
-  - Log: `uat/logs/test_log_taxonomy-state-machine-agent-memory_20261003_130903.log`
-  - Report: `uat/reports/uat_report_taxonomy-state-machine-agent-memory_20261003_130903.md`
+- Standardized VCS reports generated in `uat/`:
+  - Log: `uat/logs/test_log_taxonomy-state-machine-agent-memory_*.log`
+  - Report: `uat/reports/uat_report_taxonomy-state-machine-agent-memory_*.md`

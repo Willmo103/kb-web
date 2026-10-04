@@ -91,3 +91,5 @@ The repository enforces a strict 3-tier branch architecture:
  - a *subfolder* should be created for the specific action that is being taken; e.g. `/.artifacts/feature-001/` This should **match the git branch from the `development` branch that the feature or fix is being developed on**.
  - All files should be in **Markdown** format with clear headings and sections.
  - all user feedback for the given turn should be documented as `user_feedback.md` in the artifacts folder. This should be done **before** any code is changed or committed. If no feedback is received, then this file should still be created and documented as such.
+ - **Implementation Plan Presentation**: You must ALWAYS present your implementation plan directly to the user in your response immediately after saving it in the artifacts folder, before asking for confirmation or proceeding to write code.
+
