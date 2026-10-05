@@ -49,6 +49,8 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - `src/kb_web/routers/notes.py`: Personal knowledge notes, code paste ingestion, and Obsidian vault archives.
 - `src/kb_web/routers/reports.py`: Dynamic report builder, multi-table joins, and streaming data exports.
 - `src/kb_web/routers/workspaces.py`: Persistent in-browser IDE workspaces, starter templates, file sync, ZIP export, and Ollama agent integration.
+- `src/kb_web/maintenance_agent.py`: Automated website maintenance agent sidecar, diagnostic tools, and background daemon.
+- `src/kb_web/routers/errors.py`: REST API for inspecting, searching, and diagnosing logged server error incidents.
 - `src/kb_web/cli.py`: Typer command launcher.
 - `src/kb_web/templates/`: Jinja2 templates for login, dashboard lists, configuration inputs, and profile views.
 - `browser_extension/`: Source directory containing manifest, options menu, and background worker for Chrome imports.

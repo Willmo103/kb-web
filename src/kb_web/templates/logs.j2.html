@@ -1,16 +1,16 @@
 {% extends "base.j2.html" %}
 
-{% block title %}Server Logs{% endblock %}
+{% block title %}Server Logs & Incidents{% endblock %}
 
 {% block content %}
 <div class="container mx-auto px-4 max-w-[95%] w-full pb-12">
     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div>
-            <h1 class="text-3xl font-extrabold text-gray-900">📄 Server Application Logs</h1>
-            <p class="text-sm text-gray-500 font-medium">Trace output of warning, error, scheduler events, and requests.</p>
+            <h1 class="text-3xl font-extrabold text-gray-900">📄 Server Logs & Incident Tracker</h1>
+            <p class="text-sm text-gray-500 font-medium">Trace output of system events, uncaught exceptions, and Maintenance Agent automated diagnostics.</p>
         </div>
         <div class="flex items-center gap-3 flex-wrap">
-            <div class="flex items-center gap-1.5 bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 shadow-sm text-xs">
+            <div id="logLimitSelector" class="flex items-center gap-1.5 bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 shadow-sm text-xs">
                 <label for="logLimit" class="font-bold text-gray-700">Lines:</label>
                 <select id="logLimit" class="bg-transparent font-semibold text-indigo-700 outline-none cursor-pointer" onchange="changeLimit(this.value)">
                     <option value="100" {% if limit == 100 %}selected{% endif %}>100</option>
@@ -24,21 +24,155 @@
             <a href="/admin/logs/download?limit={{ limit }}" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2 px-4 rounded-lg shadow-sm transition flex items-center gap-1">
                 📥 Download
             </a>
-            <button onclick="window.location.reload()" class="bg-gray-600 hover:bg-indigo-705 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-sm transition">
+            <button onclick="window.location.reload()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-4 rounded-lg shadow-sm transition flex items-center gap-1">
                 🔄 Refresh
             </button>
         </div>
     </div>
 
-    <div class="bg-gray-900 text-green-400 p-6 rounded-xl font-mono text-xs overflow-x-auto shadow-2xl border border-gray-800 leading-relaxed max-h-192 overflow-y-auto">
-        <pre class="whitespace-pre-wrap">{{ log_content }}</pre>
+    <!-- Navigation Tabs -->
+    <div class="flex items-center border-b border-gray-200 mb-6 gap-2">
+        <button id="tabBtnLogs" onclick="switchTab('logs')" class="px-5 py-2.5 text-sm font-bold border-b-2 border-indigo-600 text-indigo-600 transition flex items-center gap-2">
+            <span>📄</span> Application Logs
+        </button>
+        <button id="tabBtnIncidents" onclick="switchTab('incidents')" class="px-5 py-2.5 text-sm font-bold border-b-2 border-transparent text-gray-500 hover:text-gray-700 transition flex items-center gap-2">
+            <span>🚨</span> Server Incidents & Agent Diagnosis
+            <span class="px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-700 font-extrabold">{{ incidents | length if incidents else 0 }}</span>
+        </button>
+    </div>
+
+    <!-- Tab 1: Application Console Logs -->
+    <div id="tabContentLogs" class="block">
+        <div class="bg-gray-900 text-green-400 p-6 rounded-xl font-mono text-xs overflow-x-auto shadow-2xl border border-gray-800 leading-relaxed max-h-192 overflow-y-auto">
+            <pre class="whitespace-pre-wrap">{{ log_content }}</pre>
+        </div>
+    </div>
+
+    <!-- Tab 2: Server Incidents & Maintenance Agent Diagnosis -->
+    <div id="tabContentIncidents" class="hidden space-y-4">
+        {% if incidents and incidents | length > 0 %}
+            {% for inc in incidents %}
+            <div id="incident-card-{{ inc.id }}" class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm transition hover:shadow-md">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3 mb-4">
+                    <div class="flex items-center gap-3 flex-wrap">
+                        <span class="px-2.5 py-1 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-extrabold">
+                            Incident #{{ inc.id }}
+                        </span>
+                        <h3 class="text-base font-bold text-gray-900">{{ inc.error_type }}</h3>
+                        {% if inc.status == 'analyzed' %}
+                        <span class="px-2.5 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded-full text-xs font-semibold flex items-center gap-1">
+                            <span>🤖</span> Analyzed by Agent
+                        </span>
+                        {% else %}
+                        <span class="px-2.5 py-0.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-full text-xs font-semibold flex items-center gap-1">
+                            <span>⏳</span> Awaiting Analysis
+                        </span>
+                        {% endif %}
+                    </div>
+                    <div class="flex items-center gap-2 text-xs text-gray-500">
+                        <span>🕒 {{ inc.timestamp }}</span>
+                        <span>•</span>
+                        <span class="font-mono bg-gray-100 px-2 py-0.5 rounded">{{ inc.request_method }} {{ inc.request_url }}</span>
+                        {% if inc.client_ip %}
+                        <span>•</span>
+                        <span>IP: {{ inc.client_ip }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Error Message -->
+                <div class="mb-4">
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Error Message:</p>
+                    <div class="bg-red-50 border border-red-100 text-red-900 font-mono text-xs p-3 rounded-lg overflow-x-auto">
+                        {{ inc.error_message }}
+                    </div>
+                </div>
+
+                <!-- Stack Trace Accordion -->
+                <div class="mb-4">
+                    <details class="text-xs">
+                        <summary class="font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer select-none">
+                            ▶ View Full Stack Trace
+                        </summary>
+                        <div class="mt-2 bg-gray-900 text-gray-300 font-mono text-xs p-4 rounded-lg overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">
+                            {{ inc.stack_trace }}
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Maintenance Agent Feedback -->
+                <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-extrabold text-indigo-900 flex items-center gap-1.5 uppercase tracking-wide">
+                            <span>🤖</span> Maintenance Agent Diagnostic Feedback
+                        </h4>
+                        <button onclick="triggerAnalysis({{ inc.id }})" class="text-xs bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded font-bold transition flex items-center gap-1">
+                            <span>🔄</span> Re-analyze
+                        </button>
+                    </div>
+                    <div id="agent-feedback-{{ inc.id }}" class="text-xs text-indigo-950 font-medium whitespace-pre-wrap leading-relaxed">
+                        {% if inc.agent_feedback %}
+                            {{ inc.agent_feedback }}
+                        {% else %}
+                            <span class="text-indigo-400 italic">No agent diagnosis generated yet. Click "Re-analyze" to trigger the background Maintenance Agent.</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
+                <span class="text-4xl block mb-2">🎉</span>
+                <h3 class="text-lg font-bold text-gray-900 mb-1">No Uncaught Server Errors Recorded</h3>
+                <p class="text-xs text-gray-500">The server application is running cleanly with 0 active error incidents.</p>
+            </div>
+        {% endif %}
     </div>
 </div>
 
 <script>
+    function switchTab(tab) {
+        var btnLogs = document.getElementById('tabBtnLogs');
+        var btnInc = document.getElementById('tabBtnIncidents');
+        var contentLogs = document.getElementById('tabContentLogs');
+        var contentInc = document.getElementById('tabContentIncidents');
+        var limitSel = document.getElementById('logLimitSelector');
+
+        if (tab === 'logs') {
+            btnLogs.className = 'px-5 py-2.5 text-sm font-bold border-b-2 border-indigo-600 text-indigo-600 transition flex items-center gap-2';
+            btnInc.className = 'px-5 py-2.5 text-sm font-bold border-b-2 border-transparent text-gray-500 hover:text-gray-700 transition flex items-center gap-2';
+            contentLogs.classList.remove('hidden');
+            contentInc.classList.add('hidden');
+            if (limitSel) limitSel.style.display = 'flex';
+        } else {
+            btnInc.className = 'px-5 py-2.5 text-sm font-bold border-b-2 border-indigo-600 text-indigo-600 transition flex items-center gap-2';
+            btnLogs.className = 'px-5 py-2.5 text-sm font-bold border-b-2 border-transparent text-gray-500 hover:text-gray-700 transition flex items-center gap-2';
+            contentInc.classList.remove('hidden');
+            contentLogs.classList.add('hidden');
+            if (limitSel) limitSel.style.display = 'none';
+        }
+    }
+
     function changeLimit(val) {
         document.cookie = "log_limit=" + val + "; path=/; max-age=31536000";
         window.location.href = '/admin/logs?limit=' + val;
+    }
+
+    async function triggerAnalysis(errorId) {
+        var fbElem = document.getElementById('agent-feedback-' + errorId);
+        if (fbElem) fbElem.innerHTML = '<span class="text-indigo-600 font-bold italic">🤖 Maintenance Agent is analyzing code and error context...</span>';
+
+        try {
+            var res = await fetch('/api/errors/' + errorId + '/analyze', { method: 'POST' });
+            if (res.ok) {
+                var data = await res.json();
+                if (fbElem) fbElem.innerText = data.agent_feedback || 'Analysis completed.';
+            } else {
+                if (fbElem) fbElem.innerText = 'Analysis failed. Server returned error ' + res.status;
+            }
+        } catch (e) {
+            if (fbElem) fbElem.innerText = 'Error calling analysis endpoint: ' + e;
+        }
     }
 </script>
 {% endblock %}

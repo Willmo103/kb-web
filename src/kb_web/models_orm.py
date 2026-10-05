@@ -236,6 +236,22 @@ class OllamaLog(Base):
     status = Column(String)
 
 
+class ServerErrorLog(Base):
+    __tablename__ = "server_error_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(String, index=True)
+    error_type = Column(String, index=True)
+    error_message = Column(Text)
+    stack_trace = Column(Text)
+    request_method = Column(String)
+    request_url = Column(Text)
+    query_params = Column(Text)
+    client_ip = Column(String)
+    agent_feedback = Column(Text, nullable=True)
+    status = Column(String, default="open", index=True)
+
+
 class SettingOllama(Base):
     __tablename__ = "settings_ollama"
 
@@ -592,8 +608,12 @@ def ensure_views_and_indexes(engine):
                     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_source_id ON collection_items (source_id);"))
                     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_col_source ON collection_items (collection_id, source_id);"))
                     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_youtube_videos_creator ON youtube_videos (creator);"))
+                    conn.execute(text("ALTER TABLE taxonomy_items ADD COLUMN IF NOT EXISTS item_class VARCHAR(32) DEFAULT 'Notes';"))
+                    conn.execute(text("ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"))
+                    conn.execute(text("ALTER TABLE notes ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"))
+                    conn.execute(text("ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"))
                 except Exception as e:
-                    print(f"Warning creating PostgreSQL indexes: {e}")
+                    print(f"Warning creating PostgreSQL indexes or columns: {e}")
 
                 try:
                     conn.execute(text("""
@@ -700,4 +720,48 @@ def ensure_views_and_indexes(engine):
                     """))
                 except Exception:
                     pass
+
+            # Ensure server_error_logs table and indexes exist
+            try:
+                if dialect == "postgresql":
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS server_error_logs (
+                            id SERIAL PRIMARY KEY,
+                            timestamp VARCHAR,
+                            error_type VARCHAR,
+                            error_message TEXT,
+                            stack_trace TEXT,
+                            request_method VARCHAR,
+                            request_url TEXT,
+                            query_params TEXT,
+                            client_ip VARCHAR,
+                            agent_feedback TEXT,
+                            status VARCHAR DEFAULT 'open'
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_server_error_logs_timestamp ON server_error_logs (timestamp DESC);
+                        CREATE INDEX IF NOT EXISTS idx_server_error_logs_type ON server_error_logs (error_type);
+                        CREATE INDEX IF NOT EXISTS idx_server_error_logs_status ON server_error_logs (status);
+                    """))
+                else:
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS server_error_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            timestamp TEXT,
+                            error_type TEXT,
+                            error_message TEXT,
+                            stack_trace TEXT,
+                            request_method TEXT,
+                            request_url TEXT,
+                            query_params TEXT,
+                            client_ip TEXT,
+                            agent_feedback TEXT,
+                            status TEXT DEFAULT 'open'
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_server_error_logs_timestamp ON server_error_logs (timestamp DESC);
+                        CREATE INDEX IF NOT EXISTS idx_server_error_logs_type ON server_error_logs (error_type);
+                        CREATE INDEX IF NOT EXISTS idx_server_error_logs_status ON server_error_logs (status);
+                    """))
+            except Exception as e:
+                print(f"Warning creating server_error_logs table: {e}")
+
 

@@ -1,200 +1,163 @@
-# Implementation Plan: Admin Batch-Delete Utility, Content Freeze & Immutability, and CI Fix
+# Implementation Plan: Taxonomy Schema Fix, Error Logging, and Background Maintenance Agent Sidecar
 
-This implementation plan details the architectural design, database migrations, REST endpoints, UI enhancements, and test suite for the Admin Batch-Delete utility, Content Freeze & Immutability safeguards, CI submodule checkout resolution, taxonomy purge neutralization, and the new `live-server-test` skill.
-
----
-
-## 1. Problem Statement & Requirements
-
-1. **GitHub Actions CI Master Failure**:
-   - The push to `master` failed in CI (`test-and-release.yml`) because `actions/checkout@v4` ran without submodules, and `.gitmodules` pointed to `./kb-web-cli` rather than the public upstream repository `https://github.com/Willmo103/kb-web-cli.git`. As a result, tests importing `from kb_web_cli.main import app as cli_app` threw `ModuleNotFoundError`.
-   - **Resolution**: Update `.gitmodules`, configure `.github/workflows/test-and-release.yml` with `submodules: recursive`, and add graceful import guards in tests.
-
-2. **Content Freeze & Immutability (`is_frozen`)**:
-   - The user requires the ability to mark any item (article, Obsidian note, video) as **frozen and immutable**.
-   - When frozen, an item must reject:
-     - AI Wiki generation / re-generation (`/api/pages/{id}/generate-wiki` -> HTTP 400).
-     - Tag curation / editing (`/api/pages/{id}/tags`, `/api/notes/{id}/tags` -> HTTP 400).
-     - Title and content updates (`PUT /api/notes/{id}`, `/api/pages/{id}` -> HTTP 400).
-     - Source URL re-fetching (`/api/pages/{id}/refetch` -> HTTP 400).
-   - UI must display a prominent `❄️ Frozen` badge and a secure Freeze/Unfreeze toggle button, with edit actions disabled when frozen.
-
-3. **Admin Batch-Delete Utility**:
-   - Administrators need the ability to cleanly batch-delete:
-     - Whole collections/folders of Obsidian notes (by note IDs or slash-delimited folder prefix, e.g. `work/old-vault/`).
-     - Virtual sites and all their associated pages, embeddings, and links (`/api/sites/{domain}/all`).
-     - Videos and associated embeddings, optionally unlinking/deleting media files from disk.
-     - Articles / pages across collections.
-   - Must execute in single database transactions with foreign key cascades, orphan cleanup, and confirmation modals.
-
-4. **Taxonomy Purge Neutralization**:
-   - The one-time migration (`0a9b8c7d6e5f_one_time_taxonomy_purge.py`) previously added to clear categorizations from production ran during test server deployment, inadvertently wiping out taxonomy categories and items on the test server.
-   - **Resolution**: Neutralize `migrations/versions/0a9b8c7d6e5f_one_time_taxonomy_purge.py` `upgrade()` to a no-op (`pass`) and remove purge commands from `src/kb_web/scripts/deploy_migrations.py`.
-
-5. **`live-server-test` Skill**:
-   - User requirement: "Create a skill: Live server test - This uses curl to test out the running production server (its only online while the UAT testing is going) You can reach the test server at https://kb-test.willmo.dev. Don't do any admin stuff, but I want you to audit the site routes."
-   - Target server: `https://kb-test.willmo.dev`
-   - Must perform non-destructive, read-only route auditing using `curl` across public, authenticated, API, and static asset routes.
-   - Must avoid all admin operations, state-changing endpoints, or mutations.
+This implementation plan details the resolution of the `taxonomy_items.item_class` database error, the server-side persistent error logging system, and the background Maintenance Agent sidecar with source code search, artifact viewing, error search, and auto-prompting on uncaught server exceptions.
 
 ---
 
-## 2. Architecture & Data Flow
+## 1. Problem Statement & Root Cause
+
+1. **Undefined Column `taxonomy_items.item_class`**:
+   - **Error**: `(psycopg2.errors.UndefinedColumn) column taxonomy_items.item_class does not exist` on `GET /taxonomy`.
+   - **Root Cause**: In `src/kb_web/models_orm.py` (`ensure_views_and_indexes`), the defensive check to add `item_class` was located exclusively under the `else:` branch (SQLite PRAGMA table_info) and was omitted from the PostgreSQL block. In environments where `taxonomy_items` was created prior to `f92d84291a25`, the column was never added.
+   - **User Directive**: "okay add the migration back in,. it broke the hell out of the app." The purge in `0a9b8c7d6e5f_one_time_taxonomy_purge.py` must be restored, and PostgreSQL column verification must be applied immediately on boot.
+
+2. **Server-Side Error Storage**:
+   - Errors sent to Gotify are transient notifications and are not stored in a structured, queryable database table on the server.
+   - **User Directive**: "i need these error messages (sent to gotify) to be stored on the server in a way that you can view them for debugging. this could be a CLI route idk".
+
+3. **Background Sidecar Maintenance Agent**:
+   - **User Directive**: "I need errors to trigger the agent to give imeadiate feedback before I even get to fixing it. e.g. I want to have an agent that is for maintaining the website. I want to give it a tool to search the source code. I want it to have a tool to view the artifacts. I wantto have it auto prompted with errors (limit it to 3000 characters and give it a tool to search the errors for terms) this should all be a side car thing that can run in the background."
+
+---
+
+## 2. Architectural Design
 
 ```mermaid
 graph TD
-    subgraph UI_Layer ["UI & Dashboard Layer"]
-        PageProfile["Article Profile (view_page.j2.html)"]
-        NoteEditor["Note Editor & Tree (notes_list.j2.html)"]
-        AdminDashboard["Admin Maintenance (admin.j2.html)"]
-        SiteView["Site Profile (view_site.j2.html)"]
+    subgraph Request_Pipeline ["FastAPI Request & Exception Pipeline"]
+        Request["Incoming HTTP Request"]
+        Endpoint["FastAPI Router Endpoint"]
+        Exception["Uncaught Server Exception (500)"]
+        Handler["gotify_error_logging_handler"]
     end
 
-    subgraph Freeze_Guard ["Immutability Guard Layer"]
-        CheckFreeze{"is_frozen == 1?"}
-        BlockMutation["Reject Mutation (HTTP 400 Frozen)"]
-        AllowMutation["Allow Update / Regeneration"]
+    subgraph Error_Persistence ["Persistent Storage Layer"]
+        DBTable["PostgreSQL / SQLite Table: server_error_logs"]
+        DiskLog["JSONL File: ~/.kb/logs/server_errors.jsonl"]
+        GotifyAlert["Gotify Push Notification"]
     end
 
-    subgraph Batch_Delete_Service ["Admin Batch-Delete Engine"]
-        BatchNotes["Batch Delete Notes (by IDs or folder prefix)"]
-        BatchSites["Batch Delete Site & Cascading Pages"]
-        BatchVideos["Batch Delete Videos & Media"]
-        BatchPages["Batch Delete Pages & Embeddings"]
+    subgraph Sidecar_Agent ["Background Maintenance Agent Sidecar"]
+        Queue["Background Task / Async Sidecar Worker"]
+        AutoPrompt["Auto-Prompt Truncator (<= 3000 chars)"]
+        AgentEngine["Ollama Maintenance Agent (Gemma / Qwen)"]
+        ToolCode["Tool: search_source_code"]
+        ToolArtifacts["Tool: view_artifacts"]
+        ToolErrors["Tool: search_errors"]
+        Diagnosis["Diagnostic Feedback & Fix Suggestions"]
     end
 
-    subgraph Storage ["Database & Storage"]
-        Postgres["PostgreSQL / SQLite Database"]
-        DiskMedia["~/.kb/media/videos"]
-        Qdrant["Vector Indexes"]
+    subgraph Interfaces ["Debug & Inspection Interfaces"]
+        CLI["kb-web-cli error list / view / search"]
+        AdminUI["Admin Dashboard & Logs Portal (/admin/logs)"]
+        RESTAPI["REST API (/api/errors)"]
     end
 
-    subgraph Live_Audit ["Live Server Route Audit Skill"]
-        CurlClient["curl CLI Engine"]
-        TestServer["https://kb-test.willmo.dev"]
-        RouteAudit["Read-Only Route Status & Header Audit"]
-    end
+    Request --> Endpoint
+    Endpoint -->|Exception| Exception
+    Exception --> Handler
+    Handler --> DBTable
+    Handler --> DiskLog
+    Handler --> GotifyAlert
+    Handler --> Queue
 
-    PageProfile -->|Generate Wiki / Edit Tags / Refetch| CheckFreeze
-    NoteEditor -->|Save Note / Update Tags| CheckFreeze
-    CheckFreeze -->|Yes| BlockMutation
-    CheckFreeze -->|No| AllowMutation
+    Queue --> AutoPrompt
+    AutoPrompt --> AgentEngine
+    AgentEngine <--> ToolCode
+    AgentEngine <--> ToolArtifacts
+    AgentEngine <--> ToolErrors
+    AgentEngine --> Diagnosis
+    Diagnosis --> DBTable
 
-    AdminDashboard -->|Batch Request| Batch_Delete_Service
-    SiteView -->|Delete Site + Pages| BatchSites
-    NoteEditor -->|Delete Folder / Checked Notes| BatchNotes
-
-    BatchNotes --> Postgres
-    BatchSites --> Postgres
-    BatchVideos --> Postgres
-    BatchVideos --> DiskMedia
-
-    CurlClient --> RouteAudit
-    RouteAudit -->|GET/HEAD (No Admin)| TestServer
+    DBTable --> CLI
+    DBTable --> AdminUI
+    DBTable --> RESTAPI
 ```
 
 ---
 
-## 3. Database Schema Changes & Migration
+## 3. Database Schema & Migration Changes
 
-### Schema Updates (`src/kb_web/models_orm.py`)
-- `FetchedPage`: Add `is_frozen = Column(Integer, default=0, index=True)`.
-- `Note`: Add `is_frozen = Column(Integer, default=0, index=True)`.
-- `YouTubeVideo`: Add `is_frozen = Column(Integer, default=0, index=True)`.
-- Update `ensure_views_and_indexes` to ensure SQLite also adds the column if missing on older test databases.
+### A. Schema Healing in `src/kb_web/models_orm.py`
+In `ensure_views_and_indexes()`, add automatic idempotent column creation for PostgreSQL:
+```sql
+ALTER TABLE taxonomy_items ADD COLUMN IF NOT EXISTS item_class VARCHAR(32) DEFAULT 'Notes';
+ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;
+ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;
+```
+This guarantees immediate healing upon every server startup (`sudo systemctl restart kb-web.service`).
 
-### Alembic Migration
-- Migration `1b2c3d4e5f6a_add_content_is_frozen_column.py`:
-  - `upgrade()`: Adds `is_frozen INTEGER DEFAULT 0` with indexes to `fetched_pages`, `notes`, and `youtube_videos`.
-  - `downgrade()`: Removes the columns.
-- Migration `0a9b8c7d6e5f_one_time_taxonomy_purge.py`:
-  - Neutralize `upgrade()` to `pass` so no automated taxonomy wipes occur during migrations.
+### B. Restore Migration `0a9b8c7d6e5f_one_time_taxonomy_purge.py`
+Restore table purge statements to clean corrupted classification records, and ensure `item_class` column exists.
 
----
+### C. Create `ServerErrorLog` ORM Model
+In `src/kb_web/models_orm.py`:
+- `id`: Integer primary key, autoincrement
+- `timestamp`: ISO-8601 string
+- `error_type`: String (e.g. `psycopg2.errors.UndefinedColumn`)
+- `error_message`: Text
+- `stack_trace`: Text
+- `request_method`: String (GET, POST, etc.)
+- `request_url`: Text
+- `query_params`: Text (JSON string)
+- `client_ip`: String
+- `agent_feedback`: Text (populated by Maintenance Agent)
+- `status`: String (`open`, `analyzed`, `resolved`)
 
-## 4. REST Endpoints & Immutability Enforcement
-
-### A. Freeze & Immutability Routes
-- `POST /api/pages/{url:path}/freeze`: Toggles `is_frozen` (0 &rarr; 1 or 1 &rarr; 0) for an article.
-- `POST /api/notes/{id}/freeze`: Toggles `is_frozen` for a note.
-- `POST /api/videos/{video_id}/freeze`: Toggles `is_frozen` for a video.
-- **Guard Validation**:
-  - `POST /api/pages/{url:path}/generate-wiki`: Check `page.is_frozen`. If 1, return `{"error": "Item is frozen and immutable", "frozen": True}`, HTTP 400.
-  - `POST /api/pages/{url:path}/tags`: Check `page.is_frozen`. If 1, reject with HTTP 400.
-  - `POST /api/pages/{url:path}/refetch`: Check `page.is_frozen`. If 1, reject with HTTP 400.
-  - `PUT /api/notes/{id}`: Check `note.is_frozen`. If 1, reject with HTTP 400.
-  - `POST /api/notes/{id}/tags`: Check `note.is_frozen`. If 1, reject with HTTP 400.
-
-### B. Batch-Delete Endpoints
-- `POST /api/admin/batch-delete`:
-  - Unified admin batch-deletion router.
-- `DELETE /api/notes/batch`: Batch deletes notes by array of IDs or by folder prefix (e.g. `work/archive/`). Deletes associated embeddings and collection mappings.
-- `DELETE /api/sites/{domain}/all`: Cascade deletes all pages for the virtual site, along with article embeddings, chunk embeddings, versions, and collection items.
-- `DELETE /api/videos/batch`: Deletes video records and embeddings, with option to delete local `.mp4`/`.webm` media files.
-- `DELETE /api/pages/batch`: Deletes list of URLs and their embeddings, snapshots, and collection items.
+### D. Alembic Migration `2c3d4e5f6a7b_add_server_error_logs_and_ensure_columns.py`
+Creates `server_error_logs` table with indexes on `timestamp`, `error_type`, and `status`.
 
 ---
 
-## 5. UI & UX Enhancements
+## 4. Maintenance Agent Engine & Tools (`src/kb_web/maintenance_agent.py`)
 
-1. **Article Profile (`view_page.j2.html`)**:
-   - Prominent badge: `❄️ Frozen` when `is_frozen == 1`.
-   - Freeze button: "❄️ Freeze Content" / "🔓 Unfreeze Content".
-   - Disabled states for "Regenerate Wiki", "Regenerate Tags", and "Re-fetch Page" when frozen.
-2. **Note Editor & List (`note_editor.j2.html` & `notes_list.j2.html`)**:
-   - Editor shows "❄️ Frozen Note" badge and read-only mode in Monaco Editor when frozen.
-   - Notes list includes multi-select checkboxes for batch deletion and a sticky "Batch Actions" toolbar.
-   - Folder tree context action: "🗑️" delete folder/vault with item count confirmation.
-3. **Site List & Profile (`sites_list.j2.html` & `view_site.j2.html`)**:
-   - "🗑️ Delete Site & All Pages" action button with confirmation modal.
-4. **Admin Dashboard (`admin.j2.html`)**:
-   - Administrative Batch Operations & Content Purge panel in Backups & Database tab.
+1. **Auto-Prompting**:
+   - Takes uncaught error details, formats a structured prompt, and enforces a strict **3000-character cap** as requested.
+   - Dispatches in background via FastAPI `BackgroundTasks` or sidecar thread so web requests respond immediately.
 
----
+2. **Agent Tools**:
+   - `search_source_code(query: str, path_filter: Optional[str] = None)`: Ripgrep/Python pattern search across `src/kb_web/`, `tests/`, `migrations/`.
+   - `view_artifacts(artifact_path: Optional[str] = None)`: Reads `.artifacts/` plans, feedback logs, and `uat/reports/`.
+   - `search_errors(query: str, limit: int = 5)`: Searches historical `server_error_logs` table.
 
-## 6. GitHub Actions CI & Test Import Fix
-
-1. **`.gitmodules`**:
-   - Update `url = https://github.com/Willmo103/kb-web-cli.git`.
-2. **`.github/workflows/test-and-release.yml`**:
-   - Add `submodules: recursive` to `actions/checkout@v4`.
-3. **`tests/test_cli_auth_and_workspaces.py` & `tests/test_rag_agent_and_reports.py`**:
-   - Wrap `from kb_web_cli.main import app as cli_app` in `try...except ImportError` so test collection never hard crashes even if the submodule directory is unpopulated.
+3. **Feedback Storage**:
+   - Saves generated diagnostic analysis and code fix recommendations directly into `server_error_logs.agent_feedback`.
 
 ---
 
-## 7. Taxonomy Purge Removal
+## 5. Inspection Endpoints & CLI Commands
 
-1. In `migrations/versions/0a9b8c7d6e5f_one_time_taxonomy_purge.py`:
-   - Replace table deletion statements in `upgrade()` with `pass`.
-2. In `src/kb_web/scripts/deploy_migrations.py`:
-   - Remove table deletion commands from `rollback_single()`.
+1. **REST API (`src/kb_web/routers/errors.py`)**:
+   - `GET /api/errors`: Returns recent errors with pagination.
+   - `GET /api/errors/{id}`: Returns error details and agent feedback.
+   - `GET /api/errors/search?q={term}`: Search errors by message or stack trace.
+   - `POST /api/errors/{id}/analyze`: Manually triggers maintenance agent re-analysis.
 
----
+2. **CLI Commands (`kb-web-cli`)**:
+   - `kb-web-cli error list`: Tabular list of recent server errors.
+   - `kb-web-cli error view <id>`: Displays full traceback and agent diagnosis.
+   - `kb-web-cli error search <term>`: Searches historical server errors.
+   - `kb-web-cli maintenance-daemon`: Runs standalone background sidecar worker loop.
 
-## 8. Live Server Test Skill (`live-server-test`)
-
-1. Skill directory: `.agents/skills/live-server-test/`
-   - `SKILL.md`: Metadata and workflow for running non-destructive live route audits against running instances (e.g., `https://kb-test.willmo.dev`).
-   - `scripts/audit_live_routes.py`: Python CLI tool executing `curl` probes across:
-     - Public routes: `/api/health`, `/login`, `/manifest.json`, `/favicon.ico`
-     - Protected UI routes: `/`, `/pages`, `/sites`, `/notes`, `/collections`, `/conversations`, `/reports`, `/reports/rag`, `/taxonomy`, `/workspaces`
-     - Protected API routes: `/api/sites`, `/api/articles`, `/api/tags`, `/api/notes`
-     - Static assets: `/static/style.css`
-   - Guards: Explicitly excludes any admin routes (`/admin/*`) or HTTP mutating methods (`POST`, `PUT`, `DELETE`).
-2. Register skill in `GEMINI.md`.
+3. **Web UI Portal**:
+   - Enhanced `/admin/logs` with an **Incident Debugger & Agent Feedback** tab showing error records and AI recommendations.
 
 ---
 
-## 9. Verification & Testing Plan
+## 6. Verification & Testing Plan
 
-1. **Verify Taxonomy Neutralization**:
-   - Inspect `0a9b8c7d6e5f_one_time_taxonomy_purge.py` and `deploy_migrations.py`.
-   - Run tests to confirm taxonomy operations work as expected.
-2. **Execute Live Route Audit**:
-   - Run `audit_live_routes.py` against `https://kb-test.willmo.dev`.
-   - Output structured audit report with status codes, redirects, content types, and latency.
-3. **Regression Verification**:
-   - Run full pytest suite (`uv run pytest`) across all test modules.
-   - Run build verification (`uv run python build.py`).
-   - Run UI template check (`verify_ui_templates.py`).
+1. **Schema Healing & Migration Test**:
+   - Verify `ensure_views_and_indexes` executes without errors on PostgreSQL and SQLite.
+   - Verify `GET /taxonomy` succeeds and `item_class` column is queried.
+2. **Error Logging Unit Tests**:
+   - Trigger simulated exceptions (e.g. `GET /api/test-error`).
+   - Verify error is persisted to `server_error_logs` table and written to `~/.kb/logs/server_errors.jsonl`.
+3. **Maintenance Agent Tool Unit Tests**:
+   - Test `search_source_code` tool on known symbols (`def ensure_views_and_indexes`).
+   - Test `view_artifacts` tool on `.artifacts/`.
+   - Test `search_errors` tool on logged errors.
+   - Test 3000-character truncation safeguard.
+4. **CLI & Route Audit**:
+   - Test `kb-web-cli error list` and `kb-web-cli error search`.
+   - Run `live-server-test` route audit against `https://kb-test.willmo.dev`.

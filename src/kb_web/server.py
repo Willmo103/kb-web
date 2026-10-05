@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from .base import config, is_request_authenticated
-from .gotify import post_error_to_gotify
+from .gotify import post_error_to_gotify, record_server_error
 
 
 # Setup logging using system_logs database table
@@ -185,23 +185,32 @@ async def security_and_auth_middleware(request: Request, call_next):
     return response
 
 
-# Exception handler posting internal errors to Gotify
+# Exception handler posting internal errors to Gotify, storing in DB, and alerting maintenance agent
 @app.exception_handler(Exception)
 async def gotify_error_logging_handler(request: Request, exc: Exception):
     tb = traceback.format_exc()
     logger.error(f"Uncaught exception: {exc}\n{tb}")
 
+    error_id = None
     try:
-        post_error_to_gotify(config, exc, tb, request)
+        error_id = record_server_error(config, exc, tb, request)
     except Exception as e:
-        logger.error(f"Failed to post traceback to Gotify: {e}")
+        logger.error(f"Failed to record server error and dispatch alerts: {e}")
 
-    if "application/json" in request.headers.get("accept", ""):
+    if "application/json" in request.headers.get("accept", "") or request.url.path.startswith("/api/"):
         return JSONResponse(
-            status_code=500, content={"detail": "An internal server error occurred."}
+            status_code=500,
+            content={
+                "detail": "An internal server error occurred.",
+                "error_id": error_id,
+            },
         )
     return HTMLResponse(
-        content="<h1>Internal Server Error</h1><p>An unexpected error occurred. Logged to admin console.</p>",
+        content=(
+            f"<h1>Internal Server Error</h1>"
+            f"<p>An unexpected error occurred. Logged to server incident tracker"
+            f"{f' (Incident #{error_id})' if error_id else ''}.</p>"
+        ),
         status_code=500,
     )
 
@@ -293,6 +302,7 @@ from .routers import (  # noqa: E402
     taxonomy,
     agent_board,
     admin_batch,
+    errors,
 )
 
 app.include_router(auth.router)
@@ -314,6 +324,7 @@ app.include_router(workspaces.router)
 app.include_router(taxonomy.router)
 app.include_router(agent_board.router)
 app.include_router(admin_batch.router)
+app.include_router(errors.router)
 
 
 # --- Re-export utility functions for backward test compatibility ---
