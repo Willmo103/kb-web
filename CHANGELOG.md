@@ -5,6 +5,101 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-10-03
+### Added
+- **Hierarchical Notes Folder Tree (Resolves Nested Directory View)**:
+  - Added recursive directory parser `build_nested_folder_tree(notes)` in `src/kb_web/routers/notes.py` organizing slash-delimited note paths (`work/dev/notes.md`) into a structured tree of nested folders and leaf files.
+  - Enhanced `/api/notes/tree` to return `nested_tree` alongside `tree` for full backward compatibility.
+  - Updated `src/kb_web/templates/notes_list.j2.html` with recursive macro `render_folder_node` featuring collapsible `<details open>` chevrons, folder and document icons, note count badges, and indented multi-level nesting.
+- **Prior 6-Class Item Classification Decision Gate & State Policy Directives**:
+  - Added `classify_item_class()` in `src/kb_web/taxonomy_state_machine.py` executing a preliminary `tev1` (`ollama.systemone`) choice decision across 6 canonical classes: `Personal`, `Documentation`, `Notes`, `Articles`, `Source Code`, and `Unclassifiable`.
+  - Injected structured `policies: [...]` arrays into the decision model `state` dict enforcing classification guidelines (e.g., personal lifestyle and dating content as `Personal`, API documentation and technical references as `Documentation`, code snippets as `Source Code`).
+  - Added handling for `Unclassifiable` items: records an observation memory to the `#taxonomy` channel on the cross-agent message board and bypasses category domain assignment.
+  - Added `item_class` column to `TaxonomyItem` ORM model and persisted classification across all assigned taxonomy items.
+- **Preliminary "Fits at All" Decision Gate (`fits_any_category`)**:
+  - Integrated preliminary `noul` gate question `fits_any_category` with explicit policy directives into `evaluate_category_fit_tev1()` prior to evaluating specific candidate categories.
+  - Bypasses category fit evaluation immediately and prompts clean new domain synthesis whenever an item does not fit existing categories at all.
+- **Meaningful Domain Naming & Generic Label Rejection**:
+  - Implemented `_is_generic_domain_name()` and `_derive_meaningful_domain_name()` in `src/kb_web/taxonomy_state_machine.py` enforcing meaningful, semantic domain names (e.g. "Personal Lifestyle & Dating", "DevOps & Cloud Infrastructure") and strictly rejecting generic numbered placeholders (`Domain 10`, `Category 3`).
+- **Thematic Domain Containment During Category Partitioning**:
+  - Enforced parent-child containment during 10-item partitioning inner loops in `partition_category()`: all newly synthesized sub-categories are pinned directly under the parent domain (`parent_id = category.id`), keeping reclassifications strictly inside the original chosen domain.
+- **Alembic Database Migration & CLI Rollback Support**:
+  - Created migration `migrations/versions/f92d84291a25_add_taxonomy_classification.py` for `taxonomy_categories` and `taxonomy_items` (including `item_class` column and indexes).
+  - Added `rollback()` and `rollback_single()` helper functions in `src/kb_web/scripts/deploy_migrations.py`.
+  - Added `kb-web-cli db rollback` CLI command in `src/kb_web/cli.py` supporting downgrades to specific revisions or relative steps (`-1`).
+- **Notes Ingestion Pipeline (Titling, Tagging, Link Extraction, Skip Wiki)**:
+  - Added strict web URL extraction (`extract_valid_urls`) in `src/kb_web/utils.py` filtering for valid HTTP/HTTPS URLs while rejecting local relative paths, internal anchor fragments, non-web schemes (`file:`, `mailto:`, `javascript:`), and stripping trailing punctuation.
+  - Added automatic note titling (`generate_note_title`) synthesizing concise, accurate titles from markdown headings or content when notes are untitled or blank.
+  - Updated note background ingestion in `src/kb_web/routers/notes.py`: applies automatic titling, extracts web links (saved to `Note.links` as JSON array and mirrored to `FetchedPage.links`), and assigns tags, while explicitly **skipping AI wiki generation**.
+  - Linked note enrichment events directly to the cross-agent message board.
+- **Autonomous Category Taxonomy State Machine & Decision Integration**:
+  - Created autonomous, self-organizing category taxonomy engine in `src/kb_web/taxonomy_state_machine.py` completely independent of existing user collections.
+  - **Cold Start**: Initiates with 0 categories; the inaugural item prompts the LLM to invent the first category and its initial authoritative wiki documentation.
+  - **Top-Down Decision Gate**: Evaluates incoming items against existing categories using `tev1` (`ollama.systemone`) with a top-down choice question across leaf branches or `new_category`, followed by a `fit_confidence` noul verification check.
+  - **Living Category Wiki Docs**: Every category possesses a living `doc` wiki attribute updated and synthesized by an LLM upon each new item assignment.
+  - **10-Item Threshold & Inner Partitioning Loop**: When any category reaches 10 items, global item additions are paused (`is_partitioning_paused()`), and all 10 items are partitioned into 2 or more distinct child sub-categories. The parent category is transformed into a pure group container (`is_container=1`, direct `item_count=0`), and global additions unpause once the inner loop concludes.
+  - **Tree Representation**: Tree structure formatted hierarchically for classifier prompts (`format_category_tree_for_prompt`) and visualized in the interactive web ontology browser.
+  - **Autonomous Background Crawler**: Scheduled background indexing task (`crawl_and_classify_all`) that crawls unclassified articles, notes, videos, and studio workspaces sequentially through the decision state machine.
+  - **Taxonomy Web Studio & REST Endpoints**: Interactive tree browser, living wiki reader, and crawler controls at `/taxonomy` (`src/kb_web/templates/taxonomy.j2.html`) and `/api/taxonomy/*`.
+- **Centralized Agent Memory & Cross-Agent Message Board**:
+  - Created persistent shared memory engine in `src/kb_web/agent_memory.py` backed by `AgentMessage` ORM model.
+  - Channel-based coordination (`#taxonomy`, `#ingestion`, `#workspaces`, `#rag`) and structured memory types (`decision`, `observation`, `lifecycle`, `state_machine`, `artifact`).
+  - Added `tool_post_memory` in `src/kb_web/agent_tools.py` and wired automatic logging across all agent workflows (`workspace_agent.py`, `rag_agent.py`, `notes.py`, `taxonomy_state_machine.py`).
+  - Added dedicated Agent Message Board UI at `/agents/board` (`src/kb_web/templates/agent_board.j2.html`) with channel tabs, agent filters, live feed, and post modal.
+  - Added top-level navigation links (`🗂️ Taxonomy` and `🧠 Board`) in `src/kb_web/templates/base.j2.html`.
+- **CLI Subcommand Suites**:
+  - Added `kb-web-cli taxonomy crawl` (with `--limit`) and `kb-web-cli taxonomy tree`.
+  - Added `kb-web-cli board list` (with `--channel`, `--agent`, `--limit`).
+- **Authentication & Power Loss Resilience**:
+  - Implemented persistent disk caching (`~/.kb/configs/db_settings_cache.json`) for configuration settings in `src/kb_web/config.py`. Prevents delayed database recovery or power failures from reverting administrator credentials back to development defaults (`admin123`).
+  - Added connection health resilience in `src/kb_web/base.py` (`get_engine`) with `pool_recycle=300`, `pool_pre_ping=True`, and 5-second connection timeout to avoid hanging connections.
+  - Added public `/api/health` endpoint returning system operational health without requiring session cookies.
+- **CLI Authentication Hardening & Remote Restart (Resolves CLI 401 Unauthorized)**:
+  - Updated `is_request_authenticated` and `verify_api_key` in `src/kb_web/base.py` to authenticate registered database CLI API keys (`CliApiKey` / `cli_api_keys`) as well as the master key. Resolves HTTP 401 Unauthorized errors on CLI ingestion.
+  - Added `POST /api/cli/system/restart` endpoint enabling authenticated remote server restart signals.
+  - Added `restart` command in `kb-web-cli/src/kb_web_cli/main.py` with automated health polling against `/api/health` to confirm server reboot.
+- **Workspace Versioning & Freeze-to-Article**:
+  - Created `WorkspaceSnapshot` ORM model in `src/kb_web/models_orm.py` and REST endpoints in `src/kb_web/routers/workspaces.py` for creating immutable tagged snapshots (`POST /api/workspaces/{id}/snapshots`), listing snapshots, and restoring workspace files (`POST /api/workspaces/{id}/snapshots/{snapshot_id}/restore`).
+  - Implemented `POST /api/workspaces/{id}/snapshots/{snapshot_id}/freeze-article` to compile snapshot file manifests and syntax-highlighted source code into permanent Knowledge Base articles (`FetchedPage`).
+  - Integrated version snapshots sidebar drawer, snapshot tagging, restore modal, and publish actions into the Monaco IDE in `src/kb_web/templates/workspace_ide.j2.html`.
+- **Coding Agent Tools & Native `ollama.systemone` Tev1 Decision Integration**:
+  - Upgraded project `ollama` dependency to `>=0.6.3` supporting native `ollama.systemone()`.
+  - Implemented `systemone` method on `LoggedOllamaClient` in `src/kb_web/base.py` with logging to database table `ollama_logs`.
+  - Created `src/kb_web/agent_tools.py` with structured tools: `tool_create_file` (with commentary annotations), `tool_read_file` (1-indexed line window slicing), and `tool_edit_file` (precise search-and-replace modification).
+  - Created `src/kb_web/workspace_agent.py` integrating `tev1:latest` structured decision gating for classifying intent (`choice`), target file selection, and reading need assessment (`noul`).
+  - Added CLI terminal agent harness in `kb-web-cli` (`kb-web-cli workspace agent <workspace_id>` and `kb-web-cli agent <workspace_id>`).
+- **Autonomous Agentic RAG Report Generator & Tev1 Decision Scoring (Resolves Feature Request)**:
+  - Eliminated the single-article chat drawer on `src/kb_web/templates/view_page.j2.html` and replaced legacy `/conversations` routes with HTTP 302 redirect to `/reports/rag`.
+  - Built multi-sub-agent retrieval engine in `src/kb_web/rag_agent.py`:
+    - `tag_search_subagent`: taxonomy and article/note tag matching.
+    - `vector_rag_subagent`: query embedding similarity search across `ChunkEmbedding` (supports PostgreSQL `pgvector` and SQLite cosine fallback).
+    - `text_search_subagent`: full-text lexical search across titles, markdown content, and note bodies.
+    - `aggregate_candidates`: provenance boosting and candidate deduplication.
+    - `tev1_scoring_subagent`: evaluates retrieved candidates against user query and research purpose using native `ollama.systemone` with up to 64 questions per turn across 6 technical dimensions (relevance, code actionability, technical depth, architectural authority, factual density, synthesis readiness).
+    - `compile_rag_report`: synthesizes top-scored candidates into a structured publication-grade Markdown research report.
+  - Added RAG report UI in `src/kb_web/templates/rag_report.j2.html` with query input, presets, live pipeline stepper, `tev1` decision matrix table, rendered report markdown viewer with Copy/Download/Save to Notes buttons, and recent reports drawer.
+  - Implemented REST endpoints in `src/kb_web/routers/rag_reports.py`: `GET /reports/rag`, `POST /api/reports/rag/generate`, `GET /api/reports/rag`, `GET /api/reports/rag/{id}`, `POST /api/reports/rag/{id}/save-to-notes`, and `DELETE /api/reports/rag/{id}`.
+  - Added CLI command in `kb-web-cli/src/kb_web_cli/main.py`: `kb-web-cli rag report "<query>"` with `--purpose`, `--output`, `--model`, and `--save-notes` flags.
+- **Workspace Agent Welcome Card Update (UAT Feedback Resolution)**:
+  - Updated the workspace IDE agent welcome card in `src/kb_web/templates/workspace_ide.j2.html` with `tev1 Gated` badge, active tool definitions (`create_file`, `read_file`, `edit_file`), and CLI command reference (`kb-web-cli workspace agent <ws_id>`).
+- **Site-Wide Muted Neon Dark Mode & Moon/Sun Circle Toggle (Resolves Feature Request)**:
+  - Designed and implemented a high-contrast muted neon retro dark theme in `src/kb_web/templates/base.j2.html`.
+  - Uses deep obsidian/slate backgrounds (`#090e17` / `#111827`), technological slate borders (`#1e293b`), high-contrast sharp typography (`#f8fafc` / `#cbd5e1`), and muted neon accents (electric cyan `#38bdf8`, neon violet `#c084fc`, emerald `#34d399`, amber `#fbbf24`, rose `#f87171`).
+  - Added an interactive circular Moon/Sun toggle button (`theme-circle-toggle`) with smooth 360-degree rotation micro-animation and stateful SVG icon swapping across both authenticated and guest navigation headers.
+- **Fully Configurable RAG Process & Gating Questions Persistence**:
+  - Implemented configurable RAG pipeline in `src/kb_web/rag_agent.py` supporting customizable search channels (toggles for tag search, vector cosine search, lexical text search), doc retrieval limits, candidate pool size, top sources to synthesize, minimum similarity threshold, and minimum decision score threshold.
+  - Added dynamic decision gating question management supporting up to 64 questions per turn via native `ollama.systemone` with dynamic batching.
+  - Implemented database persistence and retrieval for RAG configuration (`get_rag_pipeline_config`, `save_rag_pipeline_config`) using `SettingExternal(key="rag_pipeline_config")`.
+  - Added REST API endpoints in `src/kb_web/routers/rag_reports.py`: `GET /api/reports/rag/config`, `POST /api/reports/rag/config`, `POST /api/reports/rag/config/reset`.
+  - Added collapsible **Pipeline Configuration** panel in `src/kb_web/templates/rag_report.j2.html` allowing users to configure retrieval, customize gating questions, save to database, and reset to defaults directly from the RAG screen.
+- **Production UI Naming & Terminology Audit**:
+  - Audited site templates to remove internal developer shorthand, verbatim conversational terms, and library feature branding across buttons and links.
+  - Replaced "ERP Grid" with "Reporting".
+  - Replaced "tev1 Decision Gated" with "Decision Gated".
+  - Replaced "Engine Wiki Storage File" with "Article Profile".
+  - Replaced "Ollama Coding Agent" with "Coding Assistant".
+  - Codified permanent rule in `GEMINI.md`: Rule 6 (Production UI Naming & Terminology Standard).
+
 ## [0.5.2] - 2026-09-29
 ### Fixed
 - **Jinja2 Autoescape & XSS Hardening (Resolves #75)**:

@@ -21,16 +21,21 @@ from ..models_orm import Note, FetchedPage, ChunkEmbedding
 from ..models import NoteCreateRequest, NoteUpdateRequest, HTMLPage
 from ..utils import (
     _get_ollama_client,
-    extract_wiki_content,
     extract_tags_content,
+    extract_valid_urls,
+    generate_note_title,
     generate_gemma_embeddings_for_page,
 )
+from ..agent_memory import post_agent_memory
 
 router = APIRouter(tags=["Notes"])
 
 
 def _process_note_in_background(note_id: int):
-    """Generates wiki summary, tags, and embeddings for an ingested note."""
+    """Applies tagging, link extraction (filtered for actual URLs), titling, and embeddings for an ingested note.
+
+    Explicitly skips AI wiki generation. Posts activity to Agent Memory and triggers taxonomy classification.
+    """
     with db_session() as session:
         note = session.query(Note).filter_by(id=note_id).first()
         if not note:
@@ -40,18 +45,31 @@ def _process_note_in_background(note_id: int):
         content = note.content or ""
         note_url = note.url
 
-        # 1. Wiki summary & tags via Ollama
+        # 1. Automatic titling if title is blank or generic
+        current_title = (note.title or "").strip()
+        if not current_title or current_title.lower() in ("untitled", "untitled note"):
+            new_title = generate_note_title(content, config, client)
+            note.title = new_title
+
+        # 2. Tagging via Ollama
         try:
-            if not note.wiki_summary:
-                wiki_summary = extract_wiki_content(content, config, client)
-                note.wiki_summary = wiki_summary
-            if not note.tags:
+            if not note.tags or note.tags == "[]":
                 tags = extract_tags_content(content, config, client)
                 note.tags = json.dumps(tags)
         except Exception as e:
-            print(f"Failed to generate wiki/tags for note {note_id}: {e}")
+            print(f"Failed to generate tags for note {note_id}: {e}")
 
-        # 2. Mirror into FetchedPage so it is unified in main library & search
+        # 3. Link extraction strictly filtered for valid HTTP/HTTPS URLs
+        extracted_links: List[str] = []
+        try:
+            extracted_links = extract_valid_urls(content)
+            note.links = json.dumps(extracted_links)
+        except Exception as e:
+            print(f"Failed to extract URLs for note {note_id}: {e}")
+
+        # 4. Skip wiki generation: note.wiki_summary remains empty / ungenerated
+
+        # 5. Mirror into FetchedPage so it is unified in main library & search
         page = session.query(FetchedPage).filter_by(url=note.url).first()
         if not page:
             page = FetchedPage(
@@ -59,9 +77,9 @@ def _process_note_in_background(note_id: int):
                 title=f"📝 {note.title}",
                 html_content="",
                 md_content=note.content,
-                description=note.wiki_summary or note.content[:500],
+                description=note.content[:500] if note.content else "",
                 tags=note.tags or "[]",
-                links="[]",
+                links=note.links or "[]",
                 keywords="[]",
                 fetched_at=datetime.now().isoformat(),
             )
@@ -69,19 +87,112 @@ def _process_note_in_background(note_id: int):
         else:
             page.title = f"📝 {note.title}"
             page.md_content = note.content
-            page.description = note.wiki_summary or note.content[:500]
+            page.description = note.content[:500] if note.content else ""
             page.tags = note.tags or "[]"
+            page.links = note.links or "[]"
+
+        # 6. Post event to Agent Memory board
+        try:
+            post_agent_memory(
+                session=session,
+                agent_name="NotesIngestionAgent",
+                channel="ingestion",
+                topic="notes",
+                content=(
+                    f"Processed note '{note.title}' (ID: {note.id}): titling applied, "
+                    f"{len(extracted_links)} web URLs extracted, tags {note.tags}. "
+                    "Skipped wiki generation."
+                ),
+                memory_type="observation",
+                metadata={"note_id": note.id, "title": note.title, "url_count": len(extracted_links)},
+            )
+        except Exception as e:
+            print(f"Failed to post note ingestion memory: {e}")
 
         session.commit()
 
-    # 3. Generate chunk embeddings
+    # 7. Generate chunk embeddings
     try:
         generate_gemma_embeddings_for_page(None, note_url, config, client)
     except Exception as e:
         print(f"Failed to generate embeddings for note {note_id}: {e}")
 
+    # 8. Trigger taxonomy classification
+    try:
+        from ..taxonomy_state_machine import classify_single_item
+        classify_single_item("note", note_id)
+    except Exception as e:
+        print(f"Taxonomy auto-classification skipped/failed for note {note_id}: {e}")
 
-# --- API Endpoints ---
+
+# --- Helpers & API Endpoints ---
+
+def build_nested_folder_tree(notes: list, item_transform=None) -> Dict[str, Any]:
+    """Builds a recursive nested folder tree per vault for hierarchical directory navigation.
+
+    Structure per vault:
+    {
+        "name": vault_name,
+        "subfolders": {
+            folder_segment: {
+                "name": folder_segment,
+                "path": cumulative_path,
+                "subfolders": { ... },
+                "notes": [ item, ... ],
+                "total_count": int,
+            }
+        },
+        "notes": [ item, ... ],
+        "total_count": int,
+    }
+    """
+    def _create_folder_node(name: str, path: str):
+        return {
+            "name": name,
+            "path": path,
+            "subfolders": {},
+            "notes": [],
+            "total_count": 0,
+        }
+
+    tree: Dict[str, Any] = {}
+    for n in notes:
+        v = n.vault_name or "Personal"
+        if v not in tree:
+            tree[v] = _create_folder_node(v, "")
+
+        item = item_transform(n) if item_transform else n
+
+        raw_path = (n.folder_path or "").strip("/\\").replace("\\", "/")
+        if not raw_path or raw_path.lower() == "root":
+            tree[v]["notes"].append(item)
+            continue
+
+        parts = [p.strip() for p in raw_path.split("/") if p.strip()]
+        current_node = tree[v]
+        curr_path_accum = []
+        for part in parts:
+            curr_path_accum.append(part)
+            full_part_path = "/".join(curr_path_accum)
+            if part not in current_node["subfolders"]:
+                current_node["subfolders"][part] = _create_folder_node(part, full_part_path)
+            current_node = current_node["subfolders"][part]
+
+        current_node["notes"].append(item)
+
+    # Calculate total_count recursively
+    def _sum_counts(node: Dict[str, Any]) -> int:
+        count = len(node["notes"])
+        for sub in node["subfolders"].values():
+            count += _sum_counts(sub)
+        node["total_count"] = count
+        return count
+
+    for v_node in tree.values():
+        _sum_counts(v_node)
+
+    return tree
+
 
 @router.get("/api/notes")
 def list_notes_api(
@@ -98,8 +209,18 @@ def list_notes_api(
             query = query.filter(Note.title.ilike(term) | Note.content.ilike(term))
 
         notes = query.order_by(Note.folder_path.asc(), Note.title.asc()).all()
-        
-        # Build hierarchy tree
+
+        # Build recursive nested tree
+        nested_tree = build_nested_folder_tree(notes, item_transform=lambda n: {
+            "id": n.id,
+            "title": n.title,
+            "url": n.url,
+            "safe_url": quote_plus(n.url),
+            "syntax": n.syntax,
+            "updated_at": n.updated_at,
+        })
+
+        # Flat hierarchy tree for backwards compatibility
         tree = {}
         for n in notes:
             v = n.vault_name or "Personal"
@@ -120,6 +241,7 @@ def list_notes_api(
         return {
             "total": len(notes),
             "tree": tree,
+            "nested_tree": nested_tree,
             "notes": [
                 {
                     "id": n.id,
@@ -134,6 +256,7 @@ def list_notes_api(
                 for n in notes
             ],
         }
+
 
 
 @router.post("/api/notes/paste")
@@ -292,6 +415,17 @@ def get_note_detail(note_id: int) -> Dict[str, Any]:
         if not note:
             raise HTTPException(status_code=404, detail="Note not found")
 
+        parsed_links = []
+        try:
+            parsed_links = json.loads(note.links or "[]")
+        except Exception:
+            pass
+        parsed_tags = []
+        try:
+            parsed_tags = json.loads(note.tags or "[]")
+        except Exception:
+            pass
+
         return {
             "id": note.id,
             "title": note.title,
@@ -301,6 +435,8 @@ def get_note_detail(note_id: int) -> Dict[str, Any]:
             "folder_path": note.folder_path,
             "vault_name": note.vault_name,
             "wiki_summary": note.wiki_summary,
+            "links": parsed_links,
+            "tags": parsed_tags,
             "updated_at": note.updated_at,
         }
 
@@ -337,20 +473,12 @@ def view_notes_dashboard(request: Request):
 
     with db_session() as session:
         notes = session.query(Note).order_by(Note.updated_at.desc()).all()
-        tree = {}
-        for n in notes:
-            v = n.vault_name or "Personal"
-            if v not in tree:
-                tree[v] = {}
-            folder = n.folder_path or "Root"
-            if folder not in tree[v]:
-                tree[v][folder] = []
-            tree[v][folder].append(n)
+        nested_tree = build_nested_folder_tree(notes)
 
         template = _jinja_env.get_template("notes_list.j2.html")
         html_content = template.render(
             notes=notes,
-            tree=tree,
+            tree=nested_tree,
             total=len(notes),
             is_admin=is_admin,
         )

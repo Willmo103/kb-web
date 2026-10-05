@@ -114,6 +114,41 @@ class Config:
 
         return get_db(self)
 
+    @property
+    def _settings_cache_file(self) -> Path:
+        """Returns the path to the persistent settings cache file."""
+        self.configs_dir.mkdir(parents=True, exist_ok=True)
+        return self.configs_dir / "db_settings_cache.json"
+
+    def _read_cached_setting(self, table: str, key: str):
+        """Reads a setting from local disk cache if database is recovering or unreachable."""
+        try:
+            cache_file = self._settings_cache_file
+            if cache_file.exists():
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return data.get(f"{table}:{key}")
+        except Exception:
+            pass
+        return None
+
+    def _write_cached_setting(self, table: str, key: str, value) -> None:
+        """Persists a setting to local disk cache for instant recovery upon power loss or reboot."""
+        try:
+            cache_file = self._settings_cache_file
+            data = {}
+            if cache_file.exists():
+                try:
+                    with open(cache_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {}
+            data[f"{table}:{key}"] = str(value)
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+
     def _read_db_setting(self, table: str, key: str, default):
         if self.database_url and (
             "postgresql" in self.database_url or "postgres" in self.database_url
@@ -132,6 +167,7 @@ class Config:
 
                     if row and row.value is not None:
                         val = row.value
+                        self._write_cached_setting(table, key, val)
                         if isinstance(default, bool):
                             return val.lower() in ("true", "1")
                         if isinstance(default, int):
@@ -141,6 +177,16 @@ class Config:
                         return val
             except Exception as e:
                 print(f"Error reading DB setting from PostgreSQL: {e}")
+                # Fallback to local disk cache before reverting to default factory credentials
+                cached = self._read_cached_setting(table, key)
+                if cached is not None:
+                    if isinstance(default, bool):
+                        return cached.lower() in ("true", "1")
+                    if isinstance(default, int):
+                        return int(cached)
+                    if isinstance(default, float):
+                        return float(cached)
+                    return cached
             return default
 
         try:
@@ -151,6 +197,7 @@ class Config:
                 row = db[table].get(key)
                 if row and row.get("value") is not None:
                     val = row["value"]
+                    self._write_cached_setting(table, key, val)
                     if isinstance(default, bool):
                         return val.lower() in ("true", "1")
                     if isinstance(default, int):
@@ -159,10 +206,19 @@ class Config:
                         return float(val)
                     return val
         except Exception:
-            pass
+            cached = self._read_cached_setting(table, key)
+            if cached is not None:
+                if isinstance(default, bool):
+                    return cached.lower() in ("true", "1")
+                if isinstance(default, int):
+                    return int(cached)
+                if isinstance(default, float):
+                    return float(cached)
+                return cached
         return default
 
     def _write_db_setting(self, table: str, key: str, value) -> None:
+        self._write_cached_setting(table, key, value)
         if self.database_url and (
             "postgresql" in self.database_url or "postgres" in self.database_url
         ):

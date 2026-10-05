@@ -17,6 +17,18 @@ db_app = typer.Typer(
 )
 app.add_typer(db_app, name="db")
 
+taxonomy_app = typer.Typer(
+    help="Autonomous category taxonomy and ontology management.",
+    no_args_is_help=True,
+)
+app.add_typer(taxonomy_app, name="taxonomy")
+
+board_app = typer.Typer(
+    help="Cross-agent memory and message board command suite.",
+    no_args_is_help=True,
+)
+app.add_typer(board_app, name="board")
+
 
 @app.command()
 def serve(
@@ -121,6 +133,29 @@ def deploy_migrations(
     except Exception as e:
         typer.secho(f"\nMigration deployment failed: {e}", fg=typer.colors.RED)
         raise typer.Exit(code=1)
+
+
+@db_app.command("rollback")
+def rollback_migrations(
+    target: str = typer.Option(
+        "default", "--target", "-t", help="Target environment: 'dev', 'test', 'live', 'all', or 'default'."
+    ),
+    revision: str = typer.Option(
+        "e81c74291a23", "--revision", "-r", help="Target revision to downgrade to (defaults to e81c74291a23 to remove classification data)."
+    ),
+) -> None:
+    """Rolls back database migrations to a specified revision and purges recent feature test data."""
+    from .scripts.deploy_migrations import rollback
+
+    target_env = None if target == "default" else target
+    typer.echo(f"Rolling back migrations on target: '{target}' to revision: '{revision}'...")
+    try:
+        rollback(target=target_env, revision=revision)
+        typer.secho("\nDatabase rollback completed successfully!", fg=typer.colors.GREEN)
+    except Exception as e:
+        typer.secho(f"\nMigration rollback failed: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
 
 
 @db_app.command("snapshot")
@@ -284,6 +319,59 @@ def reindex_videos(
         f"\nIndexed {res['indexed_count']} local videos ({res['total_files']} files found).",
         fg=typer.colors.GREEN,
     )
+
+
+@taxonomy_app.command("crawl")
+def taxonomy_crawl(
+    limit: int = typer.Option(50, "--limit", "-l", help="Maximum unclassified items to crawl and categorize.")
+) -> None:
+    """Runs autonomous crawler to classify unclassified articles, notes, videos, and workspaces."""
+    from .base import db_session
+    from .taxonomy_state_machine import crawl_and_classify_all
+
+    typer.echo(f"Initiating autonomous taxonomy crawling (limit: {limit})...")
+    with db_session() as session:
+        res = crawl_and_classify_all(session=session, limit=limit)
+    typer.secho(
+        f"Crawl completed: {res['processed']} items classified. Remaining unclassified: {res['remaining']}.",
+        fg=typer.colors.GREEN,
+    )
+
+
+@taxonomy_app.command("tree")
+def taxonomy_tree() -> None:
+    """Prints the current hierarchical category ontology tree."""
+    from .base import db_session
+    from .models_orm import TaxonomyCategory
+    from .taxonomy_state_machine import format_category_tree_for_prompt
+
+    with db_session() as session:
+        cats = session.query(TaxonomyCategory).all()
+        tree_text = format_category_tree_for_prompt(cats)
+    typer.echo(tree_text)
+
+
+@board_app.command("list")
+def board_list(
+    channel: Optional[str] = typer.Option(None, "--channel", "-c", help="Filter by channel"),
+    agent: Optional[str] = typer.Option(None, "--agent", "-a", help="Filter by agent name"),
+    limit: int = typer.Option(20, "--limit", "-l", help="Number of messages to display"),
+) -> None:
+    """Displays recent cross-agent message board events."""
+    from .base import db_session
+    from .agent_memory import read_agent_memory
+
+    with db_session() as session:
+        msgs = read_agent_memory(session=session, channel=channel, agent_name=agent, limit=limit)
+    if not msgs:
+        typer.echo("No messages found on agent memory board.")
+        return
+    for m in reversed(msgs):
+        typer.secho(
+            f"[{m['created_at'][:19]}] #{m['channel']}/{m['topic']} ({m['memory_type']}) - {m['agent_name']}:",
+            fg=typer.colors.CYAN,
+        )
+        typer.echo(f"  {m['content']}")
 
 
 if __name__ == "__main__":

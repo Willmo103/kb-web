@@ -22,7 +22,9 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - **Semantic RAG Chunk Search**: High-dimensional chunk vector search across articles, notes, and videos directly from the homepage with jump-link document anchor highlights.
 - **Multi-Model Embeddings & Comparison**: Side-by-side vector model comparison explorer (`/similarity/compare`), background reindexing, and active model source toggling.
 - **Article Chat & Conversations Hub**: Sliding interactive Ollama chat drawer on articles and global dashboard (`/conversations`) preserving persistent discussion threads.
-- **Personal Knowledge Notes & Monaco Editor**: Note and code paste ingestion (`/notes`), directory tree grouping, integrated full-page Monaco Editor (`/notes/editor`), and Obsidian vault `.zip` mirroring.
+- **Personal Knowledge Notes & Monaco Editor**: Note and code paste ingestion (`/notes`), directory tree grouping, integrated full-page Monaco Editor (`/notes/editor`), and Obsidian vault `.zip` mirroring. Background ingestion applies titling, tagging, and filtered URL extraction while skipping AI wiki generation.
+- **Autonomous Category Taxonomy State Machine**: Self-organizing knowledge taxonomy (`/taxonomy`) powered by `tev1` decision gates and living category wiki docs. Features cold-start category creation, 10-item partitioning inner loops into sub-categories, container branches, and automated crawling (`crawl_and_classify_all`).
+- **Centralized Agent Memory & Message Board**: Cross-agent message board (`/agents/board`) coordinating lifecycle events, decision rationales, and pipeline observations across all autonomous workers.
 - **Admin Portal Tabbed Layout**: Ergonomic, 5-tab dashboard with persistent tab state across General, Prompts, Backups, Media, and Diagnostics.
 - **Custom Report Builder & ERP Data Grid**: Multi-table data grid (`/reports`) with dynamic joins, filtering, saved views, and high-volume streaming exports in `.csv`, `.json`, and native Excel `.xlsx`.
 - **In-Browser Replit-Lite Workspaces & Pyodide Python WASM**: Full browser-based coding studio (`/workspaces`) with persistent multi-file workspaces stored in the database, Monaco Editor, live Pyodide Python 3 WASM execution runtime, sandboxed HTML/JS preview with console log interceptor, ZIP archive bundling, and ephemeral Ollama coding agent with interactive diff review and merge.
@@ -32,10 +34,15 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 ## Codebase Structure
 
 - `src/kb_web/config.py`: Configuration class extending the base `kb_core` configuration to support LLM, API keys, and web UI variables.
-- `src/kb_web/models_orm.py`: SQLAlchemy ORM models, pgvector type decorator, and `vw_page_cards` view schema.
+- `src/kb_web/models_orm.py`: SQLAlchemy ORM models, pgvector type decorator, `TaxonomyCategory`, `TaxonomyItem`, `AgentMessage`, and `vw_page_cards` view schema.
 - `src/kb_web/models.py`: Pydantic validation schemas (`ParsedUrl` and `HTMLPage`) representing stored pages.
 - `src/kb_web/server.py`: FastAPI application routing, route guards, and background tasks.
+- `src/kb_web/taxonomy_state_machine.py`: Autonomous ontology classifier, `tev1` decision gate, 10-item partitioning loop, and crawler.
+- `src/kb_web/agent_memory.py`: Cross-agent memory engine, channel dispatcher, and metrics aggregator.
+- `src/kb_web/agent_tools.py`: Workspace agent primitives (`create_file`, `read_file`, `edit_file`, `post_memory`).
 - `src/kb_web/routers/rest_api.py`: Public JSON REST API endpoints (`/api/articles`, `/api/videos`, `/api/sites`, `/api/tags`).
+- `src/kb_web/routers/taxonomy.py`: Interactive taxonomy tree browser, category wiki inspector, and crawling endpoints.
+- `src/kb_web/routers/agent_board.py`: Agent memory board UI and REST endpoints.
 - `src/kb_web/routers/pages.py`: Web UI page controller with pagination and virtual site indexing.
 - `src/kb_web/routers/conversations.py`: Persistent article-level and global Ollama chat conversations.
 - `src/kb_web/routers/embeddings.py`: Multi-model embedding management, reindexing, and side-by-side comparison.
@@ -46,6 +53,19 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - `src/kb_web/templates/`: Jinja2 templates for login, dashboard lists, configuration inputs, and profile views.
 - `browser_extension/`: Source directory containing manifest, options menu, and background worker for Chrome imports.
 - `kb-web.service`: Systemd service template for Linux deployments.
+
+---
+
+## Git Branching & Release Lifecycle
+
+The repository uses a 3-tier branch architecture to guarantee stability and reliable releases:
+1. **`development`**: Primary trunk branch for active day-to-day feature work.
+   - All feature, bugfix, and sprint branches (`feature/...`, `fix/...`) branch off `development`.
+   - Work is submitted via draft PRs targeting `development`.
+2. **`production`**: Pre-release staging and verified production baseline.
+   - Merged from `development` once all automated test suites, UI component checks, and UAT pass cleanly.
+3. **`master`**: Long-term stable release line.
+   - Merged from `production` when major, tagged milestone releases are cut.
 
 ---
 
@@ -78,6 +98,19 @@ Every HTTP response automatically includes enterprise security headers:
 
 ### 5. Default Credential Alerts
 The application actively detects whether default development credentials (`admin123` or `kb-secret-key`) remain active, logging security warnings on server boot and rendering prominent dismissible alert banners in the Admin Portal.
+
+### 6. High-Contrast Muted Neon Dark Mode
+The web interface features an integrated site-wide theme engine with an interactive circular Moon/Sun toggle in the navigation bar. Supports:
+- **Aesthetic**: Deep slate/obsidian palette (`#090e17` / `#111827`) with crisp high-contrast typography and muted neon accents (electric cyan, neon violet, emerald, amber, rose).
+- **Persistence**: Persists preference across page visits via `localStorage` with zero-flash (`prefers-color-scheme`) theme loading.
+
+### 7. Autonomous Agentic RAG Reports & Configurable Pipeline
+Research queries trigger a multi-sub-agent retrieval pipeline (`/reports/rag` or `kb-web-cli rag report`):
+- **Retrieval Sub-Agents**: Parallel searches across taxonomy tags, vector chunk similarity (`pgvector` / SQLite fallback), and lexical full-text.
+- **Decision Gating Matrix**: Evaluates candidate quality and relevance using native `ollama.systemone` multi-question decision gating (up to 64 questions per turn).
+- **Customizable & Persistent Pipeline**: Fully configurable from the RAG screen (toggles for each search engine, doc retrieval limits, candidate pool size, top sources to synthesize, similarity thresholds, and custom gating questions) with persistence in the database.
+- **Synthesis & Export**: Top evidence sources are synthesized into a publication-grade research report with one-click export into Knowledge Base Notes.
+
 
 ---
 
@@ -126,6 +159,9 @@ uv run kb-web db migrate-sqlite --target test
 # Deploy Alembic migrations across targets ('dev', 'test', 'live', or 'all')
 uv run kb-web db deploy --target all
 
+# Rollback Alembic migrations across targets to a revision or relative step (default: -1)
+uv run kb-web db rollback --target dev --revision -1
+
 # Export point-in-time multi-table JSON database snapshot to ~/.kb/kb-web_backups/
 uv run kb-web db snapshot --target live
 
@@ -150,18 +186,26 @@ uv run kb-web db reindex-videos
 
 ---
 
-## CLI Client Station (kb-cli)
+## CLI Client Station (kb-cli / kb-web-cli)
 
-`kb-web` includes a standalone console tool `kb-cli` for managing the LIVE server remotely.
+`kb-web` includes a standalone console tool `kb-web-cli` for managing the server remotely:
 
-- **Installation**: `kb-cli install` (prompts for LIVE server URL and CLI API key generated from Admin Dashboard).
-- **View Server Logs**: `kb-cli logs --limit 100` (inspect server logs remotely; limit choice is saved locally).
-- **Ingest URL**: `kb-cli import <url>`
-- **Query RAG Agent**: `kb-cli query "<prompt>"`
-- **List Items**: `kb-cli list`
-- **Actions**: `kb-cli action <action> <url>`
-- **Collections**: `kb-cli collections --list`
-- **Tags**: `kb-cli tags --list`
+- **Installation**: `kb-web-cli install` (prompts for server URL and CLI API key generated from Admin Dashboard).
+- **Remote Server Restart**: `kb-web-cli restart` (sends authenticated remote restart trigger and polls `/api/health` until restored).
+- **View Server Logs**: `kb-web-cli logs --limit 100` (inspect server logs remotely; limit choice is saved locally).
+- **Ingest URL**: `kb-web-cli import <url>`
+- **Query RAG Agent**: `kb-web-cli query "<prompt>"`
+- **List Items**: `kb-web-cli list`
+- **Actions**: `kb-web-cli action <action> <url>`
+- **Collections**: `kb-web-cli collections --list`
+- **Tags**: `kb-web-cli tags --list`
+- **Workspace Snapshots & Agent Harness**:
+  - `kb-web-cli workspace snapshots <ws_id>`: List all tagged snapshots for a workspace.
+  - `kb-web-cli workspace snapshot <ws_id> --tag v1.0.0 --desc "Stable release"`: Create an immutable tagged snapshot.
+  - `kb-web-cli workspace freeze <ws_id> <snapshot_id>`: Freeze snapshot and publish directly as a Knowledge Base article (`workspace://`).
+  - `kb-web-cli workspace agent <ws_id>`: Launch interactive terminal coding agent paired with native `ollama.systemone` `tev1` decision routing and file tool execution.
+- **Autonomous Agentic RAG Reports**:
+  - `kb-web-cli rag report "<query>"`: Run multi-sub-agent retrieval (taxonomy tags, vector embeddings, full-text) with `tev1` decision matrix vetting (up to 64 questions per turn) and synthesize publication-grade research reports. Supports `--purpose`, `--output`, `--model`, and `--save-notes`.
 
 ---
 

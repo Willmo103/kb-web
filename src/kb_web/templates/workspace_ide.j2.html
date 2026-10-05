@@ -172,15 +172,15 @@
         <span class="hidden sm:inline">Export ZIP</span>
       </a>
 
-      <!-- Ollama Status Pill -->
+      <!-- AI Model Status Pill -->
       <button
         onclick="openSettingsModal()"
         id="ollamaStatusBadge"
         class="flex items-center gap-1.5 bg-[#21262d] hover:bg-[#30363d] text-slate-300 px-2.5 py-1.5 rounded border border-[#30363d] text-xs transition"
-        title="Click to configure Ollama"
+        title="Click to configure AI Assistant"
       >
         <span id="ollamaDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
-        <span id="ollamaModelName" class="font-mono text-[11px] hidden md:inline">Ollama: {{ ollama_model }}</span>
+        <span id="ollamaModelName" class="font-mono text-[11px] hidden md:inline">Model: {{ ollama_model }}</span>
       </button>
 
       <!-- Settings Gear -->
@@ -210,7 +210,7 @@
         onclick="toggleSideTab('ai')"
         id="actBtn-ai"
         class="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-[#21262d] relative"
-        title="Ollama AI Agent"
+        title="Coding Assistant"
       >
         <i data-lucide="bot" class="w-5 h-5"></i>
         <span id="aiActiveBadge" class="hidden absolute top-1 right-1 w-2 h-2 rounded-full bg-indigo-500"></span>
@@ -222,6 +222,14 @@
         title="Project Search"
       >
         <i data-lucide="search" class="w-5 h-5"></i>
+      </button>
+      <button
+        onclick="toggleSideTab('snapshots')"
+        id="actBtn-snapshots"
+        class="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-[#21262d]"
+        title="Version Snapshots & History"
+      >
+        <i data-lucide="git-branch" class="w-5 h-5"></i>
       </button>
 
       <div class="mt-auto flex flex-col gap-3 items-center">
@@ -261,7 +269,7 @@
         <div class="px-3 py-2 border-b border-[#30363d] flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider bg-[#12161c]">
           <div class="flex items-center gap-1.5 text-indigo-400">
             <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-            <span>Ollama Coding Agent</span>
+            <span>Coding Assistant</span>
           </div>
           <button onclick="clearChatHistory()" class="text-[10px] lowercase text-slate-500 hover:text-slate-300" title="Clear chat messages">
             clear
@@ -294,16 +302,47 @@
 
         <!-- Chat messages -->
         <div id="aiChatMessages" class="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
-          <div class="bg-[#21262d] p-3 rounded-lg border border-[#30363d]">
-            <div class="flex items-center gap-1.5 font-semibold text-indigo-400 mb-1">
-              <i data-lucide="bot" class="w-3.5 h-3.5"></i>
-              <span>Ollama Agent</span>
+          <div class="bg-[#21262d] p-3 rounded-lg border border-[#30363d] space-y-2.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-1.5 font-semibold text-indigo-400">
+                <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+                <span>Autonomous Workspace Agent</span>
+              </div>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700/60 flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                Decision Gated
+              </span>
             </div>
-            <p class="text-slate-300 leading-relaxed">
+            
+            <p class="text-slate-300 leading-relaxed text-xs">
               Hello! I am your local coding partner for <b>{{ workspace.name }}</b>. Ask me to create files, refactor features, write algorithms, or style your workspace.
             </p>
-            <div class="mt-2 pt-2 border-t border-[#30363d] text-[11px] text-slate-400">
-              Tip: I automatically detect <code class="bg-[#0d1117] px-1 py-0.5 rounded text-indigo-300">```file:path/to/file.ext</code> blocks with instant <b>Apply to Workspace</b> buttons that persist directly to the database!
+
+            <div class="pt-2 border-t border-[#30363d] space-y-1.5 text-[11px]">
+              <div class="font-semibold text-slate-400 uppercase tracking-wider text-[10px] flex items-center gap-1">
+                <i data-lucide="wrench" class="w-3 h-3 text-amber-400"></i> Active Agent Tools
+              </div>
+              <div class="grid grid-cols-1 gap-1 text-[11px] font-mono">
+                <div class="flex items-center justify-between bg-[#161b22] px-2 py-1 rounded border border-[#30363d]">
+                  <span class="text-emerald-400 font-bold">create_file</span>
+                  <span class="text-slate-400 text-[10px]">Create files & annotate</span>
+                </div>
+                <div class="flex items-center justify-between bg-[#161b22] px-2 py-1 rounded border border-[#30363d]">
+                  <span class="text-sky-400 font-bold">read_file</span>
+                  <span class="text-slate-400 text-[10px]">Inspect slice windows</span>
+                </div>
+                <div class="flex items-center justify-between bg-[#161b22] px-2 py-1 rounded border border-[#30363d]">
+                  <span class="text-amber-400 font-bold">edit_file</span>
+                  <span class="text-slate-400 text-[10px]">Target & replace diffs</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="pt-2 border-t border-[#30363d] text-[11px] text-slate-400">
+              <div class="flex items-center justify-between gap-1">
+                <span>CLI Terminal Pairing:</span>
+                <code class="bg-[#0d1117] px-1.5 py-0.5 rounded text-indigo-300 font-mono text-[10px]">kb-web-cli workspace agent {{ workspace.id }}</code>
+              </div>
             </div>
           </div>
         </div>
@@ -345,6 +384,27 @@
         />
         <div id="searchResults" class="mt-3 flex-1 overflow-y-auto space-y-1.5 text-xs text-slate-400">
           <p class="text-[11px] text-slate-500">Type to search inside all project files...</p>
+        </div>
+      </div>
+
+      <!-- Snapshots View -->
+      <div id="sideView-snapshots" class="flex-1 flex flex-col overflow-hidden hidden p-3">
+        <div class="flex items-center justify-between mb-3 border-b border-[#30363d] pb-2">
+          <div class="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+            <i data-lucide="git-branch" class="w-3.5 h-3.5 text-indigo-400"></i>
+            <span>Snapshots</span>
+          </div>
+          <button
+            onclick="promptCreateSnapshot()"
+            class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[11px] font-medium flex items-center gap-1 transition"
+            title="Create Tagged Snapshot"
+          >
+            <i data-lucide="plus" class="w-3 h-3"></i>
+            <span>Tag State</span>
+          </button>
+        </div>
+        <div id="snapshotsListRoot" class="flex-1 overflow-y-auto space-y-2 text-xs">
+          <p class="text-[11px] text-slate-500">Loading snapshots...</p>
         </div>
       </div>
     </div>
@@ -439,7 +499,7 @@
 
           <!-- AI Logs Output -->
           <div id="drawerPane-agentLog" class="w-full h-full p-2.5 overflow-y-auto font-mono text-[11px] leading-relaxed text-indigo-300 select-text hidden">
-            <div class="text-slate-500">// Ollama Agent stream traces and tool outputs will appear here.</div>
+            <div class="text-slate-500">// Agent stream traces and tool outputs will appear here.</div>
           </div>
         </div>
       </div>
@@ -478,7 +538,7 @@
       <div class="px-5 py-3.5 border-b border-[#30363d] flex items-center justify-between">
         <div class="flex items-center gap-2">
           <i data-lucide="cpu" class="w-4 h-4 text-indigo-400"></i>
-          <h3 class="text-sm font-semibold text-slate-100">AI Agent & Ollama Configuration</h3>
+          <h3 class="text-sm font-semibold text-slate-100">AI Assistant Configuration</h3>
         </div>
         <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
@@ -487,7 +547,7 @@
 
       <div class="p-5 space-y-4 text-xs">
         <div>
-          <label class="block font-medium text-slate-300 mb-1">Ollama API Endpoint:</label>
+          <label class="block font-medium text-slate-300 mb-1">LLM API Endpoint:</label>
           <input
             type="text"
             id="settingOllamaUrl"
@@ -1342,16 +1402,135 @@
     }
 
     function toggleSideTab(tabName) {
-      const views = ["files", "ai", "search"];
+      const views = ["files", "ai", "search", "snapshots"];
       views.forEach((v) => {
-        document.getElementById(`sideView-${v}`).classList.add("hidden");
+        const el = document.getElementById(`sideView-${v}`);
+        if (el) el.classList.add("hidden");
         const btn = document.getElementById(`actBtn-${v}`);
-        btn.className = "p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-[#21262d]";
+        if (btn) btn.className = "p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-[#21262d]";
       });
 
-      document.getElementById(`sideView-${tabName}`).classList.remove("hidden");
+      const activeView = document.getElementById(`sideView-${tabName}`);
+      if (activeView) activeView.classList.remove("hidden");
       const activeBtn = document.getElementById(`actBtn-${tabName}`);
-      activeBtn.className = "p-2 rounded-lg text-indigo-400 bg-[#21262d]";
+      if (activeBtn) activeBtn.className = "p-2 rounded-lg text-indigo-400 bg-[#21262d]";
+
+      if (tabName === "snapshots") {
+        loadSnapshotsList();
+      }
+    }
+
+    async function loadSnapshotsList() {
+      const root = document.getElementById("snapshotsListRoot");
+      if (!root) return;
+      root.innerHTML = '<p class="text-[11px] text-slate-500">Loading snapshots...</p>';
+
+      try {
+        const res = await fetch(`/api/workspaces/${WORKSPACE_ID}/snapshots`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const snapshots = await res.json();
+
+        if (snapshots.length === 0) {
+          root.innerHTML = `
+            <div class="text-center py-6 text-slate-500">
+              <i data-lucide="camera" class="w-8 h-8 mx-auto mb-2 text-slate-600"></i>
+              <p class="text-xs">No version snapshots yet.</p>
+              <button onclick="promptCreateSnapshot()" class="mt-2 text-xs text-indigo-400 hover:underline">
+                Tag first snapshot
+              </button>
+            </div>
+          `;
+          lucide.createIcons();
+          return;
+        }
+
+        root.innerHTML = "";
+        snapshots.forEach((s) => {
+          const card = document.createElement("div");
+          card.className = "p-2.5 rounded-lg bg-[#0d1117] border border-[#30363d] space-y-1.5 hover:border-slate-600 transition";
+          const d = new Date(s.created_at).toLocaleString();
+          card.innerHTML = `
+            <div class="flex items-center justify-between">
+              <span class="font-mono font-semibold text-indigo-300 text-xs">${s.version_tag}</span>
+              <span class="text-[10px] text-slate-500">${s.file_count} files</span>
+            </div>
+            ${s.description ? `<p class="text-[11px] text-slate-400 line-clamp-2">${s.description}</p>` : ''}
+            <div class="text-[10px] text-slate-500">${d}</div>
+            <div class="flex items-center justify-end gap-1.5 pt-1 border-t border-[#21262d]">
+              <button onclick="restoreSnapshot(${s.id}, '${s.version_tag}')" class="px-2 py-0.5 rounded bg-[#21262d] hover:bg-slate-700 text-slate-300 text-[10px] transition" title="Restore files to this state">
+                Restore
+              </button>
+              <button onclick="freezeSnapshotToArticle(${s.id})" class="px-2 py-0.5 rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-[10px] transition" title="Publish snapshot as KB article">
+                Publish Article
+              </button>
+            </div>
+          `;
+          root.appendChild(card);
+        });
+        lucide.createIcons();
+      } catch (err) {
+        root.innerHTML = `<p class="text-[11px] text-rose-400">Failed to load snapshots: ${err.message}</p>`;
+      }
+    }
+
+    async function promptCreateSnapshot() {
+      const tag = prompt("Enter version tag for this snapshot (e.g. v1.0.0 or rev-1):");
+      if (!tag || !tag.trim()) return;
+      const desc = prompt("Enter optional snapshot description:") || "";
+
+      try {
+        const res = await fetch(`/api/workspaces/${WORKSPACE_ID}/snapshots`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version_tag: tag.trim(), description: desc.trim() }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          logConsole(`Snapshot created: ${tag.trim()}`);
+          loadSnapshotsList();
+        } else {
+          alert(`Error creating snapshot: ${data.detail || JSON.stringify(data)}`);
+        }
+      } catch (e) {
+        alert(`Network error: ${e.message}`);
+      }
+    }
+
+    async function restoreSnapshot(snapshotId, versionTag) {
+      if (!confirm(`Are you sure you want to restore workspace files to snapshot '${versionTag}'? Current unsaved changes will be replaced.`)) {
+        return;
+      }
+      try {
+        const res = await fetch(`/api/workspaces/${WORKSPACE_ID}/snapshots/${snapshotId}/restore`, {
+          method: "POST",
+        });
+        const data = await res.json();
+        if (res.ok) {
+          logConsole(`Restored workspace to snapshot: ${versionTag}`);
+          location.reload();
+        } else {
+          alert(`Error restoring snapshot: ${data.detail || JSON.stringify(data)}`);
+        }
+      } catch (e) {
+        alert(`Network error: ${e.message}`);
+      }
+    }
+
+    async function freezeSnapshotToArticle(snapshotId) {
+      try {
+        const res = await fetch(`/api/workspaces/${WORKSPACE_ID}/snapshots/${snapshotId}/freeze-article`, {
+          method: "POST",
+        });
+        const data = await res.json();
+        if (res.ok) {
+          alert(`Success! Snapshot published to Knowledge Base.\nArticle: ${data.title}`);
+          logConsole(`Published snapshot article: ${data.article_url}`);
+        } else {
+          alert(`Error publishing snapshot: ${data.detail || JSON.stringify(data)}`);
+        }
+      } catch (e) {
+        alert(`Network error: ${e.message}`);
+      }
     }
 
     function switchBottomTab(tabName) {
@@ -1493,7 +1672,7 @@
       const selectHeader = document.getElementById("workspaceAgentModelSelect");
       if (selectHeader) selectHeader.value = ollamaConfig.model;
       const modelNameBadge = document.getElementById("ollamaModelName");
-      if (modelNameBadge) modelNameBadge.textContent = `Ollama: ${ollamaConfig.model}`;
+      if (modelNameBadge) modelNameBadge.textContent = `Model: ${ollamaConfig.model}`;
       localStorage.setItem(`ws_model_${WORKSPACE_ID}`, ollamaConfig.model);
       logConsole(`Active AI Model set to: ${ollamaConfig.model}`);
     }
