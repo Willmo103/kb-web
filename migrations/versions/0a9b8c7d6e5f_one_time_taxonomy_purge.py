@@ -19,14 +19,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    conn = op.get_bind()
-    # One-time rollback/purge to remove test classification records from production
-    try:
-        conn.execute(sa.text("DELETE FROM taxonomy_items;"))
-        conn.execute(sa.text("DELETE FROM taxonomy_categories;"))
-        conn.execute(sa.text("DELETE FROM agent_messages WHERE channel = 'taxonomy';"))
-    except Exception as e:
-        print(f"[WARN] Failed executing one-time taxonomy purge: {e}")
+    # Taxonomy purge neutralized to prevent wiping user taxonomy collections across environments.
+    pass
 
 
 def downgrade() -> None:

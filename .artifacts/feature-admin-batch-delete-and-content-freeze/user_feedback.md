@@ -1,8 +1,8 @@
 # User Feedback & Requirements Record
 
-- **Timestamp**: 2026-10-05T12:47:00-05:00
+- **Timestamp**: 2026-10-05T14:18:00-05:00
 - **Branch**: `feature/admin-batch-delete-and-content-freeze`
-- **Related Issues / PR**: Draft PR targeting `development`
+- **Related Issues / PR**: Draft PR #79 targeting `development`
 
 ---
 
@@ -39,3 +39,23 @@
        - Render "❄️ Frozen" badge and Freeze/Unfreeze toggle button on article view, note editor, and video profiles.
        - Disable edit buttons when content is frozen.
      - Alembic migration for the new `is_frozen` columns.
+
+---
+
+## 2. User Requests (Turn 9)
+
+1. **Remove Taxonomy Removal Migration**:
+   - Issue: The previously added one-time migration (`0a9b8c7d6e5f_one_time_taxonomy_purge.py`) ran automatically on test server startup via `deploy_migrations.py` during `alembic upgrade head`, causing all taxonomy categories, items, and agent taxonomy messages to be wiped out on the test server.
+   - User Request: "we need to remove the taxonomy removal.. I just wiped out my test server taxonomy."
+   - Resolution:
+     - Neutralize `migrations/versions/0a9b8c7d6e5f_one_time_taxonomy_purge.py` `upgrade()` so it performs `pass` and does not delete taxonomy rows.
+     - Remove leftover purge logic from `src/kb_web/scripts/deploy_migrations.py`.
+
+2. **Create New Skill: `live-server-test`**:
+   - User Request: "I want you to create a skill: Live server test - This uses curl to test out the running production server (its only online while the UAT testing is going) You can reach the test server at https://kb-test.willmo.dev. Don't do any admin stuff, but I want you to audit the site routes."
+   - Scope:
+     - Target host: `https://kb-test.willmo.dev`
+     - Uses `curl` to probe and audit all core site routes (GET/HEAD, status codes, redirects, content types, security headers).
+     - Strict guardrail: Read-only audit only; NO admin mutations (no POST/PUT/DELETE, no admin purge/freeze).
+     - Document in `.agents/skills/live-server-test/` and `GEMINI.md`.
+     - Execute the route audit immediately and report the detailed results.

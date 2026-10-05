@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed CI failures on `master` branch by updating submodule URL in `.gitmodules` from relative path `./kb-web-cli` to absolute repository URL `https://github.com/Willmo103/kb-web-cli.git`.
   - Configured `submodules: recursive` under `actions/checkout@v4` in `.github/workflows/test-and-release.yml`.
   - Added defensive `try...except ImportError` guards with `pytest.skip` across `tests/test_cli_auth_and_workspaces.py` and `tests/test_rag_agent_and_reports.py` to prevent CI failures in minimal environments lacking submodules.
+- **Taxonomy Purge Migration Neutralization**:
+  - Neutralized `upgrade()` in `migrations/versions/0a9b8c7d6e5f_one_time_taxonomy_purge.py` to a no-op (`pass`) to prevent accidental deletion of taxonomy categories, categorized items, and taxonomy agent messages during automated startup migrations.
+  - Removed redundant taxonomy deletion commands from `src/kb_web/scripts/deploy_migrations.py`.
+- **Live Server Test Skill (`live-server-test`)**:
+  - Added `.agents/skills/live-server-test/` skill with `audit_live_routes.py` CLI for read-only route auditing of live servers (e.g. `https://kb-test.willmo.dev`) using `curl`.
+  - Verifies HTTP status codes, redirect flows, content types, security headers, and latency across public, protected UI, and protected REST API endpoints without triggering admin actions.
 
 ## [0.5.3] - 2026-10-03
 ### Added
