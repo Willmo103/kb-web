@@ -53,12 +53,41 @@
                     {% endif %}
                 </div>
             </div>
-            <a href="/view/site?site={{ site.name | urlencode }}" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold py-2 px-3 border border-indigo-200 rounded transition text-center shadow-sm">
-                Open Site Profile
-            </a>
+            <div class="flex items-center gap-2">
+                <a href="/view/site?site={{ site.name | urlencode }}" class="flex-grow bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold py-2 px-3 border border-indigo-200 rounded transition text-center shadow-sm">
+                    Open Site Profile
+                </a>
+                {% if is_admin %}
+                <button onclick="confirmDeleteSite('{{ site.name }}')" class="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold py-2 px-3 rounded transition shadow-sm" title="Delete Site & All Pages">
+                    🗑️
+                </button>
+                {% endif %}
+            </div>
         </div>
         {% endfor %}
     </div>
     {% endif %}
 </div>
+
+<script>
+async function confirmDeleteSite(siteName) {
+    if (!confirm('Are you sure you want to permanently delete site "' + siteName + '" and all of its associated pages, embeddings, and versions? This cannot be undone.')) {
+        return;
+    }
+    try {
+        var res = await fetch('/api/sites/' + encodeURIComponent(siteName) + '/all', {
+            method: 'DELETE'
+        });
+        if (res.ok) {
+            alert('Site and all pages deleted successfully.');
+            window.location.reload();
+        } else {
+            var err = await res.json();
+            alert('Failed to delete site: ' + (err.detail || 'Server error'));
+        }
+    } catch (e) {
+        alert('Error: ' + e);
+    }
+}
+</script>
 {% endblock %}

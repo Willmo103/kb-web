@@ -232,17 +232,7 @@ def rollback_single(engine, alembic_cfg, revision: str = "e81c74291a23", target_
     with engine.begin() as connection:
         alembic_cfg.attributes["connection"] = connection
         command.downgrade(alembic_cfg, revision)
-
-    # Extra guarantee: purge any leftover test rows in taxonomy tables or messages
-    try:
-        with engine.begin() as conn:
-            conn.execute(text("DELETE FROM taxonomy_items;"))
-            conn.execute(text("DELETE FROM taxonomy_categories;"))
-            conn.execute(text("DELETE FROM agent_messages WHERE channel = 'taxonomy';"))
-    except Exception:
-        pass
-
-    print(f"[SUCCESS] Database downgraded to {revision} and classification data removed for {target_label}!")
+    print(f"[SUCCESS] Database downgraded to {revision} for {target_label}!")
 
 
 def rollback(target: Optional[str] = None, revision: str = "e81c74291a23"):

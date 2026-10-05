@@ -38,7 +38,7 @@ def _process_note_in_background(note_id: int):
     """
     with db_session() as session:
         note = session.query(Note).filter_by(id=note_id).first()
-        if not note:
+        if not note or getattr(note, "is_frozen", 0):
             return
 
         client = _get_ollama_client()
@@ -437,6 +437,7 @@ def get_note_detail(note_id: int) -> Dict[str, Any]:
             "wiki_summary": note.wiki_summary,
             "links": parsed_links,
             "tags": parsed_tags,
+            "is_frozen": getattr(note, "is_frozen", 0),
             "updated_at": note.updated_at,
         }
 
@@ -448,6 +449,8 @@ def update_note(note_id: int, payload: NoteUpdateRequest, background_tasks: Back
         note = session.query(Note).filter_by(id=note_id).first()
         if not note:
             raise HTTPException(status_code=404, detail="Note not found")
+        if getattr(note, "is_frozen", 0):
+            raise HTTPException(status_code=400, detail="Note is frozen and immutable.")
 
         if payload.title:
             note.title = payload.title
@@ -461,6 +464,23 @@ def update_note(note_id: int, payload: NoteUpdateRequest, background_tasks: Back
 
     background_tasks.add_task(_process_note_in_background, note_id)
     return {"status": "updated", "id": note_id}
+
+
+@router.post("/api/notes/{note_id}/freeze")
+def toggle_freeze_note(note_id: int) -> Dict[str, Any]:
+    """Toggles freeze/immutable state of a note."""
+    with db_session() as session:
+        note = session.query(Note).filter_by(id=note_id).first()
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        note.is_frozen = 0 if getattr(note, "is_frozen", 0) else 1
+        new_state = note.is_frozen
+        # Also sync mirrored page if present
+        page = session.query(FetchedPage).filter_by(url=note.url).first()
+        if page:
+            page.is_frozen = new_state
+        session.commit()
+    return {"status": "success", "note_id": note_id, "is_frozen": new_state}
 
 
 # --- UI Pages ---

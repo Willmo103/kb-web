@@ -67,8 +67,15 @@ window.closeVaultUploadModal = function() {
                         <span class="text-sm">📂</span>
                         <span class="truncate font-semibold text-xs text-gray-800 dark:text-gray-200">{{ folder.name }}</span>
                     </span>
-                    <span class="text-[10px] text-gray-400 dark:text-gray-400 font-mono px-1.5 py-0.2 bg-gray-50 dark:bg-slate-800 rounded border border-gray-200 dark:border-slate-700">
-                        {{ folder.total_count }}
+                    <span class="flex items-center gap-1.5 flex-shrink-0">
+                        <span class="text-[10px] text-gray-400 dark:text-gray-400 font-mono px-1.5 py-0.2 bg-gray-50 dark:bg-slate-800 rounded border border-gray-200 dark:border-slate-700">
+                            {{ folder.total_count }}
+                        </span>
+                        {% if is_admin %}
+                        <button type="button" onclick="event.preventDefault(); event.stopPropagation(); deleteNotesByFolder('{{ folder.path or folder.name }}')" class="text-gray-400 hover:text-red-600 p-0.5 rounded transition text-xs" title="Delete folder and contained notes">
+                            🗑️
+                        </button>
+                        {% endif %}
                     </span>
                 </summary>
                 <div class="pl-3.5 ml-2 border-l border-indigo-100 dark:border-slate-700 space-y-1 mt-1">
@@ -92,9 +99,16 @@ window.closeVaultUploadModal = function() {
                         <span class="flex items-center gap-1.5 truncate">
                             <span>💎</span> <span class="truncate">{{ vault }}</span>
                         </span>
-                        <span class="text-[10px] font-mono text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900 px-1.5 py-0.5 rounded-full">
-                            {{ v_node.total_count }} note{% if v_node.total_count != 1 %}s{% endif %}
-                        </span>
+                        <div class="flex items-center gap-1.5 flex-shrink-0">
+                            <span class="text-[10px] font-mono text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900 px-1.5 py-0.5 rounded-full">
+                                {{ v_node.total_count }} note{% if v_node.total_count != 1 %}s{% endif %}
+                            </span>
+                            {% if is_admin %}
+                            <button type="button" onclick="deleteNotesByVault('{{ vault }}')" class="text-gray-400 hover:text-red-600 p-0.5 rounded transition text-xs" title="Delete all notes in vault '{{ vault }}'">
+                                🗑️
+                            </button>
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="space-y-1">
                         {% for item in v_node.notes %}
@@ -115,9 +129,32 @@ window.closeVaultUploadModal = function() {
 
         <!-- Main Content: Recent Notes Cards -->
         <div class="lg:col-span-3">
-            <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 pb-2 border-b border-gray-100">
-                ⚡ Recently Edited Notes
-            </h2>
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-2 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                    <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                        ⚡ Recently Edited Notes
+                    </h2>
+                    <span id="selected-badge" class="hidden text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono font-bold px-2 py-0.5 rounded-full">
+                        <span id="selected-count">0</span> selected
+                    </span>
+                </div>
+                {% if is_admin and notes %}
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button type="button" onclick="toggleSelectAllNotes()" id="select-all-btn" class="text-xs font-semibold text-gray-600 hover:text-gray-900 border border-gray-300 bg-white hover:bg-gray-50 px-2.5 py-1 rounded-lg transition shadow-sm">
+                        Select All
+                    </button>
+                    <button type="button" onclick="batchFreezeNotes(1)" id="batch-freeze-btn" class="hidden text-xs font-bold text-blue-700 border border-blue-200 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition shadow-sm items-center gap-1">
+                        <span>❄️</span> Freeze
+                    </button>
+                    <button type="button" onclick="batchFreezeNotes(0)" id="batch-unfreeze-btn" class="hidden text-xs font-bold text-gray-700 border border-gray-200 bg-gray-50 hover:bg-gray-100 px-2.5 py-1 rounded-lg transition shadow-sm items-center gap-1">
+                        <span>🔓</span> Unfreeze
+                    </button>
+                    <button type="button" onclick="batchDeleteNotes()" id="batch-delete-btn" class="hidden text-xs font-bold text-red-700 border border-red-200 bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded-lg transition shadow-sm items-center gap-1">
+                        <span>🗑️</span> Delete Selected
+                    </button>
+                </div>
+                {% endif %}
+            </div>
             {% if not notes %}
             <div class="bg-white border border-gray-200 rounded-2xl p-12 text-center shadow-sm">
                 <p class="text-gray-500 text-sm mb-4">No notes recorded yet. Paste your first markdown document or upload an Obsidian vault.</p>
@@ -128,12 +165,22 @@ window.closeVaultUploadModal = function() {
             {% else %}
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 {% for n in notes %}
-                <div class="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm">
+                <div class="bg-white border border-gray-200 rounded-xl p-5 hover:border-indigo-400 hover:shadow-md transition duration-200 flex flex-col justify-between shadow-sm relative group">
                     <div>
                         <div class="flex items-center justify-between gap-2 mb-2">
-                            <span class="px-2 py-0.5 bg-gray-100 text-gray-700 text-[10px] font-mono rounded border border-gray-200">
-                                {{ n.syntax or 'markdown' }}
-                            </span>
+                            <div class="flex items-center gap-2">
+                                {% if is_admin %}
+                                <input type="checkbox" value="{{ n.id }}" class="note-checkbox h-4 w-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer" onchange="updateNoteSelectionState()" />
+                                {% endif %}
+                                <span class="px-2 py-0.5 bg-gray-100 text-gray-700 text-[10px] font-mono rounded border border-gray-200">
+                                    {{ n.syntax or 'markdown' }}
+                                </span>
+                                {% if n.is_frozen == 1 %}
+                                <span class="px-1.5 py-0.5 bg-blue-100 text-blue-800 text-[10px] font-bold rounded border border-blue-200" title="This note is frozen">
+                                    ❄️ Frozen
+                                </span>
+                                {% endif %}
+                            </div>
                             <span class="text-[10px] text-gray-400 font-mono">
                                 {{ (n.updated_at or '')[:10] }}
                             </span>
@@ -357,6 +404,138 @@ async function submitVaultZip(e) {
     } finally {
         btn.disabled = false;
         btn.textContent = "Upload & Unpack";
+    }
+}
+
+// Batch Actions & Selection Handlers
+function getSelectedNoteIds() {
+    var cbs = document.querySelectorAll('.note-checkbox:checked');
+    var ids = [];
+    cbs.forEach(function(cb) { ids.push(parseInt(cb.value)); });
+    return ids;
+}
+
+function updateNoteSelectionState() {
+    var ids = getSelectedNoteIds();
+    var count = ids.length;
+    var badge = document.getElementById('selected-badge');
+    var countSpan = document.getElementById('selected-count');
+    var delBtn = document.getElementById('batch-delete-btn');
+    var frzBtn = document.getElementById('batch-freeze-btn');
+    var unfrzBtn = document.getElementById('batch-unfreeze-btn');
+    var selectAllBtn = document.getElementById('select-all-btn');
+
+    if (countSpan) countSpan.textContent = count;
+    if (badge) {
+        if (count > 0) badge.classList.remove('hidden');
+        else badge.classList.add('hidden');
+    }
+    [delBtn, frzBtn, unfrzBtn].forEach(function(btn) {
+        if (!btn) return;
+        if (count > 0) btn.classList.remove('hidden');
+        else btn.classList.add('hidden');
+    });
+
+    var allCbs = document.querySelectorAll('.note-checkbox');
+    if (selectAllBtn && allCbs.length > 0) {
+        selectAllBtn.textContent = (count === allCbs.length) ? 'Deselect All' : 'Select All';
+    }
+}
+
+function toggleSelectAllNotes() {
+    var allCbs = document.querySelectorAll('.note-checkbox');
+    var ids = getSelectedNoteIds();
+    var shouldCheck = (ids.length !== allCbs.length);
+    allCbs.forEach(function(cb) { cb.checked = shouldCheck; });
+    updateNoteSelectionState();
+}
+
+async function batchDeleteNotes() {
+    var ids = getSelectedNoteIds();
+    if (!ids.length) return;
+    if (!confirm('Are you sure you want to permanently delete ' + ids.length + ' selected note(s)? This will cascade delete associated library pages and embeddings.')) {
+        return;
+    }
+    try {
+        var res = await fetch('/api/notes/batch', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ note_ids: ids })
+        });
+        if (res.ok) {
+            window.location.reload();
+        } else {
+            var err = await res.json();
+            alert('Batch delete failed: ' + (err.detail || 'Server error'));
+        }
+    } catch (e) {
+        alert('Error: ' + e);
+    }
+}
+
+async function batchFreezeNotes(freezeVal) {
+    var ids = getSelectedNoteIds();
+    if (!ids.length) return;
+    var actionName = freezeVal === 1 ? 'freeze' : 'unfreeze';
+    if (!confirm('Are you sure you want to ' + actionName + ' ' + ids.length + ' selected note(s)?')) {
+        return;
+    }
+    try {
+        var res = await fetch('/api/admin/batch-freeze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ entity_type: 'notes', ids: ids, freeze: freezeVal })
+        });
+        if (res.ok) {
+            window.location.reload();
+        } else {
+            var err = await res.json();
+            alert('Batch ' + actionName + ' failed: ' + (err.detail || 'Server error'));
+        }
+    } catch (e) {
+        alert('Error: ' + e);
+    }
+}
+
+async function deleteNotesByFolder(folderPath) {
+    if (!confirm('Are you sure you want to delete all notes in folder "' + folderPath + '"? This cannot be undone.')) {
+        return;
+    }
+    try {
+        var res = await fetch('/api/notes/batch', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folder_prefix: folderPath })
+        });
+        if (res.ok) {
+            window.location.reload();
+        } else {
+            var err = await res.json();
+            alert('Failed to delete folder notes: ' + (err.detail || 'Server error'));
+        }
+    } catch (e) {
+        alert('Error: ' + e);
+    }
+}
+
+async function deleteNotesByVault(vaultName) {
+    if (!confirm('Are you sure you want to delete all notes in vault "' + vaultName + '"? This will delete all notes inside it and cannot be undone.')) {
+        return;
+    }
+    try {
+        var res = await fetch('/api/notes/batch', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ vault_name: vaultName })
+        });
+        if (res.ok) {
+            window.location.reload();
+        } else {
+            var err = await res.json();
+            alert('Failed to delete vault notes: ' + (err.detail || 'Server error'));
+        }
+    } catch (e) {
+        alert('Error: ' + e);
     }
 }
 </script>

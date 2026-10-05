@@ -40,7 +40,10 @@ cli_src = Path(__file__).resolve().parent.parent / "kb-web-cli" / "src"
 if str(cli_src) not in sys.path:
     sys.path.insert(0, str(cli_src))
 
-from kb_web_cli.main import app as cli_app
+try:
+    from kb_web_cli.main import app as cli_app
+except ImportError:
+    cli_app = None
 
 runner = CliRunner()
 
@@ -358,6 +361,8 @@ def test_single_article_chat_eliminated_and_conversations_redirect(client, auth_
 
 def test_cli_rag_report_help():
     """Verifies CLI commands for rag report."""
+    if cli_app is None:
+        pytest.skip("kb_web_cli not installed or submodule not cloned")
     res_help = runner.invoke(cli_app, ["rag", "--help"])
     assert res_help.exit_code == 0
     assert "report" in res_help.stdout
