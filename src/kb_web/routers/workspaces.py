@@ -14,14 +14,16 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..base import db_session, config, _jinja_env, COOKIE_NAME, verify_session_token, verify_auth
-from ..models_orm import Workspace, WorkspaceFile, SettingOllama
+from ..models_orm import Workspace, WorkspaceFile, WorkspaceSnapshot, SettingOllama, FetchedPage
 from ..models import (
     WorkspaceCreateRequest,
     WorkspaceUpdateRequest,
     WorkspaceFileUpsertRequest,
     WorkspaceAgentChatRequest,
+    WorkspaceSnapshotCreateRequest,
 )
 from ..utils import _get_ollama_client, ensure_model_available
+from ..workspace_agent import execute_agent_step
 
 router = APIRouter(tags=["Workspaces"])
 
@@ -750,79 +752,301 @@ def export_workspace_zip_api(workspace_id: int):
         )
 
 
-@router.post("/api/workspaces/{workspace_id}/agent/chat")
-def workspace_agent_chat_api(workspace_id: int, payload: WorkspaceAgentChatRequest) -> Dict[str, Any]:
-    """
-    Ephemeral coding agent endpoint: takes a user prompt, supplies workspace file tree
-    and active file context, and calls Ollama to propose code diffs wrapped in ```file:path blocks.
-    """
-    user_prompt = payload.message.strip()
-    if not user_prompt:
-        raise HTTPException(status_code=400, detail="Prompt is required")
-
-    model_name = payload.model or getattr(config, "ollama_model", "gemma4:latest")
+@router.post("/api/workspaces/{workspace_id}/snapshots")
+def create_workspace_snapshot_api(
+    workspace_id: int, payload: WorkspaceSnapshotCreateRequest
+) -> Dict[str, Any]:
+    """Creates a tagged, immutable snapshot of the current workspace file tree."""
+    tag = payload.version_tag.strip()
+    if not tag:
+        raise HTTPException(status_code=400, detail="Version tag is required.")
 
     with db_session() as session:
         ws = session.query(Workspace).filter_by(id=workspace_id).first()
         if not ws:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
-        paths_list = [f.file_path for f in ws.files]
-        active_context = ""
-        if payload.active_file:
-            active_file_obj = next((f for f in ws.files if f.file_path == payload.active_file), None)
-            if active_file_obj:
-                active_context = f"\nCurrently open file ({payload.active_file}):\n```\n{active_file_obj.content}\n```"
-
-    system_prompt = (
-        f"You are an expert autonomous coding agent operating inside a browser-based IDE workspace.\n"
-        f"Workspace files: [{', '.join(paths_list)}].{active_context}\n\n"
-        f"When you want to create or edit files in the workspace, you MUST output the complete updated or new file wrapped in this exact syntax:\n"
-        f"```file:path/to/filename.ext\n<complete code of file here>\n```\n\n"
-        f"IMPORTANT: If you are answering a question, reviewing code, explaining concepts, or having a discussion without modifying any files, output standard conversational markdown or regular code blocks (e.g. ```python or ```javascript). Never use the ```file:path syntax unless proposing an actual file creation or edit.\n\n"
-        f"Give concise explanations and apply clean, robust, and modern programming patterns."
-    )
-
-    client = _get_ollama_client()
-    try:
-        ensure_model_available(client, model_name)
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-        try:
-            resp = client.chat(
-                model=model_name,
-                messages=messages,
-                options={"temperature": 0.3},
+        existing = (
+            session.query(WorkspaceSnapshot)
+            .filter_by(workspace_id=workspace_id, version_tag=tag)
+            .first()
+        )
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Snapshot with tag '{tag}' already exists.",
             )
-            if hasattr(resp, "message") and hasattr(resp.message, "content"):
-                reply_text = str(resp.message.content)
-            elif isinstance(resp, dict) and "message" in resp and "content" in resp["message"]:
-                reply_text = str(resp["message"]["content"])
-            else:
-                reply_text = str(resp)
-        except Exception:
-            resp = client.generate(
-                model=model_name,
-                prompt=f"{system_prompt}\n\nUser Request: {user_prompt}",
-                options={"temperature": 0.3},
-            )
-            if hasattr(resp, "response"):
-                reply_text = str(resp.response)
-            elif isinstance(resp, dict) and "response" in resp:
-                reply_text = str(resp["response"])
-            else:
-                reply_text = str(resp)
+
+        files_map = {
+            f.file_path: {
+                "content": f.content,
+                "language": f.language or _infer_language(f.file_path),
+            }
+            for f in ws.files
+        }
+
+        now_str = datetime.now().isoformat()
+        snapshot = WorkspaceSnapshot(
+            workspace_id=workspace_id,
+            version_tag=tag,
+            description=payload.description or "",
+            files_snapshot=json.dumps(files_map),
+            is_frozen=1,
+            created_at=now_str,
+        )
+        session.add(snapshot)
+        session.commit()
 
         return {
             "status": "success",
-            "reply": reply_text,
-            "model": model_name,
+            "snapshot_id": snapshot.id,
+            "version_tag": snapshot.version_tag,
+            "file_count": len(files_map),
+            "created_at": snapshot.created_at,
         }
-    except Exception as e:
+
+
+@router.get("/api/workspaces/{workspace_id}/snapshots")
+def list_workspace_snapshots_api(workspace_id: int) -> List[Dict[str, Any]]:
+    """Lists all tagged snapshots for a workspace."""
+    with db_session() as session:
+        ws = session.query(Workspace).filter_by(id=workspace_id).first()
+        if not ws:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        snapshots = (
+            session.query(WorkspaceSnapshot)
+            .filter_by(workspace_id=workspace_id)
+            .order_by(WorkspaceSnapshot.id.desc())
+            .all()
+        )
+        res = []
+        for s in snapshots:
+            try:
+                files_map = json.loads(s.files_snapshot or "{}")
+                count = len(files_map)
+            except Exception:
+                count = 0
+            res.append(
+                {
+                    "id": s.id,
+                    "version_tag": s.version_tag,
+                    "description": s.description,
+                    "file_count": count,
+                    "is_frozen": bool(s.is_frozen),
+                    "created_at": s.created_at,
+                }
+            )
+        return res
+
+
+@router.get("/api/workspaces/{workspace_id}/snapshots/{snapshot_id}")
+def get_workspace_snapshot_detail_api(
+    workspace_id: int, snapshot_id: int
+) -> Dict[str, Any]:
+    """Retrieves full details and file map for a specific workspace snapshot."""
+    with db_session() as session:
+        snapshot = (
+            session.query(WorkspaceSnapshot)
+            .filter_by(workspace_id=workspace_id, id=snapshot_id)
+            .first()
+        )
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+
         return {
-            "status": "error",
-            "reply": f"Note: Ollama server connection or execution failed ({str(e)}). Please verify your Ollama server is running and the model '{model_name}' is installed.",
-            "model": model_name,
+            "id": snapshot.id,
+            "workspace_id": snapshot.workspace_id,
+            "version_tag": snapshot.version_tag,
+            "description": snapshot.description,
+            "is_frozen": bool(snapshot.is_frozen),
+            "created_at": snapshot.created_at,
+            "files": json.loads(snapshot.files_snapshot or "{}"),
         }
+
+
+@router.post("/api/workspaces/{workspace_id}/snapshots/{snapshot_id}/restore")
+def restore_workspace_snapshot_api(
+    workspace_id: int, snapshot_id: int
+) -> Dict[str, Any]:
+    """Restores the workspace file tree from a frozen snapshot."""
+    with db_session() as session:
+        ws = session.query(Workspace).filter_by(id=workspace_id).first()
+        if not ws:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        snapshot = (
+            session.query(WorkspaceSnapshot)
+            .filter_by(workspace_id=workspace_id, id=snapshot_id)
+            .first()
+        )
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+
+        files_map = json.loads(snapshot.files_snapshot or "{}")
+        now_str = datetime.now().isoformat()
+
+        # Delete existing files
+        for f in list(ws.files):
+            session.delete(f)
+
+        # Restore files from snapshot
+        for path, info in files_map.items():
+            session.add(
+                WorkspaceFile(
+                    workspace_id=workspace_id,
+                    file_path=path,
+                    content=info.get("content", ""),
+                    language=info.get("language") or _infer_language(path),
+                    updated_at=now_str,
+                )
+            )
+
+        ws.updated_at = now_str
+        session.commit()
+
+        return {
+            "status": "restored",
+            "workspace_id": workspace_id,
+            "version_tag": snapshot.version_tag,
+            "restored_file_count": len(files_map),
+        }
+
+
+@router.post(
+    "/api/workspaces/{workspace_id}/snapshots/{snapshot_id}/freeze-article"
+)
+def freeze_snapshot_to_article_api(
+    workspace_id: int, snapshot_id: int
+) -> Dict[str, Any]:
+    """Freezes a workspace snapshot and publishes it as a knowledge base article (FetchedPage)."""
+    import markdown as md_lib
+
+    with db_session() as session:
+        ws = session.query(Workspace).filter_by(id=workspace_id).first()
+        if not ws:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        snapshot = (
+            session.query(WorkspaceSnapshot)
+            .filter_by(workspace_id=workspace_id, id=snapshot_id)
+            .first()
+        )
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+
+        files_map = json.loads(snapshot.files_snapshot or "{}")
+        file_paths = sorted(files_map.keys())
+
+        # Build clean Markdown document
+        doc_lines = [
+            f"# Workspace: {ws.name} ({snapshot.version_tag})",
+            "",
+            f"> **Description**: {snapshot.description or ws.description or 'Workspace snapshot code archive.'}",
+            f"> **Created At**: {snapshot.created_at} | **Total Files**: {len(file_paths)}",
+            "",
+            "## File Manifest",
+        ]
+        for p in file_paths:
+            doc_lines.append(f"- `{p}`")
+        doc_lines.append("")
+        doc_lines.append("## Source Code")
+
+        for p in file_paths:
+            finfo = files_map[p]
+            lang = finfo.get("language") or _infer_language(p)
+            code = finfo.get("content", "")
+            doc_lines.append(f"### `{p}`")
+            doc_lines.append(f"```{lang}\n{code}\n```")
+            doc_lines.append("")
+
+        full_md = "\n".join(doc_lines)
+        html_content = md_lib.markdown(
+            full_md, extensions=["fenced_code", "tables"]
+        )
+
+        article_url = f"workspace://{ws.id}/snapshot/{snapshot.version_tag}"
+        article_title = f"{ws.name} ({snapshot.version_tag})"
+
+        page = session.query(FetchedPage).filter_by(url=article_url).first()
+        now_str = datetime.now().isoformat()
+        if page:
+            page.title = article_title
+            page.description = snapshot.description or ws.description
+            page.md_content = full_md
+            page.html_content = html_content
+            page.fetched_at = now_str
+            page.exclude_from_general = 0
+            page.tags = (
+                f"workspace, {ws.name.lower()}, {snapshot.version_tag.lower()}"
+            )
+        else:
+            page = FetchedPage(
+                url=article_url,
+                title=article_title,
+                description=snapshot.description or ws.description,
+                html_content=html_content,
+                md_content=full_md,
+                fetched_at=now_str,
+                links="[]",
+                keywords="[]",
+                tags=f"workspace, {ws.name.lower()}, {snapshot.version_tag.lower()}",
+                exclude_from_general=0,
+            )
+            session.add(page)
+
+        session.commit()
+
+        return {
+            "status": "published",
+            "article_url": article_url,
+            "title": article_title,
+            "message": "Snapshot frozen and published as a Knowledge Base article.",
+        }
+
+
+@router.post("/api/workspaces/{workspace_id}/agent/chat")
+def workspace_agent_chat_api(
+    workspace_id: int, payload: WorkspaceAgentChatRequest
+) -> Dict[str, Any]:
+    """Autonomous coding agent endpoint: combines tev1 decision gating with tool execution
+
+    (create_file, read_file, edit_file) to safely inspect and modify workspace files.
+    """
+    user_prompt = payload.message.strip()
+    if not user_prompt:
+        raise HTTPException(status_code=400, detail="Prompt is required")
+
+    model_name = payload.model or getattr(config, "ollama_model", "gemma4:latest")
+    client = _get_ollama_client()
+
+    with db_session() as session:
+        ws = session.query(Workspace).filter_by(id=workspace_id).first()
+        if not ws:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
+        try:
+            res = execute_agent_step(
+                session=session,
+                client=client,
+                workspace_id=workspace_id,
+                user_prompt=user_prompt,
+                coding_model=model_name,
+                active_file=payload.active_file,
+                tev1_model="tev1",
+            )
+            return {
+                "status": "success",
+                "reply": res.get("reply", ""),
+                "decision": res.get("decision", {}),
+                "read_actions": res.get("read_actions", []),
+                "executed_tools": res.get("executed_tools", []),
+                "model": model_name,
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "reply": f"Note: Ollama server connection or execution failed ({str(e)}). Please verify your Ollama server is running and the model '{model_name}' is installed.",
+                "model": model_name,
+            }
+

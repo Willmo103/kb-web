@@ -4,10 +4,11 @@ Helper utilities for the Knowledge Base Web Importer application.
 
 import hashlib
 import json
+import logging
 import math
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -53,6 +54,91 @@ def extract_first_url(text: str) -> str:
         return "https://" + url
 
     return text
+
+
+def extract_valid_urls(text: str) -> List[str]:
+    """Extracts all valid HTTP/HTTPS URLs from raw text or markdown,
+
+    filtering out non-HTTP schemes, file paths, relative anchors, and invalid URLs.
+    Preserves order and deduplicates.
+    """
+    if not text:
+        return []
+
+    # Find raw http/https links or markdown link destinations
+    url_pattern = re.compile(
+        r"(https?://[^\s<>'\"`()\[\]{}]+(?:\([^\s<>'\"`()]+\)[^\s<>'\"`()\[\]{}]*)?)",
+        re.IGNORECASE,
+    )
+    candidates = url_pattern.findall(text)
+
+    valid_urls: List[str] = []
+    seen = set()
+
+    for raw in candidates:
+        cleaned = re.sub(r"[.,;:!?'\"\]\)>]+$", "", raw.strip())
+        if not cleaned:
+            continue
+        try:
+            parsed = urlparse(cleaned)
+            if parsed.scheme.lower() not in ("http", "https"):
+                continue
+            netloc = parsed.netloc.lower()
+            if not netloc:
+                continue
+            host = netloc.split(":")[0]
+            if host != "localhost" and "." not in host:
+                continue
+            if cleaned.endswith(")") and "(" not in cleaned:
+                cleaned = cleaned[:-1]
+
+            if cleaned not in seen:
+                seen.add(cleaned)
+                valid_urls.append(cleaned)
+        except Exception:
+            continue
+
+    return valid_urls
+
+
+def generate_note_title(content: str, config=None, client=None) -> str:
+    """Generates a concise, descriptive title (3 to 7 words) for a note based on its content."""
+    lines = [l.strip() for l in content.splitlines() if l.strip()]
+    if not lines:
+        return "Untitled Note"
+
+    first = lines[0]
+    if first.startswith("#"):
+        header_title = re.sub(r"^[#\s\-*]+", "", first).strip()
+        if header_title:
+            return header_title[:80]
+
+    # Try LLM title generation if client available
+    try:
+        if client and hasattr(client, "chat"):
+            cfg = config or default_config
+            model = getattr(cfg, "ollama_model", "gemma2")
+            prompt = (
+                "You are an expert knowledge organizer. Analyze the following note content and "
+                "generate a concise, descriptive title (3 to 7 words). Do not use quotation marks, "
+                "prefixes, or markdown headers. Return ONLY the title.\n\n"
+                f"Note content:\n{content[:1500]}"
+            )
+            resp = client.chat(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                options={"temperature": 0.2, "num_predict": 30},
+            )
+            raw_title = resp["message"]["content"].strip().strip('"\'')
+            clean_title = re.sub(r"^[#\s\-*]+", "", raw_title).strip()
+            if clean_title and len(clean_title) >= 3:
+                return clean_title[:80]
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"LLM note titling failed: {e}")
+
+    # Fallback to first line
+    fallback = re.sub(r"^[#\s\-*]+", "", first).strip()
+    return fallback[:80] if fallback else "Untitled Note"
 
 
 def get_url_basename(url: str) -> str:

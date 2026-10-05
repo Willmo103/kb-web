@@ -322,3 +322,8 @@ class WorkspaceAgentChatRequest(BaseModel):
     model: Optional[str] = None
 
 
+class WorkspaceSnapshotCreateRequest(BaseModel):
+    version_tag: str
+    description: Optional[str] = ""
+
+

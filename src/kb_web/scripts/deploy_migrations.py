@@ -226,6 +226,67 @@ def deploy(target: Optional[str] = None):
         deploy_single(engine, alembic_cfg, target_label="default")
 
 
+def rollback_single(engine, alembic_cfg, revision: str = "e81c74291a23", target_label: str = "current"):
+    from sqlalchemy import text
+    print(f"\n[INFO] Rolling back database schema for {target_label} to revision: {revision}...")
+    with engine.begin() as connection:
+        alembic_cfg.attributes["connection"] = connection
+        command.downgrade(alembic_cfg, revision)
+
+    # Extra guarantee: purge any leftover test rows in taxonomy tables or messages
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM taxonomy_items;"))
+            conn.execute(text("DELETE FROM taxonomy_categories;"))
+            conn.execute(text("DELETE FROM agent_messages WHERE channel = 'taxonomy';"))
+    except Exception:
+        pass
+
+    print(f"[SUCCESS] Database downgraded to {revision} and classification data removed for {target_label}!")
+
+
+def rollback(target: Optional[str] = None, revision: str = "e81c74291a23"):
+    from kb_web.config import Config
+    from sqlalchemy import create_engine
+    cfg = Config()
+
+    ini_path = Path(__file__).resolve().parent.parent / "alembic.ini"
+    if not ini_path.exists():
+        ini_path = Path(__file__).resolve().parent.parent.parent.parent / "alembic.ini"
+    if not ini_path.exists():
+        ini_path = Path.cwd() / "alembic.ini"
+
+    alembic_cfg = AlembicConfig(str(ini_path))
+
+    if target and target.lower().strip() == "all":
+        targets = ["dev", "test", "live"]
+        for t in targets:
+            url = cfg.get_database_url_for_target(t)
+            if url:
+                if url.startswith("postgres://"):
+                    url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+                elif url.startswith("postgresql://") and not url.startswith("postgresql+psycopg2://"):
+                    url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+                alembic_cfg.set_main_option("sqlalchemy.url", url)
+                eng = create_engine(url)
+                rollback_single(eng, alembic_cfg, revision=revision, target_label=t)
+        return
+
+    if target:
+        url = cfg.get_database_url_for_target(target)
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+        elif url.startswith("postgresql://") and not url.startswith("postgresql+psycopg2://"):
+            url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+        alembic_cfg.set_main_option("sqlalchemy.url", url)
+        engine = create_engine(url)
+        rollback_single(engine, alembic_cfg, revision=revision, target_label=target)
+    else:
+        engine = get_engine()
+        rollback_single(engine, alembic_cfg, revision=revision, target_label="default")
+
+
 if __name__ == "__main__":
     target_env = sys.argv[1] if len(sys.argv) > 1 else None
     deploy(target=target_env)
+

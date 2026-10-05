@@ -144,22 +144,30 @@ def get_engine():
                         )
 
                     _engine = create_engine(
-                        db_url, pool_size=10, max_overflow=20, pool_pre_ping=True
+                        db_url,
+                        pool_size=10,
+                        max_overflow=20,
+                        pool_pre_ping=True,
+                        pool_recycle=300,
+                        connect_args={"connect_timeout": 5},
                     )
 
                     # Ensure pgvector extension is created on startup
                     from sqlalchemy import text
 
-                    with _engine.connect() as conn:
-                        with conn.begin():
-                            try:
-                                conn.execute(
-                                    text("CREATE EXTENSION IF NOT EXISTS vector;")
-                                )
-                            except Exception as e:
-                                print(
-                                    f"Warning: Failed to create pgvector extension: {e}"
-                                )
+                    try:
+                        with _engine.connect() as conn:
+                            with conn.begin():
+                                try:
+                                    conn.execute(
+                                        text("CREATE EXTENSION IF NOT EXISTS vector;")
+                                    )
+                                except Exception as e:
+                                    print(
+                                        f"Warning: Failed to create pgvector extension: {e}"
+                                    )
+                    except Exception as e:
+                        print(f"Warning: Initial database connection during engine startup deferred: {e}")
                 else:
                     _engine = create_engine(
                         f"sqlite:///{config.db_path}",
@@ -381,6 +389,59 @@ class LoggedOllamaClient:
             )
             raise e
 
+    def systemone(self, *args, **kwargs):
+        """Native systemone decision routing method for tev1/nimble models."""
+        import traceback
+
+        prompt_type = "systemone"
+        model = kwargs.get("model", "tev1")
+        state = kwargs.get("state", "")
+        questions = kwargs.get("questions", {})
+        options = {
+            k: v
+            for k, v in kwargs.items()
+            if k not in ("model", "state", "questions")
+        }
+
+        start_time = time.time()
+        try:
+            resp = self._client.systemone(*args, **kwargs)
+            duration = time.time() - start_time
+            response_content = str(getattr(resp, "answers", resp))
+
+            self._log_call(
+                prompt_type=prompt_type,
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"State: {str(state)[:300]}... Questions: {list(questions.keys()) if isinstance(questions, dict) else str(questions)[:100]}",
+                    }
+                ],
+                options=options,
+                response=response_content,
+                duration=duration,
+                status="success",
+            )
+            return resp
+        except Exception as e:
+            duration = time.time() - start_time
+            self._log_call(
+                prompt_type=prompt_type,
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"State: {str(state)[:300]}... Questions: {list(questions.keys()) if isinstance(questions, dict) else str(questions)[:100]}",
+                    }
+                ],
+                options=options,
+                response=f"Error: {e}\n{traceback.format_exc()}",
+                duration=duration,
+                status="failed",
+            )
+            raise e
+
     def __getattr__(self, name):
         return getattr(self._client, name)
 
@@ -451,7 +512,7 @@ def verify_session_token(token: str) -> bool:
 
 
 def is_request_authenticated(request: Request) -> bool:
-    """Checks whether the request is authenticated via session cookie or authorized API key."""
+    """Checks whether the request is authenticated via session cookie, master API key, or registered CLI API key."""
     import hmac
 
     # 1. Check session cookie
@@ -470,8 +531,21 @@ def is_request_authenticated(request: Request) -> bool:
         elif auth_header:
             api_key_header = auth_header.strip()
 
-    if config.api_key and api_key_header and hmac.compare_digest(api_key_header, config.api_key):
+    if not api_key_header:
+        return False
+
+    if config.api_key and hmac.compare_digest(api_key_header, config.api_key):
         return True
+
+    # Check registered CLI API keys in database
+    try:
+        from .models_orm import CliApiKey
+        with db_session() as session:
+            key_exists = session.query(CliApiKey).filter_by(key=api_key_header).first() is not None
+            if key_exists:
+                return True
+    except Exception:
+        pass
 
     return False
 
@@ -484,8 +558,8 @@ def verify_auth(request: Request) -> None:
     raise HTTPException(status_code=303, headers={"Location": redirect_url})
 
 
-def verify_api_key(request: Request) -> None:
-    """Security guard verifying API Key header matching KB_API_KEY."""
+def verify_api_key(request: Request) -> str:
+    """Security guard verifying API Key header matching KB_API_KEY or registered CLI API key."""
     import hmac
 
     api_key_header = request.headers.get("X-API-Key")
@@ -498,7 +572,23 @@ def verify_api_key(request: Request) -> None:
         elif auth_header:
             api_key_header = auth_header.strip()
 
-    if not config.api_key or not api_key_header or not hmac.compare_digest(api_key_header, config.api_key):
+    if not api_key_header:
         raise HTTPException(
-            status_code=401, detail="Unauthorized: Invalid API key."
+            status_code=401, detail="Unauthorized: API key required."
         )
+
+    if config.api_key and hmac.compare_digest(api_key_header, config.api_key):
+        return api_key_header
+
+    try:
+        from .models_orm import CliApiKey
+        with db_session() as session:
+            key_exists = session.query(CliApiKey).filter_by(key=api_key_header).first() is not None
+            if key_exists:
+                return api_key_header
+    except Exception:
+        pass
+
+    raise HTTPException(
+        status_code=401, detail="Unauthorized: Invalid API key."
+    )

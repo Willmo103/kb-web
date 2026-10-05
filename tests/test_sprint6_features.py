@@ -228,10 +228,10 @@ def test_embedding_models_endpoints(client: TestClient, auth_cookie):
 
 def test_conversations_api_and_dashboard(client: TestClient, auth_cookie):
     """Verifies thread creation, message retrieval, and the /conversations dashboard."""
-    # 1. UI route
-    ui_resp = client.get("/conversations", cookies=auth_cookie)
+    # 1. UI route (redirects to /reports/rag)
+    ui_resp = client.get("/conversations", cookies=auth_cookie, follow_redirects=True)
     assert ui_resp.status_code == 200
-    assert "Ollama Chat Conversations" in ui_resp.text
+    assert "Agentic RAG Report Generator" in ui_resp.text
 
     # 2. By source URL
     by_source_resp = client.get("/api/conversations/by-source?url=https://example.com/sprint6-test-article")
@@ -425,13 +425,14 @@ def test_notes_monaco_editor_head_block(client: TestClient, auth_cookie):
 
 
 def test_article_chat_drawer_dom_controller(client: TestClient):
-    """Verifies that view_page HTML includes dynamic chat elements and openChatDrawer."""
+    """Verifies that view_page HTML has eliminated the legacy chat drawer and replaced it with RAG research button."""
     test_url = "https://example.com/sprint6-test-article"
     resp = client.get(f"/view/page?url={test_url}")
     assert resp.status_code == 200
-    assert "openChatDrawer()" in resp.text
-    assert "getChatElements" in resp.text
-    assert 'id="chat-drawer"' in resp.text
+    assert "openChatDrawer()" not in resp.text
+    assert 'id="chat-drawer"' not in resp.text
+    assert "RAG Research Report" in resp.text
+    assert "/reports/rag?q=" in resp.text
 
 
 def test_reports_group_by_query(client: TestClient):
