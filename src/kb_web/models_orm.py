@@ -91,6 +91,7 @@ class FetchedPage(Base):
     tags = Column(Text)  # JSON-encoded array of tags/labels
     collection_id = Column(Integer)
     exclude_from_general = Column(Integer, default=0)
+    is_frozen = Column(Integer, default=0, index=True)
 
 
 class PageVersion(Base):
@@ -145,6 +146,7 @@ class YouTubeVideo(Base):
     view_count = Column(Integer)
     thumbnail_url = Column(String)
     local_path = Column(String)
+    is_frozen = Column(Integer, default=0, index=True)
     updated_at = Column(String)
 
 
@@ -312,6 +314,7 @@ class Note(Base):
     tags = Column(Text)  # JSON-encoded array
     links = Column(Text, default="[]")  # JSON-encoded array of actual valid URLs
     wiki_summary = Column(Text)
+    is_frozen = Column(Integer, default=0, index=True)
     created_at = Column(String)
     updated_at = Column(String)
 
@@ -661,6 +664,10 @@ def ensure_views_and_indexes(engine):
                     cols = [row[1] for row in conn.execute(text("PRAGMA table_info(taxonomy_items);")).fetchall()]
                     if cols and "item_class" not in cols:
                         conn.execute(text("ALTER TABLE taxonomy_items ADD COLUMN item_class VARCHAR(32) DEFAULT 'Notes';"))
+                    for tbl in ["fetched_pages", "notes", "youtube_videos"]:
+                        tbl_cols = [row[1] for row in conn.execute(text(f"PRAGMA table_info({tbl});")).fetchall()]
+                        if tbl_cols and "is_frozen" not in tbl_cols:
+                            conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN is_frozen INTEGER DEFAULT 0;"))
                 except Exception:
                     pass
                 try:

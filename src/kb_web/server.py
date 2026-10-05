@@ -292,6 +292,7 @@ from .routers import (  # noqa: E402
     workspaces,
     taxonomy,
     agent_board,
+    admin_batch,
 )
 
 app.include_router(auth.router)
@@ -312,6 +313,7 @@ app.include_router(rag_reports.router)
 app.include_router(workspaces.router)
 app.include_router(taxonomy.router)
 app.include_router(agent_board.router)
+app.include_router(admin_batch.router)
 
 
 # --- Re-export utility functions for backward test compatibility ---

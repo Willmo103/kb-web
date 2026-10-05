@@ -111,6 +111,7 @@ class HTMLPage(BaseModel):
     collection_id: Optional[int] = None
     collection_title: Optional[str] = None
     exclude_from_general: Optional[int] = 0
+    is_frozen: Optional[int] = 0
 
     @field_validator("links", mode="before")
     @classmethod

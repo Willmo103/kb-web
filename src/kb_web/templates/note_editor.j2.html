@@ -20,14 +20,22 @@
                 ←
             </a>
             <div class="flex-grow min-w-0">
-                <input 
-                    type="text" 
-                    id="note-title-input" 
-                    value="{{ note.title if note else 'Untitled Note' }}" 
-                    class="font-extrabold text-lg text-gray-900 w-full border-b border-transparent hover:border-gray-300 focus:border-indigo-500 focus:outline-none px-1 py-0.5 transition"
-                    placeholder="Note Title..."
-                />
-                <div class="flex items-center gap-2 text-[11px] text-gray-400 font-mono px-1">
+                <div class="flex items-center gap-2">
+                    <input 
+                        type="text" 
+                        id="note-title-input" 
+                        value="{{ note.title if note else 'Untitled Note' }}" 
+                        {% if note and note.is_frozen == 1 %}disabled{% endif %}
+                        class="font-extrabold text-lg text-gray-900 w-full border-b border-transparent hover:border-gray-300 focus:border-indigo-500 focus:outline-none px-1 py-0.5 transition {% if note and note.is_frozen == 1 %}cursor-not-allowed bg-gray-50 text-gray-600{% endif %}"
+                        placeholder="Note Title..."
+                    />
+                    {% if note and note.is_frozen == 1 %}
+                    <span class="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs font-bold rounded border border-blue-200 whitespace-nowrap flex items-center gap-1 shadow-sm" title="This note is frozen and immutable">
+                        <span>❄️</span> Frozen
+                    </span>
+                    {% endif %}
+                </div>
+                <div class="flex items-center gap-2 text-[11px] text-gray-400 font-mono px-1 mt-0.5">
                     <span>💎 {{ note.vault_name if note else 'Personal' }}</span>
                     <span>/</span>
                     <span>{{ note.folder_path if note and note.folder_path else 'Root' }}</span>
@@ -41,9 +49,19 @@
 
         <!-- Controls -->
         <div class="flex items-center gap-3 flex-shrink-0">
+            {% if note %}
+            <button onclick="toggleNoteFreeze()" id="freeze-toggle-btn" class="px-3 py-1.5 {% if note.is_frozen == 1 %}bg-blue-600 hover:bg-blue-700 text-white{% else %}bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200{% endif %} text-xs font-bold rounded-lg transition shadow-sm flex items-center gap-1">
+                {% if note.is_frozen == 1 %}
+                <span>🔓</span> Unfreeze
+                {% else %}
+                <span>❄️</span> Freeze
+                {% endif %}
+            </button>
+            {% endif %}
+
             <div class="flex items-center gap-1.5">
                 <label for="syntax-select" class="text-xs text-gray-500 font-semibold">Language:</label>
-                <select id="syntax-select" onchange="changeLanguage()" class="text-xs border border-gray-300 rounded-lg px-2.5 py-1.5 bg-gray-50 font-mono focus:ring-1 focus:ring-indigo-500">
+                <select id="syntax-select" onchange="changeLanguage()" {% if note and note.is_frozen == 1 %}disabled{% endif %} class="text-xs border border-gray-300 rounded-lg px-2.5 py-1.5 bg-gray-50 font-mono focus:ring-1 focus:ring-indigo-500 {% if note and note.is_frozen == 1 %}cursor-not-allowed opacity-75{% endif %}">
                     <option value="markdown" {% if not note or note.syntax == 'markdown' %}selected{% endif %}>Markdown</option>
                     <option value="python" {% if note and note.syntax == 'python' %}selected{% endif %}>Python</option>
                     <option value="javascript" {% if note and note.syntax == 'javascript' %}selected{% endif %}>JavaScript</option>
@@ -60,11 +78,17 @@
                 Toggle Preview
             </button>
 
-            <span id="save-status" class="text-xs text-gray-400 font-mono">Saved</span>
+            <span id="save-status" class="text-xs text-gray-400 font-mono">{% if note and note.is_frozen == 1 %}Frozen (Read-Only){% else %}Saved{% endif %}</span>
 
+            {% if note and note.is_frozen == 1 %}
+            <button disabled id="save-btn" class="px-5 py-2 bg-gray-200 text-gray-400 font-bold text-xs rounded-lg cursor-not-allowed flex items-center gap-1.5" title="Note is frozen and immutable">
+                <span>🔒</span> Locked
+            </button>
+            {% else %}
             <button onclick="saveNote()" id="save-btn" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition shadow-sm flex items-center gap-1.5">
                 <span>💾</span> Save (Ctrl+S)
             </button>
+            {% endif %}
         </div>
     </div>
 
@@ -85,6 +109,7 @@
 <script>
 let editor = null;
 const noteId = {{ note.id if note else 'null' }};
+const isFrozen = {{ 1 if note and note.is_frozen == 1 else 0 }};
 const initialContent = {{ (note.content if note else '# New Note\n\nStart typing notes or paste code here...') | tojson }};
 const initialSyntax = {{ (note.syntax if note else 'markdown') | tojson }};
 
@@ -100,6 +125,7 @@ function initMonacoEditor() {
             value: initialContent,
             language: initialSyntax,
             theme: 'vs-dark',
+            readOnly: isFrozen === 1,
             automaticLayout: true,
             minimap: { enabled: true },
             fontSize: 13,
@@ -161,8 +187,26 @@ function togglePreviewPane() {
     if (editor) editor.layout();
 }
 
+async function toggleNoteFreeze() {
+    if (!noteId) return;
+    try {
+        const res = await fetch(`/api/notes/${noteId}/freeze`, { method: 'POST' });
+        if (res.ok) {
+            window.location.reload();
+        } else {
+            alert('Failed to update freeze status.');
+        }
+    } catch (e) {
+        alert('Error toggling freeze: ' + e);
+    }
+}
+
 async function saveNote() {
     if (!editor) return;
+    if (isFrozen) {
+        alert('This note is frozen and immutable to modifications.');
+        return;
+    }
     const saveStatus = document.getElementById('save-status');
     const saveBtn = document.getElementById('save-btn');
     saveStatus.textContent = 'Saving...';

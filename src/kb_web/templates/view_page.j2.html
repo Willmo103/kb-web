@@ -59,7 +59,14 @@
         <main class="flex-grow min-w-0">
             <!-- Header profile segment -->
             <div class="mb-6 border-b pb-4 border-gray-200">
-                <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Article Profile</span>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Article Profile</span>
+                    {% if page.is_frozen == 1 %}
+                    <span class="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs font-bold rounded border border-blue-200 flex items-center gap-1 shadow-sm" title="This content is frozen and immutable">
+                        <span>❄️</span> Frozen
+                    </span>
+                    {% endif %}
+                </div>
                 <h1 class="text-2xl font-extrabold text-gray-900 mt-0.5">{{ page.title or page.url }}</h1>
                 {% if page.title and page.title != page.url %}
                 <p class="text-xs text-gray-400 truncate mt-1">
@@ -186,9 +193,15 @@
                 </div>
                 {% if is_admin %}
                 <div>
+                    {% if page.is_frozen == 1 %}
+                    <button disabled class="text-xs font-bold text-gray-400 bg-gray-100 border border-gray-200 py-1.5 px-3 rounded cursor-not-allowed opacity-75" title="Content is frozen and immutable to tag modifications.">
+                        🔒 Tags Frozen
+                    </button>
+                    {% else %}
                     <button onclick="toggleEditTagsForm()" class="text-xs font-bold text-gray-600 hover:text-gray-900 border border-gray-200 bg-white py-1.5 px-3 rounded shadow-sm hover:shadow transition">
                         ✏️ Edit Tags
                     </button>
+                    {% endif %}
                 </div>
                 {% endif %}
             </div>
@@ -342,10 +355,30 @@
                     </a>
                     {% if page.url and page.url.startswith('note://') %}
                     <a href="/notes/edit?url={{ page.safe_url }}" class="w-full text-left text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold py-2 px-3 border border-emerald-200 rounded transition shadow-sm flex items-center gap-2">
-                        <span>✏️</span> Edit in Monaco Editor
+                        <span>✏️</span> {% if page.is_frozen == 1 %}View in Editor (Read-Only){% else %}Edit in Monaco Editor{% endif %}
                     </a>
                     {% endif %}
                     {% if is_admin %}
+                    <form action="/admin/freeze/page" method="post" class="m-0">
+                        <input type="hidden" name="url" value="{{ page.url }}" />
+                        <input type="hidden" name="freeze" value="{% if page.is_frozen == 1 %}0{% else %}1{% endif %}" />
+                        <button type="submit" class="w-full text-left text-xs {% if page.is_frozen == 1 %}bg-blue-600 hover:bg-blue-700 text-white{% else %}bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200{% endif %} font-bold py-2 px-3 rounded-lg transition shadow-sm flex items-center gap-2">
+                            {% if page.is_frozen == 1 %}
+                            <span>🔓</span> Unfreeze Content
+                            {% else %}
+                            <span>❄️</span> Freeze Content
+                            {% endif %}
+                        </button>
+                    </form>
+
+                    {% if page.is_frozen == 1 %}
+                    <button disabled class="w-full text-left text-xs bg-gray-100 text-gray-400 font-bold py-2 px-3 border border-gray-200 rounded cursor-not-allowed opacity-60 flex items-center gap-2" title="Content is frozen and immutable to modifications.">
+                        <span>🔒</span> Wiki Locked (Frozen)
+                    </button>
+                    <button disabled class="w-full text-left text-xs bg-gray-100 text-gray-400 font-bold py-2 px-3 border border-gray-200 rounded cursor-not-allowed opacity-60 flex items-center gap-2" title="Content is frozen and immutable to modifications.">
+                        <span>🔒</span> Tags Locked (Frozen)
+                    </button>
+                    {% else %}
                     <form action="/admin/regenerate/wiki?url={{ page.safe_url }}" method="post" class="m-0">
                         <button type="submit" class="w-full text-left text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm flex items-center gap-2">
                             <span>🔄</span> Regenerate Wiki
@@ -357,12 +390,19 @@
                             <span>🏷️</span> Regenerate Tags
                         </button>
                     </form>
+                    {% endif %}
                     {% if video_id %}
-                    <form action="/admin/regenerate/youtube-metadata?url={{ page.safe_url }}" method="post" class="m-0">
-                        <button type="submit" class="w-full text-left text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-2 px-3 border border-rose-200 rounded transition shadow-sm flex items-center gap-2">
-                            <span>📺</span> Regenerate Video Attrs
+                        {% if page.is_frozen == 1 %}
+                        <button disabled class="w-full text-left text-xs bg-gray-100 text-gray-400 font-bold py-2 px-3 border border-gray-200 rounded cursor-not-allowed opacity-60 flex items-center gap-2" title="Content is frozen and immutable to modifications.">
+                            <span>🔒</span> Video Attrs Locked (Frozen)
                         </button>
-                    </form>
+                        {% else %}
+                        <form action="/admin/regenerate/youtube-metadata?url={{ page.safe_url }}" method="post" class="m-0">
+                            <button type="submit" class="w-full text-left text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-2 px-3 border border-rose-200 rounded transition shadow-sm flex items-center gap-2">
+                                <span>📺</span> Regenerate Video Attrs
+                            </button>
+                        </form>
+                        {% endif %}
                         {% if not is_offline %}
                         <form id="download-video-form" onsubmit="submitVideoDownload(event)" class="m-0">
                             <input type="hidden" name="url" value="{{ page.url }}" />
@@ -372,11 +412,17 @@
                         </form>
                         {% endif %}
                     {% endif %}
+                    {% if page.is_frozen == 1 %}
+                    <button disabled class="w-full text-left text-xs bg-gray-100 text-gray-400 font-bold py-2 px-3 border border-gray-200 rounded cursor-not-allowed opacity-60 flex items-center gap-2" title="Content is frozen and immutable to modifications.">
+                        <span>🔒</span> Re-fetch Locked (Frozen)
+                    </button>
+                    {% else %}
                     <form action="/admin/refetch/page?url={{ page.safe_url }}" method="post" class="m-0">
                         <button type="submit" class="w-full text-left text-xs bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold py-2 px-3 border border-sky-200 rounded transition shadow-sm flex items-center gap-2">
                             <span>🔄</span> Re-fetch Page
                         </button>
                     </form>
+                    {% endif %}
                     <button type="button" onclick="openCrawlModal()" class="w-full text-left text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold py-2 px-3 border border-purple-200 rounded transition shadow-sm flex items-center gap-2">
                         <span>🕷️</span> Crawl From Here
                     </button>
