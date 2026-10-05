@@ -3,7 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Knowledge Base Engine{% endblock %}</title>
+    <title>{% block title %}Knowledge Base{% endblock %}</title>
+
+    <!-- Synchronous anti-flicker theme loader -->
+    <script>
+        (function() {
+            var saved = localStorage.getItem('kb_theme');
+            var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (saved === 'dark' || (!saved && prefersDark)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        })();
+    </script>
 
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -11,6 +24,7 @@
         body {
             font-family: 'Outfit', sans-serif;
             background-color: #F4EFEA;
+            transition: background-color 0.25s ease, color 0.25s ease;
         }
         .nav-link:hover {
             color: #cb4b16;
@@ -18,6 +32,344 @@
         }
         .nav-link {
             transition: all 0.2s ease;
+        }
+
+        /* ------------------------------------------------------------- */
+        /* HIGH-CONTRAST MUTED NEON RETRO DARK THEME SYSTEM              */
+        /* ------------------------------------------------------------- */
+        html.dark body {
+            background-color: #090e17 !important;
+            color: #e2e8f0 !important;
+        }
+
+        /* Base Containers, Nav Header, Cards & Sidebars */
+        html.dark .bg-white {
+            background-color: #111827 !important;
+            border-color: #1e293b !important;
+        }
+        html.dark .nav-header-bar {
+            background-color: #0f172a !important;
+            border-color: #1e293b !important;
+            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(56, 189, 248, 0.08) !important;
+        }
+        html.dark .bg-gray-50,
+        html.dark .bg-gray-100 {
+            background-color: #0b1120 !important;
+            border-color: #1e293b !important;
+        }
+        html.dark .bg-gray-200 {
+            background-color: #1f293d !important;
+        }
+
+        /* High-Contrast Sharp Text */
+        html.dark .text-gray-900,
+        html.dark .text-gray-850,
+        html.dark .text-gray-800 {
+            color: #f8fafc !important;
+        }
+        html.dark .text-gray-700,
+        html.dark .text-gray-750,
+        html.dark .text-gray-705 {
+            color: #cbd5e1 !important;
+        }
+        html.dark .text-gray-600,
+        html.dark .text-gray-550,
+        html.dark .text-gray-505,
+        html.dark .text-gray-500 {
+            color: #94a3b8 !important;
+        }
+        html.dark .text-gray-450,
+        html.dark .text-gray-400 {
+            color: #64748b !important;
+        }
+
+        /* Technological Muted Borders */
+        html.dark .border-gray-100,
+        html.dark .border-gray-200,
+        html.dark .border-gray-300 {
+            border-color: #1e293b !important;
+        }
+        html.dark .border-b,
+        html.dark .border-t,
+        html.dark .border-l,
+        html.dark .border-r {
+            border-color: #1e293b !important;
+        }
+
+        /* Muted Neon Cyan / Electric Accents */
+        html.dark .nav-link {
+            color: #94a3b8 !important;
+        }
+        html.dark .nav-link:hover {
+            color: #38bdf8 !important;
+            text-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+            transform: translateY(-1px);
+        }
+        html.dark .text-indigo-600,
+        html.dark .text-indigo-700 {
+            color: #38bdf8 !important;
+        }
+        html.dark .text-indigo-800,
+        html.dark .hover\:text-indigo-800:hover,
+        html.dark .hover\:text-indigo-600:hover {
+            color: #7dd3fc !important;
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+        }
+        html.dark .bg-indigo-50,
+        html.dark .bg-indigo-100 {
+            background-color: #0c2340 !important;
+            border-color: #1e3a5f !important;
+            color: #38bdf8 !important;
+        }
+        html.dark .border-indigo-100,
+        html.dark .border-indigo-200 {
+            border-color: #1e3a5f !important;
+        }
+        html.dark .border-indigo-600 {
+            border-color: #38bdf8 !important;
+        }
+        html.dark .bg-indigo-600 {
+            background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+            box-shadow: 0 0 14px rgba(56, 189, 248, 0.25) !important;
+            color: #ffffff !important;
+        }
+        html.dark .hover\:bg-indigo-700:hover {
+            background: linear-gradient(135deg, #0369a1 0%, #075985 100%) !important;
+            box-shadow: 0 0 18px rgba(56, 189, 248, 0.4) !important;
+        }
+
+        /* Muted Neon Violet (Obsidian, AI tags, Special Cards) */
+        html.dark .bg-purple-50,
+        html.dark .bg-purple-100 {
+            background-color: #1a122e !important;
+            border-color: #3b2366 !important;
+            color: #c084fc !important;
+        }
+        html.dark .text-purple-700,
+        html.dark .text-purple-800 {
+            color: #c084fc !important;
+        }
+        html.dark .border-purple-200 {
+            border-color: #3b2366 !important;
+        }
+
+        /* Muted Neon Emerald / Green (Success, Ingested, Verified) */
+        html.dark .bg-green-50,
+        html.dark .bg-green-100,
+        html.dark .bg-emerald-50,
+        html.dark .bg-emerald-100,
+        html.dark .bg-emerald-105 {
+            background-color: #082417 !important;
+            border-color: #134e35 !important;
+            color: #34d399 !important;
+        }
+        html.dark .text-green-700,
+        html.dark .text-green-800,
+        html.dark .text-green-900,
+        html.dark .text-emerald-700,
+        html.dark .text-emerald-800 {
+            color: #34d399 !important;
+        }
+        html.dark .border-green-200,
+        html.dark .border-emerald-200 {
+            border-color: #134e35 !important;
+        }
+
+        /* Muted Neon Amber (Warnings, Videos, Offline Indicators) */
+        html.dark .bg-amber-50,
+        html.dark .bg-amber-100,
+        html.dark .bg-yellow-50 {
+            background-color: #241a06 !important;
+            border-color: #52390b !important;
+            color: #fbbf24 !important;
+        }
+        html.dark .text-amber-700,
+        html.dark .text-amber-800,
+        html.dark .text-yellow-800 {
+            color: #fbbf24 !important;
+        }
+        html.dark .border-amber-200,
+        html.dark .border-yellow-200,
+        html.dark .border-amber-300 {
+            border-color: #52390b !important;
+        }
+
+        /* Muted Neon Rose / Red (Errors, Logout, Delete) */
+        html.dark .bg-red-50,
+        html.dark .bg-red-100 {
+            background-color: #260e14 !important;
+            border-color: #541924 !important;
+            color: #f87171 !important;
+        }
+        html.dark .text-red-600,
+        html.dark .text-red-700,
+        html.dark .text-red-800,
+        html.dark .text-red-900 {
+            color: #f87171 !important;
+        }
+        html.dark .border-red-200 {
+            border-color: #541924 !important;
+        }
+
+        /* Interactive Inputs, Textareas, Selects */
+        html.dark input,
+        html.dark textarea,
+        html.dark select {
+            background-color: #070b14 !important;
+            border-color: #233554 !important;
+            color: #f8fafc !important;
+        }
+        html.dark input::placeholder,
+        html.dark textarea::placeholder {
+            color: #475569 !important;
+        }
+        html.dark input:focus,
+        html.dark textarea:focus,
+        html.dark select:focus {
+            border-color: #38bdf8 !important;
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25) !important;
+            outline: none !important;
+        }
+
+        /* Tables & Lists */
+        html.dark th {
+            background-color: #0b1120 !important;
+            color: #cbd5e1 !important;
+            border-color: #1e293b !important;
+        }
+        html.dark td {
+            border-color: #1e293b !important;
+        }
+        html.dark tr:hover td {
+            background-color: #141d30 !important;
+        }
+
+        /* Markdown & Prose Styling in Dark Mode */
+        html.dark .prose {
+            color: #e2e8f0 !important;
+        }
+        html.dark .prose h1,
+        html.dark .prose h2,
+        html.dark .prose h3,
+        html.dark .prose h4 {
+            color: #f8fafc !important;
+            border-color: #1e293b !important;
+        }
+        html.dark .prose a {
+            color: #38bdf8 !important;
+        }
+        html.dark .prose a:hover {
+            color: #7dd3fc !important;
+            text-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+        }
+        html.dark .prose strong {
+            color: #f8fafc !important;
+        }
+        html.dark .prose blockquote {
+            border-left-color: #38bdf8 !important;
+            background-color: #0c1829 !important;
+            color: #94a3b8 !important;
+        }
+        html.dark .prose code,
+        html.dark code:not([class*="language-"]) {
+            background-color: #050811 !important;
+            color: #38bdf8 !important;
+            border: 1px solid #1e293b !important;
+            padding: 0.15rem 0.35rem;
+            border-radius: 0.25rem;
+        }
+        html.dark pre {
+            background-color: #050811 !important;
+            border: 1px solid #1e293b !important;
+            color: #f1f5f9 !important;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6) !important;
+        }
+
+        /* Card Hover Effects */
+        html.dark .hover\:border-indigo-400:hover,
+        html.dark .hover\:border-gray-300:hover,
+        html.dark .hover\:border-indigo-500:hover {
+            border-color: #38bdf8 !important;
+            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.7), 0 0 14px rgba(56, 189, 248, 0.18) !important;
+        }
+
+        /* Scrollbars */
+        html.dark ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        html.dark ::-webkit-scrollbar-track {
+            background: #090e17;
+        }
+        html.dark ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 4px;
+        }
+        html.dark ::-webkit-scrollbar-thumb:hover {
+            background: #334155;
+        }
+
+        /* The Moon/Sun Circular Toggle Button */
+        .theme-circle-toggle {
+            width: 32px;
+            height: 32px;
+            border-radius: 9999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            outline: none;
+            user-select: none;
+            border: 1px solid #e5e7eb;
+            background-color: #ffffff;
+            color: #f59e0b;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+            flex-shrink: 0;
+        }
+        .theme-circle-toggle:hover {
+            background-color: #fefce8;
+            border-color: #fde047;
+            transform: scale(1.08);
+            box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+        }
+        .theme-circle-toggle:active {
+            transform: scale(0.92) rotate(180deg);
+        }
+
+        html.dark .theme-circle-toggle {
+            border-color: #233554;
+            background-color: #131b2e;
+            color: #38bdf8;
+            box-shadow: 0 0 8px rgba(0, 0, 0, 0.5);
+        }
+        html.dark .theme-circle-toggle:hover {
+            background-color: #1a253f;
+            border-color: #38bdf8;
+            box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
+            transform: scale(1.08);
+        }
+
+        /* Icon visibility control */
+        .theme-sun-icon {
+            display: block;
+            width: 17px;
+            height: 17px;
+            transition: transform 0.3s ease;
+        }
+        .theme-moon-icon {
+            display: none;
+            width: 17px;
+            height: 17px;
+            transition: transform 0.3s ease;
+            filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.7));
+        }
+        html.dark .theme-sun-icon {
+            display: none;
+        }
+        html.dark .theme-moon-icon {
+            display: block;
         }
     </style>
     {% block extra_head %}{% endblock %}
@@ -33,7 +385,7 @@
 <body class="text-gray-850 min-h-screen antialiased flex flex-col">
 
     <div class="w-full px-4 pt-4">
-        <div class="mb-6 flex justify-between items-center bg-white p-4 rounded-xl border border-gray-200 shadow-sm max-w-[95%] w-full mx-auto">
+        <div class="mb-6 flex justify-between items-center bg-white nav-header-bar p-4 rounded-xl border border-gray-200 shadow-sm max-w-[95%] w-full mx-auto">
             {% if is_admin %}
             <div class="flex gap-5 font-semibold text-sm">
                 <a href="/" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
@@ -48,11 +400,17 @@
                 <a href="/collections" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
                     <span class="mr-1.5">📁</span> Collections
                 </a>
-                <a href="/conversations" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">💬</span> Chat
+                <a href="/reports/rag" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
+                    <span class="mr-1.5">🔬</span> RAG
                 </a>
                 <a href="/notes" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
                     <span class="mr-1.5">📝</span> Notes
+                </a>
+                <a href="/taxonomy" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
+                    <span class="mr-1.5">🗂️</span> Taxonomy
+                </a>
+                <a href="/agents/board" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
+                    <span class="mr-1.5">🧠</span> Board
                 </a>
                 <a href="/workspaces" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
                     <span class="mr-1.5">💻</span> Studio
@@ -66,6 +424,15 @@
             </div>
 
             <div class="flex gap-3 items-center">
+                <!-- Moon/Sun Theme Toggle Button -->
+                <button type="button" onclick="toggleThemeMode()" class="theme-circle-toggle" title="Toggle theme (Light / Muted Neon Dark)" aria-label="Toggle theme">
+                    <svg class="theme-sun-icon" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"/>
+                    </svg>
+                    <svg class="theme-moon-icon" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
+                    </svg>
+                </button>
                 <a href="/import" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 border border-indigo-200 py-1.5 px-3 rounded-lg bg-indigo-50 transition">
                     + Ingest URL
                 </a>
@@ -81,9 +448,20 @@
                 <span class="text-xl">🔐</span>
                 <span class="font-bold text-gray-800 text-sm tracking-wide">Knowledge Base Gateway</span>
             </div>
-            <a href="/login" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 border border-indigo-200 py-1.5 px-3 rounded-lg bg-indigo-50 shadow-sm transition">
-                🔑 Admin Login
-            </a>
+            <div class="flex items-center gap-3">
+                <!-- Moon/Sun Theme Toggle Button -->
+                <button type="button" onclick="toggleThemeMode()" class="theme-circle-toggle" title="Toggle theme (Light / Muted Neon Dark)" aria-label="Toggle theme">
+                    <svg class="theme-sun-icon" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"/>
+                    </svg>
+                    <svg class="theme-moon-icon" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
+                    </svg>
+                </button>
+                <a href="/login" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 border border-indigo-200 py-1.5 px-3 rounded-lg bg-indigo-50 shadow-sm transition">
+                    🔑 Admin Login
+                </a>
+            </div>
             {% endif %}
         </div>
     </div>
@@ -115,6 +493,17 @@
         {% block content %}{% endblock %}
     </main>
 
-
+    <!-- Global Theme Switcher Logic -->
+    <script>
+        function toggleThemeMode() {
+            var isDark = document.documentElement.classList.toggle('dark');
+            localStorage.setItem('kb_theme', isDark ? 'dark' : 'light');
+            var btns = document.querySelectorAll('.theme-circle-toggle');
+            btns.forEach(function(b) {
+                b.style.transform = 'scale(0.85) rotate(180deg)';
+                setTimeout(function() { b.style.transform = ''; }, 250);
+            });
+        }
+    </script>
 </body>
 </html>

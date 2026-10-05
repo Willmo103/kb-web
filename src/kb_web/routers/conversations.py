@@ -310,54 +310,8 @@ def delete_conversation(conversation_id: int) -> Dict[str, Any]:
 
 # --- UI Route: /conversations ---
 
-@router.get("/conversations", response_class=HTMLResponse)
-def view_conversations_dashboard(
-    request: Request,
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
-):
-    """HTML Dashboard listing all conversation threads with linked articles."""
-    token = request.cookies.get(COOKIE_NAME)
-    is_admin = bool(token and verify_session_token(token))
-
-    with db_session() as session:
-        query = session.query(ChatConversation).order_by(ChatConversation.updated_at.desc())
-        total = query.count()
-        offset = (page - 1) * limit
-        rows = query.offset(offset).limit(limit).all()
-
-        conversations = []
-        for conv in rows:
-            msg_count = session.query(ChatMessage).filter_by(conversation_id=conv.id).count()
-            last_msg = (
-                session.query(ChatMessage)
-                .filter_by(conversation_id=conv.id)
-                .order_by(ChatMessage.id.desc())
-                .first()
-            )
-            conversations.append(
-                {
-                    "id": conv.id,
-                    "title": conv.title or "Untitled Thread",
-                    "source_type": conv.source_type,
-                    "source_id": conv.source_id,
-                    "safe_source_url": quote_plus(conv.source_id) if conv.source_id else "",
-                    "created_at": conv.created_at,
-                    "updated_at": conv.updated_at,
-                    "message_count": msg_count,
-                    "last_message": last_msg.content[:180] if last_msg else "No messages yet.",
-                    "last_role": last_msg.role if last_msg else None,
-                }
-            )
-
-    template = _jinja_env.get_template("conversations_list.j2.html")
-    return HTMLResponse(
-        content=template.render(
-            conversations=conversations,
-            total=total,
-            page=page,
-            limit=limit,
-            is_admin=is_admin,
-            total_pages=(total + limit - 1) // limit if limit > 0 else 1,
-        )
-    )
+@router.get("/conversations")
+def view_conversations_dashboard():
+    """Redirects legacy chat threads route to the new Agentic RAG Report Generator."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/reports/rag", status_code=302)

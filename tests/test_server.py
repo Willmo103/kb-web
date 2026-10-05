@@ -3091,6 +3091,7 @@ def test_session_dialect_config(monkeypatch) -> None:
     monkeypatch.setattr(kb_web.base, "create_engine", mock_create_engine)
 
     # 1. Test postgres conversion
+    orig_db_url = getattr(kb_web.base.config, "_database_url", None)
     monkeypatch.setattr(
         kb_web.base.config, "_database_url", "postgres://user:password@localhost/db"
     )
@@ -3102,8 +3103,8 @@ def test_session_dialect_config(monkeypatch) -> None:
     assert created_engines[0][0] == "postgresql+psycopg2://user:password@localhost/db"
     assert created_engines[0][1].get("pool_size") == 10
 
-    # Restore config to fallback
-    monkeypatch.setattr(kb_web.base.config, "_database_url", "")
+    # Restore config to original value
+    monkeypatch.setattr(kb_web.base.config, "_database_url", orig_db_url)
     monkeypatch.setattr(kb_web.base, "_engine", None)
 
 
