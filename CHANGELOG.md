@@ -30,9 +30,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed CI failures on `master` branch by updating submodule URL in `.gitmodules` from relative path `./kb-web-cli` to absolute repository URL `https://github.com/Willmo103/kb-web-cli.git`.
   - Configured `submodules: recursive` under `actions/checkout@v4` in `.github/workflows/test-and-release.yml`.
   - Added defensive `try...except ImportError` guards with `pytest.skip` across `tests/test_cli_auth_and_workspaces.py` and `tests/test_rag_agent_and_reports.py` to prevent CI failures in minimal environments lacking submodules.
-- **Taxonomy Purge Migration Neutralization**:
-  - Neutralized `upgrade()` in `migrations/versions/0a9b8c7d6e5f_one_time_taxonomy_purge.py` to a no-op (`pass`) to prevent accidental deletion of taxonomy categories, categorized items, and taxonomy agent messages during automated startup migrations.
-  - Removed redundant taxonomy deletion commands from `src/kb_web/scripts/deploy_migrations.py`.
+- **Taxonomy Schema Healing & Purge Restoration**:
+  - Restored table purge statements (`DELETE FROM taxonomy_items; ...`) in `migrations/versions/0a9b8c7d6e5f_one_time_taxonomy_purge.py` along with DDL column checks ensuring `item_class` exists on `taxonomy_items`.
+  - Added PostgreSQL idempotent DDL self-healing directly in `models_orm.ensure_views_and_indexes` (`ALTER TABLE taxonomy_items ADD COLUMN IF NOT EXISTS item_class VARCHAR(32) DEFAULT 'Notes';`, `is_frozen` columns on content tables, and `server_error_logs` table creation) ensuring zero schema crashes on server restart.
+  - Created Alembic database migration `2c3d4e5f6a7b_add_server_error_logs_and_ensure_columns.py` creating the error logs table and ensuring schema consistency.
+- **Persistent Server Error Logging & Gotify Integration**:
+  - Added `ServerErrorLog` ORM model in `src/kb_web/models_orm.py` storing timestamp, error type, message, stack trace, HTTP request details, client IP, status, and agent feedback.
+  - Enhanced `gotify.py` with `record_server_error()` to persist uncaught 500 errors to the PostgreSQL database, append to `~/.kb/logs/server_errors.jsonl`, and dispatch Gotify alerts with incident ID tags `[#ID]`.
+  - Added REST API routes in `src/kb_web/routers/errors.py` (`GET /api/errors`, `GET /api/errors/search`, `GET /api/errors/{id}`, `POST /api/errors/{id}/analyze`).
+  - Added "Server Incidents & Agent Diagnosis" tab to `src/kb_web/templates/logs.j2.html` and `src/kb_web/routers/admin.py` for web-based incident review and manual re-analysis.
+- **Background Sidecar Maintenance Agent (`src/kb_web/maintenance_agent.py`)**:
+  - Implemented automated website maintenance agent running as a non-blocking background sidecar daemon (`run_maintenance_daemon`) and auto-prompted upon uncaught exceptions.
+  - Enforced strict 3000-character cap on error prompts (`format_error_prompt`) to prevent context overflows and minimize response latency.
+  - Equipped with specialized agent tools:
+    - `tool_search_source_code`: Lexical ripgrep-style search across `src/kb_web/`, `tests/`, and `migrations/`.
+    - `tool_view_artifacts`: Listing and viewing markdown artifacts in `.artifacts/` and `uat/reports/`.
+    - `tool_search_errors`: Search past error incidents by terms, types, and messages.
+  - Performs root cause analysis via Ollama with intelligent rule-based fallback, storing diagnostics directly in `ServerErrorLog.agent_feedback` and posting updates to Gotify.
+- **CLI Commands for Server Errors & Maintenance Daemon (`kb-web-cli`)**:
+  - Added `kb-web-cli error` command group (`list`, `view <id>`, `search <query>`, `analyze <id>`) for terminal-based error investigation.
+  - Added `kb-web-cli maintenance-daemon` command for running the background sidecar process.
 - **Live Server Test Skill (`live-server-test`)**:
   - Added `.agents/skills/live-server-test/` skill with `audit_live_routes.py` CLI for read-only route auditing of live servers (e.g. `https://kb-test.willmo.dev`) using `curl`.
   - Verifies HTTP status codes, redirect flows, content types, security headers, and latency across public, protected UI, and protected REST API endpoints without triggering admin actions.

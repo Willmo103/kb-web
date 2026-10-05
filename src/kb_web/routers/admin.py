@@ -1528,9 +1528,40 @@ def get_logs_view(
     except Exception as e:
         log_content = f"Error reading logs from database: {e}"
 
+    incidents = []
+    try:
+        from ..models_orm import ServerErrorLog
+        with db_session() as session:
+            err_rows = (
+                session.query(ServerErrorLog)
+                .order_by(ServerErrorLog.id.desc())
+                .limit(50)
+                .all()
+            )
+            for er in err_rows:
+                incidents.append({
+                    "id": er.id,
+                    "timestamp": er.timestamp,
+                    "error_type": er.error_type,
+                    "error_message": er.error_message,
+                    "stack_trace": er.stack_trace,
+                    "request_method": er.request_method,
+                    "request_url": er.request_url,
+                    "client_ip": er.client_ip,
+                    "agent_feedback": er.agent_feedback,
+                    "status": er.status,
+                })
+    except Exception as e:
+        logger.error(f"Error fetching server error incidents: {e}")
+
     template = _jinja_env.get_template("logs.j2.html")
     response = HTMLResponse(
-        content=template.render(log_content=log_content, is_admin=True, limit=limit)
+        content=template.render(
+            log_content=log_content,
+            incidents=incidents,
+            is_admin=True,
+            limit=limit,
+        )
     )
     response.set_cookie("log_limit", str(limit), max_age=31536000, path="/")
     return response

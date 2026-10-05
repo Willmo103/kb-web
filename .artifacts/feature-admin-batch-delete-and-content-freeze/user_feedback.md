@@ -1,6 +1,6 @@
 # User Feedback & Requirements Record
 
-- **Timestamp**: 2026-10-05T14:18:00-05:00
+- **Timestamp**: 2026-10-05T15:25:00-05:00
 - **Branch**: `feature/admin-batch-delete-and-content-freeze`
 - **Related Issues / PR**: Draft PR #79 targeting `development`
 
@@ -11,51 +11,61 @@
 1. **GitHub Actions CI Master Failure Investigation**:
    - Issue: The last push to `master` failed in CI.
    - User Request: Investigate why tests failed using GitHub CLI (`gh`).
-   - Findings:
-     - CI runs `actions/checkout@v4` without `submodules: recursive`.
-     - `kb-web-cli` is a git submodule whose URL was set to a relative path `./kb-web-cli` instead of the public repo `https://github.com/Willmo103/kb-web-cli.git`.
-     - `tests/test_cli_auth_and_workspaces.py` and `tests/test_rag_agent_and_reports.py` attempted `from kb_web_cli.main import app as cli_app`, causing `ModuleNotFoundError: No module named 'kb_web_cli'`.
-     - Fix: Update `.gitmodules` to full remote URL, update `.github/workflows/test-and-release.yml` with `submodules: recursive`, and add graceful import handling in tests.
+   - Resolution: Update `.gitmodules` to full remote URL, update `.github/workflows/test-and-release.yml` with `submodules: recursive`, and add graceful import handling in tests.
 
 2. **Admin Batch-Delete Utility**:
    - User Request: Admin ability to batch-delete whole collections of Obsidian notes, sites, videos, and articles.
-   - Requirements:
-     - Batch deletion for Notes (by multi-select IDs or folder prefix).
-     - Batch deletion for Sites (delete virtual site and cascade all associated pages and embeddings).
-     - Batch deletion for Videos (delete video records, embeddings, and video media files).
-     - Batch deletion for Pages / Articles (by multi-select IDs or collection cascade).
-     - REST API endpoints and Admin Dashboard UI controls with confirmation safeguards.
 
 3. **Frozen & Immutable Content (`is_frozen`)**:
-   - User Request: Make any content item (article, note, video) frozen and immutable to changes (no wiki re-generation, tag editing, title/content editing).
-   - Requirements:
-     - Add `is_frozen = Column(Integer, default=0)` (0 = mutable, 1 = frozen) to `FetchedPage`, `Note`, and `YouTubeVideo`.
-     - Enforcement:
-       - Prevent wiki generation (`generate_wiki_background` / `/api/pages/{id}/generate-wiki` returns HTTP 400).
-       - Prevent tag editing (returns HTTP 400 when frozen).
-       - Prevent content/title editing (returns HTTP 400 when frozen).
-       - Prevent source re-fetching (returns HTTP 400 when frozen).
-     - UI:
-       - Render "❄️ Frozen" badge and Freeze/Unfreeze toggle button on article view, note editor, and video profiles.
-       - Disable edit buttons when content is frozen.
-     - Alembic migration for the new `is_frozen` columns.
+   - User Request: Make any content item (article, note, video) frozen and immutable to changes.
 
 ---
 
 ## 2. User Requests (Turn 9)
 
 1. **Remove Taxonomy Removal Migration**:
-   - Issue: The previously added one-time migration (`0a9b8c7d6e5f_one_time_taxonomy_purge.py`) ran automatically on test server startup via `deploy_migrations.py` during `alembic upgrade head`, causing all taxonomy categories, items, and agent taxonomy messages to be wiped out on the test server.
    - User Request: "we need to remove the taxonomy removal.. I just wiped out my test server taxonomy."
-   - Resolution:
-     - Neutralize `migrations/versions/0a9b8c7d6e5f_one_time_taxonomy_purge.py` `upgrade()` so it performs `pass` and does not delete taxonomy rows.
-     - Remove leftover purge logic from `src/kb_web/scripts/deploy_migrations.py`.
-
 2. **Create New Skill: `live-server-test`**:
    - User Request: "I want you to create a skill: Live server test - This uses curl to test out the running production server (its only online while the UAT testing is going) You can reach the test server at https://kb-test.willmo.dev. Don't do any admin stuff, but I want you to audit the site routes."
-   - Scope:
-     - Target host: `https://kb-test.willmo.dev`
-     - Uses `curl` to probe and audit all core site routes (GET/HEAD, status codes, redirects, content types, security headers).
-     - Strict guardrail: Read-only audit only; NO admin mutations (no POST/PUT/DELETE, no admin purge/freeze).
-     - Document in `.agents/skills/live-server-test/` and `GEMINI.md`.
-     - Execute the route audit immediately and report the detailed results.
+
+---
+
+## 3. User Requests (Turn 10)
+
+1. **Add Migration Back In & Fix `item_class` Undefined Column**:
+   - Issue: App crashed with:
+     `(psycopg2.errors.UndefinedColumn) column taxonomy_items.item_class does not exist`
+     when accessing `GET /taxonomy`.
+   - User Request: "okay add the migration back in,. it broke the hell out of the app."
+   - Analysis:
+     - The taxonomy purge in `0a9b8c7d6e5f_one_time_taxonomy_purge.py` needs to be restored so corrupt/test classification states can be cleaned.
+     - Additionally, the PostgreSQL schema is missing the `item_class` column on `taxonomy_items` because `ensure_views_and_indexes` was only checking PRAGMA for SQLite, not PostgreSQL!
+   - Solution:
+     - Restore `0a9b8c7d6e5f_one_time_taxonomy_purge.py` purge statements.
+     - Add explicit column checks in PostgreSQL initialization within `models_orm.ensure_views_and_indexes`:
+       `ALTER TABLE taxonomy_items ADD COLUMN IF NOT EXISTS item_class VARCHAR(32) DEFAULT 'Notes';`
+       `ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;`
+       `ALTER TABLE notes ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;`
+       `ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;`
+     - Add migration ensuring `item_class` exists on `taxonomy_items`.
+
+2. **Persistent Error Storage on Server for Debugging**:
+   - User Request: "ALSO i need these error messages (sent to gotify) to be stored on the server in a way that you can view them for debugging. this could be a CLI route idk"
+   - Requirements:
+     - Intercept uncaught server exceptions in `gotify_error_logging_handler` / `post_error_to_gotify`.
+     - Persist structured error logs to `server_error_logs` table (ORM `ServerErrorLog`) and append to `~/.kb/logs/server_errors.jsonl`.
+     - Fields: `id`, `timestamp`, `error_type`, `error_message`, `stack_trace`, `request_method`, `request_url`, `query_params`, `client_ip`, `agent_feedback`.
+     - Expose REST API: `GET /api/errors`, `GET /api/errors/{id}`, `GET /api/errors/search`.
+     - Expose CLI commands: `kb-web-cli error list`, `kb-web-cli error view <id>`, `kb-web-cli error search <term>`.
+     - Expose Admin UI view: In `/admin/logs` or dedicated tab.
+
+3. **Background Sidecar Maintenance Agent**:
+   - User Request: "I need errors to trigger the agent to give imeadiate feedback before I even get to fixing it. e.g. I want to have an agent that is for maintaining the website. I want to give it a tool to search the source code. I want it to have a tool to view the artifacts. I wantto have it auto prompted with errors (limit it to 3000 characters and give it a tool to search the errors for terms) this should all be a side car thing that can run in the background."
+   - Requirements:
+     - Sidecar architecture: Can run in background via daemon process or FastAPI background queue.
+     - Auto-prompt on error: Truncates error details to 3000 characters and triggers maintenance agent analysis.
+     - Tools provided to Maintenance Agent:
+       1. `search_source_code`: searches files in `src/kb_web`, `tests/`, `migrations/` for symbols, classes, or patterns.
+       2. `view_artifacts`: views markdown plans, walkthroughs, UAT reports, and feedback artifacts.
+       3. `search_errors`: searches historical server error logs for terms.
+     - Stores generated diagnostic feedback directly back onto the `ServerErrorLog` record and/or dispatches to Gotify.
