@@ -93,17 +93,18 @@ def _cascade_delete_page_urls(session, urls: List[str]) -> int:
 
 # --- 1. Batch Notes Deletion ---
 
+from .notes import _cascade_delete_notes
+
+
 @router.delete("/api/notes/batch", dependencies=[Depends(verify_auth)])
 def batch_delete_notes(payload: BatchDeleteNotesRequest) -> Dict[str, Any]:
     """Batch deletes Obsidian notes by IDs or folder prefix, cascading embeddings and mirrored pages."""
-    deleted_ids = []
-    deleted_urls = []
-
     with db_session() as session:
-        query = session.query(Note)
+        target_ids = []
         if payload.note_ids:
-            query = query.filter(Note.id.in_(payload.note_ids))
+            target_ids = payload.note_ids
         elif payload.vault_name or payload.folder_prefix:
+            query = session.query(Note.id)
             if payload.vault_name:
                 query = query.filter(Note.vault_name == payload.vault_name)
             if payload.folder_prefix:
@@ -114,36 +115,30 @@ def batch_delete_notes(payload: BatchDeleteNotesRequest) -> Dict[str, Any]:
                         Note.folder_path.like(f"{prefix}/%"),
                     )
                 )
+            target_ids = [r[0] for r in query.all()]
         else:
             raise HTTPException(status_code=400, detail="Must provide note_ids, folder_prefix, or vault_name.")
 
-        notes_to_delete = query.all()
-        for note in notes_to_delete:
-            deleted_ids.append(note.id)
-            if note.url:
-                deleted_urls.append(note.url)
-            session.delete(note)
+        if not target_ids:
+            return {"status": "success", "deleted_count": 0, "deleted_ids": [], "deleted_urls": []}
 
-        # Clean up mirrored pages, embeddings, and taxonomy records
-        for u in deleted_urls:
-            session.query(ChunkEmbedding).filter_by(source_id=u).delete()
-            session.query(TaxonomyItem).filter_by(item_id=u).delete()
-            session.query(FetchedPage).filter_by(url=u).delete()
+        # Check for frozen notes
+        frozen_count = session.query(Note).filter(Note.id.in_(target_ids), Note.is_frozen == 1).count()
+        if frozen_count > 0:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cannot delete notes: {frozen_count} note(s) in the selection are frozen. Unfreeze them first.",
+            )
 
-        for n_id in deleted_ids:
-            session.query(TaxonomyItem).filter(
-                TaxonomyItem.item_type == "note",
-                TaxonomyItem.item_id == str(n_id),
-            ).delete()
-
+        res = _cascade_delete_notes(session, note_ids=target_ids)
         session.commit()
 
-    return {
-        "status": "success",
-        "deleted_count": len(deleted_ids),
-        "deleted_ids": deleted_ids,
-        "deleted_urls": deleted_urls,
-    }
+        return {
+            "status": "success",
+            "deleted_count": res["deleted_count"],
+            "deleted_ids": res["deleted_ids"],
+            "deleted_urls": res["deleted_urls"],
+        }
 
 
 # --- 2. Batch Site & Pages Deletion ---

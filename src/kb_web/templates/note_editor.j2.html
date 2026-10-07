@@ -50,6 +50,9 @@
         <!-- Controls -->
         <div class="flex items-center gap-3 flex-shrink-0">
             {% if note %}
+            <button onclick="deleteCurrentNote()" id="delete-note-btn" class="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold rounded-lg transition shadow-sm flex items-center gap-1" title="Delete this note">
+                <span>🗑️</span> Delete
+            </button>
             <button onclick="toggleNoteFreeze()" id="freeze-toggle-btn" class="px-3 py-1.5 {% if note.is_frozen == 1 %}bg-blue-600 hover:bg-blue-700 text-white{% else %}bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200{% endif %} text-xs font-bold rounded-lg transition shadow-sm flex items-center gap-1">
                 {% if note.is_frozen == 1 %}
                 <span>🔓</span> Unfreeze
@@ -259,6 +262,22 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+async function deleteCurrentNote() {
+    if (!noteId) return;
+    if (!confirm('Are you sure you want to permanently delete this note? This will also remove associated embeddings, links, and taxonomy records.')) return;
+    try {
+        const res = await fetch(`/api/notes/${noteId}`, { method: 'DELETE' });
+        if (res.ok) {
+            window.location.href = '/notes';
+        } else {
+            const data = await res.json();
+            alert('Delete failed: ' + (data.detail || 'Server error'));
+        }
+    } catch (err) {
+        alert('Error deleting note: ' + err);
+    }
 }
 </script>
 {% endblock %}
