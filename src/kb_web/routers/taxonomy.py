@@ -16,8 +16,10 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from sqlalchemy import or_
+
 from ..base import db_session, config, _jinja_env, COOKIE_NAME, verify_session_token
-from ..models_orm import TaxonomyCategory, TaxonomyItem
+from ..models_orm import TaxonomyCategory, TaxonomyItem, Note
 from ..taxonomy_state_machine import (
     get_category_tree_data,
     classify_single_item,
@@ -33,6 +35,12 @@ router = APIRouter(tags=["Taxonomy"])
 class ClassifyItemRequest(BaseModel):
     item_type: str = Field(..., description="Item type: 'article', 'note', 'video', or 'workspace'")
     item_id: str = Field(..., description="ID or URL of the target item")
+
+
+class ClassifyNotesRequest(BaseModel):
+    vault: Optional[str] = Field(None, description="Optional vault name filter")
+    force_reclassify: bool = Field(False, description="Whether to re-classify already classified notes")
+    limit: int = Field(100, ge=1, le=500, description="Max notes to classify in this batch")
 
 
 # --- UI Pages ---
@@ -143,6 +151,73 @@ def classify_item_endpoint(payload: ClassifyItemRequest) -> Dict[str, Any]:
     """Runs a single item through the decision state machine on-demand."""
     res = classify_single_item(item_type=payload.item_type, item_id=payload.item_id)
     return res
+
+
+@router.post("/api/taxonomy/classify-notes")
+def trigger_classify_notes(
+    payload: ClassifyNotesRequest,
+    background_tasks: BackgroundTasks,
+) -> Dict[str, Any]:
+    """Triggers background taxonomy classification specifically for notes (unclassified or force re-classified)."""
+    if is_partitioning_paused():
+        return {
+            "status": "paused",
+            "message": "Taxonomy state machine is currently partitioning. Please wait.",
+        }
+
+    with db_session() as session:
+        query = session.query(Note)
+        if payload.vault:
+            query = query.filter(Note.vault_name == payload.vault)
+
+        if not payload.force_reclassify:
+            classified_item_ids = {r[0] for r in session.query(TaxonomyItem.item_id).filter_by(item_type="note").all()}
+            all_matching = query.all()
+            target_notes = [
+                n for n in all_matching
+                if f"note_{n.id}" not in classified_item_ids and str(n.id) not in classified_item_ids and (n.url or "") not in classified_item_ids
+            ]
+        else:
+            target_notes = query.limit(payload.limit).all()
+
+        target_ids = [n.id for n in target_notes[:payload.limit]]
+
+    if not target_ids:
+        return {
+            "status": "up_to_date",
+            "message": "No unclassified notes found matching criteria.",
+            "count": 0,
+        }
+
+    def _run_notes_classification():
+        with db_session() as s:
+            for note_id in target_ids:
+                if payload.force_reclassify:
+                    # Clean existing taxonomy item for this note if re-classifying
+                    existing = s.query(TaxonomyItem).filter(
+                        TaxonomyItem.item_type == "note",
+                        or_(
+                            TaxonomyItem.item_id == str(note_id),
+                            TaxonomyItem.item_id == f"note_{note_id}",
+                        )
+                    ).all()
+                    for ti in existing:
+                        if ti.category_id:
+                            c = s.query(TaxonomyCategory).filter_by(id=ti.category_id).first()
+                            if c and c.item_count and c.item_count > 0:
+                                c.item_count -= 1
+                        s.delete(ti)
+                    s.commit()
+                classify_single_item("note", note_id)
+
+    background_tasks.add_task(_run_notes_classification)
+
+    return {
+        "status": "scheduled",
+        "message": f"Scheduled classification for {len(target_ids)} note(s) in background.",
+        "target_count": len(target_ids),
+        "target_ids": target_ids,
+    }
 
 
 @router.get("/api/taxonomy/status")

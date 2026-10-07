@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] - 2026-10-06
+### Added
+- **Notes Cascading Deletion & Single-Note Purge Action (`src/kb_web/routers/notes.py`)**:
+  - Implemented `_cascade_delete_notes()` resolving foreign key constraint failures across all 10 dependent tables: `chat_conversations`, `chat_messages`, `chunk_embeddings`, `taxonomy_items`, `collection_items`, `collection_actions`, `article_embeddings`, `title_embeddings`, `video_embeddings`, `page_versions`, `links`, and mirrored `fetched_pages`.
+  - Added single-note deletion endpoint `DELETE /api/notes/{note_id}` guarded by `is_frozen` immutability status.
+  - Re-routed `batch_delete_notes()` in `src/kb_web/routers/admin_batch.py` through the unified `_cascade_delete_notes()` pipeline and decremented taxonomy category item counts.
+  - Added individual "🗑️" delete buttons on note cards in `notes_list.j2.html` and note editor view in `note_editor.j2.html`.
+  - Fixed FastAPI route collision between static `/api/notes/batch` and parameterized `/api/notes/{note_id}` by registering `admin_batch.router` with high precedence.
+- **AI Prompt-Driven Workspace Creation (`src/kb_web/routers/workspaces.py`)**:
+  - Added `prompt: Optional[str] = None` and `template: Optional[str] = "web-game"` to `WorkspaceCreateRequest`.
+  - Added `_generate_workspace_from_prompt()` calling Ollama to synthesize project names, templates, file hierarchies, and initial working code from natural language prompts, with heuristic fallback.
+  - Added AI Prompt input textarea to the new workspace modal in `workspaces_list.j2.html`.
+- **Flexible Project Types, Gist Mode & Live Markdown Runner**:
+  - Eliminated the 3-template restriction to support arbitrary project types, multi-file Gists, and custom languages (`rust`, `go`, `c`, `markdown`, etc.).
+  - Added live rendered Markdown preview runner in `workspace_ide.j2.html` powered by `marked.js` with GitHub Dark theme styling.
+  - Added Gist file summary runner for non-executable custom project types.
+  - Cleaned up starter template `README.md` markdown files with clean formatting and project instructions.
+- **Workspace Hierarchical Directory Tree & Drag-and-Drop Reorganization**:
+  - Replaced flat `(folder)/.keep` rows with a true collapsible directory tree using `<details open>`, `📁` folder icons, and hidden `.keep` files.
+  - Added folder-specific "New File" (`+`) and "Delete Folder" (`🗑️`) controls.
+  - Implemented HTML5 drag-and-drop file movement to reorganize files into folders or move them to the root container.
+- **Real-Time Ollama Loaded Models Introspection**:
+  - Updated `GET /api/workspaces/models` and added global `GET /api/models` to introspect `{ollama_host}/api/ps` for models actively loaded in VRAM.
+  - Grouped and highlighted loaded models with `🟢 Loaded in VRAM` badge at the top of workspace IDE model picker.
+  - Added "⚡ Check Loaded Models" button and quick-select picker to the Admin System Settings tab (`admin.j2.html`).
+- **Targeted Notes Re-Taxonomy Classification**:
+  - Added `POST /api/taxonomy/classify-notes` supporting vault targeting, `limit`, and `force_reclassify`.
+  - Added "🏷️ Classify Notes" action button in `notes_list.j2.html` and `taxonomy.j2.html`.
+- **Taxonomy Slug Collision Retry Loop & Unique Slug Enforcement (`taxonomy_state_machine.py`)**:
+  - Implemented agent retry loop in `_synthesize_new_category()` catching duplicate category slug collisions, re-prompting the LLM harness with collision error feedback to select distinct domain names or merge into the collided category.
+  - Added `_ensure_unique_slug()` guaranteeing unique slugs across all taxonomy operations.
+- **Taxonomy Source Metadata & Provenance Enrichment**:
+  - Added `_format_metadata_summary()` extracting vault, folder path, syntax, version count, source URL, and collections.
+  - Injected provenance metadata into `classify_item_class()`, `evaluate_category_fit_tev1()`, and `_synthesize_new_category()`.
+  - Enhanced `classify_single_item()` to package complete metadata for notes, articles, videos, and workspaces.
+
 ## [0.5.4] - 2026-10-05
 ### Added
 - **Content Freeze & Immutability Engine (`is_frozen`)**:

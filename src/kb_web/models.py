@@ -303,7 +303,8 @@ class SavedReportCreateRequest(BaseModel):
 class WorkspaceCreateRequest(BaseModel):
     name: str
     description: Optional[str] = ""
-    template: str = "web-game"  # "web-game", "python-demo", "blank"
+    template: Optional[str] = "web-game"
+    prompt: Optional[str] = None
 
 
 class WorkspaceUpdateRequest(BaseModel):
