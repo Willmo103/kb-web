@@ -20,13 +20,25 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     conn = op.get_bind()
-    # One-time rollback/purge to remove test classification records from production
+    dialect = conn.dialect.name
+    # 1. One-time rollback/purge to remove test classification records from production
     try:
         conn.execute(sa.text("DELETE FROM taxonomy_items;"))
         conn.execute(sa.text("DELETE FROM taxonomy_categories;"))
         conn.execute(sa.text("DELETE FROM agent_messages WHERE channel = 'taxonomy';"))
     except Exception as e:
         print(f"[WARN] Failed executing one-time taxonomy purge: {e}")
+
+    # 2. Ensure item_class column exists on taxonomy_items across all database backends
+    try:
+        if dialect == "postgresql":
+            conn.execute(sa.text("ALTER TABLE taxonomy_items ADD COLUMN IF NOT EXISTS item_class VARCHAR(32) DEFAULT 'Notes';"))
+        else:
+            cols = [r[1] for r in conn.execute(sa.text("PRAGMA table_info(taxonomy_items);")).fetchall()]
+            if cols and "item_class" not in cols:
+                conn.execute(sa.text("ALTER TABLE taxonomy_items ADD COLUMN item_class TEXT DEFAULT 'Notes';"))
+    except Exception as e:
+        print(f"[WARN] Failed ensuring item_class column: {e}")
 
 
 def downgrade() -> None:

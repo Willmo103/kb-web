@@ -737,6 +737,11 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
         page = session.query(FetchedPage).filter_by(url=decoded_url).first()
         if not page:
             raise HTTPException(status_code=404, detail="Ingested page profile missing.")
+        if getattr(page, "is_frozen", 0):
+            return RedirectResponse(
+                url=f"/view/page?url={quote_plus(decoded_url)}&error=Item+is+frozen+and+immutable+to+modifications.",
+                status_code=303,
+            )
 
         p_dict = {col.name: getattr(page, col.name) for col in page.__table__.columns}
         for fld in ("links", "keywords", "tags"):
@@ -774,6 +779,14 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
 def handle_regenerate_youtube_metadata(url: str = Query(...)) -> RedirectResponse:
     """Triggers re-fetching and updating YouTube video metadata for a page."""
     decoded_url = unquote_plus(url)
+    with db_session() as session:
+        v_check = session.query(YouTubeVideo).filter_by(url=decoded_url).first()
+        p_check = session.query(FetchedPage).filter_by(url=decoded_url).first()
+        if (v_check and getattr(v_check, "is_frozen", 0)) or (p_check and getattr(p_check, "is_frozen", 0)):
+            return RedirectResponse(
+                url=f"/view/page?url={quote_plus(decoded_url)}&error=Item+is+frozen+and+immutable+to+modifications.",
+                status_code=303,
+            )
     video_id = extract_youtube_video_id(decoded_url)
     if not video_id:
         return RedirectResponse(
@@ -805,6 +818,11 @@ def handle_regenerate_tags(url: str = Query(...)) -> RedirectResponse:
         page = session.query(FetchedPage).filter_by(url=decoded_url).first()
         if not page:
             raise HTTPException(status_code=404, detail="Ingested page profile missing.")
+        if getattr(page, "is_frozen", 0):
+            return RedirectResponse(
+                url=f"/view/page?url={quote_plus(decoded_url)}&error=Item+is+frozen+and+immutable+to+modifications.",
+                status_code=303,
+            )
 
         p_dict = {col.name: getattr(page, col.name) for col in page.__table__.columns}
         for fld in ("links", "keywords", "tags"):
@@ -839,6 +857,11 @@ def handle_update_tags(
     with db_session() as session:
         page = session.query(FetchedPage).filter_by(url=url).first()
         if page:
+            if getattr(page, "is_frozen", 0):
+                return RedirectResponse(
+                    url=f"/view/page?url={quote_plus(url)}&error=Item+is+frozen+and+immutable+to+modifications.",
+                    status_code=303,
+                )
             page.tags = json.dumps(tags)
     update_article_embedding(None, url, config, client)
     return RedirectResponse(url=f"/view/page?url={quote_plus(url)}", status_code=303)
@@ -853,6 +876,13 @@ def handle_refetch_page(
 ) -> RedirectResponse:
     """Re-fetches the page URL. If successful, archives the current version and updates."""
     decoded_url = unquote_plus(url)
+    with db_session() as session:
+        p_check = session.query(FetchedPage).filter_by(url=decoded_url).first()
+        if p_check and getattr(p_check, "is_frozen", 0):
+            return RedirectResponse(
+                url=f"/view/page?url={quote_plus(decoded_url)}&error=Item+is+frozen+and+immutable+to+modifications.",
+                status_code=303,
+            )
     try:
         page_data = fetch_url(decoded_url)
     except Exception as e:
@@ -933,6 +963,64 @@ def handle_refetch_page(
         url=f"/view/page?url={quote_plus(decoded_url)}&msg=Source+page+successfully+re-fetched+and+new+version+created.",
         status_code=303,
     )
+
+
+@router.post(
+    "/admin/freeze/page", dependencies=[Depends(verify_auth)], response_model=None
+)
+async def handle_freeze_page(
+    request: Request,
+    url: Optional[str] = Query(None),
+) -> RedirectResponse:
+    """Toggles freeze status of an ingested page."""
+    target_url = url
+    if not target_url:
+        form = await request.form()
+        target_url = form.get("url")
+    if not target_url:
+        raise HTTPException(status_code=400, detail="Page URL required")
+    decoded_url = unquote_plus(str(target_url))
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=decoded_url).first()
+        if not page:
+            raise HTTPException(status_code=404, detail="Page not found")
+        page.is_frozen = 0 if getattr(page, "is_frozen", 0) else 1
+        new_state = page.is_frozen
+        video = session.query(YouTubeVideo).filter_by(url=decoded_url).first()
+        if video:
+            video.is_frozen = new_state
+        if decoded_url.startswith("note://"):
+            note = session.query(Note).filter_by(url=decoded_url).first()
+            if note:
+                note.is_frozen = new_state
+        session.commit()
+    msg = "Item frozen and made immutable." if new_state else "Item unfrozen."
+    return RedirectResponse(
+        url=f"/view/page?url={quote_plus(decoded_url)}&msg={quote_plus(msg)}",
+        status_code=303,
+    )
+
+
+@router.post("/api/pages/{url_path:path}/freeze", dependencies=[Depends(verify_auth)])
+def api_toggle_freeze_page(url_path: str):
+    """Programmatic API to toggle freeze state on a page."""
+    decoded_url = unquote_plus(url_path)
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=decoded_url).first()
+        if not page:
+            raise HTTPException(status_code=404, detail="Page not found")
+        page.is_frozen = 0 if getattr(page, "is_frozen", 0) else 1
+        new_state = page.is_frozen
+        video = session.query(YouTubeVideo).filter_by(url=decoded_url).first()
+        if video:
+            video.is_frozen = new_state
+        if decoded_url.startswith("note://"):
+            note = session.query(Note).filter_by(url=decoded_url).first()
+            if note:
+                note.is_frozen = new_state
+        session.commit()
+    return {"status": "success", "url": decoded_url, "is_frozen": new_state}
+
 
 
 @router.post(
@@ -1440,9 +1528,40 @@ def get_logs_view(
     except Exception as e:
         log_content = f"Error reading logs from database: {e}"
 
+    incidents = []
+    try:
+        from ..models_orm import ServerErrorLog
+        with db_session() as session:
+            err_rows = (
+                session.query(ServerErrorLog)
+                .order_by(ServerErrorLog.id.desc())
+                .limit(50)
+                .all()
+            )
+            for er in err_rows:
+                incidents.append({
+                    "id": er.id,
+                    "timestamp": er.timestamp,
+                    "error_type": er.error_type,
+                    "error_message": er.error_message,
+                    "stack_trace": er.stack_trace,
+                    "request_method": er.request_method,
+                    "request_url": er.request_url,
+                    "client_ip": er.client_ip,
+                    "agent_feedback": er.agent_feedback,
+                    "status": er.status,
+                })
+    except Exception as e:
+        logger.error(f"Error fetching server error incidents: {e}")
+
     template = _jinja_env.get_template("logs.j2.html")
     response = HTMLResponse(
-        content=template.render(log_content=log_content, is_admin=True, limit=limit)
+        content=template.render(
+            log_content=log_content,
+            incidents=incidents,
+            is_admin=True,
+            limit=limit,
+        )
     )
     response.set_cookie("log_limit", str(limit), max_age=31536000, path="/")
     return response

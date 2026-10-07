@@ -106,20 +106,29 @@
         </div>
         <form onsubmit="submitNewWorkspace(event)" class="space-y-4">
             <div>
+                <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">✨ AI Prompt (Optional - Auto-Generate Project)</label>
+                <textarea id="ws-prompt" rows="2" placeholder="e.g. Create a retro Snake game with neon canvas visuals, or A Python script that parses CSV data into markdown tables..." class="w-full text-xs p-2.5 border border-indigo-200 bg-indigo-50/40 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none resize-none text-gray-900"></textarea>
+                <p class="text-[11px] text-indigo-600 mt-1">If provided, AI will automatically name the project and write initial working code files.</p>
+            </div>
+            <div>
                 <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Workspace Name</label>
-                <input type="text" id="ws-name" required placeholder="e.g. Neon Arcade or Python Data Tools" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                <input type="text" id="ws-name" placeholder="e.g. Neon Arcade or Python Data Tools (leave blank for AI naming)" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
             </div>
             <div>
                 <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Description (Optional)</label>
                 <textarea id="ws-desc" rows="2" placeholder="Brief summary of this project..." class="w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none resize-none"></textarea>
             </div>
             <div>
-                <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Starter Template</label>
-                <select id="ws-template" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Project Type / Template</label>
+                <select id="ws-template" onchange="toggleCustomTemplateInput(this.value)" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                     <option value="web-game">🎮 Web App: Mini Arcade (HTML5 / CSS / JS with Live Preview)</option>
-                    <option value="python-demo">🐍 Python: Data & Algorithms (Pyodide WASM)</option>
-                    <option value="blank">📄 Empty Workspace (Single index.html & README.md)</option>
+                    <option value="python-demo">🐍 Python: Data & Algorithms (Pyodide WASM Execution)</option>
+                    <option value="blank">📄 Blank Project (HTML & Clean Markdown README)</option>
+                    <option value="gist">📝 Multi-File Gist (Code & Scratchpad Repository)</option>
+                    <option value="markdown">📘 Markdown Documents & Wiki Studio</option>
+                    <option value="custom">⚙️ Custom Type (Gist Mode)</option>
                 </select>
+                <input type="text" id="ws-custom-template" placeholder="Enter custom type (e.g. rust, sql, cli, react)..." class="hidden mt-2 w-full text-xs p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono" />
             </div>
             <div class="flex justify-end gap-3 pt-3 border-t border-gray-100">
                 <button type="button" onclick="closeCreateModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg">Cancel</button>
@@ -133,16 +142,36 @@
 function openCreateModal() { document.getElementById("create-modal").classList.remove("hidden"); }
 function closeCreateModal() { document.getElementById("create-modal").classList.add("hidden"); }
 
+function toggleCustomTemplateInput(val) {
+    const customInput = document.getElementById("ws-custom-template");
+    if (val === "custom") {
+        customInput.classList.remove("hidden");
+        customInput.focus();
+    } else {
+        customInput.classList.add("hidden");
+    }
+}
+
 async function submitNewWorkspace(e) {
     e.preventDefault();
     const btn = document.getElementById("ws-submit-btn");
     btn.disabled = true;
     btn.textContent = "Creating...";
 
+    const promptVal = (document.getElementById("ws-prompt") ? document.getElementById("ws-prompt").value.trim() : "");
+    const nameVal = document.getElementById("ws-name").value.trim() || (promptVal ? "AI Generated Project" : "Untitled Workspace");
+    const templateSelect = document.getElementById("ws-template").value;
+    let chosenTemplate = templateSelect;
+    if (templateSelect === "custom") {
+        const customVal = document.getElementById("ws-custom-template").value.trim();
+        chosenTemplate = customVal || "gist";
+    }
+
     const payload = {
-        name: document.getElementById("ws-name").value.trim(),
+        name: nameVal,
         description: document.getElementById("ws-desc").value.trim(),
-        template: document.getElementById("ws-template").value,
+        template: chosenTemplate,
+        prompt: promptVal || null,
     };
 
     try {
