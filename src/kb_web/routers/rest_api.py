@@ -12,6 +12,7 @@ from typing import Optional, List, Dict, Any
 from urllib.parse import urlparse, unquote_plus
 
 from fastapi import APIRouter, Query, HTTPException, Depends
+from pydantic import BaseModel
 from sqlalchemy import or_, func, desc, asc
 
 from ..base import db_session, config
@@ -625,5 +626,103 @@ def search_rag_chunks_post(
         "count": len(results),
         "results": results,
     }
+
+
+class ImportRepoRequest(BaseModel):
+    repo_url: str
+    depth: int = 1
+    collection_id: Optional[int] = None
+    match: List[str] = []
+    exclude: List[str] = []
+
+
+@router.post("/import/repo")
+def import_git_repository(payload: ImportRepoRequest) -> Dict[str, Any]:
+    """Clones a Git repository, generates its structured markdown representation using devtul's rpr engine, and indexes it into the RAG system."""
+    from ..repo_importer import import_git_repo
+
+    if not payload.repo_url or not payload.repo_url.strip():
+        raise HTTPException(status_code=400, detail="Repository URL is required")
+
+    try:
+        page = import_git_repo(
+            repo_url=payload.repo_url.strip(),
+            depth=payload.depth,
+            match_patterns=payload.match,
+            exclude_patterns=payload.exclude,
+            collection_id=payload.collection_id,
+        )
+        return {
+            "status": "success",
+            "url": page.url,
+            "title": page.title,
+            "description": page.description,
+            "tags": page.tags,
+            "view_url": f"/view/page?url={page.url}",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to import repository: {e}")
+
+
+@router.get("/rag/items")
+def list_rag_items(
+    source_type: Optional[str] = Query(None, description="Optional filter: 'repo', 'note', 'web_page', 'youtube_video', 'workspace'"),
+    search: Optional[str] = Query(None, description="Optional search filter in title or chunk content"),
+    limit: int = Query(50, ge=1, le=200, description="Page limit"),
+    offset: int = Query(0, ge=0, description="Offset index"),
+) -> Dict[str, Any]:
+    """Queries unified vw_rag_items view returning standardized Supabase RAG entities across all sources."""
+    from sqlalchemy import text
+
+    where_clauses = []
+    params: Dict[str, Any] = {"limit": limit, "offset": offset}
+
+    if source_type:
+        where_clauses.append("source_type = :st")
+        params["st"] = source_type
+
+    if search and search.strip():
+        where_clauses.append("(title LIKE :search OR content_chunk LIKE :search)")
+        params["search"] = f"%{search.strip()}%"
+
+    where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+    with db_session() as session:
+        count_sql = text(f"SELECT COUNT(*) FROM vw_rag_items {where_str}")
+        total = session.execute(count_sql, params).scalar() or 0
+
+        query_sql = text(f"""
+            SELECT id, source_type, title, content_chunk, url, metadata
+            FROM vw_rag_items
+            {where_str}
+            LIMIT :limit OFFSET :offset
+        """)
+        rows = session.execute(query_sql, params).fetchall()
+
+        items = []
+        for r in rows:
+            meta = r[5]
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except Exception:
+                    pass
+            items.append({
+                "id": r[0],
+                "source_type": r[1],
+                "title": r[2],
+                "content_chunk": r[3],
+                "url": r[4],
+                "metadata": meta,
+            })
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "count": len(items),
+        "items": items,
+    }
+
 
 

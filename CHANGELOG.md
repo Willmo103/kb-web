@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] - 2026-10-09
+### Added
+- **Unified Supabase RAG View (`vw_rag_items`) (`src/kb_web/models_orm.py`, `migrations/versions/3d4e5f6a7b8c_add_unified_rag_view.py`)**:
+  - Created standardized view `vw_rag_items` uniting 5 content sources (`chunk_embeddings` for pages and articles, `notes`, `youtube_videos`, `article_embeddings` for unchunked pages, and `workspace_files`).
+  - Standardized unified schema format: `(id, source_type, title, content_chunk, url, embedding, metadata JSONB)` mapped for Supabase foreign data wrapper (FDW) remote server querying.
+  - Automatically created and verified on server startup via `ensure_views_and_indexes()` for both PostgreSQL and SQLite.
+  - Added REST endpoint `GET /api/rag/items` supporting `source_type` filter, keyword query search, limit, and offset pagination.
+- **Git Repository & Codebase Importer via devtul Engine (`src/kb_web/repo_importer.py`)**:
+  - Mapped `packages/devtul` as Git submodule and extracted `rpr` codebase ingestion logic.
+  - Generates comprehensive structured Markdown article representations including:
+    - Repository overview and Git metadata table (branch, commit hash, commit message, author, remote origin).
+    - Full ASCII directory tree.
+    - File summary table with line counts, file sizes, and programming language taxonomy.
+    - Syntax-highlighted code blocks for all source files respecting configurable match/exclude globs and `.gitignore` rules.
+  - Normalized URL protocol format: `repo://{hostname}/{owner}/{repo}` with automated title and tag extraction.
+  - Ingests cloned repositories into standard `FetchedPage` records and queues full-text/Gemma vector embedding indexing.
+- **Web UI & CLI Git Repo Import Interfaces**:
+  - `src/kb_web/templates/url_import.j2.html`: Added "💻 Git Repo / Codebase" import tab with depth, match/exclude filters, collection selection, and interactive progress loader.
+  - `src/kb_web/routers/rest_api.py`: Added `POST /api/import/repo` accepting `ImportRepoRequest` with clone depth, match globs, and collection association.
+  - `kb-web-cli/src/kb_web_cli/main.py`: Added `kb-web-cli import-repo` command supporting `--depth`, `--collection`, `--match`, and `--exclude`.
+
 ## [0.5.5] - 2026-10-06
 ### Added
 - **Notes Cascading Deletion & Single-Note Purge Action (`src/kb_web/routers/notes.py`)**:
