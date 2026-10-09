@@ -20,6 +20,9 @@
         <button type="button" id="tabCrawlBtn" onclick="switchTab('crawl')" class="py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2">
             <span>🕷️</span> Crawl & Discover URLs
         </button>
+        <button type="button" id="tabRepoBtn" onclick="switchTab('repo')" class="py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2">
+            <span>💻</span> Git Repo / Codebase
+        </button>
     </div>
 
     <!-- TAB 1: Single Page Ingest (Existing Pipeline) -->
@@ -251,6 +254,84 @@
 
     </div>
 
+    <!-- TAB 3: Git Repo / Codebase Ingestion (devtul Rpr Pipeline) -->
+    <div id="repoIngestView" class="hidden bg-white p-8 rounded-xl border border-gray-200 shadow-sm space-y-6">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-2xl">💻</span>
+            <h1 class="text-2xl font-extrabold text-gray-900">Git Repository & Codebase Ingestion</h1>
+        </div>
+        <p class="text-sm text-gray-500 mb-6">
+            Shallow clones a remote Git repository (GitHub/GitLab), synthesizes a structured Markdown article with Git metadata tables, ASCII directory trees, and syntax-highlighted codeblocks via devtul's representation engine, and indexes it directly into the RAG system.
+        </p>
+
+        <form id="repoImportForm" onsubmit="handleRepoImport(event)" class="space-y-4">
+            <div>
+                <label for="repoUrlInput" class="block text-sm font-semibold text-gray-700 mb-2">Git Repository URL:</label>
+                <input type="url" id="repoUrlInput" required placeholder="https://github.com/owner/repository.git"
+                       class="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-sm">
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="repoCloneDepth" class="block text-sm font-semibold text-gray-700 mb-2">Clone Commit Depth:</label>
+                    <input type="number" id="repoCloneDepth" value="1" min="1" max="100"
+                           class="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-sm">
+                    <span class="text-xs text-gray-400 mt-1 block">Default depth 1 creates a lightweight shallow clone.</span>
+                </div>
+                <div>
+                    <label for="repoCollectionId" class="block text-sm font-semibold text-gray-700 mb-2">Assign to Collection:</label>
+                    <select id="repoCollectionId"
+                            class="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-sm">
+                        <option value="">None (General Library)</option>
+                        {% for col in collections %}
+                        <option value="{{ col.id }}">{{ col.title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="repoMatchPatterns" class="block text-sm font-semibold text-gray-700 mb-2">Include Pattern Match (Optional):</label>
+                    <input type="text" id="repoMatchPatterns" placeholder="*.py, *.ts, src/*"
+                           class="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-sm">
+                    <span class="text-xs text-gray-400 mt-1 block">Comma-separated glob filters (leave empty to include all code).</span>
+                </div>
+                <div>
+                    <label for="repoExcludePatterns" class="block text-sm font-semibold text-gray-700 mb-2">Exclude Pattern (Optional):</label>
+                    <input type="text" id="repoExcludePatterns" placeholder="tests/*, docs/*"
+                           class="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 text-sm">
+                    <span class="text-xs text-gray-400 mt-1 block">Comma-separated glob filters to exclude.</span>
+                </div>
+            </div>
+
+            <div class="pt-2">
+                <button type="submit" id="btnRepoImport" class="bg-indigo-600 text-white px-5 py-2.5 rounded-lg hover:bg-indigo-700 font-semibold shadow-sm transition flex items-center gap-2">
+                    <span>⚡</span> Clone & Ingest Repository
+                </button>
+            </div>
+        </form>
+
+        <div id="repoImportLoading" class="hidden flex items-center gap-4 p-4 bg-gray-50 border border-gray-100 rounded-lg">
+            <div class="animate-spin rounded-full h-5 w-5 border-2 border-indigo-600 border-t-transparent"></div>
+            <div class="text-sm text-gray-600 font-medium animate-pulse">Cloning repository sandbox, extracting tree structure, and generating RAG vector embeddings...</div>
+        </div>
+
+        <div id="repoImportError" class="hidden p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg text-sm"></div>
+
+        <div id="repoImportSuccess" class="hidden p-5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl space-y-2">
+            <div class="flex items-center gap-2 font-bold text-emerald-800 text-base">
+                <span>✅</span> Repository Successfully Ingested!
+            </div>
+            <p id="repoImportSuccessDesc" class="text-sm text-emerald-700"></p>
+            <div class="pt-2">
+                <a id="repoImportSuccessLink" href="#" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm">
+                    <span>📖</span> View Generated Article Profile
+                </a>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <script>
@@ -258,19 +339,92 @@
     function switchTab(tab) {
         const singleBtn = document.getElementById('tabSingleBtn');
         const crawlBtn = document.getElementById('tabCrawlBtn');
+        const repoBtn = document.getElementById('tabRepoBtn');
         const singleView = document.getElementById('singleIngestView');
         const crawlView = document.getElementById('crawlIngestView');
+        const repoView = document.getElementById('repoIngestView');
+
+        const activeClass = "py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-660 focus:outline-none transition flex items-center gap-2";
+        const inactiveClass = "py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2";
+
+        singleBtn.className = inactiveClass;
+        crawlBtn.className = inactiveClass;
+        repoBtn.className = inactiveClass;
+
+        singleView.classList.add('hidden');
+        crawlView.classList.add('hidden');
+        repoView.classList.add('hidden');
 
         if (tab === 'crawl') {
-            singleBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2";
-            crawlBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-660 focus:outline-none transition flex items-center gap-2";
-            singleView.classList.add('hidden');
+            crawlBtn.className = activeClass;
             crawlView.classList.remove('hidden');
+        } else if (tab === 'repo') {
+            repoBtn.className = activeClass;
+            repoView.classList.remove('hidden');
         } else {
-            crawlBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2";
-            singleBtn.className = "py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-660 focus:outline-none transition flex items-center gap-2";
-            crawlView.classList.add('hidden');
+            singleBtn.className = activeClass;
             singleView.classList.remove('hidden');
+        }
+    }
+
+    async function handleRepoImport(event) {
+        if (event) event.preventDefault();
+        const urlInput = document.getElementById('repoUrlInput');
+        const depthInput = document.getElementById('repoCloneDepth');
+        const colSelect = document.getElementById('repoCollectionId');
+        const matchInput = document.getElementById('repoMatchPatterns');
+        const excludeInput = document.getElementById('repoExcludePatterns');
+
+        const loadingDiv = document.getElementById('repoImportLoading');
+        const errorDiv = document.getElementById('repoImportError');
+        const successDiv = document.getElementById('repoImportSuccess');
+        const btn = document.getElementById('btnRepoImport');
+
+        const repoUrl = urlInput.value.trim();
+        if (!repoUrl) return;
+
+        const depth = parseInt(depthInput.value, 10) || 1;
+        const colId = colSelect.value ? parseInt(colSelect.value, 10) : null;
+        const match = matchInput.value.split(',').map(s => s.trim()).filter(Boolean);
+        const exclude = excludeInput.value.split(',').map(s => s.trim()).filter(Boolean);
+
+        loadingDiv.classList.remove('hidden');
+        errorDiv.classList.add('hidden');
+        successDiv.classList.add('hidden');
+        btn.disabled = true;
+        btn.classList.add('opacity-50');
+
+        try {
+            const resp = await fetch('/api/import/repo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    repo_url: repoUrl,
+                    depth: depth,
+                    collection_id: colId,
+                    match: match,
+                    exclude: exclude
+                })
+            });
+            const data = await resp.json();
+
+            if (data.status === 'success') {
+                document.getElementById('repoImportSuccessDesc').innerText = `${data.title} (${data.description})`;
+                document.getElementById('repoImportSuccessLink').href = data.view_url;
+                successDiv.classList.remove('hidden');
+                successDiv.scrollIntoView({ behavior: 'smooth' });
+                urlInput.value = '';
+            } else {
+                errorDiv.innerText = "Error importing repository: " + (data.detail || data.message || "Failed to process repository");
+                errorDiv.classList.remove('hidden');
+            }
+        } catch (err) {
+            errorDiv.innerText = "Network error: " + err.message;
+            errorDiv.classList.remove('hidden');
+        } finally {
+            loadingDiv.classList.add('hidden');
+            btn.disabled = false;
+            btn.classList.remove('opacity-50');
         }
     }
 
@@ -639,7 +793,13 @@
     // URL parameter detection to auto-open Crawl tab if requested
     document.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('mode') === 'crawl' || urlParams.get('tab') === 'crawl') {
+        if (urlParams.get('mode') === 'repo' || urlParams.get('tab') === 'repo') {
+            switchTab('repo');
+            const repo = urlParams.get('repo') || urlParams.get('url');
+            if (repo) {
+                document.getElementById('repoUrlInput').value = repo;
+            }
+        } else if (urlParams.get('mode') === 'crawl' || urlParams.get('tab') === 'crawl') {
             switchTab('crawl');
             const seed = urlParams.get('seed') || urlParams.get('url');
             if (seed) {
