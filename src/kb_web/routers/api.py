@@ -17,6 +17,7 @@ from ..base import (
 )
 from ..models import HTMLPage, HTMLImportPayload, extract_youtube_video_id
 from ..models_orm import FetchedPage, PageVersion
+from ..html_cleaner import html_to_clean_markdown
 from ..utils import (
     extract_wiki_content,
     extract_tags_content,
@@ -58,9 +59,7 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
                 page_data = None
 
         if not page_data:
-            h = HTML2Text()
-            h.ignore_links = True
-            md_content = h.handle(html_content)
+            md_content = html_to_clean_markdown(html_content)
 
             soup = BeautifulSoup(html_content, "html5lib")
             links = [a.get("href") for a in soup.find_all("a", href=True)]
