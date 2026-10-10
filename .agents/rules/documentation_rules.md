@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # Self-Documentation & Documentation Rules
 
 Agents working in `kb-web` are required to maintain strict self-documentation standards. Code edits without corresponding documentation updates are incomplete.
@@ -19,5 +23,5 @@ Agents working in `kb-web` are required to maintain strict self-documentation st
 - Preserve all existing code docstrings, type annotations, and descriptive comments unless the target code logic is explicitly rewritten or removed.
 
 ## 5. Mandatory Implementation Plan Presentation
-- Whenever an implementation plan is created or updated and saved in `./.artifacts/`, the agent MUST ALWAYS present the implementation plan directly to the user in the response immediately after saving it in the artifacts folder, before asking for confirmation or proceeding to write code.
+- Whenever an implementation plan is created or updated and saved in `./.artifacts/`, the agent MUST ALWAYS present the implementation plan directly to the user in the response immediately after saving it in the artifacts folder, before asking for confirmation or proceeding to write code. (use the `present` tool **always** for this action)
 

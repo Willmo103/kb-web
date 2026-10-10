@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] - 2026-10-09
+### Added
+- **HTML Boilerplate Stripper & Clean Markdown Generator (`src/kb_web/html_cleaner.py`)**:
+  - Implemented DOM sanitization engine decomposing non-content tags (`header`, `nav`, `footer`, `aside`, `script`, `style`, `noscript`, `svg`, `form`, `iframe`, `button`).
+  - Added regex pattern matching to decompose boilerplate containers (cookie banners, consent prompts, social share widgets, newsletter modals, and advertisement sidebars).
+  - Implemented semantic container detection prioritizing `<article>` and `<main>` tags with substantive text (>250 chars) to eliminate surrounding page chrome.
+  - Configured `HTML2Text` with `body_width = 0` (preventing hard line wrap at 78 cols), clean link handling, and collapsed consecutive whitespace.
+- **Interactive Dry-Run & Batch Inspection Tool (`scripts/preview_html_cleaning.py`)**:
+  - Added interactive CLI runner supporting `--sample <N>`, `--url <url>`, and on-the-fly `--fetch-url <url>` live testing.
+  - Generates standalone, interactive side-by-side visual HTML comparison report (`.artifacts/feature-html-boilerplate-stripper-and-cleaner/html_cleaning_preview.html`) displaying Original Raw Markdown vs. Sanitized Clean Markdown with character reduction and line metrics.
+  - Safe dry-run by default; `--apply` commits changes with `PageVersion` audit backups and `is_frozen` guardrails.
+- **Ingestion Pipeline Upgrades**:
+  - Updated `fetch_url()` in `src/kb_web/utils.py` and `POST /api/import/html` in `src/kb_web/routers/api.py` to route through `html_to_clean_markdown()` for all future imported pages.
+
 ## [0.5.5] - 2026-10-06
 ### Added
 - **Notes Cascading Deletion & Single-Note Purge Action (`src/kb_web/routers/notes.py`)**:
