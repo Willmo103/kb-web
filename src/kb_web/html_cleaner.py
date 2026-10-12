@@ -120,6 +120,39 @@ def clean_html_to_soup(raw_html: str) -> BeautifulSoup:
     return soup
 
 
+def extract_links_from_raw_html(raw_html: str, base_url: str = "") -> list[str]:
+    """
+    Extracts all hyperlinks (<a> tags with href) from raw HTML BEFORE any
+    boilerplate elements (nav, header, footer, aside, scripts) are removed.
+    Resolves relative paths against base_url if provided and filters non-HTTP targets.
+    """
+    if not raw_html or not raw_html.strip():
+        return []
+
+    from urllib.parse import urljoin
+
+    soup = BeautifulSoup(raw_html, "html5lib")
+    raw_links = [a.get("href") for a in soup.find_all("a", href=True)]
+    resolved_links = []
+    seen = set()
+
+    for href in raw_links:
+        if not href:
+            continue
+        href = str(href).strip()
+        if not href or href.startswith(("javascript:", "mailto:", "tel:", "data:", "sms:", "#")):
+            continue
+        if base_url:
+            resolved = urljoin(base_url, href) if href.startswith("/") or "://" not in href else href
+        else:
+            resolved = href
+        if resolved and resolved not in seen:
+            seen.add(resolved)
+            resolved_links.append(resolved)
+
+    return resolved_links
+
+
 def html_to_clean_markdown(raw_html: str) -> str:
     """
     Sanitizes raw HTML by removing non-content boilerplate, prioritizing article

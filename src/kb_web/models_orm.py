@@ -487,6 +487,21 @@ class RagReport(Base):
     created_at = Column(String)
 
 
+class IngestionNotification(Base):
+    __tablename__ = "ingestion_notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(String, index=True)
+    url = Column(String, index=True)
+    title = Column(String)
+    stage = Column(String)  # "fetch", "wiki", "tags", "vector", "video", "error"
+    status = Column(String)  # "started", "success", "failed", "warning", "info"
+    message = Column(Text)
+    details = Column(Text, default="")
+    created_at = Column(String, index=True)
+    read = Column(Integer, default=0, index=True)
+
+
 metadata = Base.metadata
 
 
@@ -763,5 +778,44 @@ def ensure_views_and_indexes(engine):
                     """))
             except Exception as e:
                 print(f"Warning creating server_error_logs table: {e}")
+
+            # Ensure ingestion_notifications table and indexes exist
+            try:
+                if dialect == "postgresql":
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS ingestion_notifications (
+                            id SERIAL PRIMARY KEY,
+                            task_id VARCHAR,
+                            url TEXT,
+                            title TEXT,
+                            stage VARCHAR,
+                            status VARCHAR,
+                            message TEXT,
+                            details TEXT DEFAULT '',
+                            created_at VARCHAR,
+                            read INTEGER DEFAULT 0
+                        )
+                    """))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ingestion_notif_created_at ON ingestion_notifications (created_at DESC)"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ingestion_notif_read ON ingestion_notifications (read)"))
+                else:
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS ingestion_notifications (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            task_id TEXT,
+                            url TEXT,
+                            title TEXT,
+                            stage TEXT,
+                            status TEXT,
+                            message TEXT,
+                            details TEXT DEFAULT '',
+                            created_at TEXT,
+                            read INTEGER DEFAULT 0
+                        )
+                    """))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ingestion_notif_created_at ON ingestion_notifications (created_at DESC)"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ingestion_notif_read ON ingestion_notifications (read)"))
+            except Exception as e:
+                print(f"Warning creating ingestion_notifications table: {e}")
 
 

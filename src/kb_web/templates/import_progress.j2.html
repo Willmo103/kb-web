@@ -1,0 +1,22 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Import In Progress | {{ target_url }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 max-w-xl mt-12 pb-12 text-center">
+    <div class="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm space-y-4">
+        <div class="inline-flex p-3 bg-indigo-50 rounded-full text-indigo-600 mb-2">
+            <span class="text-3xl animate-spin">🔄</span>
+        </div>
+        <h2 class="text-xl font-bold text-gray-900">Importing Content In Background</h2>
+        <p class="text-sm text-gray-600">{{ status_msg }}</p>
+        <div class="text-xs text-gray-400 font-mono break-all bg-gray-50 p-2.5 rounded-lg border border-gray-100">{{ target_url }}</div>
+        <p class="text-xs text-indigo-600 font-medium animate-pulse pt-2">Checking status every 3 seconds...</p>
+        <div class="pt-2 flex justify-center gap-3">
+            <a href="/import" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg font-semibold transition">Back to Importer</a>
+            <a href="/" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg font-semibold transition">Home Library</a>
+        </div>
+    </div>
+</div>
+<meta http-equiv="refresh" content="3">
+{% endblock %}
