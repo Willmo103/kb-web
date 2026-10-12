@@ -166,262 +166,44 @@ def handle_incoming_mobile_share(
 
 
 @router.post("/import/url", dependencies=[Depends(verify_auth)], response_model=None)
-def handle_url_import(
+async def handle_url_import(
     request: Request,
     background_tasks: BackgroundTasks,
     url: str = Form(...),
     collection_id: Optional[str] = Form(None),
     new_collection_title: Optional[str] = Form(None),
     download_video: Optional[str] = Form(None),
-) -> StreamingResponse:
-    """Processes URL ingestion, downloads content, rewrites with LLM, and logs to database."""
+) -> RedirectResponse:
+    """Dispatches resilient background ingestion without blocking the user on a loading page."""
+    import uuid
+    from ..pipeline import run_ingest_pipeline_background
+
     cleaned_url = extract_first_url(url)
-
-    async def stream_ingestion():
-        # Yield the initial HTML layout of the progress page
-        yield """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ingestion Pipeline Progress</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Outfit', sans-serif; background-color: #F4EFEA; }
-    </style>
-</head>
-<body class="text-gray-850 min-h-screen antialiased flex flex-col justify-center items-center">
-    <div class="w-full max-w-xl bg-white p-8 rounded-xl border border-gray-200 shadow-lg mx-4">
-        <div class="flex items-center gap-3 mb-4">
-            <span class="text-2xl animate-spin">🔄</span>
-            <h1 class="text-xl font-bold text-gray-900">Ingestion Pipeline In Progress</h1>
-        </div>
-        <p class="text-sm text-gray-500 mb-6" id="status-text">Initializing pipeline...</p>
-        
-        <div class="w-full bg-gray-200 rounded-full h-3.5 mb-6 overflow-hidden">
-            <div id="progress-bar" class="bg-indigo-650 h-3.5 rounded-full transition-all duration-300" style="width: 5%"></div>
-        </div>
-        
-        <div class="bg-gray-950 text-gray-200 font-mono text-xs p-4 rounded-lg h-48 overflow-y-auto space-y-1 border border-gray-800" id="terminal-logs">
-            <div class="text-gray-500">[SYSTEM] Initializing pipeline...</div>
-        </div>
-    </div>
-    
-    <script>
-        const progressBar = document.getElementById('progress-bar');
-        const statusText = document.getElementById('status-text');
-        const terminalLogs = document.getElementById('terminal-logs');
-        
-        function updateProgress(message, percentage) {
-            statusText.innerText = message;
-            progressBar.style.width = percentage + '%';
-            addLog(message);
-        }
-        
-        function addLog(text) {
-            const div = document.createElement('div');
-            div.innerText = "[" + new Date().toLocaleTimeString() + "] " + text;
-            terminalLogs.appendChild(div);
-            terminalLogs.scrollTop = terminalLogs.scrollHeight;
-        }
-        
-        function showError(message) {
-            statusText.innerText = "Error: " + message;
-            statusText.className = "text-sm text-red-600 font-bold mb-6";
-            progressBar.className = "bg-red-500 h-3.5 rounded-full";
-            const btn = document.createElement('button');
-            btn.className = "mt-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold py-2.5 px-4 rounded transition shadow-sm";
-            btn.innerText = "Back to Importer";
-            btn.onclick = () => window.location.href = "/import";
-            document.querySelector('.w-full.max-w-xl').appendChild(btn);
-            addLog("ERROR: " + message);
-        }
-    </script>
-"""
-
-        client = _get_ollama_client()
-        from fastapi.concurrency import run_in_threadpool
-
-        logger.info(
-            f"Ingestion started for URL: {cleaned_url} (collection: {collection_id}, new title: {new_collection_title})"
+    if not cleaned_url:
+        return RedirectResponse(
+            url="/import?error=Please+provide+a+valid+HTTP+or+HTTPS+URL.",
+            status_code=303,
         )
 
-        # Step 1: Fetch
-        msg = f"Fetching content from URL: {cleaned_url}..."
-        yield f"<script>updateProgress({json.dumps(msg)}, 20);</script>\n"
-        try:
-            page_data = await run_in_threadpool(fetch_url, cleaned_url)
-            yield f"<script>addLog({json.dumps('Successfully fetched target URL content.')});</script>\n"
-            logger.info(f"Ingestion fetch complete for: {cleaned_url}")
-        except Exception as e:
-            err_msg = f"Fetch failed: {str(e)}"
-            yield f"<script>showError({json.dumps(err_msg)});</script>\n"
-            logger.error(
-                f"Ingestion fetch failed for: {cleaned_url} - Error: {str(e)}",
-                exc_info=True,
-            )
-            return
+    task_id = f"task_{uuid.uuid4().hex[:8]}"
 
-        # Check duplicate
-        with db_session() as session:
-            existing = session.query(FetchedPage).filter_by(url=cleaned_url).first()
-            if existing:
-                if existing.md_content_hash == page_data.md_content_hash:
-                    yield f"<script>addLog({json.dumps('Content hash matches existing record. Ingestion skipped.')});</script>\n"
-                    time.sleep(1)
-                    # Redirect
-                    yield f"<script>window.location.href = '/view/page?url={quote_plus(cleaned_url)}&msg=Content+unchanged.+Skipping+ingestion.';</script>\n"
-                    return
-                else:
-                    yield f"<script>addLog({json.dumps('Content changed. Archiving current version...')});</script>\n"
-                    session.add(
-                        PageVersion(
-                            url=existing.url,
-                            title=existing.title,
-                            html_content=existing.html_content,
-                            md_content=existing.md_content,
-                            links=existing.links,
-                            html_content_hash=existing.html_content_hash,
-                            md_content_hash=existing.md_content_hash,
-                            fetched_at=existing.fetched_at,
-                            description=existing.description,
-                            keywords=existing.keywords,
-                            tags=existing.tags,
-                        )
-                    )
+    # Add background ingestion task
+    background_tasks.add_task(
+        run_ingest_pipeline_background,
+        raw_url=cleaned_url,
+        collection_id=collection_id,
+        new_collection_title=new_collection_title,
+        download_video=download_video,
+        task_id=task_id,
+    )
 
-        # Step 2: Extraction LLM
-        msg = "Extracting details and summary with Ollama..."
-        yield f"<script>updateProgress({json.dumps(msg)}, 40);</script>\n"
-        try:
-            wiki_entry = await run_in_threadpool(
-                extract_wiki_content, page_data, config, client
-            )
-            page_data.description = wiki_entry
-            yield f"<script>addLog({json.dumps('LLM profile summary generation complete.')});</script>\n"
-        except Exception as e:
-            err_msg = f"LLM Summary Extraction failed: {str(e)}"
-            yield f"<script>showError({json.dumps(err_msg)});</script>\n"
-            logger.error(
-                f"LLM Summary Extraction failed for: {cleaned_url} - Error: {str(e)}",
-                exc_info=True,
-            )
-            return
-
-        # Determine Title
-        title = cleaned_url
-        soup = BeautifulSoup(page_data.html_content, "html5lib")
-        if soup.title:
-            title = soup.title.string
-        if not title:
-            title = urlparse(cleaned_url).netloc or cleaned_url
-
-        if wiki_entry.strip().startswith("#"):
-            first_line = wiki_entry.strip().split("\n")[0]
-            title = first_line.replace("#", "").strip()
-
-        page_data.title = title
-
-        # Step 3: Extract Tags
-        msg = "Extracting auto tags with Ollama..."
-        yield f"<script>updateProgress({json.dumps(msg)}, 60);</script>\n"
-        try:
-            tags = await run_in_threadpool(
-                extract_tags_content, page_data, config, client
-            )
-            page_data.tags = tags
-            yield f"<script>addLog({json.dumps(f'Tags generation complete: {tags}')});</script>\n"
-        except Exception as e:
-            yield f"<script>addLog({json.dumps(f'Tags warning: {e}')});</script>\n"
-
-        # Step 4: Save & Embed
-        msg = "Saving profiles and computing embeddings..."
-        yield f"<script>updateProgress({json.dumps(msg)}, 85);</script>\n"
-
-        # Resolve Collections
-        resolved_col_id = None
-        with db_session() as session:
-            if new_collection_title and new_collection_title.strip():
-                col_title = new_collection_title.strip()
-                col = session.query(Collection).filter_by(title=col_title).first()
-                if not col:
-                    col = Collection(
-                        title=col_title,
-                        visibility="public",
-                        rag_system_prompt=DEFAULT_RAG_SYSTEM_PROMPT,
-                        taxonomy_system_prompt=DEFAULT_TAXONOMY_SYSTEM_PROMPT,
-                        general_system_context="{}",
-                        created_at=datetime.now().isoformat(),
-                    )
-                    session.add(col)
-                    session.flush()
-                resolved_col_id = col.id
-            elif collection_id and collection_id.isdigit():
-                resolved_col_id = int(collection_id)
-
-        page_data.collection_id = resolved_col_id
-        serialized, creator = serialize_page_for_db(page_data)
-
-        with db_session() as session:
-            page = session.query(FetchedPage).filter_by(url=cleaned_url).first()
-            if page:
-                for k, v in serialized.items():
-                    setattr(page, k, v)
-            else:
-                session.add(FetchedPage(**serialized))
-
-            # Associate to Collection
-            if resolved_col_id:
-                existing_item = session.query(CollectionItem).filter_by(collection_id=resolved_col_id, source_id=cleaned_url).first()
-                if not existing_item:
-                    is_video = extract_youtube_video_id(cleaned_url) is not None
-                    source_type = "videos" if is_video else "articles"
-                    # Determine next item order
-                    from sqlalchemy import func
-                    max_order = session.query(func.max(CollectionItem.item_order)).filter_by(collection_id=resolved_col_id).scalar() or 0
-                    session.add(
-                        CollectionItem(
-                            collection_id=resolved_col_id,
-                            source_type=source_type,
-                            source_id=cleaned_url,
-                            item_note="",
-                            taxonomy_path="",
-                            item_order=max_order + 1,
-                            added_at=datetime.now().isoformat(),
-                        )
-                    )
-
-        # Sync youtube metadata and embeddings
-        await run_in_threadpool(save_youtube_metadata_helper, None, page_data.url, creator)
-        await run_in_threadpool(update_article_embedding, None, page_data.url, config, client)
-        await run_in_threadpool(generate_gemma_embeddings_for_page, None, page_data.url, config, client)
-
-        # Background download check
-        video_id = extract_youtube_video_id(cleaned_url)
-        if download_video == "true" and video_id:
-            background_tasks.add_task(
-                background_video_downloader, video_id, page_data.url, config
-            )
-            yield f"<script>addLog({json.dumps('Spawning background downloader for YouTube video file...')});</script>\n"
-
-        base_url = str(request.base_url).rstrip("/")
-        view_url = f"{base_url}/view/page?url={page_data.safe_url}"
-        post_to_gotify(config, _jinja_env, page_data, view_url)
-
-        yield f"<script>updateProgress({json.dumps('Ingestion pipeline complete!')}, 100);</script>\n"
-        time.sleep(1)
-        yield f"<script>window.location.href = '/view/page?url={quote_plus(cleaned_url)}&msg=Ingestion+successful.';</script>\n"
-
-    return StreamingResponse(
-        stream_ingestion(),
-        media_type="text/html",
-        headers={
-            "X-Accel-Buffering": "no",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
+    encoded_target = quote_plus(cleaned_url)
+    success_msg = quote_plus(
+        "Import started in background. Content is being fetched and processed."
+    )
+    return RedirectResponse(
+        url=f"/view/page?url={encoded_target}&msg={success_msg}",
+        status_code=303,
     )
 
 

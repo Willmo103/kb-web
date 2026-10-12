@@ -371,6 +371,28 @@
         html.dark .theme-moon-icon {
             display: block;
         }
+
+        /* Viewport Containment & Responsive Dropdown Styles */
+        html, body {
+            max-width: 100vw;
+            overflow-x: hidden;
+        }
+        html.dark #notificationsDropdown {
+            background-color: #0f172a !important;
+            border-color: #1e293b !important;
+            color: #e2e8f0 !important;
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.7), 0 0 10px rgba(56, 189, 248, 0.1) !important;
+        }
+        html.dark .notif-row {
+            border-color: #1e293b !important;
+        }
+        html.dark .notif-row:hover {
+            background-color: #141d33 !important;
+        }
+        html.dark #mobileNavMenu {
+            background-color: #0f172a !important;
+            border-color: #1e293b !important;
+        }
     </style>
     {% block extra_head %}{% endblock %}
     {% block head_extra %}{% endblock %}
@@ -385,85 +407,178 @@
 <body class="text-gray-850 min-h-screen antialiased flex flex-col">
 
     <div class="w-full px-4 pt-4">
-        <div class="mb-6 flex justify-between items-center bg-white nav-header-bar p-4 rounded-xl border border-gray-200 shadow-sm max-w-[95%] w-full mx-auto">
-            {% if is_admin %}
-            <div class="flex gap-5 font-semibold text-sm">
-                <a href="/" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">🏠</span> Home
-                </a>
-                <a href="/sites" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">🌐</span> Sites
-                </a>
-                <a href="/?view=videos" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">📺</span> Videos
-                </a>
-                <a href="/collections" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">📁</span> Collections
-                </a>
-                <a href="/reports/rag" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">🔬</span> RAG
-                </a>
-                <a href="/notes" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">📝</span> Notes
-                </a>
-                <a href="/taxonomy" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">🗂️</span> Taxonomy
-                </a>
-                <a href="/agents/board" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">🧠</span> Board
-                </a>
-                <a href="/workspaces" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">💻</span> Studio
-                </a>
-                <a href="/reports" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">📊</span> Reports
-                </a>
-                <a href="/links" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center">
-                    <span class="mr-1.5">🔗</span> Links
-                </a>
+        <header class="mb-6 bg-white nav-header-bar rounded-xl border border-gray-200 shadow-sm max-w-[95%] w-full mx-auto relative">
+            <div class="flex justify-between items-center p-3 sm:p-4">
+                <!-- Left: Brand / Logo and Desktop Links -->
+                <div class="flex items-center gap-4 xl:gap-6 min-w-0">
+                    <a href="/" class="flex items-center gap-2 flex-shrink-0 text-decoration-none">
+                        <span class="text-xl">📚</span>
+                        <span class="font-bold text-gray-900 text-sm tracking-tight hidden sm:inline">Knowledge Base</span>
+                    </a>
+
+                    {% if is_admin %}
+                    <!-- Desktop Nav Links (hidden on smaller screens, visible on xl) -->
+                    <nav class="hidden xl:flex items-center gap-4 font-semibold text-xs 2xl:text-sm text-gray-700">
+                        <a href="/" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">🏠</span> Home
+                        </a>
+                        <a href="/sites" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">🌐</span> Sites
+                        </a>
+                        <a href="/?view=videos" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">📺</span> Videos
+                        </a>
+                        <a href="/collections" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">📁</span> Collections
+                        </a>
+                        <a href="/reports/rag" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">🔬</span> RAG
+                        </a>
+                        <a href="/notes" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">📝</span> Notes
+                        </a>
+                        <a href="/taxonomy" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">🗂️</span> Taxonomy
+                        </a>
+                        <a href="/agents/board" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">🧠</span> Board
+                        </a>
+                        <a href="/workspaces" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">💻</span> Studio
+                        </a>
+                        <a href="/reports" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">📊</span> Reports
+                        </a>
+                        <a href="/links" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">🔗</span> Links
+                        </a>
+                    </nav>
+                    {% endif %}
+                </div>
+
+                <!-- Right: Action Buttons, Notification Bell, Theme Toggle, Mobile Hamburger -->
+                <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                    <!-- Notification Bell (always accessible when admin or logged in) -->
+                    {% if is_admin %}
+                    <div class="relative">
+                        <button type="button" id="notifBellBtn" onclick="toggleNotificationsDropdown()" class="relative p-2 text-gray-600 hover:text-indigo-600 hover:bg-gray-100 rounded-lg transition" title="Notifications" aria-label="Notifications">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                            </svg>
+                            <span id="notifBadge" class="hidden absolute top-1 right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full min-w-[16px] text-center shadow">0</span>
+                        </button>
+
+                        <!-- Notification Dropdown Menu -->
+                        <div id="notificationsDropdown" class="hidden absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden text-left">
+                            <div class="p-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold text-xs text-gray-800 uppercase tracking-wider">🔔 Notifications</span>
+                                    <span id="notifCountLabel" class="text-[11px] text-gray-500"></span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button onclick="markAllNotificationsRead()" class="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold">Mark Read</button>
+                                    <span class="text-gray-300">|</span>
+                                    <button onclick="clearAllNotifications()" class="text-[11px] text-gray-500 hover:text-red-600 font-semibold">Clear</button>
+                                </div>
+                            </div>
+                            <div id="notificationsList" class="max-h-80 overflow-y-auto divide-y divide-gray-100 text-xs">
+                                <div class="p-4 text-center text-gray-400 italic">No notifications yet.</div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Moon/Sun Theme Toggle Button -->
+                    <button type="button" onclick="toggleThemeMode()" class="theme-circle-toggle" title="Toggle theme (Light / Muted Neon Dark)" aria-label="Toggle theme">
+                        <svg class="theme-sun-icon" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"/>
+                        </svg>
+                        <svg class="theme-moon-icon" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
+                        </svg>
+                    </button>
+
+                    {% if is_admin %}
+                    <a href="/import" class="hidden sm:inline-flex items-center text-xs font-semibold text-indigo-600 hover:text-indigo-800 border border-indigo-200 py-1.5 px-3 rounded-lg bg-indigo-50 transition">
+                        + Ingest URL
+                    </a>
+                    <a href="/admin" class="hidden md:inline-flex items-center text-xs font-semibold text-gray-600 hover:text-gray-800 border border-gray-200 py-1.5 px-3 rounded-lg bg-gray-50 transition">
+                        Admin
+                    </a>
+                    <a href="/logout" class="hidden md:inline-flex items-center text-xs font-semibold text-red-600 hover:text-red-800 border border-red-200 py-1.5 px-3 rounded-lg bg-red-50 transition">
+                        Logout
+                    </a>
+
+                    <!-- Mobile Hamburger Button -->
+                    <button type="button" onclick="toggleMobileMenu()" class="xl:hidden p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition" aria-label="Toggle navigation menu">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                    </button>
+                    {% else %}
+                    <div class="flex items-center gap-2">
+                        <span class="text-xl">🔐</span>
+                        <span class="font-bold text-gray-800 text-sm tracking-wide hidden sm:inline">Knowledge Base Gateway</span>
+                    </div>
+                    <a href="/login" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 border border-indigo-200 py-1.5 px-3 rounded-lg bg-indigo-50 shadow-sm transition">
+                        🔑 Admin Login
+                    </a>
+                    {% endif %}
+                </div>
             </div>
 
-            <div class="flex gap-3 items-center">
-                <!-- Moon/Sun Theme Toggle Button -->
-                <button type="button" onclick="toggleThemeMode()" class="theme-circle-toggle" title="Toggle theme (Light / Muted Neon Dark)" aria-label="Toggle theme">
-                    <svg class="theme-sun-icon" fill="currentColor" viewBox="0 0 20 20">
-                        <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"/>
-                    </svg>
-                    <svg class="theme-moon-icon" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
-                    </svg>
-                </button>
-                <a href="/import" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 border border-indigo-200 py-1.5 px-3 rounded-lg bg-indigo-50 transition">
-                    + Ingest URL
-                </a>
-                <a href="/admin" class="text-xs font-semibold text-gray-600 hover:text-gray-800 border border-gray-200 py-1.5 px-3 rounded-lg bg-gray-50 transition">
-                    Admin Dashboard
-                </a>
-                <a href="/logout" class="text-xs font-semibold text-red-600 hover:text-red-800 border border-red-200 py-1.5 px-3 rounded-lg bg-red-50 transition">
-                    Logout
-                </a>
-            </div>
-            {% else %}
-            <div class="flex items-center gap-2">
-                <span class="text-xl">🔐</span>
-                <span class="font-bold text-gray-800 text-sm tracking-wide">Knowledge Base Gateway</span>
-            </div>
-            <div class="flex items-center gap-3">
-                <!-- Moon/Sun Theme Toggle Button -->
-                <button type="button" onclick="toggleThemeMode()" class="theme-circle-toggle" title="Toggle theme (Light / Muted Neon Dark)" aria-label="Toggle theme">
-                    <svg class="theme-sun-icon" fill="currentColor" viewBox="0 0 20 20">
-                        <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"/>
-                    </svg>
-                    <svg class="theme-moon-icon" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
-                    </svg>
-                </button>
-                <a href="/login" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 border border-indigo-200 py-1.5 px-3 rounded-lg bg-indigo-50 shadow-sm transition">
-                    🔑 Admin Login
-                </a>
+            <!-- Mobile Drawer Menu -->
+            {% if is_admin %}
+            <div id="mobileNavMenu" class="hidden xl:hidden border-t border-gray-200 p-4 bg-gray-50 rounded-b-xl animate-fade-in">
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 font-semibold text-xs mb-4">
+                    <a href="/" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>🏠</span> Home
+                    </a>
+                    <a href="/sites" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>🌐</span> Sites
+                    </a>
+                    <a href="/?view=videos" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>📺</span> Videos
+                    </a>
+                    <a href="/collections" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>📁</span> Collections
+                    </a>
+                    <a href="/reports/rag" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>🔬</span> RAG
+                    </a>
+                    <a href="/notes" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>📝</span> Notes
+                    </a>
+                    <a href="/taxonomy" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>🗂️</span> Taxonomy
+                    </a>
+                    <a href="/agents/board" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>🧠</span> Board
+                    </a>
+                    <a href="/workspaces" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>💻</span> Studio
+                    </a>
+                    <a href="/reports" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>📊</span> Reports
+                    </a>
+                    <a href="/links" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>🔗</span> Links
+                    </a>
+                    <a href="/import" class="p-2.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-1.5">
+                        <span>📥</span> Ingest URL
+                    </a>
+                </div>
+                <div class="flex items-center justify-between pt-3 border-t border-gray-200 text-xs">
+                    <a href="/admin" class="font-semibold text-gray-700 hover:text-indigo-600 flex items-center gap-1">
+                        ⚙️ Admin Dashboard
+                    </a>
+                    <a href="/logout" class="font-semibold text-red-600 hover:text-red-800 flex items-center gap-1">
+                        🚪 Logout
+                    </a>
+                </div>
             </div>
             {% endif %}
-        </div>
+        </header>
     </div>
 
     {% if request and (request.query_params.get('msg') or request.query_params.get('error')) %}
@@ -493,7 +608,10 @@
         {% block content %}{% endblock %}
     </main>
 
-    <!-- Global Theme Switcher Logic -->
+    <!-- Global Toast Container -->
+    <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full px-4 pointer-events-none"></div>
+
+    <!-- Global Theme Switcher & Notifications Logic -->
     <script>
         function toggleThemeMode() {
             var isDark = document.documentElement.classList.toggle('dark');
@@ -504,6 +622,124 @@
                 setTimeout(function() { b.style.transform = ''; }, 250);
             });
         }
+
+        function toggleMobileMenu() {
+            var menu = document.getElementById('mobileNavMenu');
+            if (menu) menu.classList.toggle('hidden');
+        }
+
+        function toggleNotificationsDropdown() {
+            var dropdown = document.getElementById('notificationsDropdown');
+            if (dropdown) dropdown.classList.toggle('hidden');
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            var bell = document.getElementById('notifBellBtn');
+            var dropdown = document.getElementById('notificationsDropdown');
+            if (dropdown && !dropdown.classList.contains('hidden') && bell && !bell.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.classList.add('hidden');
+            }
+        });
+
+        var knownNotifIds = new Set();
+        var isFirstNotifLoad = true;
+
+        async function fetchNotifications() {
+            try {
+                var res = await fetch('/api/notifications');
+                if (!res.ok) return;
+                var notifs = await res.json();
+                
+                var unreadCount = notifs.filter(function(n) { return !n.is_read; }).length;
+                var badge = document.getElementById('notifBadge');
+                var countLabel = document.getElementById('notifCountLabel');
+                if (badge) {
+                    if (unreadCount > 0) {
+                        badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+                        badge.classList.remove('hidden');
+                    } else {
+                        badge.classList.add('hidden');
+                    }
+                }
+                if (countLabel) {
+                    countLabel.textContent = unreadCount > 0 ? '(' + unreadCount + ' unread)' : '';
+                }
+
+                var list = document.getElementById('notificationsList');
+                if (list) {
+                    if (notifs.length === 0) {
+                        list.innerHTML = '<div class="p-4 text-center text-gray-400 italic">No notifications yet.</div>';
+                    } else {
+                        var html = '';
+                        notifs.forEach(function(n) {
+                            var icon = 'ℹ️';
+                            if (n.status === 'success') icon = '✅';
+                            else if (n.status === 'error') icon = '❌';
+                            else if (n.status === 'warning') icon = '⚠️';
+
+                            var unreadBg = !n.is_read ? 'bg-indigo-50/60 font-semibold' : 'bg-white';
+                            var pageLink = n.page_id ? '<a href="/pages/' + n.page_id + '" class="text-[11px] text-indigo-600 hover:underline block mt-1">View Page →</a>' : '';
+                            var timeStr = n.created_at ? n.created_at.replace('T', ' ').substring(0, 16) : '';
+
+                            html += '<div class="p-3 ' + unreadBg + ' hover:bg-gray-50 transition flex items-start gap-2.5 notif-row">';
+                            html += '<span class="text-base flex-shrink-0">' + icon + '</span>';
+                            html += '<div class="flex-grow min-w-0">';
+                            html += '<div class="flex items-center justify-between">';
+                            html += '<span class="font-bold text-gray-800 text-[11px] uppercase tracking-wider">' + (n.stage || 'Ingest') + '</span>';
+                            html += '<span class="text-[10px] text-gray-400 font-mono">' + timeStr + '</span>';
+                            html += '</div>';
+                            html += '<p class="text-gray-700 mt-0.5 break-words text-xs">' + (n.message || '') + '</p>';
+                            html += pageLink;
+                            html += '</div></div>';
+
+                            if (!isFirstNotifLoad && !n.is_read && !knownNotifIds.has(n.id)) {
+                                showToastNotification(icon, n.stage, n.message, n.page_id);
+                            }
+                            knownNotifIds.add(n.id);
+                        });
+                        list.innerHTML = html;
+                    }
+                }
+                isFirstNotifLoad = false;
+            } catch (err) {}
+        }
+
+        function showToastNotification(icon, stage, message, pageId) {
+            var container = document.getElementById('toastContainer');
+            if (!container) return;
+            var toast = document.createElement('div');
+            toast.className = 'pointer-events-auto bg-white dark:bg-gray-800 border border-indigo-200 dark:border-indigo-900 shadow-xl rounded-xl p-3 flex items-start gap-3 transition transform duration-300 ease-out translate-y-2 opacity-0 text-xs';
+            var linkHtml = pageId ? '<a href="/pages/' + pageId + '" class="text-indigo-600 font-bold hover:underline ml-2">View</a>' : '';
+            toast.innerHTML = '<span class="text-lg">' + icon + '</span><div class="flex-grow min-w-0"><div class="font-bold text-gray-950 dark:text-gray-100">' + (stage || 'Update') + '</div><div class="text-gray-650 dark:text-gray-300 mt-0.5 break-words">' + message + linkHtml + '</div></div><button onclick="this.parentElement.remove()" class="text-gray-400 hover:text-gray-600 font-bold ml-1">✕</button>';
+            container.appendChild(toast);
+            setTimeout(function() {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 10);
+            setTimeout(function() {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(function() { toast.remove(); }, 300);
+            }, 6000);
+        }
+
+        async function markAllNotificationsRead() {
+            try {
+                await fetch('/api/notifications/read', { method: 'POST' });
+                await fetchNotifications();
+            } catch (e) {}
+        }
+
+        async function clearAllNotifications() {
+            try {
+                await fetch('/api/notifications/clear', { method: 'POST' });
+                await fetchNotifications();
+            } catch (e) {}
+        }
+
+        {% if is_admin %}
+        fetchNotifications();
+        setInterval(fetchNotifications, 5000);
+        {% endif %}
     </script>
 </body>
 </html>

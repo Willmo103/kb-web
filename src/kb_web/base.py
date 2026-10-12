@@ -203,9 +203,12 @@ class LoggedOllamaClient:
     to the SQLite database table `ollama_logs` and enforces a connection timeout.
     """
 
-    def __init__(self, host: str, timeout: float = 300.0) -> None:
+    def __init__(self, host: str, timeout: Optional[float] = None) -> None:
+        if timeout is None:
+            timeout = getattr(config, "ollama_timeout", 1200.0)
         self._client = ollama.Client(host=host, timeout=timeout)
         self.host = host
+        self.timeout = timeout
 
     def pull(self, *args, **kwargs):
         return self._client.pull(*args, **kwargs)
@@ -470,9 +473,11 @@ class LoggedOllamaClient:
             print(f"Failed to log Ollama call to database: {err}")
 
 
-def _get_ollama_client() -> LoggedOllamaClient:
-    """Helper to dynamically instantiate the Ollama client based on configured host."""
-    return LoggedOllamaClient(host=config.ollama_host)
+def _get_ollama_client(timeout: Optional[float] = None) -> LoggedOllamaClient:
+    """Helper to dynamically instantiate the Ollama client based on configured host and timeout."""
+    if timeout is None:
+        timeout = getattr(config, "ollama_timeout", 1200.0)
+    return LoggedOllamaClient(host=config.ollama_host, timeout=timeout)
 
 
 def _get_session_secret() -> bytes:

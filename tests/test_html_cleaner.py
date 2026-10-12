@@ -145,7 +145,28 @@ All rights reserved. Privacy Policy"""
     assert "reduction_pct" in metrics
 
 
+from kb_web.html_cleaner import (
+    clean_html_to_soup,
+    extract_primary_content_container,
+    extract_links_from_raw_html,
+    html_to_clean_markdown,
+    compare_markdown_cleaning,
+    strip_boilerplate_elements,
+)
+
+
 def test_empty_or_whitespace_html():
     assert html_to_clean_markdown("") == ""
     assert html_to_clean_markdown("   ") == ""
     assert html_to_clean_markdown("<html><body></body></html>") == ""
+
+
+def test_extract_links_from_raw_html_preserves_nav_and_footer_links():
+    # Link extraction must find links inside <nav> and <footer> before boilerplate stripping
+    links = extract_links_from_raw_html(SAMPLE_DIRTY_HTML, "https://techpulse.dev/articles/neural-nets")
+    assert "https://techpulse.dev/home" in links
+    assert "https://techpulse.dev/pricing" in links
+    assert "https://techpulse.dev/login" in links
+    assert "https://techpulse.dev/privacy" in links
+    assert len(links) == 4
+
