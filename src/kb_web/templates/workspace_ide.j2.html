@@ -935,52 +935,193 @@
       }
     }
 
+    let draggedFilePath = null;
+
+    function handleDragStart(e, path) {
+      draggedFilePath = path;
+      e.dataTransfer.setData("text/plain", path);
+      e.dataTransfer.effectAllowed = "move";
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      e.currentTarget.classList.add("bg-indigo-600/20", "ring-1", "ring-indigo-500/50");
+    }
+
+    function handleDragLeave(e) {
+      e.currentTarget.classList.remove("bg-indigo-600/20", "ring-1", "ring-indigo-500/50");
+    }
+
+    async function handleDrop(e, targetFolder) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.currentTarget.classList.remove("bg-indigo-600/20", "ring-1", "ring-indigo-500/50");
+      const srcPath = e.dataTransfer.getData("text/plain") || draggedFilePath;
+      if (!srcPath) return;
+
+      const fileName = srcPath.split("/").pop();
+      const destPath = targetFolder ? `${targetFolder}/${fileName}` : fileName;
+      if (srcPath === destPath) return;
+
+      if (VFS.getFile(destPath)) {
+        alert(`A file named "${destPath}" already exists.`);
+        return;
+      }
+
+      const file = VFS.getFile(srcPath);
+      if (!file) return;
+
+      VFS.renameFile(srcPath, destPath);
+
+      // Sync rename to server
+      await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: srcPath }),
+      });
+      await syncFileToServer(destPath, file.content, file.language);
+
+      const tabIdx = openTabs.indexOf(srcPath);
+      if (tabIdx !== -1) openTabs[tabIdx] = destPath;
+      if (activeFilePath === srcPath) activeFilePath = destPath;
+
+      refreshFileTree();
+      renderTabs();
+      logConsole(`Moved "${srcPath}" -> "${destPath}"`);
+    }
+
     function refreshFileTree() {
       const container = document.getElementById("fileTreeRoot");
       container.innerHTML = "";
       const paths = VFS.getAllPaths();
 
-      if (paths.length === 0) {
+      // Build hierarchical folder tree
+      const root = { subfolders: {}, files: [] };
+      let visibleFileCount = 0;
+
+      paths.forEach((p) => {
+        const parts = p.split("/");
+        const fileName = parts.pop();
+        if (fileName === ".keep") {
+          // Keep placeholder ensures folder exists in tree
+          let curr = root;
+          parts.forEach((seg) => {
+            if (!curr.subfolders[seg]) curr.subfolders[seg] = { name: seg, subfolders: {}, files: [] };
+            curr = curr.subfolders[seg];
+          });
+          return;
+        }
+
+        visibleFileCount++;
+        let curr = root;
+        parts.forEach((seg) => {
+          if (!curr.subfolders[seg]) curr.subfolders[seg] = { name: seg, subfolders: {}, files: [] };
+          curr = curr.subfolders[seg];
+        });
+        curr.files.push({ path: p, name: fileName });
+      });
+
+      if (visibleFileCount === 0 && Object.keys(root.subfolders).length === 0) {
         container.innerHTML = `<div class="px-4 py-3 text-slate-500 italic">No files yet.</div>`;
+        document.getElementById("statusBarProjectStats").textContent = "0 files";
         return;
       }
 
-      paths.forEach((path) => {
-        const file = VFS.getFile(path);
-        const isActive = path === activeFilePath;
+      function renderFolderNode(folderObj, folderPath, parentEl) {
+        const details = document.createElement("details");
+        details.open = true;
+        details.className = "group/folder my-0.5";
+
+        const summary = document.createElement("summary");
+        summary.className = "flex items-center justify-between px-2 py-1 hover:bg-[#21262d] cursor-pointer rounded transition text-slate-300 font-medium select-none";
+        summary.ondragover = handleDragOver;
+        summary.ondragleave = handleDragLeave;
+        summary.ondrop = (e) => handleDrop(e, folderPath);
+
+        summary.innerHTML = `
+          <div class="flex items-center gap-1.5 truncate">
+            <span class="text-[9px] text-slate-500 group-open/folder:rotate-90 transition-transform inline-block">▶</span>
+            <i data-lucide="folder" class="w-3.5 h-3.5 text-amber-400 shrink-0"></i>
+            <span class="truncate text-xs">${folderObj.name}</span>
+          </div>
+          <div class="opacity-0 group-hover/folder:opacity-100 flex items-center gap-1 shrink-0">
+            <button class="text-slate-400 hover:text-slate-100 p-0.5" title="New File Here" onclick="event.stopPropagation(); promptNewFile('${folderPath}')">
+              <i data-lucide="plus" class="w-3 h-3"></i>
+            </button>
+            <button class="text-slate-400 hover:text-rose-400 p-0.5" title="Delete Folder" onclick="event.stopPropagation(); deleteWorkspaceFolder('${folderPath}')">
+              <i data-lucide="trash" class="w-3 h-3"></i>
+            </button>
+          </div>
+        `;
+        details.appendChild(summary);
+
+        const childrenContainer = document.createElement("div");
+        childrenContainer.className = "pl-3.5 ml-2 border-l border-slate-700/60 space-y-0.5 mt-0.5";
+
+        // Render subfolders
+        Object.entries(folderObj.subfolders).forEach(([subName, subObj]) => {
+          const subPath = folderPath ? `${folderPath}/${subName}` : subName;
+          renderFolderNode(subObj, subPath, childrenContainer);
+        });
+
+        // Render files
+        folderObj.files.forEach((f) => {
+          renderFileRow(f, childrenContainer);
+        });
+
+        details.appendChild(childrenContainer);
+        parentEl.appendChild(details);
+      }
+
+      function renderFileRow(file, parentEl) {
+        const isActive = file.path === activeFilePath;
         const row = document.createElement("div");
-        row.className = `flex items-center justify-between px-3 py-1.5 hover:bg-[#21262d] cursor-pointer group transition ${
+        row.className = `flex items-center justify-between px-2 py-1 hover:bg-[#21262d] cursor-pointer group rounded transition ${
           isActive ? "bg-[#21262d] text-indigo-300 font-medium" : "text-slate-300"
         }`;
+        row.draggable = true;
+        row.ondragstart = (e) => handleDragStart(e, file.path);
 
         row.innerHTML = `
           <div class="flex items-center gap-2 truncate">
             <i data-lucide="${getFileIconName(file.name)}" class="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-400 shrink-0"></i>
-            <span class="truncate">${path}</span>
+            <span class="truncate">${file.name}</span>
           </div>
           <div class="opacity-0 group-hover:opacity-100 flex items-center gap-1 shrink-0">
-            <button class="text-slate-400 hover:text-slate-200 p-0.5" title="Rename" onclick="promptRenameFile('${path}', event)">
+            <button class="text-slate-400 hover:text-slate-200 p-0.5" title="Rename" onclick="promptRenameFile('${file.path}', event)">
               <i data-lucide="pencil" class="w-3 h-3"></i>
             </button>
-            <button class="text-slate-400 hover:text-rose-400 p-0.5" title="Delete" onclick="deleteWorkspaceFile('${path}', event)">
+            <button class="text-slate-400 hover:text-rose-400 p-0.5" title="Delete" onclick="deleteWorkspaceFile('${file.path}', event)">
               <i data-lucide="trash" class="w-3 h-3"></i>
             </button>
           </div>
         `;
 
-        row.onclick = () => openFile(path);
-        container.appendChild(row);
+        row.onclick = () => openFile(file.path);
+        parentEl.appendChild(row);
+      }
+
+      // Render top-level folders
+      Object.entries(root.subfolders).forEach(([name, subObj]) => {
+        renderFolderNode(subObj, name, container);
+      });
+
+      // Render top-level files
+      root.files.forEach((f) => {
+        renderFileRow(f, container);
       });
 
       document.getElementById("statusBarProjectStats").textContent =
-        `${paths.length} file${paths.length === 1 ? "" : "s"}`;
+        `${visibleFileCount} file${visibleFileCount === 1 ? "" : "s"}`;
       lucide.createIcons();
     }
 
-    async function promptNewFile() {
-      const name = prompt("Enter new file path (e.g. script.js or src/utils.py):");
+    async function promptNewFile(folderPrefix = "") {
+      const defaultVal = folderPrefix ? `${folderPrefix}/` : "";
+      const name = prompt("Enter new file path:", defaultVal || "script.js");
       if (!name || !name.trim()) return;
-      const clean = name.trim();
+      const clean = name.trim().replace(/^\/+/, "");
       if (VFS.getFile(clean)) {
         alert("A file with this name already exists.");
         return;
@@ -991,15 +1132,36 @@
       logConsole(`Created file: ${clean}`);
     }
 
-    function promptNewFolder() {
-      const folder = prompt("Enter folder path (e.g. assets or components):");
+    function promptNewFolder(parentFolder = "") {
+      const defaultVal = parentFolder ? `${parentFolder}/` : "";
+      const folder = prompt("Enter folder path (e.g. assets or components):", defaultVal);
       if (!folder || !folder.trim()) return;
-      const clean = folder.trim().replace(/\/+$/, "");
+      const clean = folder.trim().replace(/\/+$/, "").replace(/^\/+/, "");
       const placeholder = `${clean}/.keep`;
       VFS.setFile(placeholder, "# folder placeholder");
       syncFileToServer(placeholder, "# folder placeholder", "plaintext");
       refreshFileTree();
       logConsole(`Created folder: ${clean}`);
+    }
+
+    async function deleteWorkspaceFolder(folderPath) {
+      if (!confirm(`Delete folder "${folderPath}" and all contained files?`)) return;
+      const paths = VFS.getAllPaths();
+      const prefix = `${folderPath}/`;
+      const toDelete = paths.filter(p => p === folderPath || p.startsWith(prefix));
+
+      for (const p of toDelete) {
+        VFS.deleteFile(p);
+        closeTab(p);
+        await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: p }),
+        });
+      }
+
+      refreshFileTree();
+      logConsole(`Deleted folder: ${folderPath} (${toDelete.length} files removed)`);
     }
 
     async function promptRenameFile(oldPath, event) {
@@ -1050,13 +1212,90 @@
 
     function runCurrentProject() {
       const isPythonActive = activeFilePath && activeFilePath.endsWith(".py");
+      const isMdActive = activeFilePath && (activeFilePath.endsWith(".md") || activeFilePath.endsWith(".markdown"));
       const hasHtml = VFS.getFile("index.html") !== null;
+      const hasPy = VFS.getAllPaths().some((p) => p.endsWith(".py"));
+      const hasMd = VFS.getAllPaths().some((p) => p.endsWith(".md") || p.endsWith(".markdown"));
 
-      if (isPythonActive || (!hasHtml && VFS.getAllPaths().some((p) => p.endsWith(".py")))) {
+      if (isMdActive && !hasHtml) {
+        runMarkdownPreview();
+      } else if (isPythonActive || (!hasHtml && hasPy)) {
         runPythonCode();
-      } else {
+      } else if (hasHtml) {
         runWebPreview();
+      } else if (hasMd) {
+        runMarkdownPreview();
+      } else {
+        runGistPreview();
       }
+    }
+
+    function runMarkdownPreview() {
+      togglePreviewSplit(true);
+      const targetMdPath = (activeFilePath && (activeFilePath.endsWith(".md") || activeFilePath.endsWith(".markdown")))
+        ? activeFilePath
+        : (VFS.getFile("README.md") ? "README.md" : VFS.getAllPaths().find(p => p.endsWith(".md")));
+
+      const file = targetMdPath ? VFS.getFile(targetMdPath) : null;
+      if (!file) {
+        logConsole("No markdown file found to render.", "warn");
+        return;
+      }
+
+      const iframe = document.getElementById("previewIframe");
+      const rawHtml = typeof marked !== "undefined" ? marked.parse(file.content) : `<pre>${escapeHtml(file.content)}</pre>`;
+      const docHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.1/github-markdown-dark.min.css">
+          <style>
+            body { background: #0d1117; color: #c9d1d9; padding: 24px; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+            .markdown-body { background: transparent; }
+          </style>
+        </head>
+        <body class="markdown-body">
+          ${rawHtml}
+        </body>
+        </html>
+      `;
+      const blob = new Blob([docHtml], { type: "text/html" });
+      iframe.src = URL.createObjectURL(blob);
+      logConsole(`Rendered Markdown preview for: ${targetMdPath}`);
+    }
+
+    function runGistPreview() {
+      togglePreviewSplit(true);
+      const iframe = document.getElementById("previewIframe");
+      const paths = VFS.getAllPaths();
+      const docHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { background: #0d1117; color: #c9d1d9; padding: 32px; font-family: sans-serif; text-align: center; }
+            .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; max-width: 480px; margin: 40px auto; }
+            h2 { color: #818cf8; margin-top: 0; font-size: 1.2rem; }
+            p { color: #8b949e; font-size: 0.9rem; line-height: 1.5; }
+            .badge { display: inline-block; background: #312e81; color: #c7d2fe; padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; font-family: monospace; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <span class="badge">Gist Mode</span>
+            <h2>Multi-file Project Active</h2>
+            <p>This workspace contains <strong>${paths.length} file(s)</strong>. Live browser execution is not enabled for this project type, but all files are persistently stored and synchronized.</p>
+            <p>You can edit files in Monaco Editor, export to ZIP, or pair-program with the AI Assistant.</p>
+          </div>
+        </body>
+        </html>
+      `;
+      const blob = new Blob([docHtml], { type: "text/html" });
+      iframe.src = URL.createObjectURL(blob);
+      logConsole("Gist mode preview displayed.");
     }
 
     function runWebPreview() {
@@ -1618,42 +1857,58 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const models = data.models || [];
+        const loadedModels = data.loaded_models || [];
 
-        if (models.length > 0) {
-          if (selectHeader) {
-            selectHeader.innerHTML = "";
-            models.forEach((m) => {
+        function populateSelect(selectEl) {
+          if (!selectEl) return;
+          selectEl.innerHTML = "";
+
+          // Loaded models group (in VRAM)
+          if (loadedModels.length > 0) {
+            const grpLoaded = document.createElement("optgroup");
+            grpLoaded.label = "🟢 In VRAM (Currently Loaded)";
+            loadedModels.forEach((m) => {
               const opt = document.createElement("option");
               opt.value = m;
-              opt.textContent = m;
+              opt.textContent = `🟢 ${m} (Loaded in VRAM)`;
               if (m === ollamaConfig.model) opt.selected = true;
-              selectHeader.appendChild(opt);
+              grpLoaded.appendChild(opt);
             });
-            if (!models.includes(ollamaConfig.model) && ollamaConfig.model) {
-              const customOpt = document.createElement("option");
-              customOpt.value = ollamaConfig.model;
-              customOpt.textContent = `${ollamaConfig.model} (active)`;
-              customOpt.selected = true;
-              selectHeader.insertBefore(customOpt, selectHeader.firstChild);
-            }
+            selectEl.appendChild(grpLoaded);
           }
 
-          if (selectSettings) {
-            selectSettings.innerHTML = "";
-            models.forEach((m) => {
-              const opt = document.createElement("option");
-              opt.value = m;
-              opt.textContent = m;
-              if (m === ollamaConfig.model) opt.selected = true;
-              selectSettings.appendChild(opt);
-            });
+          // Other installed models group
+          const grpOther = document.createElement("optgroup");
+          grpOther.label = loadedModels.length > 0 ? "Installed Models" : "Available Models";
+          const remainingModels = models.filter((m) => !loadedModels.includes(m));
+          remainingModels.forEach((m) => {
+            const opt = document.createElement("option");
+            opt.value = m;
+            opt.textContent = m;
+            if (m === ollamaConfig.model) opt.selected = true;
+            grpOther.appendChild(opt);
+          });
+          selectEl.appendChild(grpOther);
+
+          // If current model is not in either, add it as active custom
+          if (!models.includes(ollamaConfig.model) && !loadedModels.includes(ollamaConfig.model) && ollamaConfig.model) {
+            const customOpt = document.createElement("option");
+            customOpt.value = ollamaConfig.model;
+            customOpt.textContent = `${ollamaConfig.model} (active)`;
+            customOpt.selected = true;
+            selectEl.insertBefore(customOpt, selectEl.firstChild);
           }
+        }
+
+        if (models.length > 0 || loadedModels.length > 0) {
+          populateSelect(selectHeader);
+          populateSelect(selectSettings);
 
           if (ollamaDot) ollamaDot.className = "w-2 h-2 rounded-full bg-emerald-400";
-          if (showAlert) alert(`Found ${models.length} installed Ollama model(s):\n${models.join(", ")}`);
+          if (showAlert) alert(`Found ${models.length} model(s). Loaded in VRAM: ${loadedModels.length ? loadedModels.join(', ') : 'None'}`);
         } else {
           if (ollamaDot) ollamaDot.className = "w-2 h-2 rounded-full bg-amber-400";
-          if (showAlert) alert("No models found from Ollama /tags.");
+          if (showAlert) alert("No models found from Ollama.");
         }
       } catch (err) {
         console.warn("Could not fetch models from /api/workspaces/models:", err);

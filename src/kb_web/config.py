@@ -98,6 +98,7 @@ class Config:
             os.getenv("KB_SIMILARITY_THRESHOLD", "0.8")
         )
         self._max_input_length: int = int(os.getenv("KB_MAX_INPUT_LENGTH", "20000"))
+        self._ollama_timeout: float = float(os.getenv("KB_OLLAMA_TIMEOUT", "1200.0"))
         self._ollama_think: bool = os.getenv("KB_OLLAMA_THINK", "false").lower() in (
             "true",
             "1",
@@ -328,6 +329,21 @@ class Config:
     def ollama_think(self, value: bool) -> None:
         self._ollama_think = value
         self._write_db_setting("settings_ollama", "ollama_think", "1" if value else "0")
+
+    @property
+    def ollama_timeout(self) -> float:
+        val = self._read_db_setting(
+            "settings_ollama", "ollama_timeout", str(self._ollama_timeout)
+        )
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return self._ollama_timeout
+
+    @ollama_timeout.setter
+    def ollama_timeout(self, value: float) -> None:
+        self._ollama_timeout = float(value)
+        self._write_db_setting("settings_ollama", "ollama_timeout", str(value))
 
     @property
     def database_url(self) -> str:

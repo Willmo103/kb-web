@@ -73,6 +73,7 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 - [document-code-issue-and-fix](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/document-code-issue-and-fix/SKILL.md): Formats changelog logs and bug fix records.
 - [kb-web-browser-extension](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/kb-web-browser-extension/SKILL.md): Extension testing & configuration.
 - [kb-web-service-management](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/kb-web-service-management/SKILL.md): Systemd service configuration.
+- [live-server-test](file:///c:/src/kb-web/.agents/skills/live-server-test/SKILL.md): Uses curl to test and audit site routes against a live running test/production server without executing admin operations.
 
 ## Git Branching Strategy & Tiered Release Lifecycle
 

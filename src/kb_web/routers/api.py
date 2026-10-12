@@ -17,6 +17,7 @@ from ..base import (
 )
 from ..models import HTMLPage, HTMLImportPayload, extract_youtube_video_id
 from ..models_orm import FetchedPage, PageVersion
+from ..html_cleaner import html_to_clean_markdown, extract_links_from_raw_html
 from ..utils import (
     extract_wiki_content,
     extract_tags_content,
@@ -58,16 +59,13 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
                 page_data = None
 
         if not page_data:
-            h = HTML2Text()
-            h.ignore_links = True
-            md_content = h.handle(html_content)
+            # 1. Extract ALL links from raw untouched HTML BEFORE removing nav or boilerplate tags
+            links = extract_links_from_raw_html(html_content, base_url=url)
+
+            # 2. Convert to clean Markdown using boilerplate stripper
+            md_content = html_to_clean_markdown(html_content)
 
             soup = BeautifulSoup(html_content, "html5lib")
-            links = [a.get("href") for a in soup.find_all("a", href=True)]
-            links = [
-                urljoin(url, link) if link.startswith("/") else link for link in links
-            ]
-
             title = payload.title
             if not title and soup.title:
                 title = soup.title.string
@@ -248,3 +246,68 @@ def datetime_now_str() -> str:
     from datetime import datetime
 
     return datetime.now().isoformat()
+
+
+@router.get("/api/notifications")
+def get_ingestion_notifications(
+    limit: int = 30,
+) -> dict:
+    """Returns recent background ingestion notifications and the unread count."""
+    from ..models_orm import IngestionNotification
+
+    with db_session() as session:
+        notifs = (
+            session.query(IngestionNotification)
+            .order_by(IngestionNotification.id.desc())
+            .limit(limit)
+            .all()
+        )
+        unread_count = (
+            session.query(IngestionNotification)
+            .filter_by(read=0)
+            .count()
+        )
+        items = []
+        for n in notifs:
+            items.append(
+                {
+                    "id": n.id,
+                    "task_id": n.task_id,
+                    "url": n.url,
+                    "title": n.title,
+                    "stage": n.stage,
+                    "status": n.status,
+                    "message": n.message,
+                    "details": n.details,
+                    "created_at": n.created_at,
+                    "read": n.read,
+                    "is_read": bool(n.read),
+                }
+            )
+        return {
+            "status": "success",
+            "unread_count": unread_count,
+            "notifications": items,
+        }
+
+
+@router.post("/api/notifications/read")
+def mark_notifications_read() -> dict:
+    """Marks all unread notifications as read."""
+    from ..models_orm import IngestionNotification
+
+    with db_session() as session:
+        session.query(IngestionNotification).filter_by(read=0).update({"read": 1})
+        session.commit()
+    return {"status": "success", "message": "Marked all as read"}
+
+
+@router.post("/api/notifications/clear")
+def clear_all_notifications() -> dict:
+    """Clears all stored notifications."""
+    from ..models_orm import IngestionNotification
+
+    with db_session() as session:
+        session.query(IngestionNotification).delete()
+        session.commit()
+    return {"status": "success", "message": "Cleared all notifications"}

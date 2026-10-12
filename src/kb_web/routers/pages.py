@@ -263,6 +263,35 @@ def view_saved_page(
                 pass
 
         if not page_obj:
+            from ..models_orm import IngestionNotification
+
+            recent_notif = (
+                session.query(IngestionNotification)
+                .filter_by(url=decoded_url)
+                .order_by(IngestionNotification.id.desc())
+                .first()
+            )
+            if recent_notif or msg:
+                status_msg = (
+                    recent_notif.message
+                    if recent_notif
+                    else (msg or "Import in progress...")
+                )
+                template = _jinja_env.get_template("import_progress.j2.html")
+                is_admin = bool(
+                    request.cookies.get(COOKIE_NAME)
+                    and verify_session_token(request.cookies.get(COOKIE_NAME))
+                )
+                return HTMLResponse(
+                    content=template.render(
+                        request=request,
+                        is_admin=is_admin,
+                        target_url=decoded_url,
+                        status_msg=status_msg,
+                    ),
+                    status_code=200,
+                )
+
             return HTMLResponse(
                 content="<h1>Wiki Article Profile Missing</h1>", status_code=404
             )

@@ -33,7 +33,10 @@ cli_src = Path(__file__).resolve().parent.parent / "kb-web-cli" / "src"
 if str(cli_src) not in sys.path:
     sys.path.insert(0, str(cli_src))
 
-from kb_web_cli.main import app as cli_app
+try:
+    from kb_web_cli.main import app as cli_app
+except ImportError:
+    cli_app = None
 
 runner = CliRunner()
 
@@ -258,6 +261,9 @@ def test_cli_workspace_subcommands(monkeypatch, tmp_path):
         json.dump(test_config, f)
 
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+
+    if cli_app is None:
+        pytest.skip("kb_web_cli not installed or submodule not cloned")
 
     # Test help commands
     res_help = runner.invoke(cli_app, ["workspace", "--help"])

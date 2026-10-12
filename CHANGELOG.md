@@ -5,6 +5,133 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7] - 2026-10-12
+### Added
+- **Build Script Audit & Optimization (`build.py`)**:
+  - Removed unnecessary docker-compose database startup loops, packaging steps (`uv build`), and file copying to remote network folders (`ARTIFACTS_ROOT`).
+  - Transformed `build.py` into a lean, fast, reliable pre-commit verification tool executing environment sync (`uv sync`) and full test suite (`uv run pytest -k "not test_extension"`).
+- **Pre-Boilerplate Hyperlink Extraction (`src/kb_web/html_cleaner.py`)**:
+  - Implemented `extract_links_from_raw_html()` to parse raw untouched HTML and extract all valid hyperlinks before `<header>`, `<nav>`, `<footer>`, `<aside>`, and other boilerplate containers are decomposed.
+  - Ensures complete link retention across web pages while generating sanitized Markdown.
+- **Resilient Background Ingestion Pipeline (`src/kb_web/pipeline.py`)**:
+  - Completely eliminated the blocking synchronous streaming loading page (`StreamingResponse` on `/import/url`), replacing it with FastAPI `BackgroundTasks` asynchronous execution and immediate 303 redirect.
+  - Structured pipeline into isolated, re-runnable stages:
+    - Stage 1: Immediate fetch and instant persistence of raw HTML and markdown into `FetchedPage` (guarantees zero data loss even if downstream AI models hang or fail).
+    - Stage 2: AI Wiki synthesis with generous 1200.0s prompt timeout.
+    - Stage 3: AI Tag extraction.
+    - Stage 4: Vector and chunk embeddings indexing.
+    - Stage 5: Optional offline video downloads.
+  - Added content hash duplicate checking to skip redundant LLM synthesis when content is unchanged.
+- **Real-Time Notification Feed & Global Toast System**:
+  - Added `IngestionNotification` ORM model and SQLite/PostgreSQL table schema.
+  - Added REST API endpoints `GET /api/notifications`, `POST /api/notifications/read`, and `POST /api/notifications/clear`.
+  - Added notification bell `🔔` with unread count badge and interactive dropdown panel in `base.j2.html`.
+  - Added client-side polling and floating toast notifications that alert the user in real-time as each background pipeline stage completes.
+- **Responsive Mobile Navigation & Viewport Containment**:
+  - Fixed horizontal stretching on phones by hiding the top menu button strip on smaller viewports (`hidden xl:flex`) and adding a collapsible mobile drawer menu with a hamburger toggle button (`☰`).
+  - Added horizontal viewport containment (`overflow-x-hidden`) and word breaking (`break-words`, `overflow-x-auto`) across `base.j2.html` and `view_page.j2.html`.
+- **Configurable LLM Prompt Timeout (`src/kb_web/config.py` & `base.py`)**:
+  - Configured Ollama LLM prompt timeout to `1200.0` seconds (20 minutes) via `KB_OLLAMA_TIMEOUT` and `config.ollama_timeout`, preventing premature timeouts during complex extraction tasks.
+
+## [0.5.6] - 2026-10-09
+### Added
+- **HTML Boilerplate Stripper & Clean Markdown Generator (`src/kb_web/html_cleaner.py`)**:
+  - Implemented DOM sanitization engine decomposing non-content tags (`header`, `nav`, `footer`, `aside`, `script`, `style`, `noscript`, `svg`, `form`, `iframe`, `button`).
+  - Added regex pattern matching to decompose boilerplate containers (cookie banners, consent prompts, social share widgets, newsletter modals, and advertisement sidebars).
+  - Implemented semantic container detection prioritizing `<article>` and `<main>` tags with substantive text (>250 chars) to eliminate surrounding page chrome.
+  - Configured `HTML2Text` with `body_width = 0` (preventing hard line wrap at 78 cols), clean link handling, and collapsed consecutive whitespace.
+- **Interactive Dry-Run & Batch Inspection Tool (`scripts/preview_html_cleaning.py`)**:
+  - Added interactive CLI runner supporting `--sample <N>`, `--url <url>`, and on-the-fly `--fetch-url <url>` live testing.
+  - Generates standalone, interactive side-by-side visual HTML comparison report (`.artifacts/feature-html-boilerplate-stripper-and-cleaner/html_cleaning_preview.html`) displaying Original Raw Markdown vs. Sanitized Clean Markdown with character reduction and line metrics.
+  - Safe dry-run by default; `--apply` commits changes with `PageVersion` audit backups and `is_frozen` guardrails.
+- **Ingestion Pipeline Upgrades**:
+  - Updated `fetch_url()` in `src/kb_web/utils.py` and `POST /api/import/html` in `src/kb_web/routers/api.py` to route through `html_to_clean_markdown()` for all future imported pages.
+
+## [0.5.5] - 2026-10-06
+### Added
+- **Notes Cascading Deletion & Single-Note Purge Action (`src/kb_web/routers/notes.py`)**:
+  - Implemented `_cascade_delete_notes()` resolving foreign key constraint failures across all 10 dependent tables: `chat_conversations`, `chat_messages`, `chunk_embeddings`, `taxonomy_items`, `collection_items`, `collection_actions`, `article_embeddings`, `title_embeddings`, `video_embeddings`, `page_versions`, `links`, and mirrored `fetched_pages`.
+  - Added single-note deletion endpoint `DELETE /api/notes/{note_id}` guarded by `is_frozen` immutability status.
+  - Re-routed `batch_delete_notes()` in `src/kb_web/routers/admin_batch.py` through the unified `_cascade_delete_notes()` pipeline and decremented taxonomy category item counts.
+  - Added individual "🗑️" delete buttons on note cards in `notes_list.j2.html` and note editor view in `note_editor.j2.html`.
+  - Fixed FastAPI route collision between static `/api/notes/batch` and parameterized `/api/notes/{note_id}` by registering `admin_batch.router` with high precedence.
+- **AI Prompt-Driven Workspace Creation (`src/kb_web/routers/workspaces.py`)**:
+  - Added `prompt: Optional[str] = None` and `template: Optional[str] = "web-game"` to `WorkspaceCreateRequest`.
+  - Added `_generate_workspace_from_prompt()` calling Ollama to synthesize project names, templates, file hierarchies, and initial working code from natural language prompts, with heuristic fallback.
+  - Added AI Prompt input textarea to the new workspace modal in `workspaces_list.j2.html`.
+- **Flexible Project Types, Gist Mode & Live Markdown Runner**:
+  - Eliminated the 3-template restriction to support arbitrary project types, multi-file Gists, and custom languages (`rust`, `go`, `c`, `markdown`, etc.).
+  - Added live rendered Markdown preview runner in `workspace_ide.j2.html` powered by `marked.js` with GitHub Dark theme styling.
+  - Added Gist file summary runner for non-executable custom project types.
+  - Cleaned up starter template `README.md` markdown files with clean formatting and project instructions.
+- **Workspace Hierarchical Directory Tree & Drag-and-Drop Reorganization**:
+  - Replaced flat `(folder)/.keep` rows with a true collapsible directory tree using `<details open>`, `📁` folder icons, and hidden `.keep` files.
+  - Added folder-specific "New File" (`+`) and "Delete Folder" (`🗑️`) controls.
+  - Implemented HTML5 drag-and-drop file movement to reorganize files into folders or move them to the root container.
+- **Real-Time Ollama Loaded Models Introspection**:
+  - Updated `GET /api/workspaces/models` and added global `GET /api/models` to introspect `{ollama_host}/api/ps` for models actively loaded in VRAM.
+  - Grouped and highlighted loaded models with `🟢 Loaded in VRAM` badge at the top of workspace IDE model picker.
+  - Added "⚡ Check Loaded Models" button and quick-select picker to the Admin System Settings tab (`admin.j2.html`).
+- **Targeted Notes Re-Taxonomy Classification**:
+  - Added `POST /api/taxonomy/classify-notes` supporting vault targeting, `limit`, and `force_reclassify`.
+  - Added "🏷️ Classify Notes" action button in `notes_list.j2.html` and `taxonomy.j2.html`.
+- **Taxonomy Slug Collision Retry Loop & Unique Slug Enforcement (`taxonomy_state_machine.py`)**:
+  - Implemented agent retry loop in `_synthesize_new_category()` catching duplicate category slug collisions, re-prompting the LLM harness with collision error feedback to select distinct domain names or merge into the collided category.
+  - Added `_ensure_unique_slug()` guaranteeing unique slugs across all taxonomy operations.
+- **Taxonomy Source Metadata & Provenance Enrichment**:
+  - Added `_format_metadata_summary()` extracting vault, folder path, syntax, version count, source URL, and collections.
+  - Injected provenance metadata into `classify_item_class()`, `evaluate_category_fit_tev1()`, and `_synthesize_new_category()`.
+  - Enhanced `classify_single_item()` to package complete metadata for notes, articles, videos, and workspaces.
+
+## [0.5.4] - 2026-10-05
+### Added
+- **Content Freeze & Immutability Engine (`is_frozen`)**:
+  - Added `is_frozen = Column(Integer, default=0, index=True)` to `FetchedPage`, `Note`, and `YouTubeVideo` ORM models in `src/kb_web/models_orm.py` and added `is_frozen: Optional[int] = 0` to `HTMLPage` Pydantic model.
+  - Created Alembic database migration `1b2c3d4e5f6a_add_content_is_frozen_column.py` with automatic SQLite column check in `models_orm.ensure_views_and_indexes`.
+  - Implemented immutability route guards blocking AI wiki regeneration (`/admin/regenerate/wiki`), tag regeneration (`/admin/regenerate/tags`), manual tag updates (`/admin/update/tags`), source page refetching (`/admin/refetch/page`), YouTube video metadata updates (`/admin/regenerate/youtube-metadata`), and note editing (`PUT /api/notes/{id}`) whenever content is marked as frozen.
+  - Added Freeze/Unfreeze toggle endpoints: `POST /admin/freeze/page` (redirect), `POST /api/pages/{url_path}/freeze` (JSON), `POST /api/notes/{note_id}/freeze` (JSON), and `POST /api/videos/{video_id}/freeze` (JSON).
+  - Added batch freeze/unfreeze endpoint: `POST /api/admin/batch-freeze` supporting bulk updates for pages, notes, and videos.
+- **Admin Batch-Delete Suite & Cascading Purge (`src/kb_web/routers/admin_batch.py`)**:
+  - Created dedicated batch deletion engine with cascading database cleanup (`_cascade_delete_page_urls`):
+    - `DELETE /api/notes/batch`: Batch delete Obsidian notes by note IDs, folder prefix, or vault name, cascading mirrored library pages, chunk embeddings, and taxonomy records.
+    - `DELETE /api/sites/{domain}/all`: Batch delete entire virtual domain hosts and all associated pages, embeddings, versions, and site wikis.
+    - `DELETE /api/videos/batch`: Batch delete video records and embeddings with optional on-disk media removal from `~/.kb/media/videos`.
+    - `DELETE /api/pages/batch`: Batch delete page URLs and dependent embeddings and collection links.
+    - `POST /api/admin/batch-delete`: Unified endpoint supporting polymorphic batch deletion across notes, sites, videos, and pages.
+- **UI Enhancements for Immutability & Batch Management**:
+  - `view_page.j2.html`: Added `❄️ Frozen` badge in header, Freeze/Unfreeze action button in sidebar, and locked styling for tags, wiki regeneration, and refetch actions when frozen.
+  - `note_editor.j2.html`: Added `❄️ Frozen Note` indicator, Freeze/Unfreeze button, disabled inputs and locked Save button, and read-only Monaco editor instance when note is frozen.
+  - `notes_list.j2.html`: Added multi-select checkboxes on note cards, sticky Batch Action Toolbar (Select All, Freeze, Unfreeze, Batch Delete), and one-click folder and vault deletion in the sidebar hierarchy tree.
+  - `view_site.j2.html` & `sites_list.j2.html`: Added "🗑️ Delete Site & All Pages" action buttons with safety confirmations.
+  - `admin.j2.html`: Added "Administrative Batch Operations & Content Purge" panel in the Backups & Database tab for notes, domains, and bulk freezing.
+- **CI / GitHub Actions Submodule Resolution & Import Guards**:
+  - Fixed CI failures on `master` branch by updating submodule URL in `.gitmodules` from relative path `./kb-web-cli` to absolute repository URL `https://github.com/Willmo103/kb-web-cli.git`.
+  - Configured `submodules: recursive` under `actions/checkout@v4` in `.github/workflows/test-and-release.yml`.
+  - Added defensive `try...except ImportError` guards with `pytest.skip` across `tests/test_cli_auth_and_workspaces.py` and `tests/test_rag_agent_and_reports.py` to prevent CI failures in minimal environments lacking submodules.
+- **Taxonomy Schema Healing & Purge Restoration**:
+  - Restored table purge statements (`DELETE FROM taxonomy_items; ...`) in `migrations/versions/0a9b8c7d6e5f_one_time_taxonomy_purge.py` along with DDL column checks ensuring `item_class` exists on `taxonomy_items`.
+  - Added PostgreSQL idempotent DDL self-healing directly in `models_orm.ensure_views_and_indexes` (`ALTER TABLE taxonomy_items ADD COLUMN IF NOT EXISTS item_class VARCHAR(32) DEFAULT 'Notes';`, `is_frozen` columns on content tables, and `server_error_logs` table creation) ensuring zero schema crashes on server restart.
+  - Created Alembic database migration `2c3d4e5f6a7b_add_server_error_logs_and_ensure_columns.py` creating the error logs table and ensuring schema consistency.
+- **Persistent Server Error Logging & Gotify Integration**:
+  - Added `ServerErrorLog` ORM model in `src/kb_web/models_orm.py` storing timestamp, error type, message, stack trace, HTTP request details, client IP, status, and agent feedback.
+  - Enhanced `gotify.py` with `record_server_error()` to persist uncaught 500 errors to the PostgreSQL database, append to `~/.kb/logs/server_errors.jsonl`, and dispatch Gotify alerts with incident ID tags `[#ID]`.
+  - Added REST API routes in `src/kb_web/routers/errors.py` (`GET /api/errors`, `GET /api/errors/search`, `GET /api/errors/{id}`, `POST /api/errors/{id}/analyze`).
+  - Added "Server Incidents & Agent Diagnosis" tab to `src/kb_web/templates/logs.j2.html` and `src/kb_web/routers/admin.py` for web-based incident review and manual re-analysis.
+- **Background Sidecar Maintenance Agent (`src/kb_web/maintenance_agent.py`)**:
+  - Implemented automated website maintenance agent running as a non-blocking background sidecar daemon (`run_maintenance_daemon`) and auto-prompted upon uncaught exceptions.
+  - Enforced strict 3000-character cap on error prompts (`format_error_prompt`) to prevent context overflows and minimize response latency.
+  - Equipped with specialized agent tools:
+    - `tool_search_source_code`: Lexical ripgrep-style search across `src/kb_web/`, `tests/`, and `migrations/`.
+    - `tool_view_artifacts`: Listing and viewing markdown artifacts in `.artifacts/` and `uat/reports/`.
+    - `tool_search_errors`: Search past error incidents by terms, types, and messages.
+  - Performs root cause analysis via Ollama with intelligent rule-based fallback, storing diagnostics directly in `ServerErrorLog.agent_feedback` and posting updates to Gotify.
+- **CLI Commands for Server Errors & Maintenance Daemon (`kb-web-cli`)**:
+  - Added `kb-web-cli error` command group (`list`, `view <id>`, `search <query>`, `analyze <id>`) for terminal-based error investigation.
+  - Added `kb-web-cli maintenance-daemon` command for running the background sidecar process.
+- **Live Server Test Skill (`live-server-test`)**:
+  - Added `.agents/skills/live-server-test/` skill with `audit_live_routes.py` CLI for read-only route auditing of live servers (e.g. `https://kb-test.willmo.dev`) using `curl`.
+  - Verifies HTTP status codes, redirect flows, content types, security headers, and latency across public, protected UI, and protected REST API endpoints without triggering admin actions.
+
 ## [0.5.3] - 2026-10-03
 ### Added
 - **Hierarchical Notes Folder Tree (Resolves Nested Directory View)**:

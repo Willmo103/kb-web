@@ -58,6 +58,13 @@
                         Consolidated profile of <strong>{{ pages | length }}</strong> ingested page{% if pages | length > 1 %}s{% endif %}.
                     </p>
                 </div>
+                {% if is_admin %}
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <button onclick="confirmDeleteSite('{{ site_name }}')" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold transition shadow-sm">
+                        <span>🗑️</span> Delete Site & All Pages
+                    </button>
+                </div>
+                {% endif %}
             </div>
 
             <!-- Pages Belonging to Site Section -->
@@ -97,4 +104,26 @@
     </div>
 
 </div>
+
+<script>
+async function confirmDeleteSite(siteName) {
+    if (!confirm('Are you sure you want to permanently delete site "' + siteName + '" and all of its associated pages, embeddings, and versions? This cannot be undone.')) {
+        return;
+    }
+    try {
+        var res = await fetch('/api/sites/' + encodeURIComponent(siteName) + '/all', {
+            method: 'DELETE'
+        });
+        if (res.ok) {
+            alert('Site and all pages deleted successfully.');
+            window.location.href = '/sites';
+        } else {
+            var err = await res.json();
+            alert('Failed to delete site: ' + (err.detail || 'Server error'));
+        }
+    } catch (e) {
+        alert('Error: ' + e);
+    }
+}
+</script>
 {% endblock %}

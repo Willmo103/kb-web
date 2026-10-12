@@ -18,6 +18,7 @@ from html2text import HTML2Text
 
 from .models import HTMLPage, extract_youtube_video_id
 from .base import config as default_config, _get_ollama_client
+from .html_cleaner import html_to_clean_markdown, extract_links_from_raw_html
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 HEADERS = {
@@ -415,7 +416,7 @@ def fetch_url(url: str) -> HTMLPage:
             raise RuntimeError(f"YouTube transcript extraction failed: {e}")
 
     try:
-        response = httpx.get(url, timeout=15, follow_redirects=True, headers=HEADERS)
+        response = httpx.get(url, timeout=60, follow_redirects=True, headers=HEADERS)
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
         raise RuntimeError(
@@ -434,17 +435,22 @@ def fetch_url(url: str) -> HTMLPage:
                 f"Target link returned non-text material ({content_type})."
             )
 
-        h = HTML2Text()
-        h.ignore_links = True
-        md_content = h.handle(html_content)
+        # 1. Extract ALL links from raw untouched HTML BEFORE removing nav or boilerplate tags
+        links = extract_links_from_raw_html(html_content, base_url=url)
+
+        # 2. Convert to clean high-density Markdown using boilerplate stripper
+        md_content = html_to_clean_markdown(html_content)
 
         soup = BeautifulSoup(html_content, "html5lib")
-        links = [a.get("href") for a in soup.find_all("a", href=True)]
-        links = [urljoin(url, link) if link.startswith("/") else link for link in links]
+        title = url
+        if soup.title and soup.title.string:
+            title = soup.title.string.strip()
+        if not title:
+            title = urlparse(url).netloc or url
 
         return HTMLPage(
             url=url,
-            title=url,
+            title=title,
             html_content=html_content,
             md_content=md_content,
             links=links,

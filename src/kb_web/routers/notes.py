@@ -15,9 +15,25 @@ import zipfile
 
 from fastapi import APIRouter, Query, HTTPException, Request, BackgroundTasks, UploadFile, File, Form, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from sqlalchemy import or_, and_
 
 from ..base import db_session, config, _jinja_env, COOKIE_NAME, verify_session_token, verify_auth
-from ..models_orm import Note, FetchedPage, ChunkEmbedding
+from ..models_orm import (
+    Note,
+    FetchedPage,
+    ChunkEmbedding,
+    TaxonomyItem,
+    TaxonomyCategory,
+    ChatConversation,
+    ChatMessage,
+    CollectionItem,
+    CollectionAction,
+    ArticleEmbedding,
+    TitleEmbedding,
+    VideoEmbedding,
+    PageVersion,
+    Link,
+)
 from ..models import NoteCreateRequest, NoteUpdateRequest, HTMLPage
 from ..utils import (
     _get_ollama_client,
@@ -38,7 +54,7 @@ def _process_note_in_background(note_id: int):
     """
     with db_session() as session:
         note = session.query(Note).filter_by(id=note_id).first()
-        if not note:
+        if not note or getattr(note, "is_frozen", 0):
             return
 
         client = _get_ollama_client()
@@ -437,6 +453,7 @@ def get_note_detail(note_id: int) -> Dict[str, Any]:
             "wiki_summary": note.wiki_summary,
             "links": parsed_links,
             "tags": parsed_tags,
+            "is_frozen": getattr(note, "is_frozen", 0),
             "updated_at": note.updated_at,
         }
 
@@ -448,6 +465,8 @@ def update_note(note_id: int, payload: NoteUpdateRequest, background_tasks: Back
         note = session.query(Note).filter_by(id=note_id).first()
         if not note:
             raise HTTPException(status_code=404, detail="Note not found")
+        if getattr(note, "is_frozen", 0):
+            raise HTTPException(status_code=400, detail="Note is frozen and immutable.")
 
         if payload.title:
             note.title = payload.title
@@ -461,6 +480,131 @@ def update_note(note_id: int, payload: NoteUpdateRequest, background_tasks: Back
 
     background_tasks.add_task(_process_note_in_background, note_id)
     return {"status": "updated", "id": note_id}
+
+
+@router.post("/api/notes/{note_id}/freeze")
+def toggle_freeze_note(note_id: int) -> Dict[str, Any]:
+    """Toggles freeze/immutable state of a note."""
+    with db_session() as session:
+        note = session.query(Note).filter_by(id=note_id).first()
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        note.is_frozen = 0 if getattr(note, "is_frozen", 0) else 1
+        new_state = note.is_frozen
+        # Also sync mirrored page if present
+        page = session.query(FetchedPage).filter_by(url=note.url).first()
+        if page:
+            page.is_frozen = new_state
+        session.commit()
+    return {"status": "success", "note_id": note_id, "is_frozen": new_state}
+
+
+def _cascade_delete_notes(
+    session,
+    note_ids: Optional[List[int]] = None,
+    urls: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Comprehensively cascade-deletes notes and all dependent database records across
+
+    chat conversations, chunk embeddings, taxonomy items, collections, article/title/video
+    embeddings, page versions, links, and mirrored fetched pages.
+    """
+    notes_to_delete = []
+    if note_ids:
+        notes_to_delete.extend(session.query(Note).filter(Note.id.in_(note_ids)).all())
+    if urls:
+        notes_to_delete.extend(session.query(Note).filter(Note.url.in_(urls)).all())
+
+    seen_ids = set()
+    unique_notes = []
+    for n in notes_to_delete:
+        if n.id not in seen_ids:
+            seen_ids.add(n.id)
+            unique_notes.append(n)
+
+    deleted_ids = [n.id for n in unique_notes]
+    deleted_urls = [n.url for n in unique_notes if n.url]
+
+    if not unique_notes:
+        return {"deleted_count": 0, "deleted_ids": [], "deleted_urls": []}
+
+    # 1. Cascade Chat Conversations & Messages
+    conv_ids = []
+    for u in deleted_urls:
+        convs = session.query(ChatConversation).filter(
+            or_(ChatConversation.source_id == u, ChatConversation.source_id == f"note://{u}")
+        ).all()
+        conv_ids.extend([c.id for c in convs])
+    for n_id in deleted_ids:
+        convs = session.query(ChatConversation).filter(
+            or_(ChatConversation.source_id == str(n_id), ChatConversation.source_id == f"note_{n_id}")
+        ).all()
+        conv_ids.extend([c.id for c in convs])
+
+    if conv_ids:
+        session.query(ChatMessage).filter(ChatMessage.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
+        session.query(ChatConversation).filter(ChatConversation.id.in_(conv_ids)).delete(synchronize_session=False)
+
+    # 2. Cascade Taxonomy Items (by note URL, note ID string, or note_{id})
+    tax_item_ids_to_del = set(deleted_urls)
+    for n_id in deleted_ids:
+        tax_item_ids_to_del.add(str(n_id))
+        tax_item_ids_to_del.add(f"note_{n_id}")
+
+    tax_items = session.query(TaxonomyItem).filter(
+        or_(
+            TaxonomyItem.item_id.in_(list(tax_item_ids_to_del)),
+            and_(TaxonomyItem.item_type == "note", TaxonomyItem.item_id.in_([str(i) for i in deleted_ids])),
+        )
+    ).all()
+    for ti in tax_items:
+        if ti.category_id:
+            cat = session.query(TaxonomyCategory).filter_by(id=ti.category_id).first()
+            if cat and cat.item_count and cat.item_count > 0:
+                cat.item_count -= 1
+        session.delete(ti)
+
+    # 3. Cascade Chunk Embeddings
+    for u in deleted_urls:
+        session.query(ChunkEmbedding).filter_by(source_id=u).delete(synchronize_session=False)
+
+    # 4. Cascade Collection Items & Actions
+    for u in deleted_urls:
+        session.query(CollectionItem).filter_by(source_id=u).delete(synchronize_session=False)
+        session.query(CollectionAction).filter_by(source_id=u).delete(synchronize_session=False)
+
+    # 5. Cascade Page Dependencies for mirrored FetchedPages (Article/Title/Video Embeddings, Versions, Links)
+    for u in deleted_urls:
+        session.query(ArticleEmbedding).filter_by(url=u).delete(synchronize_session=False)
+        session.query(TitleEmbedding).filter_by(url=u).delete(synchronize_session=False)
+        session.query(VideoEmbedding).filter_by(url=u).delete(synchronize_session=False)
+        session.query(PageVersion).filter_by(url=u).delete(synchronize_session=False)
+        session.query(Link).filter_by(url=u).delete(synchronize_session=False)
+        session.query(FetchedPage).filter_by(url=u).delete(synchronize_session=False)
+
+    # 6. Delete Note records
+    for n in unique_notes:
+        session.delete(n)
+
+    return {
+        "deleted_count": len(deleted_ids),
+        "deleted_ids": deleted_ids,
+        "deleted_urls": deleted_urls,
+    }
+
+
+@router.delete("/api/notes/{note_id}", dependencies=[Depends(verify_auth)])
+def delete_single_note_api(note_id: int) -> Dict[str, Any]:
+    """Permanently deletes a single note and all dependent database records."""
+    with db_session() as session:
+        note = session.query(Note).filter_by(id=note_id).first()
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        if getattr(note, "is_frozen", 0):
+            raise HTTPException(status_code=403, detail="Note is frozen and cannot be deleted. Unfreeze it first.")
+        res = _cascade_delete_notes(session, note_ids=[note_id])
+        session.commit()
+        return {"status": "success", "deleted_id": note_id, "cascaded": res}
 
 
 # --- UI Pages ---

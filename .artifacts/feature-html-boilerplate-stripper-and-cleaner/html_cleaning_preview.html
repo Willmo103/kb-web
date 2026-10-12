@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML Cleaning & Markdown Preview Report</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --accent: #38bdf8;
+            --orig-header: #ef4444;
+            --clean-header: #10b981;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            padding: 24px;
+            line-height: 1.5;
+        }
+        .header {
+            max-width: 1400px;
+            margin: 0 auto 24px auto;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);
+        }
+        .header h1 { font-size: 24px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+        .header p { color: var(--text-muted); font-size: 14px; margin-bottom: 16px; }
+        .summary-stats {
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+            border-top: 1px solid var(--border);
+            padding-top: 16px;
+        }
+        .stat-item { display: flex; flex-direction: column; }
+        .stat-label { font-size: 12px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+        .stat-value { font-size: 20px; font-weight: 700; color: var(--accent); }
+        .article-card {
+            max-width: 1400px;
+            margin: 0 auto 32px auto;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3);
+        }
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(15, 23, 42, 0.6);
+        }
+        .card-title-group { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+        .card-index {
+            background: var(--border);
+            color: var(--accent);
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        .card-title { font-size: 18px; font-weight: 600; color: #fff; }
+        .card-meta { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+        .card-link { color: var(--accent); font-size: 13px; text-decoration: none; word-break: break-all; }
+        .card-link:hover { text-decoration: underline; }
+        .badge {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            color: #fff;
+        }
+        .metrics-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 20px;
+            background: #111827;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        .metrics-bar strong { color: #e2e8f0; }
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            min-height: 480px;
+            max-height: 700px;
+        }
+        @media (max-width: 900px) {
+            .comparison-grid { grid-template-columns: 1fr; max-height: none; }
+        }
+        .column {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border-right: 1px solid var(--border);
+        }
+        .column:last-child { border-right: none; }
+        .column-header {
+            padding: 8px 16px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #fff;
+        }
+        .column-header.original { background: #991b1b; }
+        .column-header.cleaned { background: #065f46; }
+        .code-box {
+            flex: 1;
+            padding: 16px;
+            background: #090d16;
+            color: #cbd5e1;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧼 HTML Boilerplate Cleaner: Before & After Markdown Comparison</h1>
+        <p>Interactive verification report for sampled database articles before applying updates.</p>
+        <div class="summary-stats">
+            <div class="stat-item">
+                <span class="stat-label">Sampled Articles</span>
+                <span class="stat-value">5</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Total Character Reduction</span>
+                <span class="stat-value">--640 chars</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Average Noise Reduction</span>
+                <span class="stat-value">-12.3%</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Mode</span>
+                <span class="stat-value" style="color: #f59e0b;">DRY-RUN PREVIEW</span>
+            </div>
+        </div>
+    </div>
+
+    
+        <div class="article-card" id="article-1">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="card-index">#1</span>
+                    <h2 class="card-title">Test Freeze Article</h2>
+                </div>
+                <div class="card-meta">
+                    <a href="https://example.com/test-freeze-article-1" target="_blank" class="card-link">https://example.com/test-freeze-article-1</a>
+                    <span class="badge" style="background-color: #10b981">
+                        14.29% noise reduction (-2 chars)
+                    </span>
+                </div>
+            </div>
+
+            <div class="metrics-bar">
+                <span>Original: <strong>14 chars</strong> (1 lines)</span>
+                <span>&rarr;</span>
+                <span>Cleaned: <strong>12 chars</strong> (1 lines)</span>
+            </div>
+
+            <div class="comparison-grid">
+                <div class="column">
+                    <div class="column-header original">
+                        <span>Original Raw Markdown (with header/nav clutter)</span>
+                    </div>
+                    <pre class="code-box"># Test content</pre>
+                </div>
+                <div class="column">
+                    <div class="column-header cleaned">
+                        <span>Sanitized Clean Markdown (core content only)</span>
+                    </div>
+                    <pre class="code-box">Test content</pre>
+                </div>
+            </div>
+        </div>
+        
+        <div class="article-card" id="article-2">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="card-index">#2</span>
+                    <h2 class="card-title">Advanced Quantum Machine Learning Guide</h2>
+                </div>
+                <div class="card-meta">
+                    <a href="https://example.com/sprint6-test-article" target="_blank" class="card-link">https://example.com/sprint6-test-article</a>
+                    <span class="badge" style="background-color: #6b7280">
+                        0.0% noise reduction (-0 chars)
+                    </span>
+                </div>
+            </div>
+
+            <div class="metrics-bar">
+                <span>Original: <strong>106 chars</strong> (3 lines)</span>
+                <span>&rarr;</span>
+                <span>Cleaned: <strong>106 chars</strong> (3 lines)</span>
+            </div>
+
+            <div class="comparison-grid">
+                <div class="column">
+                    <div class="column-header original">
+                        <span>Original Raw Markdown (with header/nav clutter)</span>
+                    </div>
+                    <pre class="code-box"># Quantum Computing
+
+Quantum machine learning blends classical algorithms with quantum information theory.</pre>
+                </div>
+                <div class="column">
+                    <div class="column-header cleaned">
+                        <span>Sanitized Clean Markdown (core content only)</span>
+                    </div>
+                    <pre class="code-box"># Quantum Computing
+
+Quantum machine learning blends classical algorithms with quantum information theory.</pre>
+                </div>
+            </div>
+        </div>
+        
+        <div class="article-card" id="article-3">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="card-index">#3</span>
+                    <h2 class="card-title">Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)</h2>
+                </div>
+                <div class="card-meta">
+                    <a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ" target="_blank" class="card-link">https://www.youtube.com/watch?v=dQw4w9WgXcQ</a>
+                    <span class="badge" style="background-color: #6b7280">
+                        -11.89% noise reduction (--602 chars)
+                    </span>
+                </div>
+            </div>
+
+            <div class="metrics-bar">
+                <span>Original: <strong>5,061 chars</strong> (152 lines)</span>
+                <span>&rarr;</span>
+                <span>Cleaned: <strong>5,663 chars</strong> (156 lines)</span>
+            </div>
+
+            <div class="comparison-grid">
+                <div class="column">
+                    <div class="column-header original">
+                        <span>Original Raw Markdown (with header/nav clutter)</span>
+                    </div>
+                    <pre class="code-box"># Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)
+
+## Video Description
+The official video for “Never Gonna Give You Up” by Rick Astley. 
+
+Never: The Autobiography 📚 OUT NOW! 
+Follow this link to get your copy and listen to Rick’s ‘Never’ playlist ❤️ #RickAstleyNever
+https://linktr.ee/rickastleynever
+
+“Never Gonna Give You Up” was a global smash on its release in July 1987, topping the charts in 25 countries including Rick’s native UK and the US Billboard Hot 100.  It also won the Brit Award for Best single in 1988. Stock Aitken and Waterman wrote and produced the track which was the lead-off single and lead track from Rick’s debut LP “Whenever You Need Somebody”.  The album was itself a UK number one and would go on to sell over 15 million copies worldwide.
+
+The legendary video was directed by Simon West – who later went on to make Hollywood blockbusters such as Con Air, Lara Croft – Tomb Raider and The Expendables 2.  The video passed the 1bn YouTube views milestone on 28 July 2021.
+
+Subscribe to the official Rick Astley YouTube channel: https://RickAstley.lnk.to/YTSubID
+
+Follow Rick Astley:
+Facebook: https://RickAstley.lnk.to/FBFollowID 
+Twitter: https://RickAstley.lnk.to/TwitterID 
+Instagram: https://RickAstley.lnk.to/InstagramID 
+Website: https://RickAstley.lnk.to/storeID 
+TikTok: https://RickAstley.lnk.to/TikTokID
+
+Listen to Rick Astley:
+Spotify: https://RickAstley.lnk.to/SpotifyID 
+Apple Music: https://RickAstley.lnk.to/AppleMusicID 
+Amazon Music: https://RickAstley.lnk.to/AmazonMusicID 
+Deezer: https://RickAstley.lnk.to/DeezerID 
+
+Lyrics:
+We’re no strangers to love
+You know the rules and so do I
+A full commitment’s what I’m thinking of
+You wouldn’t get this from any other guy
+
+I just wanna tell you how I’m feeling
+Gotta make you understand
+
+Never gonna give you up
+Never gonna let you down
+Never gonna run around and desert you
+Never gonna make you cry
+Never gonna say goodbye
+Never gonna tell a lie and hurt you
+
+We’ve known each other for so long
+Your heart’s been aching but you’re too shy to say it
+Inside we both know what’s been going on
+We know the game and we’re gonna play it
+
+And if you ask me how I’m feeling
+Don’t tell me you’re too blind to see
+
+Never gonna give you up
+Never gonna let you down
+Never gonna run around and desert you
+Never gonna make you cry
+Never gonna say goodbye
+Never gonna tell a lie and hurt you
+
+#RickAstley #NeverGonnaGiveYouUp #WheneverYouNeedSomebody #OfficialMusicVideo
+
+## Transcript
+[00:01] [♪♪♪]
+[00:18] ♪ We&#x27;re no strangers to love ♪
+[00:22] ♪ You know the rules
+and so do I ♪
+[00:27] ♪ A full commitment&#x27;s
+what I&#x27;m thinking of ♪
+[00:31] ♪ You wouldn&#x27;t get this
+from any other guy ♪
+[00:35] ♪ I just wanna tell you
+how I&#x27;m feeling ♪
+[00:40] ♪ Gotta make you understand ♪
+[00:43] ♪ Never gonna give you up ♪
+[00:45] ♪ Never gonna let you down ♪
+[00:47] ♪ Never gonna run around
+and desert you ♪
+[00:51] ♪ Never gonna make you cry ♪
+[00:53] ♪ Never gonna say goodbye ♪
+[00:55] ♪ Never gonna tell a lie
+and hurt you ♪
+[01:00] ♪ We&#x27;ve known each other
+for so long ♪
+[01:04] ♪ Your heart&#x27;s been aching
+but you&#x27;re too shy to say it ♪
+[01:09] ♪ Inside we both know
+what&#x27;s been going ♪
+[01:13] ♪ We know the game
+and we&#x27;re gonna play it ♪
+[01:17] ♪ And if you ask me
+how I&#x27;m feeling ♪
+[01:22] ♪ Don&#x27;t tell me
+you&#x27;re too blind to see ♪
+[01:25] ♪ Never gonna give you up ♪
+[01:27] ♪ Never gonna let you down ♪
+[01:29] ♪ Never gonna run around
+and desert you ♪
+[01:33] ♪ Never gonna make you cry ♪
+[01:35] ♪ Never gonna say goodbye ♪
+[01:38] ♪ Never gonna tell a lie
+and hurt you ♪
+[01:42] ♪ Never gonna give you up ♪
+[01:44] ♪ Never gonna let you down ♪
+[01:46] ♪ Never gonna run around
+and desert you ♪
+[01:50] ♪ Never gonna make you cry ♪
+[01:52] ♪ Never gonna say goodbye ♪
+[01:54] ♪ Never gonna tell a lie
+and hurt you ♪
+[01:59] ♪ (Ooh, give you up) ♪
+[02:03] ♪ (Ooh, give you up) ♪
+[02:08] ♪ Never gonna give,
+never gonna give ♪
+[02:10] ♪ (Give you up) ♪
+[02:12] ♪ Never gonna give,
+never gonna give ♪
+[02:14] ♪ (Give you up) ♪
+[02:16] ♪ We&#x27;ve known each other
+for so long ♪
+[02:21] ♪ Your heart&#x27;s been aching
+but you&#x27;re too shy to say it ♪
+[02:25] ♪ Inside we both know
+what&#x27;s been going ♪
+[02:29] ♪ We know the game
+and we&#x27;re gonna play it ♪
+[02:33] ♪ I just wanna tell you
+how I&#x27;m feeling ♪
+[02:38] ♪ Gotta make you understand ♪
+[02:41] ♪ Never gonna give you up ♪
+[02:43] ♪ Never gonna let you down ♪
+[02:45] ♪ Never gonna run around
+and desert you ♪
+[02:49] ♪ Never gonna make you cry ♪
+[02:51] ♪ Never gonna say goodbye ♪
+[02:54] ♪ Never gonna tell a lie
+and hurt you ♪
+[02:58] ♪ Never gonna give you up ♪
+[03:00] ♪ Never gonna let you down ♪
+[03:02] ♪ Never gonna run around
+and desert you ♪
+[03:06] ♪ Never gonna make you cry ♪
+[03:08] ♪ Never gonna say goodbye ♪
+[03:10] ♪ Never gonna tell a lie
+and hurt you ♪
+[03:15] ♪ Never gonna give you up ♪
+[03:17] ♪ Never gonna let you down ♪
+[03:19] ♪ Never gonna run around
+and desert you ♪
+[03:23] ♪ Never gonna make you cry ♪
+[03:25] ♪ Never gonna say goodbye ♪
+[03:27] ♪ Never gonna tell a lie
+and hurt you ♪</pre>
+                </div>
+                <div class="column">
+                    <div class="column-header cleaned">
+                        <span>Sanitized Clean Markdown (core content only)</span>
+                    </div>
+                    <pre class="code-box"># Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)
+
+## Description
+    
+    
+    The official video for “Never Gonna Give You Up” by Rick Astley. 
+    
+    Never: The Autobiography 📚 OUT NOW! 
+    Follow this link to get your copy and listen to Rick’s ‘Never’ playlist ❤️ #RickAstleyNever
+    https://linktr.ee/rickastleynever
+    
+    “Never Gonna Give You Up” was a global smash on its release in July 1987, topping the charts in 25 countries including Rick’s native UK and the US Billboard Hot 100.  It also won the Brit Award for Best single in 1988. Stock Aitken and Waterman wrote and produced the track which was the lead-off single and lead track from Rick’s debut LP “Whenever You Need Somebody”.  The album was itself a UK number one and would go on to sell over 15 million copies worldwide.
+    
+    The legendary video was directed by Simon West – who later went on to make Hollywood blockbusters such as Con Air, Lara Croft – Tomb Raider and The Expendables 2.  The video passed the 1bn YouTube views milestone on 28 July 2021.
+    
+    Subscribe to the official Rick Astley YouTube channel: https://RickAstley.lnk.to/YTSubID
+    
+    Follow Rick Astley:
+    Facebook: https://RickAstley.lnk.to/FBFollowID 
+    Twitter: https://RickAstley.lnk.to/TwitterID 
+    Instagram: https://RickAstley.lnk.to/InstagramID 
+    Website: https://RickAstley.lnk.to/storeID 
+    TikTok: https://RickAstley.lnk.to/TikTokID
+    
+    Listen to Rick Astley:
+    Spotify: https://RickAstley.lnk.to/SpotifyID 
+    Apple Music: https://RickAstley.lnk.to/AppleMusicID 
+    Amazon Music: https://RickAstley.lnk.to/AmazonMusicID 
+    Deezer: https://RickAstley.lnk.to/DeezerID 
+    
+    Lyrics:
+    We’re no strangers to love
+    You know the rules and so do I
+    A full commitment’s what I’m thinking of
+    You wouldn’t get this from any other guy
+    
+    I just wanna tell you how I’m feeling
+    Gotta make you understand
+    
+    Never gonna give you up
+    Never gonna let you down
+    Never gonna run around and desert you
+    Never gonna make you cry
+    Never gonna say goodbye
+    Never gonna tell a lie and hurt you
+    
+    We’ve known each other for so long
+    Your heart’s been aching but you’re too shy to say it
+    Inside we both know what’s been going on
+    We know the game and we’re gonna play it
+    
+    And if you ask me how I’m feeling
+    Don’t tell me you’re too blind to see
+    
+    Never gonna give you up
+    Never gonna let you down
+    Never gonna run around and desert you
+    Never gonna make you cry
+    Never gonna say goodbye
+    Never gonna tell a lie and hurt you
+    
+    #RickAstley #NeverGonnaGiveYouUp #WheneverYouNeedSomebody #OfficialMusicVideo
+
+## Transcript
+    
+    
+    [00:01] [♪♪♪]
+    [00:18] ♪ We&#x27;re no strangers to love ♪
+    [00:22] ♪ You know the rules
+    and so do I ♪
+    [00:27] ♪ A full commitment&#x27;s
+    what I&#x27;m thinking of ♪
+    [00:31] ♪ You wouldn&#x27;t get this
+    from any other guy ♪
+    [00:35] ♪ I just wanna tell you
+    how I&#x27;m feeling ♪
+    [00:40] ♪ Gotta make you understand ♪
+    [00:43] ♪ Never gonna give you up ♪
+    [00:45] ♪ Never gonna let you down ♪
+    [00:47] ♪ Never gonna run around
+    and desert you ♪
+    [00:51] ♪ Never gonna make you cry ♪
+    [00:53] ♪ Never gonna say goodbye ♪
+    [00:55] ♪ Never gonna tell a lie
+    and hurt you ♪
+    [01:00] ♪ We&#x27;ve known each other
+    for so long ♪
+    [01:04] ♪ Your heart&#x27;s been aching
+    but you&#x27;re too shy to say it ♪
+    [01:09] ♪ Inside we both know
+    what&#x27;s been going ♪
+    [01:13] ♪ We know the game
+    and we&#x27;re gonna play it ♪
+    [01:17] ♪ And if you ask me
+    how I&#x27;m feeling ♪
+    [01:22] ♪ Don&#x27;t tell me
+    you&#x27;re too blind to see ♪
+    [01:25] ♪ Never gonna give you up ♪
+    [01:27] ♪ Never gonna let you down ♪
+    [01:29] ♪ Never gonna run around
+    and desert you ♪
+    [01:33] ♪ Never gonna make you cry ♪
+    [01:35] ♪ Never gonna say goodbye ♪
+    [01:38] ♪ Never gonna tell a lie
+    and hurt you ♪
+    [01:42] ♪ Never gonna give you up ♪
+    [01:44] ♪ Never gonna let you down ♪
+    [01:46] ♪ Never gonna run around
+    and desert you ♪
+    [01:50] ♪ Never gonna make you cry ♪
+    [01:52] ♪ Never gonna say goodbye ♪
+    [01:54] ♪ Never gonna tell a lie
+    and hurt you ♪
+    [01:59] ♪ (Ooh, give you up) ♪
+    [02:03] ♪ (Ooh, give you up) ♪
+    [02:08] ♪ Never gonna give,
+    never gonna give ♪
+    [02:10] ♪ (Give you up) ♪
+    [02:12] ♪ Never gonna give,
+    never gonna give ♪
+    [02:14] ♪ (Give you up) ♪
+    [02:16] ♪ We&#x27;ve known each other
+    for so long ♪
+    [02:21] ♪ Your heart&#x27;s been aching
+    but you&#x27;re too shy to say it ♪
+    [02:25] ♪ Inside we both know
+    what&#x27;s been going ♪
+    [02:29] ♪ We know the game
+    and we&#x27;re gonna play it ♪
+    [02:33] ♪ I just wanna tell you
+    how I&#x27;m feeling ♪
+    [02:38] ♪ Gotta make you understand ♪
+    [02:41] ♪ Never gonna give you up ♪
+    [02:43] ♪ Never gonna let you down ♪
+    [02:45] ♪ Never gonna run around
+    and desert you ♪
+    [02:49] ♪ Never gonna make you cry ♪
+    [02:51] ♪ Never gonna say goodbye ♪
+    [02:54] ♪ Never gonna tell a lie
+    and hurt you ♪
+    [02:58] ♪ Never gonna give you up ♪
+    [03:00] ♪ Never gonna let you down ♪
+    [03:02] ♪ Never gonna run around
+    and desert you ♪
+    [03:06] ♪ Never gonna make you cry ♪
+    [03:08] ♪ Never gonna say goodbye ♪
+    [03:10] ♪ Never gonna tell a lie
+    and hurt you ♪
+    [03:15] ♪ Never gonna give you up ♪
+    [03:17] ♪ Never gonna let you down ♪
+    [03:19] ♪ Never gonna run around
+    and desert you ♪
+    [03:23] ♪ Never gonna make you cry ♪
+    [03:25] ♪ Never gonna say goodbye ♪
+    [03:27] ♪ Never gonna tell a lie
+    and hurt you ♪</pre>
+                </div>
+            </div>
+        </div>
+        
+        <div class="article-card" id="article-4">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="card-index">#4</span>
+                    <h2 class="card-title">https://example.com/test-queue-1</h2>
+                </div>
+                <div class="card-meta">
+                    <a href="https://example.com/test-queue-1" target="_blank" class="card-link">https://example.com/test-queue-1</a>
+                    <span class="badge" style="background-color: #6b7280">
+                        -166.67% noise reduction (--20 chars)
+                    </span>
+                </div>
+            </div>
+
+            <div class="metrics-bar">
+                <span>Original: <strong>12 chars</strong> (2 lines)</span>
+                <span>&rarr;</span>
+                <span>Cleaned: <strong>32 chars</strong> (1 lines)</span>
+            </div>
+
+            <div class="comparison-grid">
+                <div class="column">
+                    <div class="column-header original">
+                        <span>Original Raw Markdown (with header/nav clutter)</span>
+                    </div>
+                    <pre class="code-box">Doc 1Doc 2
+
+</pre>
+                </div>
+                <div class="column">
+                    <div class="column-header cleaned">
+                        <span>Sanitized Clean Markdown (core content only)</span>
+                    </div>
+                    <pre class="code-box">[Doc 1](&lt;/doc1&gt;)[Doc 2](&lt;/doc2&gt;)</pre>
+                </div>
+            </div>
+        </div>
+        
+        <div class="article-card" id="article-5">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="card-index">#5</span>
+                    <h2 class="card-title">https://example.com/api-enqueued-page</h2>
+                </div>
+                <div class="card-meta">
+                    <a href="https://example.com/api-enqueued-page" target="_blank" class="card-link">https://example.com/api-enqueued-page</a>
+                    <span class="badge" style="background-color: #6b7280">
+                        -166.67% noise reduction (--20 chars)
+                    </span>
+                </div>
+            </div>
+
+            <div class="metrics-bar">
+                <span>Original: <strong>12 chars</strong> (2 lines)</span>
+                <span>&rarr;</span>
+                <span>Cleaned: <strong>32 chars</strong> (1 lines)</span>
+            </div>
+
+            <div class="comparison-grid">
+                <div class="column">
+                    <div class="column-header original">
+                        <span>Original Raw Markdown (with header/nav clutter)</span>
+                    </div>
+                    <pre class="code-box">Doc 1Doc 2
+
+</pre>
+                </div>
+                <div class="column">
+                    <div class="column-header cleaned">
+                        <span>Sanitized Clean Markdown (core content only)</span>
+                    </div>
+                    <pre class="code-box">[Doc 1](&lt;/doc1&gt;)[Doc 2](&lt;/doc2&gt;)</pre>
+                </div>
+            </div>
+        </div>
+        
+</body>
+</html>

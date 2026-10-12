@@ -32,6 +32,10 @@ from .models_orm import (
     Note,
     PageCardView,
     Workspace,
+    WorkspaceFile,
+    PageVersion,
+    Collection,
+    CollectionItem,
 )
 from .agent_memory import post_agent_memory
 
@@ -124,6 +128,48 @@ def _generate_category_slug(name: str) -> str:
     return s.strip("-") or f"category-{int(time.time())}"
 
 
+def _ensure_unique_slug(session: Session, slug: str) -> str:
+    """Ensures a category slug is strictly unique within the database by appending numeric suffixes if needed."""
+    candidate = slug
+    counter = 2
+    while session.query(TaxonomyCategory).filter_by(slug=candidate).first():
+        candidate = f"{slug}-{counter}"
+        counter += 1
+    return candidate
+
+
+def _format_metadata_summary(meta: Optional[Dict[str, Any]]) -> str:
+    """Formats provenance metadata into readable markdown bullet points for taxonomy agents."""
+    if not meta:
+        return ""
+    lines = []
+    vault = meta.get("vault_name") or meta.get("vault")
+    if vault:
+        lines.append(f"- Vault: {vault}")
+    folder = meta.get("folder_path") or meta.get("folder")
+    if folder and folder not in ["root", ""]:
+        lines.append(f"- Folder: {folder}")
+    if "syntax" in meta and meta["syntax"]:
+        lines.append(f"- Syntax: {meta['syntax']}")
+    if "collections" in meta and meta["collections"]:
+        lines.append(f"- Belongs to Collections: {', '.join(meta['collections'])}")
+    if "source_url" in meta:
+        lines.append(f"- Source URL: {meta['source_url']}")
+    if "note_url" in meta:
+        lines.append(f"- Note URI: {meta['note_url']}")
+    if "version_count" in meta and meta["version_count"] > 1:
+        lines.append(f"- Version History: {meta['version_count']} revisions recorded")
+    if "fetched_at" in meta:
+        lines.append(f"- Ingested At: {meta['fetched_at']}")
+    if "created_at" in meta:
+        lines.append(f"- Created At: {meta['created_at']}")
+    if "template" in meta:
+        lines.append(f"- Project Type: {meta['template']}")
+    if "file_count" in meta:
+        lines.append(f"- File Count: {meta['file_count']}")
+    return "\n".join(lines)
+
+
 def _is_generic_domain_name(name: str) -> bool:
     """Checks whether a category name is an uninformative, generic, or numbered placeholder."""
     if not name or len(name.strip()) < 3:
@@ -183,14 +229,19 @@ def _create_cold_start_category(
     client: Any,
     config: Any,
     item_class: Optional[str] = None,
+    item_metadata: Optional[Dict[str, Any]] = None,
 ) -> TaxonomyCategory:
     """Cold Start: Prompts the LLM to invent the inaugural top-level category when 0 categories exist."""
+    meta_summary = _format_metadata_summary(item_metadata)
+    meta_block = f"\nItem Provenance & Context:\n{meta_summary}\n" if meta_summary else ""
+
     prompt = (
         "You are an expert ontology and taxonomy architect. The knowledge base is currently empty with 0 categories.\n"
         "Analyze the following incoming item and create the inaugural top-level knowledge domain for it.\n\n"
         f"Item Class: {item_class or 'Notes'}\n"
         f"Item Title: {item_title}\n"
         f"Item Tags: {', '.join(item_tags) if item_tags else 'None'}\n"
+        f"{meta_block}"
         f"Item Excerpt: {item_excerpt[:1000]}\n\n"
         "DOMAIN NAMING MANDATE:\n"
         "You MUST assign a descriptive, authoritative, 2-4 word knowledge domain title (e.g. 'Personal Lifestyle & Dating', 'DevOps & Cloud Infrastructure', 'Python & System Utilities').\n"
@@ -264,9 +315,13 @@ def _synthesize_new_category(
     client: Any,
     config: Any,
     item_class: Optional[str] = None,
+    item_metadata: Optional[Dict[str, Any]] = None,
 ) -> TaxonomyCategory:
     """Prompts LLM to create a new category that fits the incoming item without duplicating existing ones."""
     tree_text = format_category_tree_for_prompt(existing_categories)
+    meta_summary = _format_metadata_summary(item_metadata)
+    meta_block = f"\nItem Provenance & Context:\n{meta_summary}\n" if meta_summary else ""
+
     prompt = (
         "You are an expert ontology architect. An incoming item does not fit into any of our existing categories.\n"
         "Review the existing category tree and create a NEW, distinct knowledge domain for this item.\n\n"
@@ -274,6 +329,7 @@ def _synthesize_new_category(
         f"Item Class: {item_class or 'Notes'}\n"
         f"Incoming Item Title: {item_title}\n"
         f"Item Tags: {', '.join(item_tags) if item_tags else 'None'}\n"
+        f"{meta_block}"
         f"Item Excerpt: {item_excerpt[:1000]}\n\n"
         "DOMAIN NAMING MANDATE:\n"
         "You MUST assign a descriptive, authoritative, 2-4 word knowledge domain title (e.g. 'Personal Lifestyle & Dating', 'DevOps & Cloud Infrastructure', 'Developer Tooling & Scripting').\n"
@@ -307,9 +363,58 @@ def _synthesize_new_category(
     except Exception as e:
         logger.warning(f"New category generation LLM fallback: {e}")
 
-    now_str = datetime.now().isoformat()
+    # Check for slug collision against existing categories
+    existing_slug_map = {c.slug: c for c in existing_categories}
     slug = _generate_category_slug(cat_name)
 
+    # Retry loop with feedback to LLM agent if slug already exists
+    attempts = 0
+    while slug in existing_slug_map and attempts < 3:
+        attempts += 1
+        collided_cat = existing_slug_map[slug]
+        logger.info(f"Taxonomy slug collision for '{slug}' (attempt {attempts}). Re-prompting agent harness...")
+        collision_prompt = (
+            f"ERROR: A category with slug '{slug}' ('{collided_cat.name}') ALREADY exists in the ontology.\n"
+            f"Incoming item: '{item_title}'\n"
+            "Action required: Either select a MORE SPECIFIC, DISTINCT category title (2-4 words) that avoids this collision, "
+            "or if this item actually belongs to the existing category, respond with that exact existing category name.\n"
+            "Respond with strict JSON: {\"category_name\": \"...\", \"category_doc\": \"...\"}"
+        )
+        try:
+            retry_resp = client.chat(
+                model=model,
+                messages=[
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": json.dumps({"category_name": cat_name, "category_doc": cat_doc})},
+                    {"role": "user", "content": collision_prompt},
+                ],
+                options={"temperature": 0.4, "num_predict": 400},
+            )
+            retry_content = retry_resp["message"]["content"].strip()
+            retry_match = re.search(r"\{.*\}", retry_content, re.DOTALL)
+            if retry_match:
+                retry_data = json.loads(retry_match.group(0))
+                candidate_name = retry_data.get("category_name", "").strip()
+                if candidate_name and not _is_generic_domain_name(candidate_name):
+                    cat_name = candidate_name
+                    cat_doc = retry_data.get("category_doc", cat_doc).strip()
+                    slug = _generate_category_slug(cat_name)
+                    if slug == collided_cat.slug:
+                        # Agent chose to merge with existing category!
+                        logger.info(f"Agent chose to merge into existing category '{collided_cat.name}'.")
+                        return collided_cat
+        except Exception as retry_err:
+            logger.warning(f"Agent collision retry error: {retry_err}")
+            break
+
+    # If it still collides with an existing category after retries, check if we should merge
+    if slug in existing_slug_map and cat_name.lower().strip() == existing_slug_map[slug].name.lower().strip():
+        return existing_slug_map[slug]
+
+    # Always ensure slug uniqueness in database table
+    slug = _ensure_unique_slug(session, slug)
+
+    now_str = datetime.now().isoformat()
     cat = TaxonomyCategory(
         name=cat_name,
         slug=slug,
@@ -330,9 +435,9 @@ def _synthesize_new_category(
         agent_name="TaxonomyAgent",
         channel="taxonomy",
         topic="new_category",
-        content=f"Created new distinct category '{cat.name}' (ID: {cat.id}) to house '{item_title}'.",
+        content=f"Created new distinct category '{cat.name}' (ID: {cat.id}, Slug: {cat.slug}) to house '{item_title}'.",
         memory_type="decision",
-        metadata={"category_id": cat.id, "name": cat.name, "item_title": item_title},
+        metadata={"category_id": cat.id, "name": cat.name, "slug": cat.slug, "item_title": item_title},
     )
 
     return cat
@@ -488,7 +593,7 @@ def partition_category(
             if not valid_indices:
                 continue
 
-            sub_slug = _generate_category_slug(sub_name)
+            sub_slug = _ensure_unique_slug(session, _generate_category_slug(sub_name))
             sub_cat = TaxonomyCategory(
                 name=sub_name,
                 slug=sub_slug,
@@ -560,6 +665,7 @@ def classify_item_class(
     item_tags: Optional[List[str]] = None,
     client: Any = None,
     config: Any = None,
+    item_metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Classifies an incoming item into one of 6 distinct classes using tev1 decision gating.
 
@@ -575,13 +681,15 @@ def classify_item_class(
     cli = client or _get_ollama_client()
     tags = item_tags or []
     tev1_model = getattr(cfg, "tev1_model", "tev1")
+    meta_summary = _format_metadata_summary(item_metadata)
 
     state: Dict[str, Any] = {
         "item_title": item_title,
         "item_tags": tags,
         "item_excerpt": item_content[:800],
+        "provenance_metadata": meta_summary,
         "policies": [
-            "Policy 1 (Personal): Private thoughts, personal journal entries, relationship/dating ideas, lifestyle planning, and personal tasks must be classified as 'Personal'.",
+            "Policy 1 (Personal): Private thoughts, personal journal entries, relationship/dating ideas, lifestyle planning, and personal tasks must be classified as 'Personal'. Items from personal vaults or journal folders default to 'Personal'.",
             "Policy 2 (Documentation): Reference materials, technical documentation, API guides, architecture manuals, and cheat sheets must be classified as 'Documentation'.",
             "Policy 3 (Notes): Non-personal, non-code informational scratchpad notes, meeting summaries, or project scratchpads must be classified as 'Notes'.",
             "Policy 4 (Articles): Published web articles, blog posts, news essays, and video transcripts must be classified as 'Articles'.",
@@ -625,7 +733,8 @@ def classify_item_class(
     # Rule-based fallback
     lower_title = item_title.lower()
     lower_content = item_content[:500].lower()
-    combined = f"{lower_title} {lower_content} {' '.join(tags).lower()}"
+    meta_str = (meta_summary or "").lower()
+    combined = f"{lower_title} {lower_content} {meta_str} {' '.join(tags).lower()}"
 
     if not item_content.strip() or len(item_content.strip()) < 5:
         return "Unclassifiable"
@@ -649,6 +758,7 @@ def evaluate_category_fit_tev1(
     client: Any,
     config: Any,
     item_class: str = "Notes",
+    item_metadata: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Optional[int], bool]:
     """Uses the tev1 decision model (via client.systemone) to evaluate candidate categories.
 
@@ -660,6 +770,7 @@ def evaluate_category_fit_tev1(
         return None, False
 
     tev1_model = getattr(config, "tev1_model", "tev1")
+    meta_summary = _format_metadata_summary(item_metadata)
 
     # Format choices for tev1 choice question
     choices_criteria: Dict[str, str] = {}
@@ -675,6 +786,7 @@ def evaluate_category_fit_tev1(
         "item_class": item_class,
         "item_tags": item_tags,
         "item_excerpt": item_excerpt[:600],
+        "item_provenance": meta_summary,
         "category_tree": tree_representation,
         "policies": [
             "Policy 1 (Thematic Purity): An item must only be assigned to a category if its core topic directly aligns with that category's scope. Never force-fit an item into an unrelated category.",
@@ -777,6 +889,7 @@ def classify_item(
     item_tags: Optional[List[str]] = None,
     client: Any = None,
     config: Any = None,
+    item_metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Classifies an individual item into the autonomous taxonomy state machine.
 
@@ -828,6 +941,7 @@ def classify_item(
             item_tags=tags,
             client=cli,
             config=cfg,
+            item_metadata=item_metadata,
         )
 
         # Handle Unclassifiable items (skip domain assignment, record on message board)
@@ -876,6 +990,7 @@ def classify_item(
                 client=cli,
                 config=cfg,
                 item_class=item_class,
+                item_metadata=item_metadata,
             )
             tax_item = TaxonomyItem(
                 category_id=cat.id,
@@ -912,6 +1027,7 @@ def classify_item(
             client=cli,
             config=cfg,
             item_class=item_class,
+            item_metadata=item_metadata,
         )
 
         # 6. Fit confirmed
@@ -988,6 +1104,7 @@ def classify_item(
             client=cli,
             config=cfg,
             item_class=item_class,
+            item_metadata=item_metadata,
         )
 
         tax_item = TaxonomyItem(
@@ -1019,6 +1136,7 @@ def classify_single_item(item_type: str, item_id: Any) -> Dict[str, Any]:
         title = "Untitled Item"
         content = ""
         tags: List[str] = []
+        metadata: Dict[str, Any] = {}
 
         if item_type == "note":
             note = session.query(Note).filter_by(id=int(item_id)).first()
@@ -1031,6 +1149,17 @@ def classify_single_item(item_type: str, item_id: Any) -> Dict[str, Any]:
             except Exception:
                 pass
             item_id_str = f"note_{note.id}"
+            metadata = {
+                "vault": getattr(note, "vault_name", "Personal") or "Personal",
+                "vault_name": getattr(note, "vault_name", "Personal") or "Personal",
+                "folder": getattr(note, "folder_path", "") or "",
+                "folder_path": getattr(note, "folder_path", "") or "",
+                "url": note.url,
+                "note_url": note.url,
+                "created_at": str(note.created_at) if note.created_at else None,
+                "updated_at": str(note.updated_at) if note.updated_at else None,
+                "syntax": getattr(note, "syntax", "markdown"),
+            }
 
         elif item_type == "article":
             page = session.query(FetchedPage).filter_by(url=str(item_id)).first()
@@ -1043,6 +1172,13 @@ def classify_single_item(item_type: str, item_id: Any) -> Dict[str, Any]:
             except Exception:
                 pass
             item_id_str = page.url
+            ver_count = session.query(PageVersion).filter_by(page_url=page.url).count()
+            metadata = {
+                "url": page.url,
+                "domain": page.domain,
+                "fetched_at": str(page.fetched_at) if hasattr(page, "fetched_at") else None,
+                "version_count": ver_count,
+            }
 
         elif item_type == "video":
             page = session.query(FetchedPage).filter_by(url=str(item_id)).first()
@@ -1051,6 +1187,11 @@ def classify_single_item(item_type: str, item_id: Any) -> Dict[str, Any]:
             title = page.title or "YouTube Video"
             content = page.description or ""
             item_id_str = page.url
+            metadata = {
+                "url": page.url,
+                "domain": page.domain,
+                "video_title": page.title,
+            }
 
         elif item_type == "workspace":
             ws = session.query(Workspace).filter_by(id=int(item_id)).first()
@@ -1059,6 +1200,12 @@ def classify_single_item(item_type: str, item_id: Any) -> Dict[str, Any]:
             title = ws.name or "Studio Workspace"
             content = ws.description or ""
             item_id_str = f"workspace_{ws.id}"
+            file_count = session.query(WorkspaceFile).filter_by(workspace_id=ws.id).count()
+            metadata = {
+                "workspace_id": ws.id,
+                "template": ws.template,
+                "file_count": file_count,
+            }
 
         else:
             return {"error": f"Unsupported item_type: {item_type}"}
@@ -1070,6 +1217,7 @@ def classify_single_item(item_type: str, item_id: Any) -> Dict[str, Any]:
             item_title=title,
             item_content=content,
             item_tags=tags,
+            item_metadata=metadata,
         )
 
 
