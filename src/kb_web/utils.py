@@ -18,6 +18,7 @@ from html2text import HTML2Text
 
 from .models import HTMLPage, extract_youtube_video_id
 from .base import config as default_config, _get_ollama_client
+from .html_cleaner import html_to_clean_markdown
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 HEADERS = {
@@ -434,9 +435,7 @@ def fetch_url(url: str) -> HTMLPage:
                 f"Target link returned non-text material ({content_type})."
             )
 
-        h = HTML2Text()
-        h.ignore_links = True
-        md_content = h.handle(html_content)
+        md_content = html_to_clean_markdown(html_content)
 
         soup = BeautifulSoup(html_content, "html5lib")
         links = [a.get("href") for a in soup.find_all("a", href=True)]

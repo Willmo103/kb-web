@@ -25,6 +25,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `src/kb_web/templates/url_import.j2.html`: Added "💻 Git Repo / Codebase" import tab with depth, match/exclude filters, collection selection, and interactive progress loader.
   - `src/kb_web/routers/rest_api.py`: Added `POST /api/import/repo` accepting `ImportRepoRequest` with clone depth, match globs, and collection association.
   - `kb-web-cli/src/kb_web_cli/main.py`: Added `kb-web-cli import-repo` command supporting `--depth`, `--collection`, `--match`, and `--exclude`.
+- **HTML Boilerplate Stripper & Clean Markdown Generator (`src/kb_web/html_cleaner.py`)**:
+  - Implemented DOM sanitization engine decomposing non-content tags (`header`, `nav`, `footer`, `aside`, `script`, `style`, `noscript`, `svg`, `form`, `iframe`, `button`).
+  - Added regex pattern matching to decompose boilerplate containers (cookie banners, consent prompts, social share widgets, newsletter modals, and advertisement sidebars).
+  - Implemented semantic container detection prioritizing `<article>` and `<main>` tags with substantive text (>250 chars) to eliminate surrounding page chrome.
+  - Configured `HTML2Text` with `body_width = 0` (preventing hard line wrap at 78 cols), clean link handling, and collapsed consecutive whitespace.
+- **Interactive Dry-Run & Batch Inspection Tool (`scripts/preview_html_cleaning.py`)**:
+  - Added interactive CLI runner supporting `--sample <N>`, `--url <url>`, and on-the-fly `--fetch-url <url>` live testing.
+  - Generates standalone, interactive side-by-side visual HTML comparison report (`.artifacts/feature-html-boilerplate-stripper-and-cleaner/html_cleaning_preview.html`) displaying Original Raw Markdown vs. Sanitized Clean Markdown with character reduction and line metrics.
+  - Safe dry-run by default; `--apply` commits changes with `PageVersion` audit backups and `is_frozen` guardrails.
+- **Ingestion Pipeline Upgrades**:
+  - Updated `fetch_url()` in `src/kb_web/utils.py` and `POST /api/import/html` in `src/kb_web/routers/api.py` to route through `html_to_clean_markdown()` for all future imported pages.
 
 ## [0.5.5] - 2026-10-06
 ### Added

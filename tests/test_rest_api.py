@@ -345,6 +345,7 @@ def test_get_ungrouped_pages_api(client: TestClient) -> None:
 
     url = "https://example.com/ungrouped-test-page"
     with db_session() as session:
+        session.query(FetchedPage).filter_by(url=url).delete()
         page = FetchedPage(
             url=url,
             title="Ungrouped Test Page",
@@ -352,7 +353,7 @@ def test_get_ungrouped_pages_api(client: TestClient) -> None:
         )
         session.add(page)
 
-    res = client.get("/api/collections/ungrouped")
+    res = client.get(f"/api/collections/ungrouped?q={url}")
     assert res.status_code == 200
     data = res.json()
     assert "items" in data
