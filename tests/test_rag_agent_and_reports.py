@@ -10,6 +10,7 @@ Unit and integration tests for:
 """
 
 import json
+import re
 from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
@@ -369,8 +370,9 @@ def test_cli_rag_report_help():
 
     res_report_help = runner.invoke(cli_app, ["rag", "report", "--help"])
     assert res_report_help.exit_code == 0
-    assert "--output" in res_report_help.stdout
-    assert "--save-notes" in res_report_help.stdout
+    clean_stdout = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", res_report_help.stdout)
+    assert "--output" in clean_stdout
+    assert "--save-notes" in clean_stdout
 
 
 def test_site_wide_dark_mode_theme_and_toggle(client, auth_client):

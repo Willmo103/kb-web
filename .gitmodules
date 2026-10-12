@@ -1,3 +1,6 @@
 [submodule "kb-web-cli"]
 	path = kb-web-cli
 	url = https://github.com/Willmo103/kb-web-cli.git
+[submodule "packages/devtul"]
+	path = packages/devtul
+	url = https://github.com/willmo103/devtul.git
