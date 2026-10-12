@@ -266,15 +266,15 @@
             {% endif %}
 
             <!-- Clean wiki page content -->
-            <div class="bg-white p-8 rounded-lg shadow-sm border border-gray-200 mb-6 animate-fade-in">
-                <div class="prose max-w-none">
+            <div class="bg-white p-4 sm:p-8 rounded-lg shadow-sm border border-gray-200 mb-6 animate-fade-in overflow-hidden">
+                <div class="prose max-w-none break-words overflow-x-auto">
                     {{ rendered_wiki_html | safe }}
                 </div>
             </div>
 
             <!-- Scraped same-domain links panel -->
             {% if scraped_links %}
-            <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm mb-6">
+            <div class="bg-white p-4 sm:p-6 rounded-lg border border-gray-200 shadow-sm mb-6 overflow-hidden">
                 <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4 border-b pb-2">🔗 Page Links</h3>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-2">
                     {% for item in scraped_links %}
@@ -310,11 +310,11 @@
 
             <!-- Collapsible Original Markdown (rendered as HTML) -->
             <details class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden group mb-6">
-                <summary class="bg-gray-100 px-6 py-3 font-semibold text-sm text-gray-700 cursor-pointer select-none group-hover:bg-gray-200 transition flex justify-between items-center">
+                <summary class="bg-gray-100 px-4 sm:px-6 py-3 font-semibold text-sm text-gray-700 cursor-pointer select-none group-hover:bg-gray-200 transition flex justify-between items-center">
                     <span>📋 View Original Scraped Markdown Content</span>
                     <span class="text-xs text-gray-400 font-normal">click to expand</span>
                 </summary>
-                <div class="p-6 border-t border-gray-200 bg-gray-50 prose max-w-none max-h-128 overflow-y-auto">
+                <div class="p-4 sm:p-6 border-t border-gray-200 bg-gray-50 prose max-w-none max-h-128 overflow-y-auto break-words overflow-x-auto">
                     {{ rendered_md_html | safe }}
                 </div>
             </details>

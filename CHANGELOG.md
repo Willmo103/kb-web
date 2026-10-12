@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7] - 2026-10-12
+### Added
+- **Build Script Audit & Optimization (`build.py`)**:
+  - Removed unnecessary docker-compose database startup loops, packaging steps (`uv build`), and file copying to remote network folders (`ARTIFACTS_ROOT`).
+  - Transformed `build.py` into a lean, fast, reliable pre-commit verification tool executing environment sync (`uv sync`) and full test suite (`uv run pytest -k "not test_extension"`).
+- **Pre-Boilerplate Hyperlink Extraction (`src/kb_web/html_cleaner.py`)**:
+  - Implemented `extract_links_from_raw_html()` to parse raw untouched HTML and extract all valid hyperlinks before `<header>`, `<nav>`, `<footer>`, `<aside>`, and other boilerplate containers are decomposed.
+  - Ensures complete link retention across web pages while generating sanitized Markdown.
+- **Resilient Background Ingestion Pipeline (`src/kb_web/pipeline.py`)**:
+  - Completely eliminated the blocking synchronous streaming loading page (`StreamingResponse` on `/import/url`), replacing it with FastAPI `BackgroundTasks` asynchronous execution and immediate 303 redirect.
+  - Structured pipeline into isolated, re-runnable stages:
+    - Stage 1: Immediate fetch and instant persistence of raw HTML and markdown into `FetchedPage` (guarantees zero data loss even if downstream AI models hang or fail).
+    - Stage 2: AI Wiki synthesis with generous 1200.0s prompt timeout.
+    - Stage 3: AI Tag extraction.
+    - Stage 4: Vector and chunk embeddings indexing.
+    - Stage 5: Optional offline video downloads.
+  - Added content hash duplicate checking to skip redundant LLM synthesis when content is unchanged.
+- **Real-Time Notification Feed & Global Toast System**:
+  - Added `IngestionNotification` ORM model and SQLite/PostgreSQL table schema.
+  - Added REST API endpoints `GET /api/notifications`, `POST /api/notifications/read`, and `POST /api/notifications/clear`.
+  - Added notification bell `🔔` with unread count badge and interactive dropdown panel in `base.j2.html`.
+  - Added client-side polling and floating toast notifications that alert the user in real-time as each background pipeline stage completes.
+- **Responsive Mobile Navigation & Viewport Containment**:
+  - Fixed horizontal stretching on phones by hiding the top menu button strip on smaller viewports (`hidden xl:flex`) and adding a collapsible mobile drawer menu with a hamburger toggle button (`☰`).
+  - Added horizontal viewport containment (`overflow-x-hidden`) and word breaking (`break-words`, `overflow-x-auto`) across `base.j2.html` and `view_page.j2.html`.
+- **Configurable LLM Prompt Timeout (`src/kb_web/config.py` & `base.py`)**:
+  - Configured Ollama LLM prompt timeout to `1200.0` seconds (20 minutes) via `KB_OLLAMA_TIMEOUT` and `config.ollama_timeout`, preventing premature timeouts during complex extraction tasks.
+
 ## [0.5.6] - 2026-10-09
 ### Added
 - **HTML Boilerplate Stripper & Clean Markdown Generator (`src/kb_web/html_cleaner.py`)**:
