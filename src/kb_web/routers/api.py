@@ -267,8 +267,28 @@ def get_ingestion_notifications(
             .filter_by(read=0)
             .count()
         )
+        url_list = [n.url for n in notifs if n.url]
+        existing_urls = set()
+        if url_list:
+            from ..models_orm import FetchedPage
+            pages = (
+                session.query(FetchedPage.url)
+                .filter(FetchedPage.url.in_(url_list))
+                .all()
+            )
+            existing_urls = {p[0] for p in pages}
+
         items = []
+        import re
         for n in notifs:
+            resolved_page_id = None
+            if n.url and n.url in existing_urls:
+                resolved_page_id = n.url
+            elif n.details and "page_id=" in n.details:
+                m = re.search(r"page_id=([^\s,;&]+)", n.details)
+                if m:
+                    resolved_page_id = m.group(1)
+
             items.append(
                 {
                     "id": n.id,
@@ -282,6 +302,7 @@ def get_ingestion_notifications(
                     "created_at": n.created_at,
                     "read": n.read,
                     "is_read": bool(n.read),
+                    "page_id": resolved_page_id,
                 }
             )
         return {

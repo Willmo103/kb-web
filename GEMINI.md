@@ -32,6 +32,9 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 >
 > **6. Production UI Naming & Terminology Standard**
 > Never specify or copy verbatim conversational phrasing, internal developer jargon, or installed package branding (e.g. `tev1`, specific library feature tags, or casual chat phrasing like "ERP Grid") onto user-facing buttons, links, navigation, or headings in production code. Always normalize UI text into standard, professional, descriptive user labels (e.g., use "Reporting" instead of "ERP Grid", "Decision Gated" instead of "tev1 Decision Gated", "Article Profile" instead of "Engine Wiki Storage File", "Coding Assistant" instead of "Ollama Coding Agent"). Informal or verbatim conversational terms are strictly prohibited in production UI; if and only if helpful for locating elements during testing, such terms may be used in test descriptions, but production UI must always remain clean, intuitive, and normal.
+>
+> **7. Strict Configuration Transparency & Admin Exposure Rule**
+> When a configuration value is needed or used in the application (such as batch sizes, classification limits, search top-k cutoffs, crawl depths, pagination counts, timeouts, or thresholds), it MUST NOT be hardcoded as an arbitrary hidden constant. It MUST be exposed to the Admin Portal (`/admin`), loaded into `config.py` or persisted in `SettingOllama`/`SettingExternal`, and documented for both the user and agents.
 
 ---
 
@@ -49,6 +52,8 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 9. **Full-Site Authentication & Hardening**: Protect all UI and REST endpoints behind session cookies or API keys, brute-force rate limiter on login, security headers, ZipSlip prevention, and default credential alerts.
 10. **Agentic RAG & Tev1 Decision Scoring**: Multi-sub-agent retrieval engine (tag taxonomy search, vector chunk search, full-text lexical search) coupled with native `ollama.systemone` `tev1` multi-question decision gating (up to 64 questions per turn) to vet candidates and compile publication-grade research reports (`/reports/rag`, `kb-web-cli rag report`).
 11. **Autonomous Server Worker & Auto-Curation**: Periodic async worker engine (`src/kb_web/worker.py`) that monitors the database for newly imported pages, curates missing AI wikis and tags one-by-one with graceful error handling, and provides extensible hook foundations for synthetic QA generation, RAG evaluation, and autonomous link crawling.
+12. **Modular Server Jobs & Dedicated Agents**: Decoupled background job registry (`src/kb_web/worker.py` and `/api/jobs`, `/admin/jobs`) allowing independent scheduling intervals (`interval_minutes`), individual model bindings (LLM, embedding, decision models), toggle states, and on-demand trigger runs.
+13. **Git Repository Web Ingestion**: Pull remote Git repositories directly from the web interface (`/import` tab 3), perform shallow clone analysis (`src/kb_web/repo_importer.py`), generate markdown directory trees, and index source code into the knowledge base (`POST /api/import/repo`).
 
 ---
 

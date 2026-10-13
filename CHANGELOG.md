@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.9] - 2026-10-13
+### Added
+- **Modular Server Jobs & Agents Framework (`src/kb_web/worker.py` & `routers/worker.py`)**:
+  - Replaced monolithic single-agent worker with decoupled, modular server jobs (`ServerJob` registry managed by `AutonomousWorker`).
+  - Independent job scheduling: Each job supports its own timespan interval (`interval_minutes`), enabled/disabled toggle state, and isolated execution lock (`asyncio.Lock`).
+  - Dedicated Ollama Model Assignment: Each job can be assigned its own LLM, embedding, or decision model (persisted in DB settings `SettingOllama`/`SettingExternal`).
+  - Built-in job suite: `wiki_curation` (AI wiki synthesis), `tag_curation` (topic taxonomy tags), `embedding_refresh` (Qdrant & SafeVector indexing), and extensible foundation stubs for `synthetic_qa`, `rag_eval`, and `link_crawler`.
+  - Added REST APIs: `GET /api/jobs`, `GET /api/jobs/{id}`, `POST /api/jobs/{id}/run`, `POST /api/jobs/{id}/config`, and admin routes `POST /admin/jobs/{id}/run` and `POST /admin/jobs/{id}/config`.
+  - Added comprehensive "Autonomous Server Worker & Jobs" UI grid in `admin.j2.html` featuring status badges, telemetry counters (processed items, total runs, cycle time), inline interval and model inputs, and interactive "Run Now" triggers.
+- **Git Repository Web Importer (`src/kb_web/repo_importer.py` & `templates/url_import.j2.html`)**:
+  - Ported shallow Git clone and repository analysis engine (`rpr` devtul) from PR #82 commit `98cc195`.
+  - Added `POST /api/import/repo` REST endpoint accepting repository URL, branch, max depth, file size limits, and target collection.
+  - Generates comprehensive markdown repository directory tree, ingests source files, and indexes into knowledge base under canonical `repo://` URI scheme.
+  - Added 3rd tab **"📦 Pull & Import Git Repo"** to the `/import` UI (`url_import.j2.html`) with interactive options for branch selection, collection assignment, file size caps, and tree depth.
+- **Strict Configuration Transparency & Admin Exposure (Rule 7 Compliance)**:
+  - Added Rule 7 to `GEMINI.md` and Rule 6 to `.agents/rules/development_rules.md` strictly prohibiting arbitrary hidden hardcoded limits.
+  - Lifted and exposed note taxonomy limit (previously capped at 100 notes in `taxonomy.py`) through configurable dynamic setting `taxonomy_batch_limit` (default: 500, configurable up to 5000).
+  - Exposed operational engine thresholds in `config.py` with DB backing: `rag_search_top_k`, `similarity_threshold`, `ollama_timeout`, `notifications_poll_interval_seconds`, `page_cards_per_page`, `crawler_default_max_pages`, and `repo_import_default_depth`.
+  - Added **"Engine Thresholds & Operational Limits"** configuration card to the General tab in the Admin portal (`admin.j2.html` and `routers/admin.py`).
+- **Workspace IDE Live Reactivity & Multi-Language Syntax Highlighting**:
+  - Added `GET /api/workspaces/{workspace_id}/files` endpoint returning the complete current workspace virtual filesystem.
+  - Implemented `refreshWorkspaceFilesFromServer()` and automatic background polling in `workspace_ide.j2.html` to reflect agent file creation/modification live without requiring page refreshes or re-entering the workspace.
+  - Added syntax highlighting and language inference in `workspaces.py` and `workspace_ide.j2.html` for PowerShell (`.ps1`, `.ps`, `.psm1`, `.psd1`) and Windows Batch (`.cmd`, `.bat`).
+
+### Fixed
+- **Notification Dropdown Display & Toast URLs (`base.j2.html` & `routers/api.py`)**:
+  - Fixed client-side parsing mismatch where `/api/notifications` returns `{ unread_count, notifications }` envelope but the UI expected a bare list, resolving the empty "No notifications yet" bug.
+  - Added URL-matching and parameter extraction in `get_notifications` to resolve target page URLs and ids.
+  - Updated notification links in the header dropdown and floating toast alerts to direct to `/view/page?url=...` for instant article viewing.
+  - Added full dark mode support (`bg-slate-800`, `border-slate-700`, `text-slate-200`) to the notification dropdown panel.
+- **Admin Model Selector & Dark Mode Polishing (`admin.j2.html`)**:
+  - Eliminated duplicate input and select boxes for Ollama models on the Prompts tab; replaced with unified text input backed by native `<datalist id="admin_model_options">` displaying loaded VRAM models.
+  - Fixed dark mode classes in Quick Diagnostics mini-card and prompt generation sections.
+
 ## [0.5.8] - 2026-10-12
 ### Added
 - **Dedicated Articles Directory (`/articles`)**:

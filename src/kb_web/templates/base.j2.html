@@ -383,11 +383,30 @@
             color: #e2e8f0 !important;
             box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.7), 0 0 10px rgba(56, 189, 248, 0.1) !important;
         }
+        html.dark #notificationsDropdown .notif-header {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
         html.dark .notif-row {
             border-color: #1e293b !important;
         }
+        html.dark .notif-unread {
+            background-color: rgba(99, 102, 241, 0.18) !important;
+            color: #f1f5f9 !important;
+        }
+        html.dark .notif-read {
+            background-color: #0f172a !important;
+            color: #94a3b8 !important;
+        }
+        html.dark .notif-title {
+            color: #f8fafc !important;
+        }
+        html.dark .notif-msg {
+            color: #cbd5e1 !important;
+        }
         html.dark .notif-row:hover {
-            background-color: #141d33 !important;
+            background-color: #1e293b !important;
         }
         html.dark #mobileNavMenu {
             background-color: #0f172a !important;
@@ -473,7 +492,7 @@
 
                         <!-- Notification Dropdown Menu -->
                         <div id="notificationsDropdown" class="hidden absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden text-left">
-                            <div class="p-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+                            <div class="p-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between notif-header">
                                 <div class="flex items-center gap-2">
                                     <span class="font-bold text-xs text-gray-800 uppercase tracking-wider">🔔 Notifications</span>
                                     <span id="notifCountLabel" class="text-[11px] text-gray-500"></span>
@@ -655,9 +674,10 @@
             try {
                 var res = await fetch('/api/notifications');
                 if (!res.ok) return;
-                var notifs = await res.json();
+                var data = await res.json();
+                var notifs = Array.isArray(data) ? data : (data.notifications || []);
                 
-                var unreadCount = notifs.filter(function(n) { return !n.is_read; }).length;
+                var unreadCount = (data && typeof data.unread_count === 'number') ? data.unread_count : notifs.filter(function(n) { return !n.is_read; }).length;
                 var badge = document.getElementById('notifBadge');
                 var countLabel = document.getElementById('notifCountLabel');
                 if (badge) {
@@ -684,23 +704,25 @@
                             else if (n.status === 'error') icon = '❌';
                             else if (n.status === 'warning') icon = '⚠️';
 
-                            var unreadBg = !n.is_read ? 'bg-indigo-50/60 font-semibold' : 'bg-white';
-                            var pageLink = n.page_id ? '<a href="/pages/' + n.page_id + '" class="text-[11px] text-indigo-600 hover:underline block mt-1">View Page →</a>' : '';
+                            var unreadBg = !n.is_read ? 'notif-unread font-semibold bg-indigo-50/60' : 'notif-read bg-white';
+                            var targetUrl = n.url || (n.page_id && String(n.page_id).indexOf('://') !== -1 ? n.page_id : null);
+                            var pageHref = targetUrl ? ('/view/page?url=' + encodeURIComponent(targetUrl)) : (n.page_id ? ('/pages/' + n.page_id) : '');
+                            var pageLink = pageHref ? '<a href="' + pageHref + '" class="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline block mt-1">View Page →</a>' : '';
                             var timeStr = n.created_at ? n.created_at.replace('T', ' ').substring(0, 16) : '';
 
-                            html += '<div class="p-3 ' + unreadBg + ' hover:bg-gray-50 transition flex items-start gap-2.5 notif-row">';
+                            html += '<div class="p-3 ' + unreadBg + ' hover:bg-gray-50 transition flex items-start gap-2.5 notif-row border-b border-gray-100 last:border-b-0">';
                             html += '<span class="text-base flex-shrink-0">' + icon + '</span>';
                             html += '<div class="flex-grow min-w-0">';
                             html += '<div class="flex items-center justify-between">';
-                            html += '<span class="font-bold text-gray-800 text-[11px] uppercase tracking-wider">' + (n.stage || 'Ingest') + '</span>';
+                            html += '<span class="font-bold notif-title text-gray-850 text-[11px] uppercase tracking-wider">' + (n.stage || 'Ingest') + '</span>';
                             html += '<span class="text-[10px] text-gray-400 font-mono">' + timeStr + '</span>';
                             html += '</div>';
-                            html += '<p class="text-gray-700 mt-0.5 break-words text-xs">' + (n.message || '') + '</p>';
+                            html += '<p class="notif-msg text-gray-700 mt-0.5 break-words text-xs">' + (n.message || '') + '</p>';
                             html += pageLink;
                             html += '</div></div>';
 
                             if (!isFirstNotifLoad && !n.is_read && !knownNotifIds.has(n.id)) {
-                                showToastNotification(icon, n.stage, n.message, n.page_id);
+                                showToastNotification(icon, n.stage, n.message, n.page_id, n.url);
                             }
                             knownNotifIds.add(n.id);
                         });
@@ -708,15 +730,19 @@
                     }
                 }
                 isFirstNotifLoad = false;
-            } catch (err) {}
+            } catch (err) {
+                console.error("fetchNotifications error:", err);
+            }
         }
 
-        function showToastNotification(icon, stage, message, pageId) {
+        function showToastNotification(icon, stage, message, pageId, url) {
             var container = document.getElementById('toastContainer');
             if (!container) return;
             var toast = document.createElement('div');
             toast.className = 'pointer-events-auto bg-white dark:bg-gray-800 border border-indigo-200 dark:border-indigo-900 shadow-xl rounded-xl p-3 flex items-start gap-3 transition transform duration-300 ease-out translate-y-2 opacity-0 text-xs';
-            var linkHtml = pageId ? '<a href="/pages/' + pageId + '" class="text-indigo-600 font-bold hover:underline ml-2">View</a>' : '';
+            var targetUrl = url || (pageId && String(pageId).indexOf('://') !== -1 ? pageId : null);
+            var pageHref = targetUrl ? ('/view/page?url=' + encodeURIComponent(targetUrl)) : (pageId ? ('/pages/' + pageId) : '');
+            var linkHtml = pageHref ? '<a href="' + pageHref + '" class="text-indigo-600 font-bold hover:underline ml-2">View</a>' : '';
             toast.innerHTML = '<span class="text-lg">' + icon + '</span><div class="flex-grow min-w-0"><div class="font-bold text-gray-950 dark:text-gray-100">' + (stage || 'Update') + '</div><div class="text-gray-650 dark:text-gray-300 mt-0.5 break-words">' + message + linkHtml + '</div></div><button onclick="this.parentElement.remove()" class="text-gray-400 hover:text-gray-600 font-bold ml-1">✕</button>';
             container.appendChild(toast);
             setTimeout(function() {

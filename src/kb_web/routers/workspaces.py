@@ -348,8 +348,11 @@ Welcome to your new in-browser coding workspace.
 }
 
 
-def _infer_language(ext: str) -> str:
-    ext = ext.lower().strip(".")
+def _infer_language(path_or_ext: str) -> str:
+    if "." in path_or_ext:
+        ext = path_or_ext.rsplit(".", 1)[-1].lower().strip()
+    else:
+        ext = path_or_ext.lower().strip(".")
     mapping = {
         "html": "html",
         "htm": "html",
@@ -367,8 +370,23 @@ def _infer_language(ext: str) -> str:
         "rs": "rust",
         "sh": "shell",
         "bash": "shell",
+        "zsh": "shell",
+        "ps1": "powershell",
+        "ps": "powershell",
+        "psm1": "powershell",
+        "psd1": "powershell",
+        "bat": "bat",
+        "cmd": "bat",
         "yaml": "yaml",
         "yml": "yaml",
+        "xml": "xml",
+        "c": "c",
+        "h": "c",
+        "cpp": "cpp",
+        "hpp": "cpp",
+        "cs": "csharp",
+        "go": "go",
+        "java": "java",
     }
     return mapping.get(ext, "plaintext")
 
@@ -801,6 +819,26 @@ def duplicate_workspace_api(workspace_id: int) -> Dict[str, Any]:
         return {"status": "duplicated", "id": new_ws.id, "name": new_ws.name}
 
 
+@router.get("/api/workspaces/{workspace_id}/files")
+def get_workspace_files_api(workspace_id: int) -> Dict[str, Any]:
+    """Returns all current files in the workspace with content and language."""
+    with db_session() as session:
+        ws = session.query(Workspace).filter_by(id=workspace_id).first()
+        if not ws:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        return {
+            "status": "success",
+            "workspace_id": ws.id,
+            "files": {
+                f.file_path: {
+                    "content": f.content,
+                    "language": f.language or _infer_language(f.file_path),
+                }
+                for f in ws.files
+            },
+        }
+
+
 @router.post("/api/workspaces/{workspace_id}/files")
 def upsert_workspace_file_api(workspace_id: int, payload: WorkspaceFileUpsertRequest) -> Dict[str, Any]:
     """Creates or updates a file inside a persistent workspace."""
@@ -1196,6 +1234,14 @@ def workspace_agent_chat_api(
                 active_file=payload.active_file,
                 tev1_model="tev1",
             )
+            session.refresh(ws)
+            ws_files = {
+                f.file_path: {
+                    "content": f.content,
+                    "language": f.language or _infer_language(f.file_path),
+                }
+                for f in ws.files
+            }
             return {
                 "status": "success",
                 "reply": res.get("reply", ""),
@@ -1203,6 +1249,7 @@ def workspace_agent_chat_api(
                 "read_actions": res.get("read_actions", []),
                 "executed_tools": res.get("executed_tools", []),
                 "model": model_name,
+                "workspace_files": ws_files,
             }
         except Exception as e:
             return {
