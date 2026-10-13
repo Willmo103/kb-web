@@ -133,7 +133,7 @@ def get_import_url_page() -> HTMLResponse:
             for c in session.query(Collection).all()
         ]
     template = _jinja_env.get_template("url_import.j2.html")
-    return HTMLResponse(content=template.render(is_admin=True, collections=collections))
+    return HTMLResponse(content=template.render(is_admin=True, collections=collections, config=config))
 
 
 @router.get(
@@ -160,7 +160,7 @@ def handle_incoming_mobile_share(
     template = _jinja_env.get_template("url_import.j2.html")
     return HTMLResponse(
         content=template.render(
-            prefilled_url=target_link, is_admin=True, collections=collections
+            prefilled_url=target_link, is_admin=True, collections=collections, config=config
         )
     )
 

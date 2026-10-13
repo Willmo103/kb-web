@@ -40,6 +40,7 @@ _jinja_env = jinja2.Environment(
     autoescape=jinja2.select_autoescape(["html", "xml", "j2.html", "html5"]),
 )
 _jinja_env.filters["urlpath"] = extract_url_path
+_jinja_env.globals["config"] = config
 
 COOKIE_NAME = "kb_session"
 SESSION_EXPIRATION_SECONDS = 3600 * 24  # 24 hours
