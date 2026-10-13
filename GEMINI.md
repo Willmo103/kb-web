@@ -48,6 +48,7 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 8. **In-Browser Workspaces & Python WASM**: Host persistent multi-file coding workspaces (`/workspaces`) with Monaco Editor, Pyodide Python WASM, sandboxed web preview, and ephemeral Ollama agent pairing.
 9. **Full-Site Authentication & Hardening**: Protect all UI and REST endpoints behind session cookies or API keys, brute-force rate limiter on login, security headers, ZipSlip prevention, and default credential alerts.
 10. **Agentic RAG & Tev1 Decision Scoring**: Multi-sub-agent retrieval engine (tag taxonomy search, vector chunk search, full-text lexical search) coupled with native `ollama.systemone` `tev1` multi-question decision gating (up to 64 questions per turn) to vet candidates and compile publication-grade research reports (`/reports/rag`, `kb-web-cli rag report`).
+11. **Autonomous Server Worker & Auto-Curation**: Periodic async worker engine (`src/kb_web/worker.py`) that monitors the database for newly imported pages, curates missing AI wikis and tags one-by-one with graceful error handling, and provides extensible hook foundations for synthetic QA generation, RAG evaluation, and autonomous link crawling.
 
 ---
 

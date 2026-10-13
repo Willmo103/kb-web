@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.8] - 2026-10-12
+### Added
+- **Dedicated Articles Directory (`/articles`)**:
+  - Implemented `@router.get("/articles")` route rendering an articles-dedicated index with search, tag filtering, and pagination.
+  - Added `📄 Articles` navigation link to global desktop navbar and mobile hamburger drawer menu in `base.j2.html`.
+  - Added dedicated page title and subtitle for articles archive.
+- **Autonomous Background Server Worker Engine (`src/kb_web/worker.py`)**:
+  - Implemented `AutonomousWorker` singleton running continuous periodic cycles (configurable via `KB_AUTONOMOUS_WORKER_INTERVAL_MINUTES`, default: 5 min).
+  - Single-item wiki generation: Finds oldest uncurated page, prompts Ollama for wiki synthesis, updates database, and generates vector chunk embeddings.
+  - Single-item tag curation: Finds oldest untagged page, extracts tags with Ollama, and persists to database.
+  - Zero downtime graceful failure: Catches LLM timeouts and connection errors gracefully without crashing the server, emitting notifications to the notification feed.
+  - Extensible hook architecture: Provided pluggable extension hooks for synthetic QA question generation, RAG accuracy evaluation, and autonomous outbound link discovery.
+  - Integrated worker lifecycle into FastAPI `lifespan` in `server.py` with clean startup and graceful shutdown.
+  - Added REST API endpoints `GET /api/worker/status`, `POST /api/worker/cycle`, and `POST /api/worker/toggle`.
+  - Added an interactive Autonomous Server Worker status and trigger panel in the Admin Dashboard (`admin.j2.html`).
+
+### Changed
+- **Mobile Navigation & Brand Polish**:
+  - Removed `hidden sm:inline` from the brand title in `base.j2.html`, ensuring "Knowledge Base" remains visible on mobile screens alongside the book stack emoji (`📚`).
+  - Hid the left sidebar navigation (`<aside>`) on mobile viewports (`hidden lg:block`) in `pages_list.j2.html` to eliminate clutter since the global hamburger drawer menu provides full navigation.
+- **Admin Portal Desktop & Mobile Layout Enhancements**:
+  - Replaced horizontal scrollbar tab navigation (`overflow-x-auto`) on mobile with responsive static button cards (`grid grid-cols-2 sm:grid-cols-3 md:flex md:flex-wrap gap-2`).
+  - Added generous margins (`space-y-8`, `my-8`, `pb-28`) and padding across the lower sections of the Admin Backups & Database tab (`tab-backups` in `admin.j2.html`), providing clean breathing room for *Server Database Snapshots* and *Administrative Batch Operations & Content Purge*.
+
 ## [0.5.7] - 2026-10-12
 ### Added
 - **Build Script Audit & Optimization (`build.py`)**:
