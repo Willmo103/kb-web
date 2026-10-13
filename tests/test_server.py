@@ -3259,3 +3259,23 @@ def test_database_logger_filtering_and_capture():
             assert "setup plugin alembic.autogenerate.regression_test" not in (r.message or "")
         assert any("Regression test live server message entry" in (r.message or "") for r in recent_logs)
 
+
+def test_import_page_renders_with_config_context(client):
+    """Verifies that /import and /import/shared-url render successfully with config context and without UndefinedError."""
+    import time
+    from kb_web.base import COOKIE_NAME, generate_session_token
+
+    token = generate_session_token(time.time() + 3600)
+    resp = client.get("/import", cookies={COOKIE_NAME: token})
+    assert resp.status_code == 200
+    assert "repoCloneDepth" in resp.text
+    assert "Git Repository URL" in resp.text
+
+    resp_share = client.get(
+        "/import/shared-url?url=https://github.com/example/repo",
+        cookies={COOKIE_NAME: token},
+    )
+    assert resp_share.status_code == 200
+    assert "repoCloneDepth" in resp_share.text
+
+
