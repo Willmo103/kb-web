@@ -49,6 +49,9 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - `src/kb_web/routers/notes.py`: Personal knowledge notes, code paste ingestion, and Obsidian vault archives.
 - `src/kb_web/routers/reports.py`: Dynamic report builder, multi-table joins, and streaming data exports.
 - `src/kb_web/routers/workspaces.py`: Persistent in-browser IDE workspaces, starter templates, file sync, ZIP export, and Ollama agent integration.
+- `src/kb_web/worker.py`: Modular Autonomous Background Server Worker engine and job runner registry (`ServerJob` and `AutonomousWorker`).
+- `src/kb_web/routers/worker.py`: REST and Admin API endpoints for inspecting, configuring, and triggering individual server jobs (`/api/jobs`, `/admin/jobs`).
+- `src/kb_web/repo_importer.py`: Git repository cloning and knowledge base ingestion engine (`rpr` devtul shallow clone, markdown file tree generator).
 - `src/kb_web/maintenance_agent.py`: Automated website maintenance agent sidecar, diagnostic tools, and background daemon.
 - `src/kb_web/routers/errors.py`: REST API for inspecting, searching, and diagnosing logged server error incidents.
 - `src/kb_web/cli.py`: Typer command launcher.
