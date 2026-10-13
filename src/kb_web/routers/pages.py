@@ -36,6 +36,7 @@ router = APIRouter()
 
 @router.get("/", response_class=HTMLResponse)
 @router.get("/pages", response_class=HTMLResponse)
+@router.get("/articles", response_class=HTMLResponse)
 def view_all_pages(
     request: Request,
     q: Optional[str] = Query(None),
@@ -45,6 +46,7 @@ def view_all_pages(
     limit: int = Query(24, ge=1, le=100),
 ) -> HTMLResponse:
     """Lists historically captured records or grouped sites with a left-hand navigation menu."""
+    is_articles_only = request.url.path.startswith("/articles")
     pages_list = []
     videos_list = []
     creators_counts = {}
@@ -204,6 +206,7 @@ def view_all_pages(
             sites=sorted_sites,
             view=view,
             is_admin=is_admin,
+            is_articles_only=is_articles_only,
             q=q or "",
             page=page,
             limit=limit,
