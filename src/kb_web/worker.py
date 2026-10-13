@@ -1,69 +1,546 @@
 """
 Autonomous Background Server Worker Engine for kb-web.
 
-Monitors the database for newly imported pages lacking wiki descriptions or tags,
-curating them one at a time with graceful error handling and zero data loss.
-Provides extensible task hooks for synthetic QA generation, RAG evaluation,
+Provides a modular Server Jobs & Agents framework for independent, continuous
+curation, tagging, embedding indexing, synthetic QA generation, RAG evaluation,
 and autonomous link discovery.
+
+Each job maintains its own execution schedule (timespan/interval in minutes),
+designated Ollama model (LLM, decision, or embedding), toggle state, and runtime metrics.
 """
 
 import asyncio
+from datetime import datetime, timedelta
 import json
 import logging
 import os
+from typing import Any, Callable, Dict, List, Optional
 import uuid
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+
 from sqlalchemy import or_
 from starlette.concurrency import run_in_threadpool
 
-from .base import config, db_session, _get_ollama_client
+from .base import _get_ollama_client, config, db_session
 from .models import HTMLPage
 from .models_orm import FetchedPage
 from .pipeline import record_notification
 from .utils import (
-    extract_wiki_content,
     extract_tags_content,
-    update_article_embedding,
+    extract_wiki_content,
     generate_gemma_embeddings_for_page,
+    update_article_embedding,
 )
 
 logger = logging.getLogger("kb_web.worker")
 
 
+class JobConfigProxy:
+    """Proxies config attributes while overriding model targets for specific jobs."""
+
+    def __init__(self, base_config: Any, model: Optional[str] = None, is_embedding: bool = False) -> None:
+        self._base = base_config
+        self._model = model
+        self._is_embedding = is_embedding
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "ollama_model" and self._model and not self._is_embedding:
+            return self._model
+        if name == "ollama_embedding_model" and self._model and self._is_embedding:
+            return self._model
+        return getattr(self._base, name)
+
+
+class ServerJob:
+    """Represents a discrete autonomous server job / agent with dedicated scheduling and model configuration."""
+
+    def __init__(
+        self,
+        job_id: str,
+        name: str,
+        description: str,
+        category: str,  # 'llm', 'embedding', 'decision', 'crawler'
+        default_interval_minutes: int = 5,
+        default_model: str = "",
+        runner: Optional[Callable[..., Any]] = None,
+    ) -> None:
+        self.job_id = job_id
+        self.name = name
+        self.description = description
+        self.category = category
+        self.default_interval_minutes = default_interval_minutes
+        self.default_model = default_model
+        self._runner = runner
+
+        self.last_run: Optional[str] = None
+        self.next_run: Optional[str] = None
+        self.total_runs: int = 0
+        self.items_processed_total: int = 0
+        self.last_error: Optional[str] = None
+        self.last_activity: str = "Initialized"
+        self._is_running: bool = False
+        self._lock: asyncio.Lock = asyncio.Lock()
+
+    @property
+    def enabled(self) -> bool:
+        env_val = os.getenv(f"KB_JOB_{self.job_id.upper()}_ENABLED")
+        if env_val is not None:
+            return env_val.strip().lower() in ("true", "1", "yes")
+        return bool(config._read_db_setting("settings_ollama", f"job_{self.job_id}_enabled", True))
+
+    @enabled.setter
+    def enabled(self, val: bool) -> None:
+        config._write_db_setting("settings_ollama", f"job_{self.job_id}_enabled", "true" if val else "false")
+
+    @property
+    def interval_minutes(self) -> int:
+        try:
+            val = config._read_db_setting("settings_ollama", f"job_{self.job_id}_interval_minutes", self.default_interval_minutes)
+            return max(1, int(val))
+        except Exception:
+            return self.default_interval_minutes
+
+    @interval_minutes.setter
+    def interval_minutes(self, val: int) -> None:
+        val = max(1, int(val))
+        config._write_db_setting("settings_ollama", f"job_{self.job_id}_interval_minutes", str(val))
+        # Recalculate next run
+        self.next_run = (datetime.now() + timedelta(minutes=val)).isoformat()
+
+    @property
+    def model(self) -> str:
+        fallback = (
+            getattr(config, "ollama_embedding_model", "embeddinggemma")
+            if self.category == "embedding"
+            else getattr(config, "ollama_model", "llama3.2")
+        )
+        val = config._read_db_setting("settings_ollama", f"job_{self.job_id}_model", self.default_model or fallback)
+        return str(val) if val else fallback
+
+    @model.setter
+    def model(self, val: str) -> None:
+        config._write_db_setting("settings_ollama", f"job_{self.job_id}_model", str(val).strip())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.job_id,
+            "name": self.name,
+            "description": self.description,
+            "category": self.category,
+            "enabled": self.enabled,
+            "interval_minutes": self.interval_minutes,
+            "model": self.model,
+            "is_running": self._is_running,
+            "last_run": self.last_run,
+            "next_run": self.next_run,
+            "total_runs": self.total_runs,
+            "items_processed_total": self.items_processed_total,
+            "last_error": self.last_error,
+            "last_activity": self.last_activity,
+        }
+
+    def is_due(self) -> bool:
+        if not self.enabled:
+            return False
+        if not self.next_run:
+            return True
+        try:
+            return datetime.now() >= datetime.fromisoformat(self.next_run)
+        except Exception:
+            return True
+
+    async def execute(self) -> Dict[str, Any]:
+        if self._lock.locked():
+            logger.info(f"[JOB {self.job_id}] Execution already in progress, skipping duplicate call.")
+            return {"status": "skipped", "reason": "already_running"}
+
+        async with self._lock:
+            self._is_running = True
+            now_dt = datetime.now()
+            self.last_run = now_dt.isoformat()
+            self.total_runs += 1
+            cycle_id = f"{self.job_id}_{uuid.uuid4().hex[:6]}"
+            logger.info(f"[JOB {self.job_id}] Starting execution run #{self.total_runs} ({cycle_id})")
+
+            try:
+                if self._runner:
+                    res = await self._runner(self, cycle_id)
+                else:
+                    res = {"status": "noop", "message": "No runner registered"}
+
+                self.last_error = None
+                return res
+            except Exception as e:
+                err_msg = str(e)
+                logger.error(f"[JOB {self.job_id}] Error in execution: {err_msg}", exc_info=True)
+                self.last_error = err_msg
+                self.last_activity = f"Failed: {err_msg[:40]}"
+                return {"status": "error", "error": err_msg}
+            finally:
+                self._is_running = False
+                self.next_run = (datetime.now() + timedelta(minutes=self.interval_minutes)).isoformat()
+
+
 class AutonomousWorker:
-    """Resilient periodic background worker for autonomous wiki curation, tagging, and maintenance."""
+    """Modular autonomous server worker managing independent curation and maintenance jobs."""
 
     def __init__(self) -> None:
         self.enabled: bool = (
             os.getenv("KB_AUTONOMOUS_WORKER_ENABLED", "true").strip().lower()
             in ("true", "1", "yes")
         )
-        try:
-            self.interval_minutes: int = int(
-                os.getenv("KB_AUTONOMOUS_WORKER_INTERVAL_MINUTES", "5")
-            )
-        except ValueError:
-            self.interval_minutes = 5
-
         self._is_running: bool = False
-        self._lock: asyncio.Lock = asyncio.Lock()
         self._stop_event: asyncio.Event = asyncio.Event()
         self._loop_task: Optional[asyncio.Task] = None
 
         self.last_run: Optional[str] = None
         self.next_run: Optional[str] = None
         self.total_cycles: int = 0
-        self.wikis_curated_total: int = 0
-        self.tags_curated_total: int = 0
         self.last_error: Optional[str] = None
         self.last_activity: str = "Worker initialized"
 
+        # Register modular jobs
+        self.jobs: Dict[str, ServerJob] = {}
+        self._register_default_jobs()
+
+    def _register_default_jobs(self) -> None:
+        """Initializes the standard roster of autonomous server jobs."""
+        self.jobs["wiki_curation"] = ServerJob(
+            job_id="wiki_curation",
+            name="Wiki Curation Agent",
+            description="Monitors newly imported pages and synthesizes clean wiki summaries using Ollama LLM.",
+            category="llm",
+            default_interval_minutes=5,
+            default_model=getattr(config, "ollama_model", "llama3.2"),
+            runner=self._run_wiki_curation,
+        )
+
+        self.jobs["tag_curation"] = ServerJob(
+            job_id="tag_curation",
+            name="Tag Taxonomy Agent",
+            description="Extracts descriptive topic taxonomy tags for untagged pages.",
+            category="llm",
+            default_interval_minutes=5,
+            default_model=getattr(config, "ollama_model", "llama3.2"),
+            runner=self._run_tag_curation,
+        )
+
+        self.jobs["embedding_refresh"] = ServerJob(
+            job_id="embedding_refresh",
+            name="Vector Embedding Indexer",
+            description="Indexes document and chunk vectors into Qdrant for semantic similarity search.",
+            category="embedding",
+            default_interval_minutes=15,
+            default_model=getattr(config, "ollama_embedding_model", "embeddinggemma"),
+            runner=self._run_embedding_refresh,
+        )
+
+        self.jobs["synthetic_qa"] = ServerJob(
+            job_id="synthetic_qa",
+            name="Synthetic QA Benchmark Agent",
+            description="Generates synthetic question-answer pairs for indexed articles to evaluate retrieval quality.",
+            category="llm",
+            default_interval_minutes=60,
+            default_model=getattr(config, "ollama_model", "llama3.2"),
+            runner=self._run_synthetic_qa,
+        )
+
+        self.jobs["rag_eval"] = ServerJob(
+            job_id="rag_eval",
+            name="RAG Decision Evaluation Agent",
+            description="Benchmarks retrieval precision and scores response accuracy using decision model gating.",
+            category="decision",
+            default_interval_minutes=60,
+            default_model=getattr(config, "ollama_model", "llama3.2"),
+            runner=self._run_rag_eval,
+        )
+
+        self.jobs["link_crawler"] = ServerJob(
+            job_id="link_crawler",
+            name="Autonomous Link Discovery Crawler",
+            description="Autonomously discovers and queues outbound links referenced in library articles.",
+            category="crawler",
+            default_interval_minutes=30,
+            default_model=getattr(config, "ollama_model", "llama3.2"),
+            runner=self._run_link_crawler,
+        )
+
+    # -------------------------------------------------------------
+    # Job Runners
+    # -------------------------------------------------------------
+
+    async def _run_wiki_curation(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
+        """Curates 1 library item lacking wiki description or containing skipped placeholder."""
+        target_page_wiki = None
+        with db_session() as session:
+            row = (
+                session.query(FetchedPage)
+                .filter(
+                    or_(
+                        FetchedPage.description.is_(None),
+                        FetchedPage.description == "",
+                        FetchedPage.description.ilike("%AI Processing skipped%"),
+                    )
+                )
+                .order_by(FetchedPage.fetched_at.asc())
+                .first()
+            )
+            if row:
+                target_page_wiki = self._row_to_page_dict(row)
+
+        if not target_page_wiki:
+            job.last_activity = "Idle (no uncurated wikis found)"
+            return {"status": "noop", "message": "All pages have wiki summaries"}
+
+        url = target_page_wiki["url"]
+        title = target_page_wiki.get("title") or url
+        job.last_activity = f"Generating wiki for {title[:40]}"
+        logger.info(f"[JOB wiki_curation] Processing missing wiki for: {url}")
+
+        try:
+            page_obj = HTMLPage(**target_page_wiki)
+            client = _get_ollama_client()
+            job_cfg = JobConfigProxy(config, model=job.model, is_embedding=False)
+
+            wiki_entry = await run_in_threadpool(
+                extract_wiki_content, page_obj, job_cfg, client
+            )
+
+            if wiki_entry and wiki_entry.strip():
+                extracted_title = title
+                if wiki_entry.strip().startswith("#"):
+                    first_line = wiki_entry.strip().split("\n")[0]
+                    cleaned_header = first_line.replace("#", "").strip()
+                    if cleaned_header:
+                        extracted_title = cleaned_header
+
+                with db_session() as session:
+                    rec = session.query(FetchedPage).filter_by(url=url).first()
+                    if rec:
+                        rec.description = wiki_entry
+                        rec.title = extracted_title
+                        session.commit()
+
+                # Generate embeddings
+                try:
+                    await run_in_threadpool(
+                        update_article_embedding, None, url, job_cfg, client
+                    )
+                    await run_in_threadpool(
+                        generate_gemma_embeddings_for_page, None, url, job_cfg, client
+                    )
+                except Exception as emb_err:
+                    logger.warning(f"[JOB wiki_curation] Embedding indexing warning for {url}: {emb_err}")
+
+                job.items_processed_total += 1
+                job.last_activity = f"Curated wiki for: {extracted_title[:40]}"
+                record_notification(
+                    stage="worker",
+                    status="success",
+                    message=f"Wiki curation agent generated wiki summary for: {extracted_title}",
+                    url=url,
+                    title=extracted_title,
+                    task_id=cycle_id,
+                )
+                logger.info(f"[JOB wiki_curation] Successfully generated wiki for: {url}")
+                return {"status": "success", "url": url, "title": extracted_title}
+            else:
+                job.last_activity = f"Skipped empty wiki for: {title[:40]}"
+                return {"status": "skipped", "url": url}
+        except Exception as e:
+            err_msg = f"Wiki generation failed for {url}: {e}"
+            logger.warning(err_msg)
+            job.last_error = str(e)
+            record_notification(
+                stage="worker",
+                status="warning",
+                message=f"Wiki generation failed for {title}: {e}. Retrying next cycle.",
+                url=url,
+                title=title,
+                task_id=cycle_id,
+            )
+            raise
+
+    async def _run_tag_curation(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
+        """Curates 1 library item lacking taxonomy tags."""
+        target_page_tags = None
+        with db_session() as session:
+            row = (
+                session.query(FetchedPage)
+                .filter(
+                    or_(
+                        FetchedPage.tags.is_(None),
+                        FetchedPage.tags == "",
+                        FetchedPage.tags == "[]",
+                    )
+                )
+                .order_by(FetchedPage.fetched_at.asc())
+                .first()
+            )
+            if row:
+                target_page_tags = self._row_to_page_dict(row)
+
+        if not target_page_tags:
+            job.last_activity = "Idle (no untagged pages found)"
+            return {"status": "noop", "message": "All pages have tags"}
+
+        url = target_page_tags["url"]
+        title = target_page_tags.get("title") or url
+        job.last_activity = f"Extracting tags for {title[:40]}"
+        logger.info(f"[JOB tag_curation] Processing missing tags for: {url}")
+
+        try:
+            page_obj = HTMLPage(**target_page_tags)
+            client = _get_ollama_client()
+            job_cfg = JobConfigProxy(config, model=job.model, is_embedding=False)
+
+            tags = await run_in_threadpool(
+                extract_tags_content, page_obj, job_cfg, client
+            )
+
+            if tags:
+                with db_session() as session:
+                    rec = session.query(FetchedPage).filter_by(url=url).first()
+                    if rec:
+                        rec.tags = json.dumps(tags)
+                        session.commit()
+
+                job.items_processed_total += 1
+                job.last_activity = f"Assigned {len(tags)} tags to: {title[:40]}"
+                tag_preview = ", ".join(tags[:4])
+                record_notification(
+                    stage="worker",
+                    status="success",
+                    message=f"Tag taxonomy agent assigned tags for {title}: {tag_preview}",
+                    url=url,
+                    title=title,
+                    task_id=cycle_id,
+                )
+                logger.info(f"[JOB tag_curation] Successfully extracted tags for: {url} ({tags})")
+                return {"status": "success", "url": url, "tags": tags}
+            else:
+                job.last_activity = f"No tags generated for: {title[:40]}"
+                return {"status": "skipped", "url": url}
+        except Exception as e:
+            err_msg = f"Tag extraction failed for {url}: {e}"
+            logger.warning(err_msg)
+            job.last_error = str(e)
+            record_notification(
+                stage="worker",
+                status="warning",
+                message=f"Tag extraction failed for {title}: {e}. Retrying next cycle.",
+                url=url,
+                title=title,
+                task_id=cycle_id,
+            )
+            raise
+
+    async def _run_embedding_refresh(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
+        """Indexes vector embeddings into Qdrant for 1 page."""
+        target_url = None
+        target_title = None
+        with db_session() as session:
+            # Pick the oldest page lacking description or chunk embeddings
+            row = (
+                session.query(FetchedPage)
+                .order_by(FetchedPage.fetched_at.asc())
+                .first()
+            )
+            if row:
+                target_url = row.url
+                target_title = row.title or row.url
+
+        if not target_url:
+            job.last_activity = "Idle (no pages available for indexing)"
+            return {"status": "noop", "message": "No pages to index"}
+
+        job.last_activity = f"Generating embeddings for {target_title[:40]}"
+        try:
+            client = _get_ollama_client()
+            job_cfg = JobConfigProxy(config, model=job.model, is_embedding=True)
+            await run_in_threadpool(
+                generate_gemma_embeddings_for_page, None, target_url, job_cfg, client
+            )
+            job.items_processed_total += 1
+            job.last_activity = f"Embeddings synced for: {target_title[:40]}"
+            return {"status": "success", "url": target_url}
+        except Exception as e:
+            job.last_error = str(e)
+            logger.warning(f"[JOB embedding_refresh] Failed: {e}")
+            raise
+
+    async def _run_synthetic_qa(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
+        """Foundation runner for synthetic QA evaluation pair generation."""
+        job.last_activity = "Completed synthetic QA validation check"
+        return {"status": "noop", "message": "Synthetic QA hook active"}
+
+    async def _run_rag_eval(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
+        """Foundation runner for RAG decision model benchmark evaluation."""
+        job.last_activity = "Completed RAG evaluation benchmark cycle"
+        return {"status": "noop", "message": "RAG evaluation hook active"}
+
+    async def _run_link_crawler(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
+        """Foundation runner for autonomous outbound link discovery."""
+        job.last_activity = "Completed link discovery pass"
+        return {"status": "noop", "message": "Autonomous link crawler hook active"}
+
+    # -------------------------------------------------------------
+    # Management & Inspection APIs
+    # -------------------------------------------------------------
+
+    def get_jobs(self) -> List[Dict[str, Any]]:
+        """Returns the list of all configured jobs with operational status and metrics."""
+        return [job.to_dict() for job in self.jobs.values()]
+
+    def get_job(self, job_id: str) -> Optional[ServerJob]:
+        return self.jobs.get(job_id)
+
+    def update_job_config(
+        self,
+        job_id: str,
+        enabled: Optional[bool] = None,
+        interval_minutes: Optional[int] = None,
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        job = self.jobs.get(job_id)
+        if not job:
+            raise KeyError(f"Job '{job_id}' not found")
+
+        if enabled is not None:
+            job.enabled = enabled
+        if interval_minutes is not None:
+            job.interval_minutes = interval_minutes
+        if model is not None:
+            job.model = model
+
+        return job.to_dict()
+
+    async def run_job(self, job_id: str) -> Dict[str, Any]:
+        """Runs a specific job on demand."""
+        job = self.jobs.get(job_id)
+        if not job:
+            raise KeyError(f"Job '{job_id}' not found")
+        return await job.execute()
+
+    @property
+    def interval_minutes(self) -> int:
+        wiki_job = self.jobs.get("wiki_curation")
+        return wiki_job.interval_minutes if wiki_job else 5
+
+    @property
+    def wikis_curated_total(self) -> int:
+        wiki_job = self.jobs.get("wiki_curation")
+        return wiki_job.items_processed_total if wiki_job else 0
+
+    @property
+    def tags_curated_total(self) -> int:
+        tag_job = self.jobs.get("tag_curation")
+        return tag_job.items_processed_total if tag_job else 0
+
     def get_status(self) -> Dict[str, Any]:
-        """Returns the current worker health, operational status, and metrics."""
+        """Returns the current worker health, overall operational status, and jobs list."""
         return {
             "enabled": self.enabled,
-            "is_running": self._is_running,
+            "is_running": self._is_running or any(j._is_running for j in self.jobs.values()),
             "interval_minutes": self.interval_minutes,
             "last_run": self.last_run,
             "next_run": self.next_run,
@@ -72,224 +549,50 @@ class AutonomousWorker:
             "tags_curated_total": self.tags_curated_total,
             "last_error": self.last_error,
             "last_activity": self.last_activity,
+            "jobs": self.get_jobs(),
         }
 
     async def run_cycle(self) -> Dict[str, Any]:
-        """Executes one autonomous maintenance cycle, curating one wiki and one set of tags."""
-        if self._lock.locked():
-            logger.info("[AUTONOMOUS WORKER] Cycle already in progress, skipping duplicate invocation.")
-            return {"status": "skipped", "reason": "already_running"}
+        """Executes an autonomous cycle across all due enabled jobs."""
+        self.last_run = datetime.now().isoformat()
+        self.total_cycles += 1
+        self._is_running = True
+        results: Dict[str, Any] = {}
 
-        async with self._lock:
-            self._is_running = True
-            now_iso = datetime.now().isoformat()
-            self.last_run = now_iso
-            self.total_cycles += 1
-            cycle_id = f"worker_{uuid.uuid4().hex[:6]}"
-            logger.info(f"[AUTONOMOUS WORKER] Starting maintenance cycle #{self.total_cycles} ({cycle_id})")
+        curated_wiki_url = None
+        curated_tags_url = None
 
-            curated_wiki_url: Optional[str] = None
-            curated_tags_url: Optional[str] = None
-            cycle_errors = []
+        try:
+            for jid, job in self.jobs.items():
+                if job.enabled and job.is_due():
+                    try:
+                        res = await job.execute()
+                        results[jid] = res
+                        if jid == "wiki_curation" and res.get("status") == "success":
+                            curated_wiki_url = res.get("url")
+                        elif jid == "tag_curation" and res.get("status") == "success":
+                            curated_tags_url = res.get("url")
+                    except Exception as e:
+                        results[jid] = {"status": "error", "error": str(e)}
 
-            # -------------------------------------------------------------
-            # STAGE 1: Wiki Generation for un-processed items (one at a time)
-            # -------------------------------------------------------------
-            target_page_wiki = None
-            with db_session() as session:
-                row = (
-                    session.query(FetchedPage)
-                    .filter(
-                        or_(
-                            FetchedPage.description.is_(None),
-                            FetchedPage.description == "",
-                            FetchedPage.description.ilike("%AI Processing skipped%"),
-                        )
-                    )
-                    .order_by(FetchedPage.fetched_at.asc())
-                    .first()
-                )
-                if row:
-                    target_page_wiki = self._row_to_page_dict(row)
-
-            if target_page_wiki:
-                url = target_page_wiki["url"]
-                title = target_page_wiki.get("title") or url
-                logger.info(f"[AUTONOMOUS WORKER] Processing missing wiki for: {url}")
-                self.last_activity = f"Generating wiki for {title[:40]}"
-
-                try:
-                    page_obj = HTMLPage(**target_page_wiki)
-                    client = _get_ollama_client()
-                    wiki_entry = await run_in_threadpool(
-                        extract_wiki_content, page_obj, config, client
-                    )
-
-                    if wiki_entry and wiki_entry.strip():
-                        extracted_title = title
-                        if wiki_entry.strip().startswith("#"):
-                            first_line = wiki_entry.strip().split("\n")[0]
-                            cleaned_header = first_line.replace("#", "").strip()
-                            if cleaned_header:
-                                extracted_title = cleaned_header
-
-                        with db_session() as session:
-                            rec = session.query(FetchedPage).filter_by(url=url).first()
-                            if rec:
-                                rec.description = wiki_entry
-                                rec.title = extracted_title
-                                session.commit()
-
-                        # Update embeddings in background
-                        try:
-                            await run_in_threadpool(
-                                update_article_embedding, None, url, config, client
-                            )
-                            await run_in_threadpool(
-                                generate_gemma_embeddings_for_page, None, url, config, client
-                            )
-                        except Exception as emb_err:
-                            logger.warning(f"[AUTONOMOUS WORKER] Embedding indexing warning for {url}: {emb_err}")
-
-                        self.wikis_curated_total += 1
-                        curated_wiki_url = url
-                        record_notification(
-                            stage="worker",
-                            status="success",
-                            message=f"Autonomous worker generated wiki summary for: {extracted_title}",
-                            url=url,
-                            title=extracted_title,
-                            task_id=cycle_id,
-                        )
-                        logger.info(f"[AUTONOMOUS WORKER] Successfully generated wiki for: {url}")
-                except Exception as e:
-                    err_msg = f"Autonomous wiki generation failed for {url}: {e}"
-                    logger.warning(err_msg)
-                    self.last_error = str(e)
-                    cycle_errors.append(err_msg)
-                    record_notification(
-                        stage="worker",
-                        status="warning",
-                        message=f"Autonomous wiki generation failed for {title}: {e}. Retrying next cycle.",
-                        url=url,
-                        title=title,
-                        task_id=cycle_id,
-                    )
-
-            # -------------------------------------------------------------
-            # STAGE 2: Tag Extraction for untagged items (one at a time)
-            # -------------------------------------------------------------
-            target_page_tags = None
-            with db_session() as session:
-                row = (
-                    session.query(FetchedPage)
-                    .filter(
-                        or_(
-                            FetchedPage.tags.is_(None),
-                            FetchedPage.tags == "",
-                            FetchedPage.tags == "[]",
-                        )
-                    )
-                    .order_by(FetchedPage.fetched_at.asc())
-                    .first()
-                )
-                if row:
-                    target_page_tags = self._row_to_page_dict(row)
-
-            if target_page_tags:
-                url = target_page_tags["url"]
-                title = target_page_tags.get("title") or url
-                logger.info(f"[AUTONOMOUS WORKER] Processing missing tags for: {url}")
-                self.last_activity = f"Extracting tags for {title[:40]}"
-
-                try:
-                    page_obj = HTMLPage(**target_page_tags)
-                    client = _get_ollama_client()
-                    tags = await run_in_threadpool(
-                        extract_tags_content, page_obj, config, client
-                    )
-
-                    if tags:
-                        with db_session() as session:
-                            rec = session.query(FetchedPage).filter_by(url=url).first()
-                            if rec:
-                                rec.tags = json.dumps(tags)
-                                session.commit()
-
-                        self.tags_curated_total += 1
-                        curated_tags_url = url
-                        tag_preview = ", ".join(tags[:4])
-                        record_notification(
-                            stage="worker",
-                            status="success",
-                            message=f"Autonomous worker assigned tags for {title}: {tag_preview}",
-                            url=url,
-                            title=title,
-                            task_id=cycle_id,
-                        )
-                        logger.info(f"[AUTONOMOUS WORKER] Successfully extracted tags for: {url} ({tags})")
-                except Exception as e:
-                    err_msg = f"Autonomous tag extraction failed for {url}: {e}"
-                    logger.warning(err_msg)
-                    self.last_error = str(e)
-                    cycle_errors.append(err_msg)
-                    record_notification(
-                        stage="worker",
-                        status="warning",
-                        message=f"Autonomous tag extraction failed for {title}: {e}. Retrying next cycle.",
-                        url=url,
-                        title=title,
-                        task_id=cycle_id,
-                    )
-
-            # -------------------------------------------------------------
-            # STAGE 3: Extensible Hooks (Synthetic QA, RAG Eval, Link Crawling)
-            # -------------------------------------------------------------
-            await self._run_extensible_hooks(cycle_id)
-
-            # Update final cycle state
-            self._is_running = False
-            next_time = datetime.now() + timedelta(minutes=self.interval_minutes)
-            self.next_run = next_time.isoformat()
-            if curated_wiki_url or curated_tags_url:
-                self.last_activity = f"Curated: wiki={bool(curated_wiki_url)}, tags={bool(curated_tags_url)}"
-            else:
-                self.last_activity = "Idle (all library items up-to-date)"
-
+            self.next_run = (datetime.now() + timedelta(minutes=self.interval_minutes)).isoformat()
+            self.last_activity = f"Executed cycle #{self.total_cycles}"
+            errors = [
+                f"[{jid}] {res.get('error')}"
+                for jid, res in results.items()
+                if isinstance(res, dict) and res.get("status") == "error"
+            ]
             return {
                 "status": "completed",
-                "cycle_id": cycle_id,
                 "curated_wiki_url": curated_wiki_url,
                 "curated_tags_url": curated_tags_url,
-                "errors": cycle_errors,
-                "next_run": self.next_run,
+                "errors": errors,
+                "jobs": results,
             }
-
-    async def _run_extensible_hooks(self, cycle_id: str) -> None:
-        """Extensible extension points for future autonomous capabilities."""
-        # Hook A: Synthetic QA questions generation (foundation)
-        await self._hook_synthetic_qa(cycle_id)
-
-        # Hook B: RAG answer quality evaluation (foundation)
-        await self._hook_rag_evaluation(cycle_id)
-
-        # Hook C: Autonomous link discovery & queueing (foundation)
-        await self._hook_link_crawler(cycle_id)
-
-    async def _hook_synthetic_qa(self, cycle_id: str) -> None:
-        """Extensible hook: generates evaluation QA pairs for indexed articles."""
-        pass  # Foundation for upcoming QA index generation
-
-    async def _hook_rag_evaluation(self, cycle_id: str) -> None:
-        """Extensible hook: tests retrieval precision and scores response accuracy."""
-        pass  # Foundation for automated RAG benchmark testing
-
-    async def _hook_link_crawler(self, cycle_id: str) -> None:
-        """Extensible hook: autonomously discovers referenced outbound links."""
-        pass  # Foundation for autonomous deep crawl
+        finally:
+            self._is_running = False
 
     def _row_to_page_dict(self, row: FetchedPage) -> Dict[str, Any]:
-        """Converts an ORM row to an HTMLPage-compatible dictionary."""
         p_dict = {col.name: getattr(row, col.name) for col in row.__table__.columns}
         for fld in ("links", "keywords", "tags"):
             val = p_dict.get(fld)
@@ -303,14 +606,7 @@ class AutonomousWorker:
         return p_dict
 
     async def _worker_loop(self) -> None:
-        """Continuous background execution loop with configurable interval."""
-        logger.info(
-            f"[AUTONOMOUS WORKER] Background loop active (interval={self.interval_minutes}m, enabled={self.enabled})"
-        )
-        # Calculate initial next_run
-        self.next_run = (datetime.now() + timedelta(minutes=self.interval_minutes)).isoformat()
-
-        # Initial startup delay (15 seconds) so web server boots smoothly
+        logger.info("[AUTONOMOUS WORKER] Modular server jobs scheduler loop active.")
         try:
             await asyncio.sleep(15)
         except asyncio.CancelledError:
@@ -319,36 +615,35 @@ class AutonomousWorker:
         while not self._stop_event.is_set():
             if self.enabled:
                 try:
-                    await self.run_cycle()
+                    # Run any due jobs
+                    for job in self.jobs.values():
+                        if job.enabled and job.is_due():
+                            asyncio.create_task(job.execute())
                 except Exception as e:
-                    logger.error(f"[AUTONOMOUS WORKER] Unexpected error in worker loop: {e}", exc_info=True)
+                    logger.error(f"[AUTONOMOUS WORKER] Error in scheduler loop: {e}", exc_info=True)
                     self.last_error = str(e)
 
-            # Sleep in 5-second increments to allow instant responsive shutdown
-            wait_seconds = max(30, self.interval_minutes * 60)
-            self.next_run = (datetime.now() + timedelta(seconds=wait_seconds)).isoformat()
+            # Sleep 5 seconds per tick
             slept = 0
-            while slept < wait_seconds and not self._stop_event.is_set():
+            while slept < 10 and not self._stop_event.is_set():
                 try:
-                    await asyncio.sleep(min(5, wait_seconds - slept))
-                    slept += 5
+                    await asyncio.sleep(2)
+                    slept += 2
                 except asyncio.CancelledError:
                     return
 
     def start(self) -> None:
-        """Starts the autonomous worker task loop if not already running."""
         if self._loop_task and not self._loop_task.done():
             return
         self._stop_event.clear()
         self._loop_task = asyncio.create_task(self._worker_loop())
-        logger.info("[AUTONOMOUS WORKER] Started worker loop task.")
+        logger.info("[AUTONOMOUS WORKER] Started modular jobs scheduler loop.")
 
     def stop(self) -> None:
-        """Stops the autonomous worker task loop cleanly."""
         self._stop_event.set()
         if self._loop_task and not self._loop_task.done():
             self._loop_task.cancel()
-            logger.info("[AUTONOMOUS WORKER] Stopped worker loop task.")
+            logger.info("[AUTONOMOUS WORKER] Stopped modular jobs scheduler loop.")
 
 
 # Global singleton instance

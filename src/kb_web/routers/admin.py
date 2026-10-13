@@ -452,8 +452,16 @@ def handle_config_update(
     youtube_wiki_prompt: str = Form(...),
     max_input_length: int = Form(20000),
     ollama_think: bool = Form(False),
+    taxonomy_batch_limit: Optional[int] = Form(None),
+    rag_search_top_k: Optional[int] = Form(None),
+    similarity_threshold: Optional[float] = Form(None),
+    ollama_timeout: Optional[int] = Form(None),
+    notifications_poll_interval_seconds: Optional[int] = Form(None),
+    page_cards_per_page: Optional[int] = Form(None),
+    crawler_default_max_pages: Optional[int] = Form(None),
+    repo_import_default_depth: Optional[int] = Form(None),
 ) -> RedirectResponse:
-    """Saves updated server settings (Ollama, Gotify, and Qdrant parameters) to config file."""
+    """Saves updated server settings (Ollama, Gotify, Qdrant, and operational thresholds) to config."""
     config.ollama_host = ollama_host
     config.ollama_model = ollama_model
     config.ollama_embedding_model = ollama_embedding_model
@@ -466,6 +474,22 @@ def handle_config_update(
     config.youtube_wiki_prompt = youtube_wiki_prompt
     config.max_input_length = max_input_length
     config.ollama_think = ollama_think
+    if taxonomy_batch_limit is not None:
+        config.taxonomy_batch_limit = taxonomy_batch_limit
+    if rag_search_top_k is not None:
+        config.rag_search_top_k = rag_search_top_k
+    if similarity_threshold is not None:
+        config.similarity_threshold = similarity_threshold
+    if ollama_timeout is not None:
+        config.ollama_timeout = ollama_timeout
+    if notifications_poll_interval_seconds is not None:
+        config.notifications_poll_interval_seconds = notifications_poll_interval_seconds
+    if page_cards_per_page is not None:
+        config.page_cards_per_page = page_cards_per_page
+    if crawler_default_max_pages is not None:
+        config.crawler_default_max_pages = crawler_default_max_pages
+    if repo_import_default_depth is not None:
+        config.repo_import_default_depth = repo_import_default_depth
     config.save()
 
     return RedirectResponse(

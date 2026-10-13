@@ -673,6 +673,72 @@ class Config:
         except Exception as e:
             print(f"Error setting youtube_wiki_prompt: {e}")
 
+    @property
+    def similarity_threshold(self) -> float:
+        return self._read_db_setting("settings_ollama", "similarity_threshold", self._similarity_threshold)
+
+    @similarity_threshold.setter
+    def similarity_threshold(self, value: float) -> None:
+        self._similarity_threshold = float(value)
+        self._write_db_setting("settings_ollama", "similarity_threshold", float(value))
+
+    @property
+    def ollama_timeout(self) -> float:
+        return self._read_db_setting("settings_ollama", "ollama_timeout", self._ollama_timeout)
+
+    @ollama_timeout.setter
+    def ollama_timeout(self, value: float) -> None:
+        self._ollama_timeout = float(value)
+        self._write_db_setting("settings_ollama", "ollama_timeout", float(value))
+
+    @property
+    def rag_search_top_k(self) -> int:
+        return self._read_db_setting("settings_ollama", "rag_search_top_k", 10)
+
+    @rag_search_top_k.setter
+    def rag_search_top_k(self, value: int) -> None:
+        self._write_db_setting("settings_ollama", "rag_search_top_k", int(value))
+
+    @property
+    def taxonomy_batch_limit(self) -> int:
+        return self._read_db_setting("settings_external", "taxonomy_batch_limit", 500)
+
+    @taxonomy_batch_limit.setter
+    def taxonomy_batch_limit(self, value: int) -> None:
+        self._write_db_setting("settings_external", "taxonomy_batch_limit", int(value))
+
+    @property
+    def notifications_poll_interval_seconds(self) -> int:
+        return self._read_db_setting("settings_external", "notifications_poll_interval_seconds", 5)
+
+    @notifications_poll_interval_seconds.setter
+    def notifications_poll_interval_seconds(self, value: int) -> None:
+        self._write_db_setting("settings_external", "notifications_poll_interval_seconds", int(value))
+
+    @property
+    def page_cards_per_page(self) -> int:
+        return self._read_db_setting("settings_external", "page_cards_per_page", 20)
+
+    @page_cards_per_page.setter
+    def page_cards_per_page(self, value: int) -> None:
+        self._write_db_setting("settings_external", "page_cards_per_page", int(value))
+
+    @property
+    def crawler_default_max_pages(self) -> int:
+        return self._read_db_setting("settings_external", "crawler_default_max_pages", 25)
+
+    @crawler_default_max_pages.setter
+    def crawler_default_max_pages(self, value: int) -> None:
+        self._write_db_setting("settings_external", "crawler_default_max_pages", int(value))
+
+    @property
+    def repo_import_default_depth(self) -> int:
+        return self._read_db_setting("settings_external", "repo_import_default_depth", 1)
+
+    @repo_import_default_depth.setter
+    def repo_import_default_depth(self, value: int) -> None:
+        self._write_db_setting("settings_external", "repo_import_default_depth", int(value))
+
     def save(self) -> None:
         """Writes current config values back to the ~/.kb/configs/kb-web.json file."""
         try:
@@ -690,6 +756,13 @@ class Config:
                 "similarity_threshold": self.similarity_threshold,
                 "max_input_length": self.max_input_length,
                 "ollama_think": self.ollama_think,
+                "ollama_timeout": self.ollama_timeout,
+                "rag_search_top_k": self.rag_search_top_k,
+                "taxonomy_batch_limit": self.taxonomy_batch_limit,
+                "notifications_poll_interval_seconds": self.notifications_poll_interval_seconds,
+                "page_cards_per_page": self.page_cards_per_page,
+                "crawler_default_max_pages": self.crawler_default_max_pages,
+                "repo_import_default_depth": self.repo_import_default_depth,
                 "gotify_url": self.gotify_url,
                 "gotify_token": self.gotify_token,
                 "qdrant_host_url": self.qdrant_host_url,

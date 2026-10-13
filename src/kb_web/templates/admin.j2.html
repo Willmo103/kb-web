@@ -107,38 +107,39 @@
                 <form action="/admin/config" method="post" class="space-y-4">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label for="ollama_host" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Ollama Host URL</label>
-                            <input type="text" name="ollama_host" id="ollama_host" value="{{ config.ollama_host }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                            <label for="ollama_host" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Ollama Host URL</label>
+                            <input type="text" name="ollama_host" id="ollama_host" value="{{ config.ollama_host }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
                         </div>
                         <div>
                             <div class="flex items-center justify-between mb-1">
-                                <label for="ollama_model" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Ollama Inference Model</label>
-                                <button type="button" onclick="loadAdminOllamaModels()" class="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1">
+                                <label for="ollama_model" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Ollama Inference Model</label>
+                                <button type="button" onclick="loadAdminOllamaModels()" class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 font-semibold flex items-center gap-1">
                                     <span>⚡</span> Check Loaded Models
                                 </button>
                             </div>
-                            <div class="flex gap-2">
-                                <input type="text" name="ollama_model" id="ollama_model" value="{{ config.ollama_model }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
-                                <select id="admin_model_quick_select" onchange="if(this.value){document.getElementById('ollama_model').value=this.value;}" class="text-xs font-mono border border-gray-300 rounded-lg px-2 bg-gray-50 text-gray-700 max-w-[180px]" title="Pick from running or installed models">
-                                    <option value="">Select model...</option>
-                                </select>
+                            <div class="relative">
+                                <input type="text" list="admin_model_options" name="ollama_model" id="ollama_model" value="{{ config.ollama_model }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required placeholder="e.g. llama3.2:latest" />
+                                <datalist id="admin_model_options"></datalist>
                             </div>
-                            <p id="admin_loaded_models_info" class="text-[10px] text-gray-500 mt-1 font-mono"></p>
+                            <p id="admin_loaded_models_info" class="text-[10px] text-gray-500 dark:text-gray-400 mt-1 font-mono"></p>
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label for="ollama_embedding_model" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Ollama Embedding Model</label>
-                            <input type="text" name="ollama_embedding_model" id="ollama_embedding_model" value="{{ config.ollama_embedding_model }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                            <label for="ollama_embedding_model" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Ollama Embedding Model</label>
+                            <div class="relative">
+                                <input type="text" list="admin_embedding_model_options" name="ollama_embedding_model" id="ollama_embedding_model" value="{{ config.ollama_embedding_model }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required placeholder="e.g. embeddinggemma" />
+                                <datalist id="admin_embedding_model_options"></datalist>
+                            </div>
                         </div>
                         <div class="flex flex-col justify-center pt-2">
                             <div class="flex items-center space-x-2">
                                 <input type="checkbox" name="ollama_think" id="ollama_think" value="true" {% if config.ollama_think %}checked{% endif %} class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" />
-                                <label for="ollama_think" class="text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer">Ollama thinking (Reasoning Latency)</label>
+                                <label for="ollama_think" class="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer">Ollama thinking (Reasoning Latency)</label>
                             </div>
                             <div class="pt-2 flex items-center">
-                                <button type="button" onclick="testOllamaConnection()" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                                <button type="button" onclick="testOllamaConnection()" class="bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-200 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
                                     ⚡ Test Ollama Connection
                                 </button>
                                 <span id="ollamaTestStatus" class="text-xs font-semibold ml-2"></span>
@@ -146,37 +147,91 @@
                         </div>
                     </div>
 
-                    <div class="border-t border-gray-100 pt-4">
-                        <label for="api_key" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Browser Extension & Client API Key</label>
-                        <input type="text" name="api_key" id="api_key" value="{{ config.api_key or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Shared API key (leave blank to disable client authentication)" />
+                    <div class="border-t border-gray-100 dark:border-slate-700 pt-4">
+                        <label for="api_key" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Browser Extension & Client API Key</label>
+                        <input type="text" name="api_key" id="api_key" value="{{ config.api_key or '' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Shared API key (leave blank to disable client authentication)" />
                         <p class="text-[11px] text-gray-400 mt-1">Used by the Chrome/Firefox browser extension and external scripts when authenticating against API endpoints.</p>
                     </div>
 
-                    <div class="border-t border-gray-100 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="border-t border-gray-100 dark:border-slate-700 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label for="gotify_url" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Gotify Server URL</label>
-                            <input type="text" name="gotify_url" id="gotify_url" value="{{ config.gotify_url or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. http://gotify.local" />
+                            <label for="gotify_url" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Gotify Server URL</label>
+                            <input type="text" name="gotify_url" id="gotify_url" value="{{ config.gotify_url or '' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. http://gotify.local" />
                         </div>
                         <div>
-                            <label for="gotify_token" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Gotify App Token</label>
-                            <input type="text" name="gotify_token" id="gotify_token" value="{{ config.gotify_token or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. A1B2C3D4" />
+                            <label for="gotify_token" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Gotify App Token</label>
+                            <input type="text" name="gotify_token" id="gotify_token" value="{{ config.gotify_token or '' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. A1B2C3D4" />
                         </div>
                     </div>
                     <div class="flex items-center">
-                        <button type="button" onclick="testGotifyConnection()" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                        <button type="button" onclick="testGotifyConnection()" class="bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-200 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
                             🔔 Test Gotify Alert
                         </button>
                         <span id="gotifyTestStatus" class="text-xs font-semibold ml-2"></span>
                     </div>
 
-                    <div class="border-t border-gray-100 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="border-t border-gray-100 dark:border-slate-700 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label for="qdrant_host_url" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Qdrant Host URL</label>
-                            <input type="text" name="qdrant_host_url" id="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. http://localhost:6333" />
+                            <label for="qdrant_host_url" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Qdrant Host URL</label>
+                            <input type="text" name="qdrant_host_url" id="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. http://localhost:6333" />
                         </div>
                         <div>
-                            <label for="qdrant_api_key" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Qdrant API Key</label>
-                            <input type="text" name="qdrant_api_key" id="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Qdrant API Key (leave blank if none)" />
+                            <label for="qdrant_api_key" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Qdrant API Key</label>
+                            <input type="text" name="qdrant_api_key" id="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Qdrant API Key (leave blank if none)" />
+                        </div>
+                    </div>
+
+                    <!-- Operational Limits & Engine Thresholds (Rule 7 Exposure) -->
+                    <div class="border-t border-gray-100 dark:border-slate-700 pt-5 mt-5">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-sm">⚖️</span>
+                            <h4 class="text-xs font-bold text-gray-900 dark:text-gray-100 uppercase tracking-wider">Engine Thresholds & Operational Limits</h4>
+                        </div>
+                        <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-4">
+                            Operational limits, taxonomy batch limits, RAG top-k cutoffs, timeouts, and pagination bounds (Rule 7 Configuration Transparency).
+                        </p>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                            <div>
+                                <label for="taxonomy_batch_limit" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Taxonomy Batch Limit</label>
+                                <input type="number" name="taxonomy_batch_limit" id="taxonomy_batch_limit" value="{{ config.taxonomy_batch_limit or 500 }}" min="10" max="50000" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Notes classified per pass (500)</span>
+                            </div>
+                            <div>
+                                <label for="rag_search_top_k" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">RAG Candidate Top-K</label>
+                                <input type="number" name="rag_search_top_k" id="rag_search_top_k" value="{{ config.rag_search_top_k or 10 }}" min="1" max="100" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Search chunks per turn (10)</span>
+                            </div>
+                            <div>
+                                <label for="similarity_threshold" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Similarity Cutoff</label>
+                                <input type="number" step="0.01" name="similarity_threshold" id="similarity_threshold" value="{{ config.similarity_threshold or 0.65 }}" min="0.1" max="1.0" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Cosine cutoff threshold (0.65)</span>
+                            </div>
+                            <div>
+                                <label for="ollama_timeout" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Ollama Timeout (Sec)</label>
+                                <input type="number" name="ollama_timeout" id="ollama_timeout" value="{{ config.ollama_timeout or 120 }}" min="10" max="600" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">HTTP client timeout (120s)</span>
+                            </div>
+                            <div>
+                                <label for="notifications_poll_interval_seconds" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Notification Poll (Sec)</label>
+                                <input type="number" name="notifications_poll_interval_seconds" id="notifications_poll_interval_seconds" value="{{ config.notifications_poll_interval_seconds or 30 }}" min="5" max="300" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">UI badge refresh rate (30s)</span>
+                            </div>
+                            <div>
+                                <label for="page_cards_per_page" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Cards Per Page</label>
+                                <input type="number" name="page_cards_per_page" id="page_cards_per_page" value="{{ config.page_cards_per_page or 20 }}" min="5" max="100" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Pagination on /pages (20)</span>
+                            </div>
+                            <div>
+                                <label for="crawler_default_max_pages" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Crawler Max Pages</label>
+                                <input type="number" name="crawler_default_max_pages" id="crawler_default_max_pages" value="{{ config.crawler_default_max_pages or 50 }}" min="5" max="500" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Link exploration ceiling (50)</span>
+                            </div>
+                            <div>
+                                <label for="repo_import_default_depth" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Git Clone Depth</label>
+                                <input type="number" name="repo_import_default_depth" id="repo_import_default_depth" value="{{ config.repo_import_default_depth or 1 }}" min="1" max="50" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Shallow clone depth (1)</span>
+                            </div>
                         </div>
                     </div>
 
@@ -185,7 +240,7 @@
                     <input type="hidden" name="youtube_wiki_prompt" value="{{ config.youtube_wiki_prompt }}" />
                     <input type="hidden" name="max_input_length" value="{{ config.max_input_length }}" />
 
-                    <div class="pt-2">
+                    <div class="pt-4">
                         <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-3 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
                             <span>💾</span> Save System Configurations
                         </button>
@@ -195,20 +250,20 @@
 
             <!-- Right 1 Col: Security & Admin Password -->
             <div class="space-y-6">
-                <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                    <h3 class="text-base font-bold text-gray-900 border-b border-gray-100 pb-3 mb-4 flex items-center gap-2">
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm">
+                    <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-slate-700 pb-3 mb-4 flex items-center gap-2">
                         <span>🔒</span> Admin Password
                     </h3>
-                    <p class="text-xs text-gray-500 mb-4">Update the administrative password required to access this dashboard and execute privileged maintenance tasks.</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">Update the administrative password required to access this dashboard and execute privileged maintenance tasks.</p>
                     
                     <form action="/admin/change-password" method="post" class="space-y-4">
                         <div>
-                            <label for="current_password" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Current Password</label>
-                            <input type="password" name="current_password" id="current_password" class="block w-full text-xs border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                            <label for="current_password" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Current Password</label>
+                            <input type="password" name="current_password" id="current_password" class="block w-full text-xs border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
                         </div>
                         <div>
-                            <label for="new_password" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">New Password</label>
-                            <input type="password" name="new_password" id="new_password" class="block w-full text-xs border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                            <label for="new_password" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">New Password</label>
+                            <input type="password" name="new_password" id="new_password" class="block w-full text-xs border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
                         </div>
                         <button type="submit" class="w-full bg-gray-900 hover:bg-black text-white text-xs font-bold py-2.5 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
                             <span>🔑</span> Update Password
@@ -216,23 +271,23 @@
                     </form>
                 </div>
 
-                <!-- Environment & Status Mini-Card -->
-                <div class="bg-gradient-to-br from-indigo-50 to-blue-50 p-6 rounded-2xl border border-indigo-100 shadow-sm">
-                    <h4 class="text-xs font-extrabold uppercase tracking-wider text-indigo-900 mb-3 flex items-center gap-1.5">
+                <!-- Environment & Status Mini-Card with dark mode -->
+                <div class="bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-slate-800 dark:to-indigo-950 p-6 rounded-2xl border border-indigo-100 dark:border-slate-700 shadow-sm">
+                    <h4 class="text-xs font-extrabold uppercase tracking-wider text-indigo-900 dark:text-indigo-300 mb-3 flex items-center gap-1.5">
                         <span>ℹ️</span> Quick Diagnostics
                     </h4>
                     <dl class="space-y-2 text-xs">
                         <div class="flex justify-between">
-                            <dt class="text-gray-500">Database Engine:</dt>
-                            <dd class="font-bold text-gray-800 font-mono">PostgreSQL / SQLite</dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Database Engine:</dt>
+                            <dd class="font-bold text-gray-800 dark:text-gray-200 font-mono">PostgreSQL / SQLite</dd>
                         </div>
                         <div class="flex justify-between">
-                            <dt class="text-gray-500">Active Model:</dt>
-                            <dd class="font-bold text-gray-800 font-mono">{{ config.ollama_model }}</dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Active Model:</dt>
+                            <dd class="font-bold text-gray-800 dark:text-gray-200 font-mono">{{ config.ollama_model }}</dd>
                         </div>
                         <div class="flex justify-between">
-                            <dt class="text-gray-500">Embeddings Model:</dt>
-                            <dd class="font-bold text-gray-800 font-mono">{{ config.ollama_embedding_model }}</dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Embeddings Model:</dt>
+                            <dd class="font-bold text-gray-800 dark:text-gray-200 font-mono">{{ config.ollama_embedding_model }}</dd>
                         </div>
                     </dl>
                 </div>
@@ -244,12 +299,12 @@
     <div id="tab-prompts" class="admin-tab-pane hidden">
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <!-- Left 2 Cols: Prompt Management -->
-            <div class="lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                <div class="border-b border-gray-100 pb-3 mb-5">
-                    <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+            <div class="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm">
+                <div class="border-b border-gray-100 dark:border-slate-700 pb-3 mb-5">
+                    <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                         <span>🤖</span> AI Curation System Prompts
                     </h3>
-                    <p class="text-xs text-gray-500">Customize the system instructions provided to Ollama during wiki markdown synthesis and YouTube transcripts.</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Customize the system instructions provided to Ollama during wiki markdown synthesis and YouTube transcripts.</p>
                 </div>
 
                 <form action="/admin/config" method="post" class="space-y-5">
@@ -263,16 +318,24 @@
                     <input type="hidden" name="gotify_token" value="{{ config.gotify_token or '' }}" />
                     <input type="hidden" name="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" />
                     <input type="hidden" name="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" />
+                    <input type="hidden" name="taxonomy_batch_limit" value="{{ config.taxonomy_batch_limit or 500 }}" />
+                    <input type="hidden" name="rag_search_top_k" value="{{ config.rag_search_top_k or 10 }}" />
+                    <input type="hidden" name="similarity_threshold" value="{{ config.similarity_threshold or 0.65 }}" />
+                    <input type="hidden" name="ollama_timeout" value="{{ config.ollama_timeout or 120 }}" />
+                    <input type="hidden" name="notifications_poll_interval_seconds" value="{{ config.notifications_poll_interval_seconds or 30 }}" />
+                    <input type="hidden" name="page_cards_per_page" value="{{ config.page_cards_per_page or 20 }}" />
+                    <input type="hidden" name="crawler_default_max_pages" value="{{ config.crawler_default_max_pages or 50 }}" />
+                    <input type="hidden" name="repo_import_default_depth" value="{{ config.repo_import_default_depth or 1 }}" />
 
                     <!-- Wiki Prompt -->
-                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <div class="bg-gray-50 dark:bg-slate-900/60 p-4 rounded-xl border border-gray-200 dark:border-slate-700">
                         <div class="flex justify-between items-center mb-2">
-                            <label for="wiki_prompt" class="block text-xs font-bold text-gray-800 uppercase tracking-wider">Wiki Extraction System Prompt</label>
-                            <button type="button" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-white hover:bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-lg transition shadow-sm flex items-center gap-1.5">
+                            <label for="wiki_prompt" class="block text-xs font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wider">Wiki Extraction System Prompt</label>
+                            <button type="button" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 bg-white dark:bg-slate-700 hover:bg-indigo-50 border border-indigo-200 dark:border-slate-600 px-3 py-1 rounded-lg transition shadow-sm flex items-center gap-1.5">
                                 ✏️ Expand Editor Modal
                             </button>
                         </div>
-                        <textarea name="wiki_prompt" id="wiki_prompt" rows="4" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer bg-white transition" title="Click to edit in full modal" required>{{ config.wiki_prompt }}</textarea>
+                        <textarea name="wiki_prompt" id="wiki_prompt" rows="4" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer transition" title="Click to edit in full modal" required>{{ config.wiki_prompt }}</textarea>
                         
                         {% if wiki_prompts_history %}
                         <details class="mt-3 text-xs">
@@ -305,38 +368,38 @@
                     </div>
 
                     <!-- YouTube Prompt -->
-                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <div class="bg-gray-50 dark:bg-slate-900/60 p-4 rounded-xl border border-gray-200 dark:border-slate-700">
                         <div class="flex justify-between items-center mb-2">
-                            <label for="youtube_wiki_prompt" class="block text-xs font-bold text-gray-800 uppercase tracking-wider">YouTube Wiki System Prompt</label>
-                            <button type="button" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-white hover:bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-lg transition shadow-sm flex items-center gap-1.5">
+                            <label for="youtube_wiki_prompt" class="block text-xs font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wider">YouTube Wiki System Prompt</label>
+                            <button type="button" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 bg-white dark:bg-slate-700 hover:bg-indigo-50 border border-indigo-200 dark:border-slate-600 px-3 py-1 rounded-lg transition shadow-sm flex items-center gap-1.5">
                                 ✏️ Expand Editor Modal
                             </button>
                         </div>
-                        <textarea name="youtube_wiki_prompt" id="youtube_wiki_prompt" rows="4" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer bg-white transition" title="Click to edit in full modal" required>{{ config.youtube_wiki_prompt }}</textarea>
+                        <textarea name="youtube_wiki_prompt" id="youtube_wiki_prompt" rows="4" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer transition" title="Click to edit in full modal" required>{{ config.youtube_wiki_prompt }}</textarea>
                         
                         {% if youtube_prompts_history %}
                         <details class="mt-3 text-xs">
-                            <summary class="cursor-pointer text-indigo-600 hover:underline font-semibold select-none flex items-center gap-1">
+                            <summary class="cursor-pointer text-indigo-600 dark:text-indigo-400 hover:underline font-semibold select-none flex items-center gap-1">
                                 <span>📜</span> Version History ({{ youtube_prompts_history | length }} revisions)
                             </summary>
-                            <div class="space-y-3 mt-2 bg-white border border-gray-200 rounded-xl p-3 max-h-48 overflow-y-auto shadow-inner">
+                            <div class="space-y-3 mt-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-3 max-h-48 overflow-y-auto shadow-inner">
                                 {% for p in youtube_prompts_history %}
-                                <div class="border-b border-gray-100 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
+                                <div class="border-b border-gray-100 dark:border-slate-700 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
                                     <div class="flex justify-between items-center mb-1">
                                         <div class="flex items-center gap-2">
-                                            <span class="font-bold text-gray-800">Version {{ p.version }}</span>
+                                            <span class="font-bold text-gray-800 dark:text-gray-200">Version {{ p.version }}</span>
                                             <span class="text-gray-400 text-[10px] font-mono">{{ p.created_at[:16] | replace('T', ' ') }}</span>
                                             {% if p.is_head == 1 %}
-                                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200">Active HEAD</span>
+                                            <span class="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-700">Active HEAD</span>
                                             {% endif %}
                                         </div>
                                         {% if p.is_head != 1 %}
-                                        <button type="button" onclick="setPromptHead({{ p.id }}, 'youtube_wiki_prompt')" class="bg-white hover:bg-indigo-50 border border-gray-300 hover:border-indigo-300 text-indigo-700 font-bold px-2 py-0.5 rounded text-[10px] transition shadow-sm">
+                                        <button type="button" onclick="setPromptHead({{ p.id }}, 'youtube_wiki_prompt')" class="bg-white dark:bg-slate-700 hover:bg-indigo-50 border border-gray-300 dark:border-slate-600 hover:border-indigo-300 text-indigo-700 dark:text-indigo-300 font-bold px-2 py-0.5 rounded text-[10px] transition shadow-sm">
                                             Use Version {{ p.version }}
                                         </button>
                                         {% endif %}
                                     </div>
-                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 overflow-x-auto max-h-20">{{ p.prompt_text }}</pre>
+                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 rounded p-2 overflow-x-auto max-h-20">{{ p.prompt_text }}</pre>
                                 </div>
                                 {% endfor %}
                             </div>
@@ -345,8 +408,8 @@
                     </div>
 
                     <div>
-                        <label for="max_input_length" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Maximum Input Length (Characters)</label>
-                        <input type="number" name="max_input_length" id="max_input_length" value="{{ config.max_input_length }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required min="100" />
+                        <label for="max_input_length" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Maximum Input Length (Characters)</label>
+                        <input type="number" name="max_input_length" id="max_input_length" value="{{ config.max_input_length }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required min="100" />
                     </div>
 
                     <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-3 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
@@ -357,81 +420,33 @@
 
             <!-- Right 1 Col: Pipeline Maintenance Operations -->
             <div class="space-y-6">
-                <!-- Autonomous Background Server Worker Panel -->
-                <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                    <div class="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
-                        <div class="flex items-center gap-2">
-                            <span class="text-base">🤖</span>
-                            <h3 class="text-base font-bold text-gray-900">Autonomous Server Worker</h3>
-                        </div>
-                        <span id="worker-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
-                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Active
-                        </span>
-                    </div>
-                    <p class="text-xs text-gray-500 mb-4">
-                        Autonomously polls the library every <strong class="text-indigo-600 font-mono">{{ worker_status.interval_minutes if worker_status else 5 }} min</strong> to generate missing AI wikis and extract tags one-by-one.
-                    </p>
-
-                    <div class="grid grid-cols-2 gap-3 mb-4 text-xs">
-                        <div class="bg-gray-50 border border-gray-100 rounded-xl p-3">
-                            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Wikis Curated</div>
-                            <div class="text-base font-extrabold text-gray-900 mt-0.5" id="worker-wikis-count">{{ worker_status.wikis_curated_total if worker_status else 0 }}</div>
-                        </div>
-                        <div class="bg-gray-50 border border-gray-100 rounded-xl p-3">
-                            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tags Curated</div>
-                            <div class="text-base font-extrabold text-gray-900 mt-0.5" id="worker-tags-count">{{ worker_status.tags_curated_total if worker_status else 0 }}</div>
-                        </div>
-                    </div>
-
-                    <div class="space-y-2 mb-4 text-[11px] text-gray-500 bg-gray-50/70 p-3 rounded-xl border border-gray-100">
-                        <div class="flex justify-between">
-                            <span>Status:</span>
-                            <span class="font-mono text-gray-700 font-semibold" id="worker-activity">{{ worker_status.last_activity if worker_status else 'Idle' }}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span>Last Run:</span>
-                            <span class="font-mono text-gray-700" id="worker-last-run">{{ worker_status.last_run[:19].replace('T', ' ') if worker_status and worker_status.last_run else 'Pending' }}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span>Next Run:</span>
-                            <span class="font-mono text-gray-700" id="worker-next-run">{{ worker_status.next_run[:19].replace('T', ' ') if worker_status and worker_status.next_run else 'In ~5 min' }}</span>
-                        </div>
-                    </div>
-
-                    <form action="/admin/worker/trigger" method="post">
-                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
-                            <span>⚡</span> Run Maintenance Cycle Now
-                        </button>
-                    </form>
-                </div>
-
-                <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                    <h3 class="text-base font-bold text-gray-900 border-b border-gray-100 pb-3 mb-4 flex items-center gap-2">
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm">
+                    <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-slate-700 pb-3 mb-4 flex items-center gap-2">
                         <span>⚡</span> Pipeline Execution
                     </h3>
 
                     <!-- Bulk Descriptions Loop -->
-                    <div class="mb-5 pb-5 border-b border-gray-100">
+                    <div class="mb-5 pb-5 border-b border-gray-100 dark:border-slate-700">
                         <div class="flex items-center justify-between mb-1">
-                            <h4 class="font-bold text-xs text-gray-800 uppercase tracking-wider">Run Bulk Descriptions (Unprocessed Pages)</h4>
-                            <span class="text-xs bg-amber-50 text-amber-800 font-bold px-2 py-0.5 rounded border border-amber-200">
+                            <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider">Run Bulk Descriptions</h4>
+                            <span class="text-xs bg-amber-50 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 font-bold px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
                                 {{ unprocessed_count }} pending
                             </span>
                         </div>
-                        <p class="text-xs text-gray-500 mb-3">Scans for library items lacking AI wiki summaries and processes them in batch background jobs.</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Scans for library items lacking AI wiki summaries and processes them in batch background jobs.</p>
                         <form action="/admin/trigger-describe" method="post">
-                            <button type="submit" {% if unprocessed_count == 0 %}disabled class="w-full bg-gray-100 text-gray-400 text-xs font-bold py-2.5 px-4 rounded-xl cursor-not-allowed border border-gray-200" {% else %} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition" {% endif %}>
+                            <button type="submit" {% if unprocessed_count == 0 %}disabled class="w-full bg-gray-100 dark:bg-slate-700 text-gray-400 text-xs font-bold py-2.5 px-4 rounded-xl cursor-not-allowed border border-gray-200 dark:border-slate-600" {% else %} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition" {% endif %}>
                                 🚀 Execute Maintenance Loop
                             </button>
                         </form>
                     </div>
 
                     <!-- Embeddings Recalculation -->
-                    <div class="mb-5 pb-5 border-b border-gray-100">
-                        <h4 class="font-bold text-xs text-gray-800 uppercase tracking-wider mb-1">Generate / Recalculate Embeddings</h4>
-                        <p class="text-xs text-gray-500 mb-3">Indexes all items using the active embedding model for similarity and nearest neighbors.</p>
+                    <div class="mb-5 pb-5 border-b border-gray-100 dark:border-slate-700">
+                        <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider mb-1">Generate / Recalculate Embeddings</h4>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Indexes all items using the active embedding model for similarity and nearest neighbors.</p>
                         <form action="/admin/trigger-embeddings" method="post">
-                            <button type="submit" class="w-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition">
+                            <button type="submit" class="w-full bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition">
                                 🧬 Run Embeddings Generation
                             </button>
                         </form>
@@ -439,13 +454,123 @@
 
                     <!-- Seed General Collection -->
                     <div>
-                        <h4 class="font-bold text-xs text-gray-800 uppercase tracking-wider mb-1">Seed General Collection</h4>
-                        <p class="text-xs text-gray-500 mb-3">Runs the streaming builder to categorize library items into the virtual taxonomy.</p>
+                        <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider mb-1">Seed General Collection</h4>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Runs the streaming builder to categorize library items into the virtual taxonomy.</p>
                         <a href="/admin/collections/populate-general" class="block text-center bg-gray-900 hover:bg-black text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition">
                             ⚡ Launch Seeding Stream
                         </a>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Full-Width Autonomous Server Jobs & Agents Framework -->
+        <div class="mt-8 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-100 dark:border-slate-700 pb-4 mb-6">
+                <div>
+                    <div class="flex items-center gap-2.5">
+                        <span class="text-xl">🤖</span>
+                        <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">Autonomous Server Worker & Jobs</h3>
+                        <span id="worker-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Active
+                        </span>
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Independent jobs for wiki curation, tag extraction, vector embeddings, synthetic QA, and RAG evaluation. Configure timespans (minutes) and assigned Ollama models per job.
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <form action="/admin/worker/trigger" method="post">
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition flex items-center gap-1.5">
+                            <span>⚡</span> Run All Due Jobs Now
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Jobs Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {% if worker_status and worker_status.jobs %}
+                {% for job in worker_status.jobs %}
+                <div class="bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 rounded-xl p-4 flex flex-col justify-between shadow-sm">
+                    <div>
+                        <div class="flex items-start justify-between gap-2 mb-2">
+                            <div>
+                                <h4 class="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+                                    {% if job.category == 'llm' %}<span>📝</span>{% elif job.category == 'embedding' %}<span>🧬</span>{% elif job.category == 'decision' %}<span>⚖️</span>{% else %}<span>🕷️</span>{% endif %}
+                                    {{ job.name }}
+                                </h4>
+                                <span class="inline-block mt-0.5 px-2 py-0.5 text-[10px] font-mono font-bold rounded uppercase
+                                    {% if job.category == 'llm' %}bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300
+                                    {% elif job.category == 'embedding' %}bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300
+                                    {% elif job.category == 'decision' %}bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300
+                                    {% else %}bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300{% endif %}">
+                                    {{ job.category }}
+                                </span>
+                            </div>
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold {% if job.enabled %}bg-emerald-50 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800{% else %}bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-slate-700{% endif %}">
+                                {{ "Active" if job.enabled else "Paused" }}
+                            </span>
+                        </div>
+                        <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-3">{{ job.description }}</p>
+
+                        <!-- Config Form -->
+                        <form action="/admin/jobs/{{ job.id }}/config" method="post" class="space-y-3 mb-4">
+                            <div class="flex items-center justify-between">
+                                <label for="job_{{ job.id }}_enabled" class="text-xs font-semibold text-gray-700 dark:text-gray-300 cursor-pointer">Enable Scheduler</label>
+                                <input type="checkbox" name="enabled" id="job_{{ job.id }}_enabled" value="true" {% if job.enabled %}checked{% endif %} class="h-4 w-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500" />
+                            </div>
+
+                            <div>
+                                <label for="job_{{ job.id }}_interval" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Timespan (Minutes between runs)</label>
+                                <input type="number" name="interval_minutes" id="job_{{ job.id }}_interval" value="{{ job.interval_minutes }}" min="1" max="1440" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" required />
+                            </div>
+
+                            <div>
+                                <label for="job_{{ job.id }}_model" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Assigned Ollama Model</label>
+                                <input type="text" list="admin_model_options" name="model" id="job_{{ job.id }}_model" value="{{ job.model }}" placeholder="e.g. {{ config.ollama_model }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                            </div>
+
+                            <button type="submit" class="w-full bg-gray-200 hover:bg-gray-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-800 dark:text-gray-200 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                                💾 Save Job Settings
+                            </button>
+                        </form>
+
+                        <!-- Telemetry Stats -->
+                        <div class="space-y-1.5 text-[10px] text-gray-500 dark:text-gray-400 bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-gray-200 dark:border-slate-700 font-mono">
+                            <div class="flex justify-between">
+                                <span>Items Processed:</span>
+                                <span class="font-bold text-gray-800 dark:text-gray-200">{{ job.items_processed_total }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Total Executions:</span>
+                                <span class="text-gray-700 dark:text-gray-300">{{ job.total_runs }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Last Run:</span>
+                                <span class="text-gray-700 dark:text-gray-300">{{ job.last_run[:16].replace('T', ' ') if job.last_run else 'Never' }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Next Run:</span>
+                                <span class="text-gray-700 dark:text-gray-300">{{ job.next_run[:16].replace('T', ' ') if job.next_run else 'Pending' }}</span>
+                            </div>
+                            {% if job.last_activity %}
+                            <div class="text-[10px] text-gray-600 dark:text-gray-300 truncate mt-1 pt-1 border-t border-gray-100 dark:border-slate-700" title="{{ job.last_activity }}">
+                                {{ job.last_activity }}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Run Now Action -->
+                    <form action="/admin/jobs/{{ job.id }}/run" method="post" class="mt-4">
+                        <button type="submit" class="w-full bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-bold py-2 px-3 rounded-lg transition flex items-center justify-center gap-1.5 shadow-sm">
+                            <span>⚡</span> Run {{ job.name }} Now
+                        </button>
+                    </form>
+                </div>
+                {% endfor %}
+                {% endif %}
             </div>
         </div>
     </div>
@@ -886,9 +1011,9 @@
     }
 
     async function loadAdminOllamaModels() {
-        const select = document.getElementById('admin_model_quick_select');
+        const datalist = document.getElementById('admin_model_options');
+        const embDatalist = document.getElementById('admin_embedding_model_options');
         const info = document.getElementById('admin_loaded_models_info');
-        if (!select) return;
         try {
             if (info) info.textContent = 'Checking /api/models...';
             const res = await fetch('/api/models');
@@ -897,27 +1022,36 @@
             const loaded = data.loaded_models || [];
             const models = data.models || [];
 
-            select.innerHTML = '<option value="">Select model...</option>';
-            if (loaded.length > 0) {
-                const grp = document.createElement('optgroup');
-                grp.label = '🟢 Loaded in VRAM';
+            if (datalist) {
+                datalist.innerHTML = '';
                 loaded.forEach(m => {
                     const opt = document.createElement('option');
                     opt.value = m;
-                    opt.textContent = `🟢 ${m} (In VRAM)`;
-                    grp.appendChild(opt);
+                    opt.label = `🟢 ${m} (In VRAM)`;
+                    datalist.appendChild(opt);
                 });
-                select.appendChild(grp);
+                models.filter(m => !loaded.includes(m)).forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    datalist.appendChild(opt);
+                });
             }
-            const grpOther = document.createElement('optgroup');
-            grpOther.label = loaded.length > 0 ? 'Installed on Disk' : 'Available Models';
-            models.filter(m => !loaded.includes(m)).forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m;
-                opt.textContent = m;
-                grpOther.appendChild(opt);
-            });
-            select.appendChild(grpOther);
+
+            if (embDatalist) {
+                embDatalist.innerHTML = '';
+                models.filter(m => m.toLowerCase().includes('embed') || m.toLowerCase().includes('bge') || m.toLowerCase().includes('nomic') || m.toLowerCase().includes('gemma')).forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    embDatalist.appendChild(opt);
+                });
+                models.forEach(m => {
+                    if (!embDatalist.querySelector(`option[value="${m}"]`)) {
+                        const opt = document.createElement('option');
+                        opt.value = m;
+                        embDatalist.appendChild(opt);
+                    }
+                });
+            }
 
             if (info) {
                 if (loaded.length > 0) {

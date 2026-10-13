@@ -701,7 +701,9 @@
       }
 
       inferLanguage(ext) {
-        switch (ext) {
+        if (!ext) return "plaintext";
+        const cleanExt = ext.toLowerCase().replace(/^\./, "");
+        switch (cleanExt) {
           case "html": case "htm": return "html";
           case "css": return "css";
           case "js": case "jsx": case "mjs": return "javascript";
@@ -711,7 +713,16 @@
           case "md": case "markdown": return "markdown";
           case "sql": return "sql";
           case "rs": return "rust";
-          case "sh": case "bash": return "shell";
+          case "sh": case "bash": case "zsh": return "shell";
+          case "ps1": case "ps": case "psm1": case "psd1": return "powershell";
+          case "bat": case "cmd": return "bat";
+          case "yaml": case "yml": return "yaml";
+          case "xml": return "xml";
+          case "c": case "h": return "c";
+          case "cpp": case "hpp": case "cc": return "cpp";
+          case "cs": return "csharp";
+          case "go": return "go";
+          case "java": return "java";
           default: return "plaintext";
         }
       }
@@ -925,13 +936,50 @@
     function getFileIconName(filename) {
       const ext = filename.split(".").pop().toLowerCase();
       switch (ext) {
-        case "html": return "file-code";
+        case "html": case "htm": return "file-code";
         case "css": return "file-type";
-        case "js": case "jsx": case "ts": return "file-code-2";
+        case "js": case "jsx": case "ts": case "tsx": return "file-code-2";
         case "py": return "file-terminal";
+        case "ps1": case "ps": case "cmd": case "bat": case "sh": case "bash": return "terminal";
         case "json": return "file-json";
-        case "md": return "file-text";
+        case "md": case "markdown": return "file-text";
         default: return "file";
+      }
+    }
+
+    async function refreshWorkspaceFilesFromServer(updatedFiles) {
+      try {
+        let filesMap = updatedFiles;
+        if (!filesMap) {
+          const res = await fetch(`/api/workspaces/${WORKSPACE_ID}/files`);
+          if (res.ok) {
+            const data = await res.json();
+            filesMap = data.files || {};
+          }
+        }
+        if (filesMap) {
+          let hasChanges = false;
+          Object.entries(filesMap).forEach(([filePath, fileData]) => {
+            const existing = VFS.getFile(filePath);
+            const lang = fileData.language || VFS.inferLanguage(filePath.split('.').pop());
+            if (!existing || existing.content !== fileData.content || existing.language !== lang) {
+              VFS.setFile(filePath, fileData.content, lang);
+              hasChanges = true;
+              if (activeFilePath === filePath && editorInstance) {
+                const pos = editorInstance.getPosition();
+                editorInstance.setValue(fileData.content);
+                if (pos) editorInstance.setPosition(pos);
+              }
+            }
+          });
+          if (hasChanges) {
+            refreshFileTree();
+            renderTabs();
+            logConsole("Workspace files updated live from agent modifications.");
+          }
+        }
+      } catch (err) {
+        console.error("Failed to refresh workspace files:", err);
       }
     }
 
@@ -1478,6 +1526,11 @@
           responseBubble.innerHTML = marked.parse(data.reply || "");
           parseAndAttachDiffActions(responseBubble);
           tokenStatus.textContent = "Done";
+          if (data.workspace_files) {
+            await refreshWorkspaceFilesFromServer(data.workspace_files);
+          } else if (data.executed_tools && data.executed_tools.length > 0) {
+            await refreshWorkspaceFilesFromServer();
+          }
         } else {
           throw new Error(data.reply || data.detail || "Agent call failed");
         }
