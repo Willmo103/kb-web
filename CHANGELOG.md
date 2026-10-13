@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Admin Model Selector & Dark Mode Polishing (`admin.j2.html`)**:
   - Eliminated duplicate input and select boxes for Ollama models on the Prompts tab; replaced with unified text input backed by native `<datalist id="admin_model_options">` displaying loaded VRAM models.
   - Fixed dark mode classes in Quick Diagnostics mini-card and prompt generation sections.
+- **Import Page Configuration Context (`base.py`, `routers/admin.py`, & `url_import.j2.html`)**:
+  - Bound `_jinja_env.globals["config"] = config` globally in `base.py` to prevent any template from failing with `UndefinedError` when accessing application configurations.
+  - Passed `config=config` explicitly in `get_import_url_page()` and `handle_incoming_mobile_share()` in `admin.py`.
+  - Added safe default fallback in `url_import.j2.html` line 277: `{{ (config.repo_import_default_depth if (config is defined and config) else 1) or 1 }}`.
+  - Added regression test `test_import_page_renders_with_config_context` in `tests/test_server.py`.
 
 ## [0.5.8] - 2026-10-12
 ### Added
