@@ -413,7 +413,7 @@
                 <div class="flex items-center gap-4 xl:gap-6 min-w-0">
                     <a href="/" class="flex items-center gap-2 flex-shrink-0 text-decoration-none">
                         <span class="text-xl">📚</span>
-                        <span class="font-bold text-gray-900 text-sm tracking-tight hidden sm:inline">Knowledge Base</span>
+                        <span class="font-bold text-gray-900 text-xs sm:text-sm tracking-tight truncate max-w-[140px] xs:max-w-none">Knowledge Base</span>
                     </a>
 
                     {% if is_admin %}
@@ -421,6 +421,9 @@
                     <nav class="hidden xl:flex items-center gap-4 font-semibold text-xs 2xl:text-sm text-gray-700">
                         <a href="/" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
                             <span class="mr-1">🏠</span> Home
+                        </a>
+                        <a href="/articles" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
+                            <span class="mr-1">📄</span> Articles
                         </a>
                         <a href="/sites" class="text-indigo-600 hover:text-indigo-800 nav-link flex items-center transition">
                             <span class="mr-1">🌐</span> Sites
@@ -533,6 +536,9 @@
                 <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 font-semibold text-xs mb-4">
                     <a href="/" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
                         <span>🏠</span> Home
+                    </a>
+                    <a href="/articles" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
+                        <span>📄</span> Articles
                     </a>
                     <a href="/sites" class="p-2.5 rounded-lg bg-white border border-gray-200 text-indigo-600 hover:bg-indigo-50 flex items-center gap-1.5">
                         <span>🌐</span> Sites

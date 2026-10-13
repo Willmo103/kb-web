@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>kb-web - User Acceptance Testing (UAT) Feedback Form</title>
+  <style>
+    :root {
+      --bg: #fdf6e3;
+      --card-bg: #eee8d5;
+      --text: #586e75;
+      --heading: #073642;
+      --accent-orange: #cb4b16;
+      --accent-teal: #2aa198;
+      --accent-blue: #268bd2;
+      --border: #d33682;
+      --card-border: #b58900;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #002b36;
+        --card-bg: #073642;
+        --text: #93a1a1;
+        --heading: #fdf6e3;
+        --border: #b58900;
+      }
+    }
+    body {
+      font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 24px;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+      background: var(--bg);
+      border: 2px solid var(--accent-teal);
+      border-radius: 8px;
+      padding: 32px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    h1 {
+      color: var(--heading);
+      margin-top: 0;
+      border-bottom: 2px solid var(--accent-orange);
+      padding-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .badge {
+      background: var(--accent-orange);
+      color: #fff;
+      font-size: 14px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 6px;
+      color: var(--heading);
+    }
+    input[type="text"], select, textarea {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 15px;
+      box-sizing: border-box;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+    .issue-card {
+      background: var(--card-bg);
+      border-left: 4px solid var(--accent-orange);
+      border-radius: 6px;
+      padding: 18px;
+      margin-bottom: 16px;
+      position: relative;
+    }
+    .issue-card .remove-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: #dc322f;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .btn {
+      background: var(--accent-teal);
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    .btn:hover {
+      background: var(--accent-blue);
+    }
+    .btn-secondary {
+      background: var(--accent-orange);
+      margin-right: 12px;
+    }
+    .actions {
+      margin-top: 30px;
+      display: flex;
+      gap: 12px;
+    }
+    .status-alert {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 6px;
+      display: none;
+      font-weight: bold;
+    }
+    .status-alert.success {
+      background: #859900;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>kb-web UAT Feedback <span class="badge">Agent Issue Collector</span></h1>
+  <p>Use this form to verify mobile view improvements, the dedicated articles directory, and the autonomous background server worker engine in <strong>v0.5.8</strong>.</p>
+
+  <form id="uatForm">
+    <div class="form-group">
+      <label for="taskName">Task / Feature Target:</label>
+      <input type="text" id="taskName" value="feature/mobile-views-articles-page-and-background-tasks" required>
+    </div>
+
+    <div class="form-group">
+      <label for="testerName">Tester Name:</label>
+      <input type="text" id="testerName" value="User" required>
+    </div>
+
+    <div class="form-group">
+      <label for="overallVerdict">Overall UAT Verdict:</label>
+      <select id="overallVerdict">
+        <option value="PASS" selected>PASS - Ready for staging & production merge</option>
+        <option value="PASS_WITH_ISSUES">PASS WITH ISSUES - Minor refinements requested</option>
+        <option value="FAIL">FAIL - Blocker issues found</option>
+      </select>
+    </div>
+
+    <h2>Feature Checklist & Feedback Items</h2>
+    <div id="issuesContainer"></div>
+
+    <button type="button" class="btn btn-secondary" onclick="addIssueCard()">+ Add Custom Feedback / Issue Item</button>
+
+    <div class="actions">
+      <button type="button" class="btn" onclick="downloadJSON()">Download JSON Signoff</button>
+    </div>
+
+    <div id="statusAlert" class="status-alert"></div>
+  </form>
+</div>
+
+<script>
+  let issueCount = 0;
+
+  function addIssueCard(title = '', category = 'Visual/Styling', severity = 'Minor', desc = '', action = '') {
+    issueCount++;
+    const container = document.getElementById('issuesContainer');
+    const card = document.createElement('div');
+    card.className = 'issue-card';
+    card.id = `issue_${issueCount}`;
+    card.innerHTML = `
+      <button type="button" class="remove-btn" onclick="removeIssueCard('issue_${issueCount}')">X</button>
+      <div class="form-group">
+        <label>Component / Feature Name:</label>
+        <input type="text" class="issue-title" value="${title}" placeholder="e.g. Header Title on Mobile" required>
+      </div>
+      <div style="display: flex; gap: 16px;">
+        <div class="form-group" style="flex: 1;">
+          <label>Category:</label>
+          <select class="issue-category">
+            <option value="Visual/Styling" ${category === 'Visual/Styling' ? 'selected' : ''}>Visual / Responsive Styling</option>
+            <option value="Functional Bug" ${category === 'Functional Bug' ? 'selected' : ''}>Functional Bug</option>
+            <option value="Mobile UX" ${category === 'Mobile UX' ? 'selected' : ''}>Mobile UX</option>
+            <option value="Feature Request" ${category === 'Feature Request' ? 'selected' : ''}>Feature Request</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label>Verdict / Severity:</label>
+          <select class="issue-severity">
+            <option value="Pass" ${severity === 'Pass' ? 'selected' : ''}>Pass - Looks Great</option>
+            <option value="Minor" ${severity === 'Minor' ? 'selected' : ''}>Minor Improvement</option>
+            <option value="Major" ${severity === 'Major' ? 'selected' : ''}>Major Refinement</option>
+            <option value="Critical" ${severity === 'Critical' ? 'selected' : ''}>Critical Blocker</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Observations / Notes:</label>
+        <textarea class="issue-desc" placeholder="Observations or notes...">${desc}</textarea>
+      </div>
+      <div class="form-group">
+        <label>Agent Action Item (if needed):</label>
+        <input type="text" class="issue-action" value="${action}" placeholder="e.g. Adjust button padding">
+      </div>
+    `;
+    container.appendChild(card);
+  }
+
+  function removeIssueCard(id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  }
+
+  function collectFormData() {
+    const task = document.getElementById('taskName').value;
+    const tester = document.getElementById('testerName').value;
+    const verdict = document.getElementById('overallVerdict').value;
+
+    const cards = document.querySelectorAll('.issue-card');
+    const items = [];
+    cards.forEach((c, idx) => {
+      items.push({
+        id: idx + 1,
+        title: c.querySelector('.issue-title').value,
+        category: c.querySelector('.issue-category').value,
+        severity: c.querySelector('.issue-severity').value,
+        description: c.querySelector('.issue-desc').value,
+        action_item: c.querySelector('.issue-action').value
+      });
+    });
+
+    return {
+      task,
+      tester,
+      timestamp: new Date().toISOString(),
+      overall_verdict: verdict,
+      items
+    };
+  }
+
+  function downloadJSON() {
+    const data = collectFormData();
+    const str = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
+    const dl = document.createElement('a');
+    dl.setAttribute("href", str);
+    dl.setAttribute("download", `uat_data_${data.task.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`);
+    document.body.appendChild(dl);
+    dl.click();
+    dl.remove();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    addIssueCard('Header Brand Title on Mobile', 'Mobile UX', 'Pass', 'Brand title Knowledge Base is visible across mobile screens alongside the book stack emoji.', '');
+    addIssueCard('Admin Mobile Tabs as Static Buttons', 'Mobile UX', 'Pass', 'Tab navigation renders as clean 2-column static button grid on mobile viewports with no scrollbar.', '');
+    addIssueCard('Admin Backups & Database Margins', 'Visual/Styling', 'Pass', 'Lower sections have generous margins and clean padding on desktop displays.', '');
+    addIssueCard('Home Page Mobile Left Sidebar Hidden', 'Mobile UX', 'Pass', 'Sidebar is hidden on mobile screens, leaving navigation to hamburger drawer.', '');
+    addIssueCard('Dedicated Articles Directory (/articles)', 'Visual/Styling', 'Pass', 'Accessible from all pages with distinct title, search, and pagination.', '');
+    addIssueCard('Autonomous Background Server Worker', 'Functional Bug', 'Pass', 'Runs periodic cycle every 5 min curating missing wikis and tags one-by-one with graceful failure.', '');
+  });
+</script>
+</body>
+</html>

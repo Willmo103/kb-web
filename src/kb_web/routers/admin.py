@@ -375,6 +375,14 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
     except Exception as e:
         print(f"Failed to list video backups: {e}")
 
+    worker_status = None
+    try:
+        from ..worker import autonomous_worker
+
+        worker_status = autonomous_worker.get_status()
+    except Exception as e:
+        print(f"Failed to retrieve worker status: {e}")
+
     template = _jinja_env.get_template("admin.j2.html")
     return HTMLResponse(
         content=template.render(
@@ -391,6 +399,7 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             backups=backups,
             video_backups=video_backups,
             video_files_count=video_files_count,
+            worker_status=worker_status,
         )
     )
 
