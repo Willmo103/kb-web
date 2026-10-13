@@ -1,7 +1,7 @@
 {% extends "base.j2.html" %}
 
 {% block title %}
-{% if view == 'sites' %}Sites Index Dashboard{% else %}Wiki Index Dashboard{% endif %}
+{% if view == 'sites' %}Sites Index Dashboard{% elif is_articles_only %}Articles Directory{% else %}Wiki Index Dashboard{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -9,12 +9,12 @@
     <div class="flex flex-col lg:flex-row gap-8">
         
         <!-- Left Sidebar Navigation -->
-        <aside class="w-full lg:w-60 flex-shrink-0">
+        <aside class="hidden lg:block w-60 flex-shrink-0">
             <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm sticky top-4">
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 mb-3">Navigation</p>
                 <div class="space-y-1">
-                    <a href="/?view=articles" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition duration-150 {% if view != 'sites' and view != 'videos' and not selected_tag %}bg-indigo-50 text-indigo-700 font-bold border-l-4 border-indigo-600 pl-2 rounded-l-none{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
-                        <span class="text-base">📝</span> Articles
+                    <a href="/articles" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition duration-150 {% if is_articles_only and not selected_tag %}bg-indigo-50 text-indigo-700 font-bold border-l-4 border-indigo-600 pl-2 rounded-l-none{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
+                        <span class="text-base">📄</span> Articles
                     </a>
                     <a href="/?view=videos" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition duration-150 {% if view == 'videos' and not selected_tag %}bg-indigo-50 text-indigo-700 font-bold border-l-4 border-indigo-600 pl-2 rounded-l-none{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
                         <span class="text-base">📺</span> Videos
@@ -57,7 +57,7 @@
                         <h1 class="text-2xl font-bold text-gray-900">🏷️ Tagged: <span class="text-indigo-600 font-extrabold">{{ selected_tag }}</span></h1>
                         <p class="text-sm text-gray-500 font-medium">All articles and videos labeled with this tag.</p>
                     </div>
-                    <a href="/?view=articles" class="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg transition duration-150 shadow-sm">
+                    <a href="{{ '/articles' if is_articles_only else '/?view=articles' }}" class="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold py-2 px-4 rounded-lg transition duration-150 shadow-sm">
                         Clear Tag Filter
                     </a>
                 </div>
@@ -333,8 +333,13 @@
             {% else %}
                 <div class="flex justify-between items-center mb-8 border-b border-gray-200 pb-4">
                     <div>
+                        {% if is_articles_only %}
+                        <h1 class="text-2xl font-bold text-gray-900">📄 Articles Directory</h1>
+                        <p class="text-sm text-gray-500 font-medium">Chronological directory of captured web articles and technical wiki documentation.</p>
+                        {% else %}
                         <h1 class="text-2xl font-bold text-gray-900">📚 Knowledge Library</h1>
                         <p class="text-sm text-gray-500 font-medium">Chronological list of parsed technical entries.</p>
+                        {% endif %}
                     </div>
                     {% if is_admin %}
                     <a href="/import" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-4 rounded-lg transition duration-150 shadow-sm">
@@ -363,7 +368,7 @@
                             </select>
                         </div>
                     </div>
-                    <form id="search-form" method="GET" action="/" class="flex gap-2">
+                    <form id="search-form" method="GET" action="{{ '/articles' if is_articles_only else '/' }}" class="flex gap-2">
                         <input type="hidden" name="view" value="articles">
                         <input 
                             id="search-input"
@@ -378,7 +383,7 @@
                             <span id="search-btn-icon">🔍</span> <span id="search-btn-text">Search</span>
                         </button>
                         {% if q %}
-                        <a href="/?view=articles" id="search-clear-btn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 px-4 rounded-lg text-sm transition duration-150 flex items-center border border-gray-200 shadow-sm">
+                        <a href="{{ '/articles' if is_articles_only else '/?view=articles' }}" id="search-clear-btn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 px-4 rounded-lg text-sm transition duration-150 flex items-center border border-gray-200 shadow-sm">
                             Clear
                         </a>
                         {% endif %}

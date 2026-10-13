@@ -79,7 +79,23 @@ async def lifespan(app: FastAPI):
             "Please configure a unique KB_API_KEY in production."
         )
 
+    # Start autonomous background worker engine
+    try:
+        from .worker import autonomous_worker
+
+        autonomous_worker.start()
+    except Exception as e:
+        logger.error(f"Failed to start autonomous worker: {e}")
+
     yield
+
+    # Clean shutdown of autonomous background worker
+    try:
+        from .worker import autonomous_worker
+
+        autonomous_worker.stop()
+    except Exception as e:
+        logger.error(f"Failed to stop autonomous worker: {e}")
 
 
 # Instantiate core application
@@ -95,6 +111,7 @@ PUBLIC_EXACT_PATHS = {
     "/manifest.json",
     "/sw.js",
     "/api/health",
+    "/api/worker/status",
 }
 
 
@@ -303,6 +320,7 @@ from .routers import (  # noqa: E402
     agent_board,
     admin_batch,
     errors,
+    worker,
 )
 
 app.include_router(auth.router)
@@ -325,6 +343,7 @@ app.include_router(workspaces.router)
 app.include_router(taxonomy.router)
 app.include_router(agent_board.router)
 app.include_router(errors.router)
+app.include_router(worker.router)
 
 
 # --- Re-export utility functions for backward test compatibility ---

@@ -3,7 +3,7 @@
 {% block title %}Server Maintenance Admin{% endblock %}
 
 {% block content %}
-<div class="container mx-auto px-4 max-w-[95%] w-full pb-16">
+<div class="container mx-auto px-4 max-w-[95%] w-full pb-28">
 
     {% if completion_message %}
     <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-sm mb-6 shadow-sm flex items-center gap-3 animate-fade-in">
@@ -31,31 +31,31 @@
             </div>
         </div>
 
-        <!-- Tab Navigation Bar -->
-        <nav class="flex space-x-2 mt-4 overflow-x-auto pb-1" aria-label="Admin Tabs" id="adminTabsNav">
-            <button type="button" onclick="switchAdminTab('tab-general')" id="btn-tab-general" class="admin-tab-btn active px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap bg-indigo-600 text-white shadow-sm">
-                <span>⚙️</span> General & System
+        <!-- Tab Navigation Bar (Static Buttons on Mobile, Wrapped Flex on Desktop) -->
+        <nav class="grid grid-cols-2 sm:grid-cols-3 md:flex md:flex-wrap gap-2 mt-4" aria-label="Admin Tabs" id="adminTabsNav">
+            <button type="button" onclick="switchAdminTab('tab-general')" id="btn-tab-general" class="admin-tab-btn active px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 bg-indigo-600 text-white shadow-sm border border-transparent">
+                <span>⚙️</span> <span>General & System</span>
             </button>
-            <button type="button" onclick="switchAdminTab('tab-prompts')" id="btn-tab-prompts" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap text-gray-600 hover:text-gray-900 hover:bg-gray-100">
-                <span>🤖</span> Prompts & Pipeline
+            <button type="button" onclick="switchAdminTab('tab-prompts')" id="btn-tab-prompts" class="admin-tab-btn px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-gray-200 sm:border-transparent">
+                <span>🤖</span> <span>Prompts & Pipeline</span>
                 {% if unprocessed_count and unprocessed_count > 0 %}
                 <span class="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full border border-amber-300">{{ unprocessed_count }}</span>
                 {% endif %}
             </button>
-            <button type="button" onclick="switchAdminTab('tab-backups')" id="btn-tab-backups" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap text-gray-600 hover:text-gray-900 hover:bg-gray-100">
-                <span>💾</span> Backups & Database
+            <button type="button" onclick="switchAdminTab('tab-backups')" id="btn-tab-backups" class="admin-tab-btn px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-gray-200 sm:border-transparent">
+                <span>💾</span> <span>Backups & Database</span>
                 {% if backups %}
                 <span class="bg-gray-200 text-gray-700 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{{ backups | length }}</span>
                 {% endif %}
             </button>
-            <button type="button" onclick="switchAdminTab('tab-media')" id="btn-tab-media" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap text-gray-600 hover:text-gray-900 hover:bg-gray-100">
-                <span>🎬</span> Media & YouTube
+            <button type="button" onclick="switchAdminTab('tab-media')" id="btn-tab-media" class="admin-tab-btn px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-gray-200 sm:border-transparent">
+                <span>🎬</span> <span>Media & YouTube</span>
                 {% if video_files_count %}
                 <span class="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{{ video_files_count }}</span>
                 {% endif %}
             </button>
-            <button type="button" onclick="switchAdminTab('tab-diagnostics')" id="btn-tab-diagnostics" class="admin-tab-btn px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap text-gray-600 hover:text-gray-900 hover:bg-gray-100">
-                <span>🖥️</span> Diagnostics & CLI
+            <button type="button" onclick="switchAdminTab('tab-diagnostics')" id="btn-tab-diagnostics" class="admin-tab-btn col-span-2 sm:col-span-1 px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-gray-200 sm:border-transparent">
+                <span>🖥️</span> <span>Diagnostics & CLI</span>
                 {% if cli_keys %}
                 <span class="bg-gray-200 text-gray-700 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{{ cli_keys | length }}</span>
                 {% endif %}
@@ -357,6 +357,54 @@
 
             <!-- Right 1 Col: Pipeline Maintenance Operations -->
             <div class="space-y-6">
+                <!-- Autonomous Background Server Worker Panel -->
+                <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                    <div class="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+                        <div class="flex items-center gap-2">
+                            <span class="text-base">🤖</span>
+                            <h3 class="text-base font-bold text-gray-900">Autonomous Server Worker</h3>
+                        </div>
+                        <span id="worker-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Active
+                        </span>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-4">
+                        Autonomously polls the library every <strong class="text-indigo-600 font-mono">{{ worker_status.interval_minutes if worker_status else 5 }} min</strong> to generate missing AI wikis and extract tags one-by-one.
+                    </p>
+
+                    <div class="grid grid-cols-2 gap-3 mb-4 text-xs">
+                        <div class="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Wikis Curated</div>
+                            <div class="text-base font-extrabold text-gray-900 mt-0.5" id="worker-wikis-count">{{ worker_status.wikis_curated_total if worker_status else 0 }}</div>
+                        </div>
+                        <div class="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tags Curated</div>
+                            <div class="text-base font-extrabold text-gray-900 mt-0.5" id="worker-tags-count">{{ worker_status.tags_curated_total if worker_status else 0 }}</div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2 mb-4 text-[11px] text-gray-500 bg-gray-50/70 p-3 rounded-xl border border-gray-100">
+                        <div class="flex justify-between">
+                            <span>Status:</span>
+                            <span class="font-mono text-gray-700 font-semibold" id="worker-activity">{{ worker_status.last_activity if worker_status else 'Idle' }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Last Run:</span>
+                            <span class="font-mono text-gray-700" id="worker-last-run">{{ worker_status.last_run[:19].replace('T', ' ') if worker_status and worker_status.last_run else 'Pending' }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Next Run:</span>
+                            <span class="font-mono text-gray-700" id="worker-next-run">{{ worker_status.next_run[:19].replace('T', ' ') if worker_status and worker_status.next_run else 'In ~5 min' }}</span>
+                        </div>
+                    </div>
+
+                    <form action="/admin/worker/trigger" method="post">
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+                            <span>⚡</span> Run Maintenance Cycle Now
+                        </button>
+                    </form>
+                </div>
+
                 <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
                     <h3 class="text-base font-bold text-gray-900 border-b border-gray-100 pb-3 mb-4 flex items-center gap-2">
                         <span>⚡</span> Pipeline Execution
@@ -368,8 +416,6 @@
                             <h4 class="font-bold text-xs text-gray-800 uppercase tracking-wider">Run Bulk Descriptions (Unprocessed Pages)</h4>
                             <span class="text-xs bg-amber-50 text-amber-800 font-bold px-2 py-0.5 rounded border border-amber-200">
                                 {{ unprocessed_count }} pending
-                            </span>
-                        </div>
                             </span>
                         </div>
                         <p class="text-xs text-gray-500 mb-3">Scans for library items lacking AI wiki summaries and processes them in batch background jobs.</p>
@@ -405,7 +451,7 @@
     </div>
 
     <!-- TAB 3: Backups & Database Recovery -->
-    <div id="tab-backups" class="admin-tab-pane hidden space-y-6">
+    <div id="tab-backups" class="admin-tab-pane hidden space-y-8 pb-12">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <!-- Card 1: Export -->
             <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
@@ -466,13 +512,13 @@
         </div>
 
         <!-- Local Server Database Backups Table -->
-        <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-3 mb-4 gap-2">
+        <div class="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm mt-8">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-4 mb-6 gap-2">
                 <div>
-                    <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                    <h3 class="text-base sm:text-lg font-bold text-gray-900 flex items-center gap-2">
                         <span>📁</span> Server Database Snapshots
                     </h3>
-                    <p class="text-xs text-gray-500">Saved in <code>~/.kb/kb-web_backups</code>. Reversible multi-table JSON snapshots.</p>
+                    <p class="text-xs text-gray-500 mt-0.5">Saved in <code>~/.kb/kb-web_backups</code>. Reversible multi-table JSON snapshots.</p>
                 </div>
                 <form action="/admin/backups/create" method="post">
                     <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-3.5 rounded-xl transition shadow-sm flex items-center gap-1.5">
@@ -522,24 +568,24 @@
                 </table>
             </div>
             {% else %}
-            <div class="py-8 text-center text-xs text-gray-400 italic">
+            <div class="py-12 text-center text-xs text-gray-400 italic">
                 No database backups found in server directory. Click "Create Backup Snapshot Now" to create your first archive.
             </div>
             {% endif %}
         </div>
 
         <!-- Administrative Batch Operations & Content Purge -->
-        <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm mt-6">
-            <div class="border-b border-gray-100 pb-3 mb-4">
-                <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+        <div class="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm mt-8 mb-8">
+            <div class="border-b border-gray-100 pb-4 mb-6">
+                <h3 class="text-base sm:text-lg font-bold text-gray-900 flex items-center gap-2">
                     <span>🗑️</span> Administrative Batch Operations & Content Purge
                 </h3>
-                <p class="text-xs text-gray-500">Purge entire vaults, folder hierarchies, domains, or media archives and manage bulk content freeze states.</p>
+                <p class="text-xs text-gray-500 mt-0.5">Purge entire vaults, folder hierarchies, domains, or media archives and manage bulk content freeze states.</p>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-1">
                 <!-- Batch Notes Purge -->
-                <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col justify-between">
+                <div class="bg-gray-50/90 border border-gray-200 rounded-xl p-5 flex flex-col justify-between shadow-xs">
                     <div>
                         <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                             <span>📝</span> Batch Purge Notes
@@ -550,13 +596,13 @@
                             <input type="text" id="admin-purge-folder" placeholder="Folder Prefix (e.g. Work/Old)" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white" />
                         </div>
                     </div>
-                    <button type="button" onclick="executeAdminBatchNotesPurge()" class="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 px-3 rounded-lg transition shadow-sm">
+                    <button type="button" onclick="executeAdminBatchNotesPurge()" class="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg transition shadow-sm">
                         Purge Notes
                     </button>
                 </div>
 
                 <!-- Batch Site Purge -->
-                <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col justify-between">
+                <div class="bg-gray-50/90 border border-gray-200 rounded-xl p-5 flex flex-col justify-between shadow-xs">
                     <div>
                         <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                             <span>🌐</span> Batch Purge Site Domain
@@ -566,13 +612,13 @@
                             <input type="text" id="admin-purge-site" placeholder="Domain (e.g. docs.python.org)" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white" />
                         </div>
                     </div>
-                    <button type="button" onclick="executeAdminBatchSitePurge()" class="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 px-3 rounded-lg transition shadow-sm">
+                    <button type="button" onclick="executeAdminBatchSitePurge()" class="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg transition shadow-sm">
                         Purge Site Domain
                     </button>
                 </div>
 
                 <!-- Batch Freeze / Unfreeze -->
-                <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col justify-between">
+                <div class="bg-gray-50/90 border border-gray-200 rounded-xl p-5 flex flex-col justify-between shadow-xs">
                     <div>
                         <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                             <span>❄️</span> Batch Freeze / Immutability
@@ -588,10 +634,10 @@
                         </div>
                     </div>
                     <div class="flex gap-2">
-                        <button type="button" onclick="executeAdminBatchFreeze(1)" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 px-2 rounded-lg transition shadow-sm">
+                        <button type="button" onclick="executeAdminBatchFreeze(1)" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-2 rounded-lg transition shadow-sm">
                             Freeze
                         </button>
-                        <button type="button" onclick="executeAdminBatchFreeze(0)" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold py-2 px-2 rounded-lg transition shadow-sm">
+                        <button type="button" onclick="executeAdminBatchFreeze(0)" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold py-2.5 px-2 rounded-lg transition shadow-sm">
                             Unfreeze
                         </button>
                     </div>
