@@ -16,6 +16,8 @@ from sqlalchemy import or_, desc
 
 from .models_orm import FetchedPage, Note, ChunkEmbedding, SettingExternal
 from .utils import _get_ollama_client, chunk_text_with_overlap, cosine_similarity
+from .base import config
+from .config import DEFAULT_RAG_REPORT_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -687,24 +689,7 @@ def compile_rag_report(
         evidence_text += f"- **Technical Depth**: {dec.get('depth', 'N/A')}\n"
         evidence_text += f"- **Excerpt**:\n{c.get('snippet', '')[:800]}\n"
 
-    system_prompt = (
-        "You are the expert Senior Research & Synthesis Agent for kb-web.\n"
-        "Your task is to analyze the user's research query and synthesize the provided vetted evidence "
-        "into a comprehensive, publication-grade Markdown research report.\n\n"
-        "Structure your output strictly using the following Markdown sections:\n"
-        "# [Concise, Descriptive Report Title]\n\n"
-        "## Executive Summary\n"
-        "[A clear, synthesized overview directly answering the query]\n\n"
-        "## Key Findings & Core Insights\n"
-        "[Detailed, bulleted breakdown of actionable facts and architectural insights]\n\n"
-        "## Technical Architecture & Code Examples\n"
-        "[Concrete code snippets, configuration rules, SQL queries, or commands extracted from evidence]\n\n"
-        "## Evidence & Citations Table\n"
-        "| # | Source Title | Channel | Decision Score | URL |\n"
-        "|---|---|---|---|---|\n"
-        "[Fill table rows based on sources provided]\n\n"
-        "Do not invent false details. If certain specifics are not covered in the evidence, state so clearly."
-    )
+    system_prompt = getattr(config, "rag_report_prompt", DEFAULT_RAG_REPORT_PROMPT)
 
     user_prompt = (
         f"Research Query: {query}\n"

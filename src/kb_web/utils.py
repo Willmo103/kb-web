@@ -621,7 +621,7 @@ def extract_tags_content(
         chat_kwargs = {
             "model": config.ollama_model,
             "messages": [
-                {"role": "system", "content": DEFAULT_TAGS_PROMPT},
+                {"role": "system", "content": getattr(config, "tags_prompt", DEFAULT_TAGS_PROMPT)},
                 {
                     "role": "user",
                     "content": f"URL: {html_page.url}\n\nRAW CONTENT:\n{content_to_analyze}",

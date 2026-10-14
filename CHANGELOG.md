@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.9] - 2026-10-13
 ### Added
+- **AI Agent Personas & System Prompt Studio (`config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Issue #92)**:
+  - Exposed all 10 non-numerical hardcoded prompt templates and system directives across the application in `config.py` backed by `AgentPrompt` versioning and `kb-web.json` serialization:
+    - `wiki_prompt` (Wiki Extraction System Prompt)
+    - `youtube_wiki_prompt` (YouTube Wiki System Prompt)
+    - `tags_prompt` (AI Tag Curation System Prompt)
+    - `ontology_synthesis_prompt` (Domain Ontology Synthesis Prompt)
+    - `rag_system_prompt` (Agentic RAG System Instructions)
+    - `rag_report_prompt` (Research Report Compilation Prompt)
+    - `taxonomy_system_prompt` (Taxonomy Structuring Instructions)
+    - `maintenance_agent_prompt` (Maintenance & Error Diagnostic Prompt)
+    - `workspace_agent_prompt` (Workspace Coding Assistant Prompt)
+    - `article_chat_prompt` (Article Q&A System Prompt)
+  - Updated all consuming modules (`utils.py`, `maintenance_agent.py`, `rag_agent.py`, `workspace_agent.py`, `routers/conversations.py`, `taxonomy_state_machine.py`) to read instructions dynamically from `config`.
+  - Added REST API endpoints `GET /api/config/prompts` and `POST /api/config/prompts` supporting live prompt updates and reset-to-default operations.
+  - Refactored Admin Portal tab `tab-prompts` into a modern Prompt Studio:
+    - Categorized sidebar list for quick selection with search filtering and custom modification status indicators.
+    - Embedded Monaco Editor with Markdown syntax, dark mode support, and keyboard shortcuts (Ctrl+S / Cmd+S).
+    - Live Obsidian-style Markdown preview powered by `marked.js` updating in real time as the user types.
+    - Dynamic view mode controls (Split View, Editor Only, Preview Only).
+    - Revision history drawer with full rollback capabilities (`/admin/prompts/set-head`).
 - **Modular Server Jobs & Agents Framework (`src/kb_web/worker.py` & `routers/worker.py`)**:
   - Replaced monolithic single-agent worker with decoupled, modular server jobs (`ServerJob` registry managed by `AutonomousWorker`).
   - Independent job scheduling: Each job supports its own timespan interval (`interval_minutes`), enabled/disabled toggle state, and isolated execution lock (`asyncio.Lock`).

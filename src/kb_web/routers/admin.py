@@ -310,23 +310,27 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             or 0
         )
 
+        all_prompts = config.get_all_prompts()
+        prompts_history = {}
         try:
-            wiki_prompts_history = [
-                {col.name: getattr(p, col.name) for col in p.__table__.columns}
-                for p in session.query(AgentPrompt)
-                .filter_by(prompt_type="wiki_prompt")
-                .order_by(AgentPrompt.version.desc())
-                .all()
-            ]
-            youtube_prompts_history = [
-                {col.name: getattr(p, col.name) for col in p.__table__.columns}
-                for p in session.query(AgentPrompt)
-                .filter_by(prompt_type="youtube_wiki_prompt")
-                .order_by(AgentPrompt.version.desc())
-                .all()
-            ]
+            for p_meta in all_prompts:
+                p_type = p_meta["id"]
+                try:
+                    prompts_history[p_type] = [
+                        {col.name: getattr(p, col.name) for col in p.__table__.columns}
+                        for p in session.query(AgentPrompt)
+                        .filter_by(prompt_type=p_type)
+                        .order_by(AgentPrompt.version.desc())
+                        .all()
+                    ]
+                except Exception as inner_e:
+                    logger.error(f"Failed to fetch prompt history for {p_type}: {inner_e}")
+                    prompts_history[p_type] = []
         except Exception as e:
-            print(f"Failed to fetch prompt history: {e}")
+            logger.error(f"Failed to fetch prompt history: {e}")
+
+        wiki_prompts_history = prompts_history.get("wiki_prompt", [])
+        youtube_prompts_history = prompts_history.get("youtube_wiki_prompt", [])
 
         try:
             cli_keys = [
@@ -392,6 +396,8 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             is_admin=True,
             is_default_password=(config.admin_password == "admin123"),
             is_default_api_key=(config.api_key == "kb-secret-key"),
+            all_prompts=all_prompts,
+            prompts_history=prompts_history,
             wiki_prompts_history=wiki_prompts_history,
             youtube_prompts_history=youtube_prompts_history,
             cli_keys=cli_keys,
@@ -402,6 +408,52 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             worker_status=worker_status,
         )
     )
+
+
+class UpdatePromptRequest(BaseModel):
+    prompt_id: str
+    prompt_text: Optional[str] = None
+    reset_default: bool = False
+
+
+@router.get("/api/config/prompts", dependencies=[Depends(verify_auth)])
+def api_get_prompts() -> dict:
+    """Returns the list of all configurable system prompts, their current values, defaults, and descriptions."""
+    return {
+        "status": "success",
+        "prompts": config.get_all_prompts(),
+    }
+
+
+@router.post("/api/config/prompts", dependencies=[Depends(verify_auth)])
+def api_update_prompt(payload: UpdatePromptRequest) -> dict:
+    """Updates a system prompt or resets it to its default value."""
+    all_prompts = {p["id"]: p for p in config.get_all_prompts()}
+    if payload.prompt_id not in all_prompts:
+        raise HTTPException(status_code=400, detail=f"Invalid prompt ID '{payload.prompt_id}'")
+
+    if payload.reset_default:
+        default_val = all_prompts[payload.prompt_id]["default"]
+        setattr(config, payload.prompt_id, default_val)
+        config.save()
+        updated_prompt = next(p for p in config.get_all_prompts() if p["id"] == payload.prompt_id)
+        return {
+            "status": "success",
+            "message": f"Prompt '{payload.prompt_id}' reset to default.",
+            "prompt": updated_prompt,
+        }
+
+    if payload.prompt_text is None:
+        raise HTTPException(status_code=400, detail="Missing 'prompt_text' in request body.")
+
+    setattr(config, payload.prompt_id, payload.prompt_text)
+    config.save()
+    updated_prompt = next(p for p in config.get_all_prompts() if p["id"] == payload.prompt_id)
+    return {
+        "status": "success",
+        "message": f"Prompt '{payload.prompt_id}' updated successfully.",
+        "prompt": updated_prompt,
+    }
 
 
 @router.post("/admin/prompts/set-head", dependencies=[Depends(verify_auth)])
@@ -421,19 +473,19 @@ def set_prompt_head(
                 session.flush()
 
                 # 3. Retrieve the prompt text and sync with the active Config attributes
-                if prompt_type == "wiki_prompt":
-                    config._wiki_prompt = target.prompt_text
-                elif prompt_type == "youtube_wiki_prompt":
-                    config._youtube_wiki_prompt = target.prompt_text
+                if hasattr(config, f"_{prompt_type}"):
+                    setattr(config, f"_{prompt_type}", target.prompt_text)
+                elif hasattr(config, prompt_type):
+                    setattr(config, prompt_type, target.prompt_text)
                 config.save()
 
         return RedirectResponse(
-            url="/admin?msg=Selected+prompt+version+successfully+restored+as+active+HEAD.",
+            url=f"/admin?msg=Selected+prompt+version+successfully+restored+as+active+HEAD.&target_prompt={prompt_type}#tab-prompts",
             status_code=303,
         )
     except Exception as e:
         return RedirectResponse(
-            url=f"/admin?msg=Error+restoring+prompt+version:+{quote_plus(str(e))}",
+            url=f"/admin?msg=Error+restoring+prompt+version:+{quote_plus(str(e))}#tab-prompts",
             status_code=303,
         )
 
@@ -448,8 +500,8 @@ def handle_config_update(
     gotify_token: str = Form(None),
     qdrant_host_url: str = Form(None),
     qdrant_api_key: str = Form(None),
-    wiki_prompt: str = Form(...),
-    youtube_wiki_prompt: str = Form(...),
+    wiki_prompt: Optional[str] = Form(None),
+    youtube_wiki_prompt: Optional[str] = Form(None),
     max_input_length: int = Form(20000),
     ollama_think: bool = Form(False),
     taxonomy_batch_limit: Optional[int] = Form(None),
@@ -470,8 +522,10 @@ def handle_config_update(
     config.gotify_token = gotify_token or None
     config.qdrant_host_url = qdrant_host_url or None
     config.qdrant_api_key = qdrant_api_key or None
-    config.wiki_prompt = wiki_prompt
-    config.youtube_wiki_prompt = youtube_wiki_prompt
+    if wiki_prompt is not None:
+        config.wiki_prompt = wiki_prompt
+    if youtube_wiki_prompt is not None:
+        config.youtube_wiki_prompt = youtube_wiki_prompt
     config.max_input_length = max_input_length
     config.ollama_think = ollama_think
     if taxonomy_batch_limit is not None:
