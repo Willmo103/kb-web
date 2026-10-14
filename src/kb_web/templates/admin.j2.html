@@ -2,6 +2,36 @@
 
 {% block title %}Server Maintenance Admin{% endblock %}
 
+{% block extra_head %}
+<!-- Monaco Editor & Markdown Live Preview dependencies -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+    .markdown-preview-obsidian h1 { font-size: 1.35rem; font-weight: 800; border-bottom: 1px solid rgba(156,163,175,0.3); padding-bottom: 0.3rem; margin-top: 0.8rem; margin-bottom: 0.6rem; color: #4338ca; }
+    html.dark .markdown-preview-obsidian h1 { color: #818cf8; }
+    .markdown-preview-obsidian h2 { font-size: 1.15rem; font-weight: 700; border-bottom: 1px dashed rgba(156,163,175,0.2); padding-bottom: 0.2rem; margin-top: 0.7rem; margin-bottom: 0.5rem; color: #3730a3; }
+    html.dark .markdown-preview-obsidian h2 { color: #a5b4fc; }
+    .markdown-preview-obsidian h3 { font-size: 1.0rem; font-weight: 600; margin-top: 0.6rem; margin-bottom: 0.4rem; color: #1f2937; }
+    html.dark .markdown-preview-obsidian h3 { color: #e2e8f0; }
+    .markdown-preview-obsidian p { margin-bottom: 0.75rem; line-height: 1.6; }
+    .markdown-preview-obsidian code { background: rgba(99, 102, 241, 0.1); color: #4f46e5; padding: 0.15rem 0.35rem; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85em; }
+    html.dark .markdown-preview-obsidian code { background: rgba(99, 102, 241, 0.2); color: #a5b4fc; }
+    .markdown-preview-obsidian pre { background: #1e1e1e !important; color: #d4d4d4 !important; padding: 0.75rem 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.8rem; margin-bottom: 0.75rem; }
+    .markdown-preview-obsidian pre code { background: transparent !important; color: inherit !important; padding: 0; }
+    .markdown-preview-obsidian ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+    .markdown-preview-obsidian ol { list-style-type: decimal; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+    .markdown-preview-obsidian blockquote { border-left: 3px solid #6366f1; padding-left: 0.75rem; color: #6b7280; margin: 0.75rem 0; font-style: italic; }
+    html.dark .markdown-preview-obsidian blockquote { border-left-color: #818cf8; color: #94a3b8; }
+    .markdown-preview-obsidian table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.8rem; }
+    .markdown-preview-obsidian th, .markdown-preview-obsidian td { border: 1px solid #e5e7eb; padding: 0.4rem 0.6rem; text-align: left; }
+    html.dark .markdown-preview-obsidian th, html.dark .markdown-preview-obsidian td { border-color: #334155; }
+    .markdown-preview-obsidian th { background: rgba(243, 244, 246, 0.8); font-weight: 700; }
+    html.dark .markdown-preview-obsidian th { background: rgba(30, 41, 59, 0.8); }
+    .prompt-card.active { border-color: #6366f1 !important; background-color: rgba(99, 102, 241, 0.08) !important; }
+    html.dark .prompt-card.active { border-color: #818cf8 !important; background-color: rgba(99, 102, 241, 0.2) !important; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container mx-auto px-4 max-w-[95%] w-full pb-28">
 
@@ -290,176 +320,209 @@
                             <dd class="font-bold text-gray-800 dark:text-gray-200 font-mono">{{ config.ollama_embedding_model }}</dd>
                         </div>
                     </dl>
+            <!-- TAB 2: Prompts & Pipeline Operations -->
+    <div id="tab-prompts" class="admin-tab-pane hidden space-y-8">
+        
+        <!-- PROMPT STUDIO SECTION -->
+        <div class="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
+            <!-- Studio Header -->
+            <div class="p-5 md:p-6 border-b border-gray-100 dark:border-slate-700 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gray-50/50 dark:bg-slate-900/40">
+                <div>
+                    <h3 class="text-lg font-extrabold text-gray-900 dark:text-gray-100 flex items-center gap-2.5">
+                        <span class="text-xl">🤖</span> AI Agent Personas & System Prompt Studio
+                    </h3>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Configure all system instructions, persona directives, and extraction guidelines. Edit with Monaco and verify formatting in real time with live Obsidian-style Markdown rendering.
+                    </p>
+                </div>
+                <!-- Global Notification Toast Banner -->
+                <div id="promptStatusBanner" class="hidden text-xs font-semibold px-3 py-1.5 rounded-lg border flex items-center gap-2 transition animate-fade-in shadow-sm"></div>
+            </div>
+
+            <!-- Studio Body: Sidebar List + Editor Workspace -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 min-h-[640px]">
+                
+                <!-- Left Column: Prompt Selection List (4 Cols) -->
+                <div class="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-slate-700 p-4 bg-gray-50/30 dark:bg-slate-900/20 flex flex-col">
+                    <!-- Filter Input -->
+                    <div class="mb-3">
+                        <input type="text" id="promptSearchInput" oninput="filterPromptList()" placeholder="🔍 Filter prompt directives..." class="w-full text-xs border border-gray-300 dark:border-slate-600 rounded-xl px-3 py-2 bg-white dark:bg-slate-800 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner" />
+                    </div>
+
+                    <!-- Category Groups & Prompt Items -->
+                    <div id="promptsListContainer" class="flex-grow space-y-4 overflow-y-auto max-h-[600px] pr-1">
+                        <!-- Populated dynamically via renderPromptList() -->
+                    </div>
+                </div>
+
+                <!-- Right Column: Monaco Editor & Live Markdown Split Preview (8 Cols) -->
+                <div class="lg:col-span-8 flex flex-col bg-white dark:bg-slate-800">
+                    
+                    <!-- Top Toolbar -->
+                    <div class="p-4 border-b border-gray-200 dark:border-slate-700 flex flex-wrap justify-between items-center gap-3 bg-white dark:bg-slate-800">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h4 id="activePromptLabel" class="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">Wiki Extraction System Prompt</h4>
+                                <span id="activePromptCategoryBadge" class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">Curation</span>
+                                <span id="activePromptHeadBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">HEAD</span>
+                            </div>
+                            <p id="activePromptDescription" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">System instructions provided to Ollama during wiki markdown synthesis.</p>
+                        </div>
+
+                        <!-- Action Controls -->
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <!-- View mode toggles -->
+                            <div class="inline-flex rounded-lg border border-gray-200 dark:border-slate-700 p-0.5 bg-gray-50 dark:bg-slate-900">
+                                <button type="button" id="btnViewSplit" onclick="setViewMode('split')" title="Split View" class="px-2.5 py-1 text-xs font-semibold rounded-md transition bg-indigo-600 text-white">Split</button>
+                                <button type="button" id="btnViewEditor" onclick="setViewMode('editor')" title="Editor Only" class="px-2.5 py-1 text-xs font-semibold rounded-md transition text-gray-600 dark:text-gray-400 hover:text-gray-900">Editor</button>
+                                <button type="button" id="btnViewPreview" onclick="setViewMode('preview')" title="Preview Only" class="px-2.5 py-1 text-xs font-semibold rounded-md transition text-gray-600 dark:text-gray-400 hover:text-gray-900">Preview</button>
+                            </div>
+
+                            <button type="button" onclick="copyCurrentPrompt()" title="Copy prompt to clipboard" class="px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-700 hover:bg-gray-50 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-slate-600 rounded-lg transition shadow-sm flex items-center gap-1">
+                                <span>📋</span> Copy
+                            </button>
+
+                            <button type="button" onclick="resetCurrentPromptToDefault()" title="Reset to default prompt instructions" class="px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-700 hover:bg-amber-50 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 rounded-lg transition shadow-sm flex items-center gap-1">
+                                <span>🔄</span> Reset Default
+                            </button>
+
+                            <button type="button" id="btnSavePrompt" onclick="saveCurrentPrompt()" class="px-4 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition shadow-sm flex items-center gap-1.5">
+                                <span>💾</span> Save Prompt
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Split Container: Editor & Markdown Preview -->
+                    <div id="studioSplitContainer" class="flex-grow flex flex-col lg:flex-row divide-y lg:divide-y-0 lg:divide-x divide-gray-200 dark:border-slate-700 min-h-[520px]">
+                        
+                        <!-- Left Pane: Monaco Editor Container -->
+                        <div id="promptEditorCol" class="w-full lg:w-1/2 flex flex-col">
+                            <div class="px-4 py-1.5 bg-gray-50 dark:bg-slate-900/60 border-b border-gray-200 dark:border-slate-700 text-[11px] font-semibold text-gray-500 dark:text-gray-400 flex justify-between items-center">
+                                <span>Monaco Editor (Markdown)</span>
+                                <span id="promptEditorStats" class="font-mono text-[10px]">0 lines · 0 chars</span>
+                            </div>
+                            <div id="monacoPromptContainer" class="w-full flex-grow h-[500px]"></div>
+                        </div>
+
+                        <!-- Right Pane: Obsidian Live Markdown Preview -->
+                        <div id="promptPreviewCol" class="w-full lg:w-1/2 flex flex-col bg-gray-50/40 dark:bg-slate-900/40">
+                            <div class="px-4 py-1.5 bg-gray-50 dark:bg-slate-900/60 border-b border-gray-200 dark:border-slate-700 text-[11px] font-semibold text-gray-500 dark:text-gray-400 flex justify-between items-center">
+                                <span>Obsidian Live Markdown Preview</span>
+                                <span class="text-[10px] text-indigo-500 dark:text-indigo-400 font-mono">Rendered marked.js</span>
+                            </div>
+                            <div id="promptMarkdownPreview" class="p-6 flex-grow h-[500px] overflow-y-auto markdown-preview-obsidian"></div>
+                        </div>
+                    </div>
+
+                    <!-- Bottom Bar: Revision History Drawer -->
+                    <div class="p-4 border-t border-gray-200 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-900/40">
+                        <details id="promptHistoryDrawer" class="text-xs">
+                            <summary class="cursor-pointer font-bold text-indigo-600 dark:text-indigo-400 select-none flex items-center justify-between">
+                                <span class="flex items-center gap-1.5">
+                                    <span>📜</span> Version History & Rollback (<span id="promptHistoryCount">0</span> revisions)
+                                </span>
+                                <span class="text-[10px] text-gray-400 font-normal">Click to expand</span>
+                            </summary>
+                            <div id="promptHistoryContainer" class="mt-3 space-y-2.5 max-h-48 overflow-y-auto pr-1">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </details>
+                    </div>
+
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- TAB 2: Prompts & Pipeline Operations -->
-    <div id="tab-prompts" class="admin-tab-pane hidden">
+        <!-- PIPELINE EXECUTION & SYSTEM CONSTRAINTS -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Left 2 Cols: Prompt Management -->
-            <div class="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm">
-                <div class="border-b border-gray-100 dark:border-slate-700 pb-3 mb-5">
-                    <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                        <span>🤖</span> AI Curation System Prompts
-                    </h3>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">Customize the system instructions provided to Ollama during wiki markdown synthesis and YouTube transcripts.</p>
-                </div>
+            <!-- Left 2 Cols: Pipeline Maintenance Triggers -->
+            <div class="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm space-y-5">
+                <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-slate-700 pb-3 flex items-center gap-2">
+                    <span>⚡</span> Pipeline Execution & Maintenance
+                </h3>
 
-                <form action="/admin/config" method="post" class="space-y-5">
-                    <!-- Carry forward non-prompt fields -->
-                    <input type="hidden" name="ollama_host" value="{{ config.ollama_host }}" />
-                    <input type="hidden" name="ollama_model" value="{{ config.ollama_model }}" />
-                    <input type="hidden" name="ollama_embedding_model" value="{{ config.ollama_embedding_model }}" />
-                    {% if config.ollama_think %}<input type="hidden" name="ollama_think" value="true" />{% endif %}
-                    <input type="hidden" name="api_key" value="{{ config.api_key or '' }}" />
-                    <input type="hidden" name="gotify_url" value="{{ config.gotify_url or '' }}" />
-                    <input type="hidden" name="gotify_token" value="{{ config.gotify_token or '' }}" />
-                    <input type="hidden" name="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" />
-                    <input type="hidden" name="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" />
-                    <input type="hidden" name="taxonomy_batch_limit" value="{{ config.taxonomy_batch_limit or 500 }}" />
-                    <input type="hidden" name="rag_search_top_k" value="{{ config.rag_search_top_k or 10 }}" />
-                    <input type="hidden" name="similarity_threshold" value="{{ config.similarity_threshold or 0.65 }}" />
-                    <input type="hidden" name="ollama_timeout" value="{{ config.ollama_timeout or 120 }}" />
-                    <input type="hidden" name="notifications_poll_interval_seconds" value="{{ config.notifications_poll_interval_seconds or 30 }}" />
-                    <input type="hidden" name="page_cards_per_page" value="{{ config.page_cards_per_page or 20 }}" />
-                    <input type="hidden" name="crawler_default_max_pages" value="{{ config.crawler_default_max_pages or 50 }}" />
-                    <input type="hidden" name="repo_import_default_depth" value="{{ config.repo_import_default_depth or 1 }}" />
-
-                    <!-- Wiki Prompt -->
-                    <div class="bg-gray-50 dark:bg-slate-900/60 p-4 rounded-xl border border-gray-200 dark:border-slate-700">
-                        <div class="flex justify-between items-center mb-2">
-                            <label for="wiki_prompt" class="block text-xs font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wider">Wiki Extraction System Prompt</label>
-                            <button type="button" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 bg-white dark:bg-slate-700 hover:bg-indigo-50 border border-indigo-200 dark:border-slate-600 px-3 py-1 rounded-lg transition shadow-sm flex items-center gap-1.5">
-                                ✏️ Expand Editor Modal
-                            </button>
-                        </div>
-                        <textarea name="wiki_prompt" id="wiki_prompt" rows="4" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer transition" title="Click to edit in full modal" required>{{ config.wiki_prompt }}</textarea>
-                        
-                        {% if wiki_prompts_history %}
-                        <details class="mt-3 text-xs">
-                            <summary class="cursor-pointer text-indigo-600 hover:underline font-semibold select-none flex items-center gap-1">
-                                <span>📜</span> Version History ({{ wiki_prompts_history | length }} revisions)
-                            </summary>
-                            <div class="space-y-3 mt-2 bg-white border border-gray-200 rounded-xl p-3 max-h-48 overflow-y-auto shadow-inner">
-                                {% for p in wiki_prompts_history %}
-                                <div class="border-b border-gray-100 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
-                                    <div class="flex justify-between items-center mb-1">
-                                        <div class="flex items-center gap-2">
-                                            <span class="font-bold text-gray-800">Version {{ p.version }}</span>
-                                            <span class="text-gray-400 text-[10px] font-mono">{{ p.created_at[:16] | replace('T', ' ') }}</span>
-                                            {% if p.is_head == 1 %}
-                                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200">Active HEAD</span>
-                                            {% endif %}
-                                        </div>
-                                        {% if p.is_head != 1 %}
-                                        <button type="button" onclick="setPromptHead({{ p.id }}, 'wiki_prompt')" class="bg-white hover:bg-indigo-50 border border-gray-300 hover:border-indigo-300 text-indigo-700 font-bold px-2 py-0.5 rounded text-[10px] transition shadow-sm">
-                                            Use Version {{ p.version }}
-                                        </button>
-                                        {% endif %}
-                                    </div>
-                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 overflow-x-auto max-h-20">{{ p.prompt_text }}</pre>
-                                </div>
-                                {% endfor %}
-                            </div>
-                        </details>
-                        {% endif %}
-                    </div>
-
-                    <!-- YouTube Prompt -->
-                    <div class="bg-gray-50 dark:bg-slate-900/60 p-4 rounded-xl border border-gray-200 dark:border-slate-700">
-                        <div class="flex justify-between items-center mb-2">
-                            <label for="youtube_wiki_prompt" class="block text-xs font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wider">YouTube Wiki System Prompt</label>
-                            <button type="button" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 bg-white dark:bg-slate-700 hover:bg-indigo-50 border border-indigo-200 dark:border-slate-600 px-3 py-1 rounded-lg transition shadow-sm flex items-center gap-1.5">
-                                ✏️ Expand Editor Modal
-                            </button>
-                        </div>
-                        <textarea name="youtube_wiki_prompt" id="youtube_wiki_prompt" rows="4" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-3 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer transition" title="Click to edit in full modal" required>{{ config.youtube_wiki_prompt }}</textarea>
-                        
-                        {% if youtube_prompts_history %}
-                        <details class="mt-3 text-xs">
-                            <summary class="cursor-pointer text-indigo-600 dark:text-indigo-400 hover:underline font-semibold select-none flex items-center gap-1">
-                                <span>📜</span> Version History ({{ youtube_prompts_history | length }} revisions)
-                            </summary>
-                            <div class="space-y-3 mt-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-3 max-h-48 overflow-y-auto shadow-inner">
-                                {% for p in youtube_prompts_history %}
-                                <div class="border-b border-gray-100 dark:border-slate-700 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
-                                    <div class="flex justify-between items-center mb-1">
-                                        <div class="flex items-center gap-2">
-                                            <span class="font-bold text-gray-800 dark:text-gray-200">Version {{ p.version }}</span>
-                                            <span class="text-gray-400 text-[10px] font-mono">{{ p.created_at[:16] | replace('T', ' ') }}</span>
-                                            {% if p.is_head == 1 %}
-                                            <span class="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-700">Active HEAD</span>
-                                            {% endif %}
-                                        </div>
-                                        {% if p.is_head != 1 %}
-                                        <button type="button" onclick="setPromptHead({{ p.id }}, 'youtube_wiki_prompt')" class="bg-white dark:bg-slate-700 hover:bg-indigo-50 border border-gray-300 dark:border-slate-600 hover:border-indigo-300 text-indigo-700 dark:text-indigo-300 font-bold px-2 py-0.5 rounded text-[10px] transition shadow-sm">
-                                            Use Version {{ p.version }}
-                                        </button>
-                                        {% endif %}
-                                    </div>
-                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 rounded p-2 overflow-x-auto max-h-20">{{ p.prompt_text }}</pre>
-                                </div>
-                                {% endfor %}
-                            </div>
-                        </details>
-                        {% endif %}
-                    </div>
-
-                    <div>
-                        <label for="max_input_length" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Maximum Input Length (Characters)</label>
-                        <input type="number" name="max_input_length" id="max_input_length" value="{{ config.max_input_length }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required min="100" />
-                    </div>
-
-                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-3 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
-                        <span>💾</span> Save Prompt Changes
-                    </button>
-                </form>
-            </div>
-
-            <!-- Right 1 Col: Pipeline Maintenance Operations -->
-            <div class="space-y-6">
-                <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm">
-                    <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-slate-700 pb-3 mb-4 flex items-center gap-2">
-                        <span>⚡</span> Pipeline Execution
-                    </h3>
-
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <!-- Bulk Descriptions Loop -->
-                    <div class="mb-5 pb-5 border-b border-gray-100 dark:border-slate-700">
-                        <div class="flex items-center justify-between mb-1">
-                            <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider">Run Bulk Descriptions</h4>
-                            <span class="text-xs bg-amber-50 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 font-bold px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                                {{ unprocessed_count }} pending
-                            </span>
+                    <div class="bg-gray-50 dark:bg-slate-900/60 p-4 rounded-xl border border-gray-200 dark:border-slate-700 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider">Bulk Descriptions</h4>
+                                <span class="text-[10px] bg-amber-50 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 font-bold px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                    {{ unprocessed_count }} pending
+                                </span>
+                            </div>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-3">Scans for library items lacking AI wiki summaries and processes them in batch.</p>
                         </div>
-                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Scans for library items lacking AI wiki summaries and processes them in batch background jobs.</p>
                         <form action="/admin/trigger-describe" method="post">
-                            <button type="submit" {% if unprocessed_count == 0 %}disabled class="w-full bg-gray-100 dark:bg-slate-700 text-gray-400 text-xs font-bold py-2.5 px-4 rounded-xl cursor-not-allowed border border-gray-200 dark:border-slate-600" {% else %} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition" {% endif %}>
-                                🚀 Execute Maintenance Loop
+                            <button type="submit" {% if unprocessed_count == 0 %}disabled class="w-full bg-gray-100 dark:bg-slate-700 text-gray-400 text-xs font-bold py-2 px-3 rounded-lg cursor-not-allowed border border-gray-200 dark:border-slate-600" {% else %} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-3 rounded-lg shadow-sm transition" {% endif %}>
+                                🚀 Run Descriptions
                             </button>
                         </form>
                     </div>
 
                     <!-- Embeddings Recalculation -->
-                    <div class="mb-5 pb-5 border-b border-gray-100 dark:border-slate-700">
-                        <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider mb-1">Generate / Recalculate Embeddings</h4>
-                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Indexes all items using the active embedding model for similarity and nearest neighbors.</p>
+                    <div class="bg-gray-50 dark:bg-slate-900/60 p-4 rounded-xl border border-gray-200 dark:border-slate-700 flex flex-col justify-between">
+                        <div>
+                            <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider mb-1">Recalculate Embeddings</h4>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-3">Indexes all items using the active embedding model for semantic similarity.</p>
+                        </div>
                         <form action="/admin/trigger-embeddings" method="post">
-                            <button type="submit" class="w-full bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition">
-                                🧬 Run Embeddings Generation
+                            <button type="submit" class="w-full bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-bold py-2 px-3 rounded-lg shadow-sm transition">
+                                🧬 Run Embeddings
                             </button>
                         </form>
                     </div>
 
                     <!-- Seed General Collection -->
-                    <div>
-                        <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider mb-1">Seed General Collection</h4>
-                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Runs the streaming builder to categorize library items into the virtual taxonomy.</p>
-                        <a href="/admin/collections/populate-general" class="block text-center bg-gray-900 hover:bg-black text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition">
-                            ⚡ Launch Seeding Stream
+                    <div class="bg-gray-50 dark:bg-slate-900/60 p-4 rounded-xl border border-gray-200 dark:border-slate-700 flex flex-col justify-between">
+                        <div>
+                            <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider mb-1">Seed Taxonomy</h4>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-3">Runs the streaming builder to categorize library items into virtual domains.</p>
+                        </div>
+                        <a href="/admin/collections/populate-general" class="block text-center bg-gray-900 hover:bg-black text-white text-xs font-bold py-2 px-3 rounded-lg shadow-sm transition">
+                            ⚡ Launch Seeding
                         </a>
                     </div>
+                </div>
+            </div>
+
+            <!-- Right 1 Col: Global Ingestion Constraints -->
+            <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                <div>
+                    <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-slate-700 pb-3 mb-4 flex items-center gap-2">
+                        <span>📏</span> Global Ingestion Limit
+                    </h3>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                        Maximum character cutoff applied to page scrapes, repository text, and transcripts before feeding to LLM pipelines.
+                    </p>
+                    <form action="/admin/config" method="post" class="space-y-4">
+                        <input type="hidden" name="ollama_host" value="{{ config.ollama_host }}" />
+                        <input type="hidden" name="ollama_model" value="{{ config.ollama_model }}" />
+                        <input type="hidden" name="ollama_embedding_model" value="{{ config.ollama_embedding_model }}" />
+                        {% if config.ollama_think %}<input type="hidden" name="ollama_think" value="true" />{% endif %}
+                        <input type="hidden" name="api_key" value="{{ config.api_key or '' }}" />
+                        <input type="hidden" name="gotify_url" value="{{ config.gotify_url or '' }}" />
+                        <input type="hidden" name="gotify_token" value="{{ config.gotify_token or '' }}" />
+                        <input type="hidden" name="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" />
+                        <input type="hidden" name="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" />
+                        <input type="hidden" name="taxonomy_batch_limit" value="{{ config.taxonomy_batch_limit or 500 }}" />
+                        <input type="hidden" name="rag_search_top_k" value="{{ config.rag_search_top_k or 10 }}" />
+                        <input type="hidden" name="similarity_threshold" value="{{ config.similarity_threshold or 0.65 }}" />
+                        <input type="hidden" name="ollama_timeout" value="{{ config.ollama_timeout or 120 }}" />
+                        <input type="hidden" name="notifications_poll_interval_seconds" value="{{ config.notifications_poll_interval_seconds or 30 }}" />
+                        <input type="hidden" name="page_cards_per_page" value="{{ config.page_cards_per_page or 20 }}" />
+                        <input type="hidden" name="crawler_default_max_pages" value="{{ config.crawler_default_max_pages or 50 }}" />
+                        <input type="hidden" name="repo_import_default_depth" value="{{ config.repo_import_default_depth or 1 }}" />
+
+                        <div>
+                            <label for="max_input_length" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Max Input Length (Characters)</label>
+                            <input type="number" name="max_input_length" id="max_input_length" value="{{ config.max_input_length }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required min="100" />
+                        </div>
+
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
+                            <span>💾</span> Update Length Limit
+                        </button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -929,6 +992,10 @@
 
 </div>
 
+<!-- Hidden JSON Payloads for Prompts and Revisions -->
+<script id="allPromptsData" type="application/json">{{ all_prompts | tojson }}</script>
+<script id="promptsHistoryData" type="application/json">{{ prompts_history | tojson }}</script>
+
 <!-- Tab Switching Controller -->
 <script>
     function switchAdminTab(tabId) {
@@ -956,6 +1023,17 @@
             localStorage.setItem('kb_admin_active_tab', tabId);
             window.location.hash = tabId;
         } catch (e) {}
+
+        // Tab layout hook for Monaco Editor in Prompts Studio
+        if (tabId === 'tab-prompts') {
+            setTimeout(() => {
+                if (promptMonacoEditor) {
+                    promptMonacoEditor.layout();
+                } else if (typeof initPromptStudio === 'function') {
+                    initPromptStudio();
+                }
+            }, 60);
+        }
     }
 
     // Initialize tab on load from URL hash or localStorage
@@ -968,7 +1046,440 @@
         } else {
             switchAdminTab('tab-general');
         }
+
+        if (initialTab === 'tab-prompts') {
+            setTimeout(initPromptStudio, 100);
+        }
     });
+
+    /* =======================================================================
+       PROMPT STUDIO CONTROLLER (MONACO + OBSIDIAN LIVE MARKDOWN PREVIEW)
+       ======================================================================= */
+    let allPrompts = [];
+    let promptsHistory = {};
+    let activePromptId = 'wiki_prompt';
+    let promptMonacoEditor = null;
+    let studioViewMode = 'split'; // 'split', 'editor', 'preview'
+
+    function initPromptStudio() {
+        if (allPrompts.length > 0 && promptMonacoEditor) {
+            promptMonacoEditor.layout();
+            return;
+        }
+
+        try {
+            const dataEl = document.getElementById('allPromptsData');
+            const histEl = document.getElementById('promptsHistoryData');
+            if (dataEl && dataEl.textContent) allPrompts = JSON.parse(dataEl.textContent);
+            if (histEl && histEl.textContent) promptsHistory = JSON.parse(histEl.textContent);
+        } catch (e) {
+            console.error("Failed to parse prompt JSON metadata:", e);
+        }
+
+        // Check if query string specified target_prompt
+        const urlParams = new URLSearchParams(window.location.search);
+        const target = urlParams.get('target_prompt');
+        if (target && allPrompts.some(p => p.id === target)) {
+            activePromptId = target;
+        }
+
+        renderPromptList();
+        initPromptMonaco();
+    }
+
+    function initPromptMonaco() {
+        if (typeof require === 'undefined') {
+            setTimeout(initPromptMonaco, 50);
+            return;
+        }
+
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
+        require(['vs/editor/editor.main'], function() {
+            const container = document.getElementById('monacoPromptContainer');
+            if (!container) return;
+
+            const current = allPrompts.find(p => p.id === activePromptId) || allPrompts[0];
+            const isDark = document.documentElement.classList.contains('dark');
+
+            if (promptMonacoEditor) {
+                promptMonacoEditor.dispose();
+            }
+
+            promptMonacoEditor = monaco.editor.create(container, {
+                value: current ? current.value : '',
+                language: 'markdown',
+                theme: isDark ? 'vs-dark' : 'vs',
+                automaticLayout: true,
+                fontSize: 13,
+                lineNumbers: 'on',
+                wordWrap: 'on',
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                padding: { top: 12, bottom: 12 },
+            });
+
+            promptMonacoEditor.onDidChangeModelContent(() => {
+                updateMarkdownPreview();
+                updateStudioStats();
+            });
+
+            // Keyboard shortcut Ctrl+S / Cmd+S
+            promptMonacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function() {
+                saveCurrentPrompt();
+            });
+
+            updateMarkdownPreview();
+            updateStudioStats();
+            updateActivePromptUI();
+        });
+    }
+
+    function renderPromptList() {
+        const container = document.getElementById('promptsListContainer');
+        if (!container) return;
+
+        const categories = ["Curation", "Research & Architecture", "Diagnostics & Coding"];
+        const grouped = {};
+        categories.forEach(c => grouped[c] = []);
+
+        const searchFilter = (document.getElementById('promptSearchInput')?.value || '').toLowerCase().trim();
+
+        allPrompts.forEach(p => {
+            const matchesSearch = !searchFilter || 
+                p.label.toLowerCase().includes(searchFilter) || 
+                p.id.toLowerCase().includes(searchFilter) || 
+                (p.description || '').toLowerCase().includes(searchFilter);
+
+            if (matchesSearch) {
+                const cat = p.category || "Curation";
+                if (!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push(p);
+            }
+        });
+
+        let html = '';
+        categories.forEach(cat => {
+            const items = grouped[cat] || [];
+            if (items.length === 0) return;
+
+            html += `
+                <div>
+                    <div class="text-[10px] font-extrabold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5 px-2">
+                        ${cat}
+                    </div>
+                    <div class="space-y-1">
+            `;
+
+            items.forEach(p => {
+                const isActive = p.id === activePromptId;
+                const isModified = p.value !== p.default;
+                const activeCls = isActive 
+                    ? 'bg-indigo-50 dark:bg-indigo-900/40 border-indigo-300 dark:border-indigo-600 text-indigo-900 dark:text-indigo-200 shadow-sm' 
+                    : 'bg-white dark:bg-slate-800/80 hover:bg-gray-100 dark:hover:bg-slate-700/60 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300';
+
+                html += `
+                    <button type="button" onclick="selectPrompt('${p.id}')" class="w-full text-left p-2.5 rounded-xl border transition flex items-center justify-between gap-2 ${activeCls}">
+                        <div class="min-w-0 flex items-center gap-2">
+                            <span class="text-sm flex-shrink-0">${p.icon || '📝'}</span>
+                            <div class="truncate">
+                                <div class="text-xs font-bold truncate">${p.label}</div>
+                                <div class="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate">${p.id}</div>
+                            </div>
+                        </div>
+                        <div class="flex-shrink-0 flex items-center gap-1">
+                            ${isModified ? '<span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Mod</span>' : ''}
+                            ${isActive ? '<span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-600 text-white">Active</span>' : ''}
+                        </div>
+                    </button>
+                `;
+            });
+
+            html += `
+                    </div>
+                </div>
+            `;
+        });
+
+        if (html === '') {
+            html = '<div class="text-xs text-gray-400 italic text-center py-6">No prompts matching filter.</div>';
+        }
+
+        container.innerHTML = html;
+    }
+
+    function filterPromptList() {
+        renderPromptList();
+    }
+
+    function selectPrompt(promptId) {
+        if (promptId === activePromptId) return;
+        activePromptId = promptId;
+
+        const current = allPrompts.find(p => p.id === promptId);
+        if (!current) return;
+
+        if (promptMonacoEditor) {
+            promptMonacoEditor.setValue(current.value);
+        }
+
+        updateActivePromptUI();
+        updateMarkdownPreview();
+        updateStudioStats();
+        renderPromptList();
+    }
+
+    function updateActivePromptUI() {
+        const current = allPrompts.find(p => p.id === activePromptId);
+        if (!current) return;
+
+        const labelEl = document.getElementById('activePromptLabel');
+        const catEl = document.getElementById('activePromptCategoryBadge');
+        const descEl = document.getElementById('activePromptDescription');
+        const headBadge = document.getElementById('activePromptHeadBadge');
+
+        if (labelEl) labelEl.textContent = `${current.icon || '🤖'} ${current.label}`;
+        if (catEl) catEl.textContent = current.category || 'General';
+        if (descEl) descEl.textContent = current.description || '';
+
+        const isModified = current.value !== current.default;
+        if (headBadge) {
+            if (isModified) {
+                headBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800';
+                headBadge.textContent = 'Customized';
+            } else {
+                headBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800';
+                headBadge.textContent = 'Default';
+            }
+        }
+
+        // Render Version History
+        const historyList = promptsHistory[activePromptId] || [];
+        const histCountEl = document.getElementById('promptHistoryCount');
+        const histContainer = document.getElementById('promptHistoryContainer');
+
+        if (histCountEl) histCountEl.textContent = historyList.length;
+
+        if (histContainer) {
+            if (historyList.length === 0) {
+                histContainer.innerHTML = '<p class="text-xs text-gray-400 italic py-2">No past revisions recorded yet for this prompt.</p>';
+            } else {
+                histContainer.innerHTML = historyList.map(h => {
+                    const isHead = h.is_head === 1;
+                    const dateStr = (h.created_at || '').substring(0, 16).replace('T', ' ');
+                    return `
+                        <div class="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 flex flex-col gap-1.5 shadow-sm">
+                            <div class="flex justify-between items-center">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold text-xs text-gray-800 dark:text-gray-200">Version ${h.version}</span>
+                                    <span class="text-[10px] text-gray-400 font-mono">${dateStr}</span>
+                                    ${isHead ? '<span class="text-[9px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-700">Active HEAD</span>' : ''}
+                                </div>
+                                ${!isHead ? `
+                                    <button type="button" onclick="setPromptHead(${h.id}, '${activePromptId}')" class="px-2 py-0.5 text-[10px] font-bold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 rounded transition">
+                                        Restore Version ${h.version}
+                                    </button>
+                                ` : ''}
+                            </div>
+                            <pre class="text-[10px] font-mono text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-slate-900/60 p-2 rounded max-h-16 overflow-y-auto whitespace-pre-wrap">${escapeHtml(h.prompt_text || '')}</pre>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+    }
+
+    function updateMarkdownPreview() {
+        if (!promptMonacoEditor) return;
+        const val = promptMonacoEditor.getValue();
+        const previewEl = document.getElementById('promptMarkdownPreview');
+        if (previewEl) {
+            if (typeof marked !== 'undefined') {
+                previewEl.innerHTML = marked.parse(val);
+            } else {
+                previewEl.textContent = val;
+            }
+        }
+    }
+
+    function updateStudioStats() {
+        if (!promptMonacoEditor) return;
+        const text = promptMonacoEditor.getValue();
+        const lineCount = text.split('\n').length;
+        const charCount = text.length;
+        const statsEl = document.getElementById('promptEditorStats');
+        if (statsEl) {
+            statsEl.textContent = `${lineCount.toLocaleString()} lines · ${charCount.toLocaleString()} chars`;
+        }
+    }
+
+    function setViewMode(mode) {
+        studioViewMode = mode;
+        const editorCol = document.getElementById('promptEditorCol');
+        const previewCol = document.getElementById('promptPreviewCol');
+        const btnSplit = document.getElementById('btnViewSplit');
+        const btnEditor = document.getElementById('btnViewEditor');
+        const btnPreview = document.getElementById('btnViewPreview');
+
+        [btnSplit, btnEditor, btnPreview].forEach(b => {
+            if (b) {
+                b.classList.remove('bg-indigo-600', 'text-white');
+                b.classList.add('text-gray-600', 'dark:text-gray-400');
+            }
+        });
+
+        if (mode === 'split') {
+            if (editorCol) {
+                editorCol.classList.remove('hidden');
+                editorCol.className = 'w-full lg:w-1/2 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-slate-700';
+            }
+            if (previewCol) {
+                previewCol.classList.remove('hidden');
+                previewCol.className = 'w-full lg:w-1/2 flex flex-col bg-gray-50/40 dark:bg-slate-900/40';
+            }
+            if (btnSplit) {
+                btnSplit.classList.add('bg-indigo-600', 'text-white');
+                btnSplit.classList.remove('text-gray-600', 'dark:text-gray-400');
+            }
+        } else if (mode === 'editor') {
+            if (editorCol) {
+                editorCol.classList.remove('hidden');
+                editorCol.className = 'w-full flex flex-col';
+            }
+            if (previewCol) previewCol.classList.add('hidden');
+            if (btnEditor) {
+                btnEditor.classList.add('bg-indigo-600', 'text-white');
+                btnEditor.classList.remove('text-gray-600', 'dark:text-gray-400');
+            }
+        } else if (mode === 'preview') {
+            if (editorCol) editorCol.classList.add('hidden');
+            if (previewCol) {
+                previewCol.classList.remove('hidden');
+                previewCol.className = 'w-full flex flex-col bg-gray-50/40 dark:bg-slate-900/40';
+            }
+            if (btnPreview) {
+                btnPreview.classList.add('bg-indigo-600', 'text-white');
+                btnPreview.classList.remove('text-gray-600', 'dark:text-gray-400');
+            }
+        }
+
+        if (promptMonacoEditor) {
+            setTimeout(() => promptMonacoEditor.layout(), 30);
+        }
+    }
+
+    async function saveCurrentPrompt() {
+        if (!promptMonacoEditor) return;
+        const text = promptMonacoEditor.getValue();
+        const current = allPrompts.find(p => p.id === activePromptId);
+        const saveBtn = document.getElementById('btnSavePrompt');
+
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span>⏳</span> Saving...';
+        }
+
+        try {
+            const res = await fetch('/api/config/prompts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt_id: activePromptId, prompt_text: text })
+            });
+            const data = await res.json();
+            if (res.ok && data.status === 'success') {
+                if (current) current.value = text;
+                showPromptNotification(`Prompt "${current ? current.label : activePromptId}" saved and activated.`, 'success');
+                updateActivePromptUI();
+                renderPromptList();
+            } else {
+                showPromptNotification('Failed to save prompt: ' + (data.detail || data.message || 'Server error'), 'error');
+            }
+        } catch (e) {
+            showPromptNotification('Network error saving prompt: ' + e.message, 'error');
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<span>💾</span> Save Prompt';
+            }
+        }
+    }
+
+    async function resetCurrentPromptToDefault() {
+        const current = allPrompts.find(p => p.id === activePromptId);
+        if (!current) return;
+
+        if (!confirm(`Are you sure you want to reset "${current.label}" to its factory default instructions?`)) {
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/config/prompts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt_id: activePromptId, reset_default: true })
+            });
+            const data = await res.json();
+            if (res.ok && data.status === 'success') {
+                current.value = current.default;
+                if (promptMonacoEditor) {
+                    promptMonacoEditor.setValue(current.default);
+                }
+                showPromptNotification(`"${current.label}" reset to default instructions.`, 'success');
+                updateActivePromptUI();
+                updateMarkdownPreview();
+                updateStudioStats();
+                renderPromptList();
+            } else {
+                showPromptNotification('Failed to reset prompt: ' + (data.detail || data.message || 'Server error'), 'error');
+            }
+        } catch (e) {
+            showPromptNotification('Error: ' + e.message, 'error');
+        }
+    }
+
+    function copyCurrentPrompt() {
+        if (!promptMonacoEditor) return;
+        const text = promptMonacoEditor.getValue();
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(() => {
+                showPromptNotification('Prompt text copied to clipboard!', 'info');
+            }).catch(() => {
+                copyToClipboard(text);
+                showPromptNotification('Prompt text copied to clipboard!', 'info');
+            });
+        } else {
+            copyToClipboard(text);
+            showPromptNotification('Prompt text copied to clipboard!', 'info');
+        }
+    }
+
+    function showPromptNotification(msg, type = 'info') {
+        const banner = document.getElementById('promptStatusBanner');
+        if (!banner) return;
+
+        let icon = 'ℹ️';
+        let cls = 'bg-indigo-50 border-indigo-200 text-indigo-800 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-300';
+        if (type === 'success') {
+            icon = '✅';
+            cls = 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-300';
+        } else if (type === 'error') {
+            icon = '⚠️';
+            cls = 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-900/30 dark:border-rose-800 dark:text-rose-300';
+        }
+
+        banner.className = `text-xs font-semibold px-3 py-1.5 rounded-lg border flex items-center gap-2 transition animate-fade-in shadow-sm ${cls}`;
+        banner.innerHTML = `<span>${icon}</span> <span>${escapeHtml(msg)}</span>`;
+        banner.classList.remove('hidden');
+
+        setTimeout(() => {
+            banner.classList.add('hidden');
+        }, 4500);
+    }
+
+    function setPromptHead(promptId, promptType) {
+        document.getElementById('head_prompt_id').value = promptId;
+        document.getElementById('head_prompt_type').value = promptType;
+        document.getElementById('setPromptHeadForm').submit();
+    }
 
     function testOllamaConnection() {
         const host = document.getElementById('ollama_host').value.trim();

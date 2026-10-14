@@ -5,7 +5,7 @@ Configuration for the kb-web application.
 from pathlib import Path
 import json
 import os
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from kb_core.config import Config as BaseConfig
 from kb_core.notifier import Gotify
@@ -61,6 +61,58 @@ DEFAULT_TAXONOMY_SYSTEM_PROMPT = (
     '{"taxonomy_path": "/Folder/Subfolder/Filename.md", "action_note": "A short, 1-sentence description of what this note contains."}'
 )
 
+DEFAULT_TAGS_PROMPT = (
+    "You are a professional categorization assistant. Analyze the following web page content "
+    "and generate a list of 5 to 10 relevant tags, keywords, or labels for cataloging it. "
+    "Respond ONLY with a comma-separated list of tags (e.g., 'python, web-development, tutorial'). "
+    "Do not reply with any filler headers, introductory remarks, or formatting."
+)
+
+DEFAULT_RAG_REPORT_PROMPT = (
+    "You are the expert Senior Research & Synthesis Agent for kb-web.\n"
+    "Your task is to analyze the user's research query and synthesize the provided vetted evidence "
+    "into a comprehensive, publication-grade Markdown research report.\n\n"
+    "Structure your output strictly using the following Markdown sections:\n"
+    "# [Concise, Descriptive Report Title]\n\n"
+    "## Executive Summary\n"
+    "[A clear, synthesized overview directly answering the query]\n\n"
+    "## Key Findings & Core Insights\n"
+    "[Detailed, bulleted breakdown of actionable facts and architectural insights]\n\n"
+    "## Technical Architecture & Code Examples\n"
+    "[Concrete code snippets, configuration rules, SQL queries, or commands extracted from evidence]\n\n"
+    "## Evidence & Citations Table\n"
+    "| # | Source Title | Channel | Decision Score | URL |\n"
+    "|---|---|---|---|---|\n"
+    "[Fill table rows based on sources provided]\n\n"
+    "Do not invent false details. If certain specifics are not covered in the evidence, state so clearly."
+)
+
+DEFAULT_MAINTENANCE_AGENT_PROMPT = (
+    "You are the kb-web Site Maintenance Agent. You provide immediate, accurate root cause "
+    "diagnostics and precise code/database fixes for uncaught server errors.\n"
+    "Structure your response with:\n"
+    "1. 🔍 Root Cause Analysis (what broke and why)\n"
+    "2. 📍 Affected Component / Source Location\n"
+    "3. 🛠️ Actionable Recommended Fix (exact SQL or Python code change required)"
+)
+
+DEFAULT_WORKSPACE_AGENT_PROMPT = (
+    "You are an expert autonomous coding assistant for the workspace.\n"
+    "You can inspect, create, and edit files, and plan architectural implementations. "
+    "Explain your plan concisely and invoke tools accurately."
+)
+
+DEFAULT_ARTICLE_CHAT_PROMPT = (
+    "You are an expert AI knowledge-base assistant. Answer the user's questions accurately, "
+    "helpfully, and concisely based on the document context provided below."
+)
+
+DEFAULT_ONTOLOGY_SYNTHESIS_PROMPT = (
+    "You are an authoritative ontologist and knowledge domain architect. "
+    "Synthesize a clear domain classification and wiki description for the provided subject.\n"
+    "Respond with a valid JSON object containing 'category_name' and 'category_doc' fields."
+)
+
 
 class Config:
     """Configuration class for the kb-web application.
@@ -94,6 +146,14 @@ class Config:
         self._youtube_wiki_prompt: str = os.getenv(
             "KB_YOUTUBE_WIKI_PROMPT", DEFAULT_YOUTUBE_WIKI_PROMPT
         )
+        self._tags_prompt: str = os.getenv("KB_TAGS_PROMPT", DEFAULT_TAGS_PROMPT)
+        self._rag_system_prompt: str = os.getenv("KB_RAG_SYSTEM_PROMPT", DEFAULT_RAG_SYSTEM_PROMPT)
+        self._taxonomy_system_prompt: str = os.getenv("KB_TAXONOMY_SYSTEM_PROMPT", DEFAULT_TAXONOMY_SYSTEM_PROMPT)
+        self._rag_report_prompt: str = os.getenv("KB_RAG_REPORT_PROMPT", DEFAULT_RAG_REPORT_PROMPT)
+        self._maintenance_agent_prompt: str = os.getenv("KB_MAINTENANCE_AGENT_PROMPT", DEFAULT_MAINTENANCE_AGENT_PROMPT)
+        self._workspace_agent_prompt: str = os.getenv("KB_WORKSPACE_AGENT_PROMPT", DEFAULT_WORKSPACE_AGENT_PROMPT)
+        self._article_chat_prompt: str = os.getenv("KB_ARTICLE_CHAT_PROMPT", DEFAULT_ARTICLE_CHAT_PROMPT)
+        self._ontology_synthesis_prompt: str = os.getenv("KB_ONTOLOGY_SYNTHESIS_PROMPT", DEFAULT_ONTOLOGY_SYNTHESIS_PROMPT)
         self._similarity_threshold: float = float(
             os.getenv("KB_SIMILARITY_THRESHOLD", "0.8")
         )
@@ -420,19 +480,8 @@ class Config:
         self._qdrant_api_key = value
         self._write_db_setting("settings_external", "qdrant_api_key", value or "")
 
-    @property
-    def similarity_threshold(self) -> float:
-        return self._read_db_setting(
-            "settings_external", "similarity_threshold", self._similarity_threshold
-        )
-
-    @similarity_threshold.setter
-    def similarity_threshold(self, value: float) -> None:
-        self._similarity_threshold = value
-        self._write_db_setting("settings_external", "similarity_threshold", value)
-
-    @property
-    def wiki_prompt(self) -> str:
+    def _get_agent_prompt(self, prompt_type: str, fallback: str) -> str:
+        """Retrieves active head version of a prompt from PostgreSQL/SQLite or falls back to default."""
         if self.database_url and (
             "postgresql" in self.database_url or "postgres" in self.database_url
         ):
@@ -443,235 +492,301 @@ class Config:
                 with db_session() as session:
                     row = (
                         session.query(AgentPrompt)
-                        .filter_by(prompt_type="wiki_prompt", is_head=1)
+                        .filter_by(prompt_type=prompt_type, is_head=1)
                         .first()
                     )
-                    if row:
+                    if row and row.prompt_text:
                         return row.prompt_text
             except Exception:
                 pass
-            return self._wiki_prompt
+            return fallback
 
         try:
             db = self.get_db()
             if "agent_prompts" in db.table_names():
                 rows = list(
                     db["agent_prompts"].rows_where(
-                        "prompt_type = 'wiki_prompt' AND is_head = 1"
+                        f"prompt_type = '{prompt_type}' AND is_head = 1"
                     )
                 )
-                if rows:
+                if rows and rows[0].get("prompt_text"):
                     return rows[0]["prompt_text"]
         except Exception:
             pass
-        return self._wiki_prompt
+        return fallback
+
+    def _set_agent_prompt(self, prompt_type: str, value: str) -> None:
+        """Persists a new head version of an agent prompt to database."""
+        if not value:
+            return
+        if self.database_url and (
+            "postgresql" in self.database_url or "postgres" in self.database_url
+        ):
+            try:
+                from .models_orm import AgentPrompt
+                from .base import db_session
+                from datetime import datetime
+                from sqlalchemy import func
+
+                with db_session() as session:
+                    current_head = None
+                    row = (
+                        session.query(AgentPrompt)
+                        .filter_by(prompt_type=prompt_type, is_head=1)
+                        .first()
+                    )
+                    if row:
+                        current_head = row.prompt_text
+
+                    if current_head != value:
+                        max_version = (
+                            session.query(func.max(AgentPrompt.version))
+                            .filter_by(prompt_type=prompt_type)
+                            .scalar()
+                            or 0
+                        )
+                        session.query(AgentPrompt).filter_by(
+                            prompt_type=prompt_type, is_head=1
+                        ).update({"is_head": 0})
+                        session.add(
+                            AgentPrompt(
+                                prompt_type=prompt_type,
+                                prompt_text=value,
+                                is_head=1,
+                                version=max_version + 1,
+                                created_at=datetime.now().isoformat(),
+                            )
+                        )
+                        session.commit()
+                return
+            except Exception as e:
+                print(f"Error setting {prompt_type} on PostgreSQL: {e}")
+                return
+
+        try:
+            db = self.get_db()
+            if "agent_prompts" in db.table_names():
+                current_head = None
+                rows = list(
+                    db["agent_prompts"].rows_where(
+                        f"prompt_type = '{prompt_type}' AND is_head = 1"
+                    )
+                )
+                if rows:
+                    current_head = rows[0]["prompt_text"]
+
+                if current_head != value:
+                    from datetime import datetime
+
+                    max_version = 0
+                    all_versions = list(
+                        db.execute_returning_dicts(
+                            f"SELECT MAX(version) as mv FROM agent_prompts WHERE prompt_type = '{prompt_type}'"
+                        )
+                    )
+                    if all_versions and all_versions[0]["mv"] is not None:
+                        max_version = all_versions[0]["mv"]
+
+                    db.execute(
+                        f"UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = '{prompt_type}'"
+                    )
+                    db["agent_prompts"].insert(
+                        {
+                            "prompt_type": prompt_type,
+                            "prompt_text": value,
+                            "is_head": 1,
+                            "version": max_version + 1,
+                            "created_at": datetime.now().isoformat(),
+                        }
+                    )
+                    db.conn.commit()
+        except Exception as e:
+            print(f"Error setting {prompt_type}: {e}")
+
+    @property
+    def wiki_prompt(self) -> str:
+        return self._get_agent_prompt("wiki_prompt", self._wiki_prompt)
 
     @wiki_prompt.setter
     def wiki_prompt(self, value: str) -> None:
         self._wiki_prompt = value
-        if self.database_url and (
-            "postgresql" in self.database_url or "postgres" in self.database_url
-        ):
-            try:
-                from .models_orm import AgentPrompt
-                from .base import db_session
-                from datetime import datetime
-                from sqlalchemy import func
-
-                with db_session() as session:
-                    current_head = None
-                    row = (
-                        session.query(AgentPrompt)
-                        .filter_by(prompt_type="wiki_prompt", is_head=1)
-                        .first()
-                    )
-                    if row:
-                        current_head = row.prompt_text
-
-                    if current_head != value:
-                        max_version = (
-                            session.query(func.max(AgentPrompt.version))
-                            .filter_by(prompt_type="wiki_prompt")
-                            .scalar()
-                            or 0
-                        )
-                        session.query(AgentPrompt).filter_by(
-                            prompt_type="wiki_prompt", is_head=1
-                        ).update({"is_head": 0})
-                        session.add(
-                            AgentPrompt(
-                                prompt_type="wiki_prompt",
-                                prompt_text=value,
-                                is_head=1,
-                                version=max_version + 1,
-                                created_at=datetime.now().isoformat(),
-                            )
-                        )
-                return
-            except Exception as e:
-                print(f"Error setting wiki_prompt on PostgreSQL: {e}")
-                return
-
-        try:
-            db = self.get_db()
-            if "agent_prompts" in db.table_names():
-                current_head = None
-                rows = list(
-                    db["agent_prompts"].rows_where(
-                        "prompt_type = 'wiki_prompt' AND is_head = 1"
-                    )
-                )
-                if rows:
-                    current_head = rows[0]["prompt_text"]
-
-                if current_head != value:
-                    from datetime import datetime
-
-                    max_version = 0
-                    all_versions = list(
-                        db.execute_returning_dicts(
-                            "SELECT MAX(version) as mv FROM agent_prompts WHERE prompt_type = 'wiki_prompt'"
-                        )
-                    )
-                    if all_versions and all_versions[0]["mv"] is not None:
-                        max_version = all_versions[0]["mv"]
-
-                    db.execute(
-                        "UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = 'wiki_prompt'"
-                    )
-                    db["agent_prompts"].insert(
-                        {
-                            "prompt_type": "wiki_prompt",
-                            "prompt_text": value,
-                            "is_head": 1,
-                            "version": max_version + 1,
-                            "created_at": datetime.now().isoformat(),
-                        }
-                    )
-                    db.conn.commit()
-        except Exception as e:
-            print(f"Error setting wiki_prompt: {e}")
+        self._set_agent_prompt("wiki_prompt", value)
 
     @property
     def youtube_wiki_prompt(self) -> str:
-        if self.database_url and (
-            "postgresql" in self.database_url or "postgres" in self.database_url
-        ):
-            try:
-                from .models_orm import AgentPrompt
-                from .base import db_session
-
-                with db_session() as session:
-                    row = (
-                        session.query(AgentPrompt)
-                        .filter_by(prompt_type="youtube_wiki_prompt", is_head=1)
-                        .first()
-                    )
-                    if row:
-                        return row.prompt_text
-            except Exception:
-                pass
-            return self._youtube_wiki_prompt
-
-        try:
-            db = self.get_db()
-            if "agent_prompts" in db.table_names():
-                rows = list(
-                    db["agent_prompts"].rows_where(
-                        "prompt_type = 'youtube_wiki_prompt' AND is_head = 1"
-                    )
-                )
-                if rows:
-                    return rows[0]["prompt_text"]
-        except Exception:
-            pass
-        return self._youtube_wiki_prompt
+        return self._get_agent_prompt("youtube_wiki_prompt", self._youtube_wiki_prompt)
 
     @youtube_wiki_prompt.setter
     def youtube_wiki_prompt(self, value: str) -> None:
         self._youtube_wiki_prompt = value
-        if self.database_url and (
-            "postgresql" in self.database_url or "postgres" in self.database_url
-        ):
-            try:
-                from .models_orm import AgentPrompt
-                from .base import db_session
-                from datetime import datetime
-                from sqlalchemy import func
+        self._set_agent_prompt("youtube_wiki_prompt", value)
 
-                with db_session() as session:
-                    current_head = None
-                    row = (
-                        session.query(AgentPrompt)
-                        .filter_by(prompt_type="youtube_wiki_prompt", is_head=1)
-                        .first()
-                    )
-                    if row:
-                        current_head = row.prompt_text
+    @property
+    def tags_prompt(self) -> str:
+        return self._get_agent_prompt("tags_prompt", self._tags_prompt)
 
-                    if current_head != value:
-                        max_version = (
-                            session.query(func.max(AgentPrompt.version))
-                            .filter_by(prompt_type="youtube_wiki_prompt")
-                            .scalar()
-                            or 0
-                        )
-                        session.query(AgentPrompt).filter_by(
-                            prompt_type="youtube_wiki_prompt", is_head=1
-                        ).update({"is_head": 0})
-                        session.add(
-                            AgentPrompt(
-                                prompt_type="youtube_wiki_prompt",
-                                prompt_text=value,
-                                is_head=1,
-                                version=max_version + 1,
-                                created_at=datetime.now().isoformat(),
-                            )
-                        )
-                return
-            except Exception as e:
-                print(f"Error setting youtube_wiki_prompt on PostgreSQL: {e}")
-                return
+    @tags_prompt.setter
+    def tags_prompt(self, value: str) -> None:
+        self._tags_prompt = value
+        self._set_agent_prompt("tags_prompt", value)
 
-        try:
-            db = self.get_db()
-            if "agent_prompts" in db.table_names():
-                current_head = None
-                rows = list(
-                    db["agent_prompts"].rows_where(
-                        "prompt_type = 'youtube_wiki_prompt' AND is_head = 1"
-                    )
-                )
-                if rows:
-                    current_head = rows[0]["prompt_text"]
+    @property
+    def rag_system_prompt(self) -> str:
+        return self._get_agent_prompt("rag_system_prompt", self._rag_system_prompt)
 
-                if current_head != value:
-                    from datetime import datetime
+    @rag_system_prompt.setter
+    def rag_system_prompt(self, value: str) -> None:
+        self._rag_system_prompt = value
+        self._set_agent_prompt("rag_system_prompt", value)
 
-                    max_version = 0
-                    all_versions = list(
-                        db.execute_returning_dicts(
-                            "SELECT MAX(version) as mv FROM agent_prompts WHERE prompt_type = 'youtube_wiki_prompt'"
-                        )
-                    )
-                    if all_versions and all_versions[0]["mv"] is not None:
-                        max_version = all_versions[0]["mv"]
+    @property
+    def taxonomy_system_prompt(self) -> str:
+        return self._get_agent_prompt("taxonomy_system_prompt", self._taxonomy_system_prompt)
 
-                    db.execute(
-                        "UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = 'youtube_wiki_prompt'"
-                    )
-                    db["agent_prompts"].insert(
-                        {
-                            "prompt_type": "youtube_wiki_prompt",
-                            "prompt_text": value,
-                            "is_head": 1,
-                            "version": max_version + 1,
-                            "created_at": datetime.now().isoformat(),
-                        }
-                    )
-                    db.conn.commit()
-        except Exception as e:
-            print(f"Error setting youtube_wiki_prompt: {e}")
+    @taxonomy_system_prompt.setter
+    def taxonomy_system_prompt(self, value: str) -> None:
+        self._taxonomy_system_prompt = value
+        self._set_agent_prompt("taxonomy_system_prompt", value)
+
+    @property
+    def rag_report_prompt(self) -> str:
+        return self._get_agent_prompt("rag_report_prompt", self._rag_report_prompt)
+
+    @rag_report_prompt.setter
+    def rag_report_prompt(self, value: str) -> None:
+        self._rag_report_prompt = value
+        self._set_agent_prompt("rag_report_prompt", value)
+
+    @property
+    def maintenance_agent_prompt(self) -> str:
+        return self._get_agent_prompt("maintenance_agent_prompt", self._maintenance_agent_prompt)
+
+    @maintenance_agent_prompt.setter
+    def maintenance_agent_prompt(self, value: str) -> None:
+        self._maintenance_agent_prompt = value
+        self._set_agent_prompt("maintenance_agent_prompt", value)
+
+    @property
+    def workspace_agent_prompt(self) -> str:
+        return self._get_agent_prompt("workspace_agent_prompt", self._workspace_agent_prompt)
+
+    @workspace_agent_prompt.setter
+    def workspace_agent_prompt(self, value: str) -> None:
+        self._workspace_agent_prompt = value
+        self._set_agent_prompt("workspace_agent_prompt", value)
+
+    @property
+    def article_chat_prompt(self) -> str:
+        return self._get_agent_prompt("article_chat_prompt", self._article_chat_prompt)
+
+    @article_chat_prompt.setter
+    def article_chat_prompt(self, value: str) -> None:
+        self._article_chat_prompt = value
+        self._set_agent_prompt("article_chat_prompt", value)
+
+    @property
+    def ontology_synthesis_prompt(self) -> str:
+        return self._get_agent_prompt("ontology_synthesis_prompt", self._ontology_synthesis_prompt)
+
+    @ontology_synthesis_prompt.setter
+    def ontology_synthesis_prompt(self, value: str) -> None:
+        self._ontology_synthesis_prompt = value
+        self._set_agent_prompt("ontology_synthesis_prompt", value)
+
+    def get_all_prompts(self) -> List[Dict[str, Any]]:
+        """Returns metadata and values for all registered system messages and prompts."""
+        return [
+            {
+                "id": "wiki_prompt",
+                "name": "Wiki Extraction & Synthesis",
+                "label": "Wiki Extraction System Prompt",
+                "category": "Curation",
+                "description": "Transforms raw scraped web page markdown into structured clean wiki articles.",
+                "value": self.wiki_prompt,
+                "default": DEFAULT_WIKI_PROMPT,
+            },
+            {
+                "id": "youtube_wiki_prompt",
+                "name": "YouTube Video Breakdown",
+                "label": "YouTube Wiki System Prompt",
+                "category": "Curation",
+                "description": "Converts video transcripts into structured articles with chronological timestamps and key quotes.",
+                "value": self.youtube_wiki_prompt,
+                "default": DEFAULT_YOUTUBE_WIKI_PROMPT,
+            },
+            {
+                "id": "tags_prompt",
+                "name": "Tag Taxonomy & Keywords",
+                "label": "AI Tag Curation System Prompt",
+                "category": "Curation",
+                "description": "Analyzes page markdown and extracts 5 to 10 comma-separated categorization tags.",
+                "value": self.tags_prompt,
+                "default": DEFAULT_TAGS_PROMPT,
+            },
+            {
+                "id": "rag_system_prompt",
+                "name": "Collection Knowledge Assistant",
+                "label": "Agentic RAG System Instructions",
+                "category": "Research & RAG",
+                "description": "System instruction for collection-grounded conversational Q&A and factual query answering.",
+                "value": self.rag_system_prompt,
+                "default": DEFAULT_RAG_SYSTEM_PROMPT,
+            },
+            {
+                "id": "taxonomy_system_prompt",
+                "name": "Hierarchical Filetree Taxonomist",
+                "label": "Taxonomy Structuring Instructions",
+                "category": "Curation",
+                "description": "Taxonomy classifier that routes incoming articles into the virtual filetree folders.",
+                "value": self.taxonomy_system_prompt,
+                "default": DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+            },
+            {
+                "id": "rag_report_prompt",
+                "name": "Research Report Synthesis",
+                "label": "Research Report Compilation Prompt",
+                "category": "Research & RAG",
+                "description": "Senior research agent prompt that compiles multi-agent search evidence into publication-grade Markdown reports.",
+                "value": self.rag_report_prompt,
+                "default": DEFAULT_RAG_REPORT_PROMPT,
+            },
+            {
+                "id": "maintenance_agent_prompt",
+                "name": "Site Maintenance Error Diagnostics",
+                "label": "Maintenance & Error Diagnostic Prompt",
+                "category": "Diagnostics",
+                "description": "System prompt for analyzing uncaught server exceptions, inspecting code context, and diagnosing root causes.",
+                "value": self.maintenance_agent_prompt,
+                "default": DEFAULT_MAINTENANCE_AGENT_PROMPT,
+            },
+            {
+                "id": "workspace_agent_prompt",
+                "name": "Workspace Autonomous Coding Assistant",
+                "label": "Workspace Coding Assistant Prompt",
+                "category": "Coding & Chat",
+                "description": "System prompt for in-browser IDE coding agent pairing, file modifications, and planning.",
+                "value": self.workspace_agent_prompt,
+                "default": DEFAULT_WORKSPACE_AGENT_PROMPT,
+            },
+            {
+                "id": "article_chat_prompt",
+                "name": "Article Document Reading Assistant",
+                "label": "Article Q&A System Prompt",
+                "category": "Coding & Chat",
+                "description": "Document-grounded conversational agent for interactive Q&A inside saved articles.",
+                "value": self.article_chat_prompt,
+                "default": DEFAULT_ARTICLE_CHAT_PROMPT,
+            },
+            {
+                "id": "ontology_synthesis_prompt",
+                "name": "Domain Ontology Architect",
+                "label": "Domain Ontology Synthesis Prompt",
+                "category": "Curation",
+                "description": "Autonomous state machine prompt that synthesizes new domain categories and authoritative scope documentation.",
+                "value": self.ontology_synthesis_prompt,
+                "default": DEFAULT_ONTOLOGY_SYNTHESIS_PROMPT,
+            },
+        ]
 
     @property
     def similarity_threshold(self) -> float:
@@ -753,6 +868,14 @@ class Config:
                 "api_key": self.api_key,
                 "wiki_prompt": self.wiki_prompt,
                 "youtube_wiki_prompt": self.youtube_wiki_prompt,
+                "tags_prompt": self.tags_prompt,
+                "rag_system_prompt": self.rag_system_prompt,
+                "taxonomy_system_prompt": self.taxonomy_system_prompt,
+                "rag_report_prompt": self.rag_report_prompt,
+                "maintenance_agent_prompt": self.maintenance_agent_prompt,
+                "workspace_agent_prompt": self.workspace_agent_prompt,
+                "article_chat_prompt": self.article_chat_prompt,
+                "ontology_synthesis_prompt": self.ontology_synthesis_prompt,
                 "similarity_threshold": self.similarity_threshold,
                 "max_input_length": self.max_input_length,
                 "ollama_think": self.ollama_think,

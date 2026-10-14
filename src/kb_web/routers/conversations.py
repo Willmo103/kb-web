@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import desc
 
 from ..base import db_session, config, _jinja_env, COOKIE_NAME, verify_session_token
+from ..config import DEFAULT_ARTICLE_CHAT_PROMPT
 from ..models_orm import (
     ChatConversation,
     ChatMessage,
@@ -249,11 +250,8 @@ def post_chat_message(payload: Dict[str, Any]) -> Dict[str, Any]:
             .all()
         )
 
-        system_instruction = (
-            "You are an expert AI knowledge-base assistant. Answer the user's questions accurately, "
-            "helpfully, and concisely based on the document context provided below.\n\n"
-            f"{doc_context}"
-        )
+        base_instruction = getattr(config, "article_chat_prompt", DEFAULT_ARTICLE_CHAT_PROMPT)
+        system_instruction = f"{base_instruction}\n\n{doc_context}"
 
         ollama_messages = [{"role": "system", "content": system_instruction}]
         for m in past_msgs:
