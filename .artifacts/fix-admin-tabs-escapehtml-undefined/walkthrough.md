@@ -22,4 +22,8 @@ Regression source: Issue #92 Prompt Studio merge (`311f01c` / `309b403`)
 - `verify_ui_templates.py`: **0 warnings**.
 - `uv run python build.py`: **SUCCESS**.
 - `ruff`: no new lint errors from this change. The existing repo-wide errors are unchanged.
-- Browser UAT: done by the user in their dedicated test environment (`kb-test`).
+- Browser UAT on `kb-test` (after `relaunch_test_kb_web.sh`):
+  - All 5 tabs (General, Prompts, Backups, Media, Diagnostics) show their content when switched.
+  - Prompt Studio: choosing Wiki / YouTube Wiki / AI Tag prompts updates the Monaco editor and the live preview.
+  - Console: no `escapeHtml` ReferenceError and no JS errors.
+  - Read-only test: no forms submitted except login; no action buttons clicked.
