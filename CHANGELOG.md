@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.5.9] - 2026-10-13
+### Fixed
+- **Admin Portal blank tabs & `escapeHtml` ReferenceError (`templates/admin.j2.html`)** — regression from Issue #92 Prompt Studio merge:
+  - **Root cause 1**: The `tab-prompts` refactor dropped 4 closing `</div>` tags after the *Quick Diagnostics* card, nesting `#tab-prompts`, `#tab-backups`, `#tab-media`, and `#tab-diagnostics` inside `#tab-general`. `switchAdminTab()` hid `#tab-general` and therefore every pane, rendering all non-General tabs blank. Restored the missing closing tags.
+  - **Root cause 2**: Prompt Studio's `updateActivePromptUI()` (revision history) and the status banner called `escapeHtml()`, which was never defined in the admin template, throwing `Uncaught ReferenceError: escapeHtml is not defined` inside the Monaco init callback. Added a null-safe local `escapeHtml()` helper.
+  - Added regression tests `test_admin_portal_tab_panes_are_siblings` and `test_admin_portal_defines_escape_html` in `tests/test_system_prompts_admin.py`.
+
 ### Added
 - **AI Agent Personas & System Prompt Studio (`config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Issue #92)**:
   - Exposed all 10 non-numerical hardcoded prompt templates and system directives across the application in `config.py` backed by `AgentPrompt` versioning and `kb-web.json` serialization:

@@ -166,3 +166,58 @@ def test_admin_portal_renders_prompt_studio(auth_client):
     assert "AI Agent Personas &amp; System Prompt Studio" in html or "AI Agent Personas & System Prompt Studio" in html
     assert "btnViewSplit" in html
     assert "btnSavePrompt" in html
+
+
+def test_admin_portal_tab_panes_are_siblings(auth_client):
+    """Regression: every .admin-tab-pane must be a sibling, never nested inside another pane.
+
+    A missing closing </div> in #tab-general previously nested all other panes inside it,
+    so switching tabs hid every pane and rendered blank content.
+    """
+    from html.parser import HTMLParser
+
+    void_tags = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+    class PaneNestingParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.stack = []  # list of (tag, pane_id or None)
+            self.nested = []
+            self.panes = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag in void_tags:
+                return
+            attr_map = dict(attrs)
+            classes = (attr_map.get("class") or "").split()
+            pane_id = attr_map.get("id") if "admin-tab-pane" in classes else None
+            if pane_id:
+                self.panes.append(pane_id)
+                parents = [p for _, p in self.stack if p]
+                if parents:
+                    self.nested.append((pane_id, parents[-1]))
+            self.stack.append((tag, pane_id))
+
+        def handle_endtag(self, tag):
+            for i in range(len(self.stack) - 1, -1, -1):
+                if self.stack[i][0] == tag:
+                    del self.stack[i:]
+                    break
+
+    res = auth_client.get("/admin")
+    assert res.status_code == 200
+    parser = PaneNestingParser()
+    parser.feed(res.text)
+
+    expected = {"tab-general", "tab-prompts", "tab-backups", "tab-media", "tab-diagnostics"}
+    assert expected.issubset(set(parser.panes))
+    assert parser.nested == [], f"Nested admin tab panes detected: {parser.nested}"
+
+
+def test_admin_portal_defines_escape_html(auth_client):
+    """Regression: admin template must define escapeHtml() since Prompt Studio renderers call it."""
+    res = auth_client.get("/admin")
+    assert res.status_code == 200
+    html = res.text
+    if "escapeHtml(" in html:
+        assert "function escapeHtml" in html

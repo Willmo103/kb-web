@@ -320,7 +320,12 @@
                             <dd class="font-bold text-gray-800 dark:text-gray-200 font-mono">{{ config.ollama_embedding_model }}</dd>
                         </div>
                     </dl>
-            <!-- TAB 2: Prompts & Pipeline Operations -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 2: Prompts & Pipeline Operations -->
     <div id="tab-prompts" class="admin-tab-pane hidden space-y-8">
         
         <!-- PROMPT STUDIO SECTION -->
@@ -998,6 +1003,17 @@
 
 <!-- Tab Switching Controller -->
 <script>
+    // Null-safe HTML escaping helper used by Prompt Studio renderers and status banners.
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function switchAdminTab(tabId) {
         // Hide all panes
         document.querySelectorAll('.admin-tab-pane').forEach(el => el.classList.add('hidden'));
