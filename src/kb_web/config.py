@@ -191,6 +191,7 @@ class Config:
         self._ollama_embedding_model: str = os.getenv(
             "KB_OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"
         )
+        self._decision_model: str = os.getenv("KB_DECISION_MODEL", "d1")
         self._admin_password: str = os.getenv("KB_PASSWORD", "admin123")
         self._api_key: Optional[str] = os.getenv("KB_API_KEY", "kb-secret-key")
         self._wiki_prompt: str = os.getenv("KB_WIKI_PROMPT", DEFAULT_WIKI_PROMPT)
@@ -421,6 +422,17 @@ class Config:
     def ollama_embedding_model(self, value: str) -> None:
         self._ollama_embedding_model = value
         self._write_db_setting("settings_ollama", "ollama_embedding_model", value)
+
+    @property
+    def decision_model(self) -> str:
+        return self._read_db_setting(
+            "settings_ollama", "decision_model", self._decision_model
+        )
+
+    @decision_model.setter
+    def decision_model(self, value: str) -> None:
+        self._decision_model = value
+        self._write_db_setting("settings_ollama", "decision_model", value)
 
     @property
     def max_input_length(self) -> int:
@@ -1001,6 +1013,7 @@ class Config:
                 "ollama_host": self.ollama_host,
                 "ollama_model": self.ollama_model,
                 "ollama_embedding_model": self.ollama_embedding_model,
+                "decision_model": self.decision_model,
                 "trusted_proxies": self.trusted_proxies,
                 "admin_password_hash": self.admin_password_hash,
                 "admin_password": "[REDACTED]" if not (self.admin_password or "").startswith("scrypt$") else self.admin_password,

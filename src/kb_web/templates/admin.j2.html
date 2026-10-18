@@ -588,10 +588,13 @@
                         </span>
                     </div>
                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Independent jobs for wiki curation, tag extraction, vector embeddings, synthetic QA, and RAG evaluation. Configure timespans (minutes) and assigned Ollama models per job.
+                        Independent jobs for wiki curation, vector embeddings, synthetic grounding, RAG evaluation, and autonomous link crawling. Configure timespans (minutes) and assigned Ollama models per job.
                     </p>
                 </div>
                 <div class="flex items-center gap-2">
+                    <a href="/reports?table=ollama_logs" class="bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-800 dark:text-gray-200 text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition flex items-center gap-1.5 border border-gray-300 dark:border-slate-600" title="Inspect raw Ollama LLM requests, durations, options, and responses">
+                        <span>📊</span> Ollama Model Logs
+                    </a>
                     <form action="/admin/worker/trigger" method="post">
                         <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition flex items-center gap-1.5">
                             <span>⚡</span> Run All Due Jobs Now

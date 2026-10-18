@@ -28,6 +28,7 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - **Admin Portal Tabbed Layout**: Ergonomic, 5-tab dashboard with persistent tab state across General, Prompts, Backups, Media, and Diagnostics.
 - **Custom Report Builder & ERP Data Grid**: Multi-table data grid (`/reports`) with dynamic joins, filtering, saved views, and high-volume streaming exports in `.csv`, `.json`, and native Excel `.xlsx`.
 - **In-Browser Replit-Lite Workspaces & Pyodide Python WASM**: Full browser-based coding studio (`/workspaces`) with persistent multi-file workspaces stored in the database, Monaco Editor, live Pyodide Python 3 WASM execution runtime, sandboxed HTML/JS preview with console log interceptor, ZIP archive bundling, and ephemeral Ollama coding agent with interactive diff review and merge.
+- **Model Evaluation Studio & Calibration Suite**: Dedicated evaluation studio (`/evals`) for side-by-side comparative testing across models and prompts (Prompt & Model Matrix), structured multi-question decision gating (`d1` default with 16k context window and `tev1` via `client.systemone`), and embedding retrieval benchmarks before production worker agent deployment.
 
 ---
 
@@ -48,6 +49,7 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - `src/kb_web/routers/embeddings.py`: Multi-model embedding management, reindexing, and side-by-side comparison.
 - `src/kb_web/routers/notes.py`: Personal knowledge notes, code paste ingestion, and Obsidian vault archives.
 - `src/kb_web/routers/reports.py`: Dynamic report builder, multi-table joins, and streaming data exports.
+- `src/kb_web/routers/evals.py`: Model Evaluation Studio (`/evals`), matrix runner, `d1`/`tev1` decision gating, and embedding retrieval benchmarks.
 - `src/kb_web/routers/workspaces.py`: Persistent in-browser IDE workspaces, starter templates, file sync, ZIP export, and Ollama agent integration.
 - `src/kb_web/worker.py`: Modular Autonomous Background Server Worker engine and job runner registry (`ServerJob` and `AutonomousWorker`).
 - `src/kb_web/routers/worker.py`: REST and Admin API endpoints for inspecting, configuring, and triggering individual server jobs (`/api/jobs`, `/admin/jobs`).

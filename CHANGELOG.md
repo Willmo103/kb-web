@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.5.10] - 2026-10-18
+### Added
+- **Model Evaluation Studio (`/evals`) & Calibration Suite (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`, & `templates/base.j2.html`)**:
+  - Added dedicated `/evals` portal with top-level navbar navigation for side-by-side comparative benchmarking.
+  - **Prompt & Model Matrix**: Tests models × prompt combinations across sample saved articles or custom markdown with latency and token-per-second metrics.
+  - **Decision Gating Studio**: Tests structured multi-question decision gating models (`d1` default with 16,384 context window and `tev1`) via native `client.systemone`, supporting discrete choices, probability scoring (`noul`), and preset question templates.
+  - **Embedding Retrieval Comparison**: Benchmarks embedding models against target search queries and candidate texts with cosine similarity scoring.
+- **Ollama Request Logs Catalog Exposure (`src/kb_web/routers/reports.py` & `templates/admin.j2.html`)**:
+  - Registered `ollama_logs` ORM table in `TABLE_METADATA` with heavy column placeholder support for `messages` and `response`.
+  - Added direct navigation button (`📊 Ollama Model Logs`) in the Admin Portal linking directly to `/reports?table=ollama_logs`.
+- **Transparent Decision Model Configuration (`src/kb_web/config.py`)**:
+  - Added `decision_model` property defaulting to `"d1"` (configurable via `KB_DECISION_MODEL`, persisted in `settings_ollama` and exported in JSON backups per Rule 7).
+
+### Fixed
+- **Raw Un-Truncated Report Data Downloads (`src/kb_web/routers/reports.py`)**:
+  - **Root Cause**: `export_report_data()` reused UI grid placeholder formatting, causing CSV, XLSX, and JSON downloads to output string literals like `[Content: 77,805 chars]` instead of actual content.
+  - **Fix**: Updated `export_report_data()` to set `fetch_heavy=True` and bypass placeholder truncation, streaming complete raw text content into exported files.
+
+### Removed
+- **Eliminated Placeholder Tag Taxonomy Agent (`src/kb_web/worker.py` & `templates/admin.j2.html`)**:
+  - Removed placeholder `tag_curation` job from the worker engine registry and dashboard, leaving only active jobs prior to worker refactoring.
+
 ### Security & Hardening
 - **Rate-Limit Spoofing Defense & Trusted Reverse Proxies (`routers/auth.py`, `config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Fixes #93, SEC-01)**:
   - **Root Cause**: `_get_client_ip()` previously trusted the first IP in `X-Forwarded-For` without validating whether the connecting peer was a recognized reverse proxy, allowing brute-force attackers to bypass the 5-attempt login lockout by sending randomized header values.

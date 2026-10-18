@@ -32,6 +32,7 @@ from ..models_orm import (
     CollectionItem,
     FetchedPage,
     Note,
+    OllamaLog,
     SavedReportView,
     ScheduledReportJob,
     SiteWiki,
@@ -48,6 +49,8 @@ HEAVY_COLUMNS = {
     "notes.wiki_summary",
     "site_wikis.wiki_content",
     "chunk_embeddings.chunk_vector",
+    "ollama_logs.messages",
+    "ollama_logs.response",
 }
 
 # Pre-defined schema metadata for reporting introspection
@@ -146,6 +149,22 @@ TABLE_METADATA = {
             {"name": "site", "label": "Domain / Host", "type": "string", "is_heavy": False},
             {"name": "updated_at", "label": "Updated At", "type": "datetime", "is_heavy": False},
             {"name": "wiki_content", "label": "Wiki Markdown", "type": "string", "is_heavy": True},
+        ],
+        "allowable_joins": [],
+    },
+    "ollama_logs": {
+        "label": "Ollama Model Logs",
+        "pk": "id",
+        "columns": [
+            {"name": "id", "label": "Log ID", "type": "int", "is_heavy": False},
+            {"name": "timestamp", "label": "Timestamp", "type": "datetime", "is_heavy": False},
+            {"name": "model", "label": "Model Name", "type": "string", "is_heavy": False},
+            {"name": "prompt_type", "label": "Prompt Type", "type": "string", "is_heavy": False},
+            {"name": "status", "label": "Status", "type": "string", "is_heavy": False},
+            {"name": "duration", "label": "Duration (s)", "type": "float", "is_heavy": False},
+            {"name": "options", "label": "Model Options (JSON)", "type": "string", "is_heavy": False},
+            {"name": "messages", "label": "Prompt Messages (JSON)", "type": "string", "is_heavy": True},
+            {"name": "response", "label": "Model Response", "type": "string", "is_heavy": True},
         ],
         "allowable_joins": [],
     },
@@ -507,7 +526,8 @@ def export_report_data(req: ReportQueryRequest, format: str = Query("csv", patte
     req.offset = 0
 
     with db_session() as session:
-        query_sql, query_params = _build_sql_query(req, fetch_heavy=req.fetch_heavy, is_count=False)
+        # Export downloads must always stream full un-truncated content
+        query_sql, query_params = _build_sql_query(req, fetch_heavy=True, is_count=False)
         result = session.execute(text(query_sql), query_params)
         keys = list(result.keys())
         raw_rows = [dict(row._mapping) for row in result.fetchall()]
@@ -516,10 +536,7 @@ def export_report_data(req: ReportQueryRequest, format: str = Query("csv", patte
         for r in raw_rows:
             row_dict = {}
             for k, v in r.items():
-                if not req.fetch_heavy and k in HEAVY_COLUMNS:
-                    row_dict[k] = _format_heavy_placeholder(k, v)
-                else:
-                    row_dict[k] = v
+                row_dict[k] = v if v is not None else ""
             processed_rows.append(row_dict)
 
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
