@@ -9,7 +9,7 @@ import logging
 import math
 import re
 import socket
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from urllib.parse import urljoin, urlparse, urlsplit
 
@@ -73,6 +73,11 @@ def validate_target_url(url: str, allow_internal: bool = False) -> None:
                 raise ValueError(f"Host '{hostname}' resolves to restricted internal IP '{ip_str}'.")
     except socket.gaierror:
         pass
+
+
+def utc_now_iso() -> str:
+    """Returns the current timezone-aware UTC datetime formatted as ISO 8601 string (QUAL-02)."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 def sanitize_html(html_str: str) -> str:
@@ -482,7 +487,7 @@ def fetch_youtube_video_page(url: str, video_id: str) -> HTMLPage:
         links=[],
         html_content_hash=hashlib.sha256(html_content.encode("utf-8")).hexdigest(),
         md_content_hash=hashlib.sha256(md_content.encode("utf-8")).hexdigest(),
-        fetched_at=datetime.now().isoformat(),
+        fetched_at=utc_now_iso(),
         description="",
         keywords=[],
         tags=[],
@@ -545,7 +550,7 @@ def fetch_url(url: str) -> HTMLPage:
             links=links,
             html_content_hash=hashlib.sha256(html_content.encode("utf-8")).hexdigest(),
             md_content_hash=hashlib.sha256(md_content.encode("utf-8")).hexdigest(),
-            fetched_at=datetime.now().isoformat(),
+            fetched_at=utc_now_iso(),
             description="",
             keywords=[],
             tags=[],
@@ -798,7 +803,7 @@ def save_youtube_metadata_helper(
                 video.duration = duration
                 video.view_count = view_count
                 video.thumbnail_url = thumbnail_url
-                video.updated_at = datetime.now().isoformat()
+                video.updated_at = utc_now_iso()
             else:
                 session.add(
                     YouTubeVideo(
@@ -809,7 +814,7 @@ def save_youtube_metadata_helper(
                         duration=duration,
                         view_count=view_count,
                         thumbnail_url=thumbnail_url,
-                        updated_at=datetime.now().isoformat(),
+                        updated_at=utc_now_iso(),
                     )
                 )
         print(f"Successfully saved YouTube video metadata for: {url}")
@@ -864,7 +869,7 @@ def update_article_embedding(
             )
             embedding = response["embedding"]
 
-        now_str = datetime.now().isoformat()
+        now_str = utc_now_iso()
         with db_session() as session:
             art_emb = session.query(ArticleEmbedding).filter_by(url=url).first()
             if art_emb:
@@ -1234,12 +1239,12 @@ def generate_gemma_embeddings_for_page(
                 chunk_number=idx,
                 chunk_content=chunk,
                 chunk_vector=vector,
-                created_at=datetime.now().isoformat(),
+                created_at=utc_now_iso(),
             )
             session.add(new_chunk)
 
         if vector_desc:
-            now_str = datetime.now().isoformat()
+            now_str = utc_now_iso()
             if is_video:
                 vid_emb = (
                     session.query(VideoEmbedding).filter_by(url=url).first()

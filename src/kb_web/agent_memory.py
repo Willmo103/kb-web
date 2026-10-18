@@ -101,15 +101,35 @@ def read_agent_memory(
 
 
 def get_agent_board_summary(session: Session) -> Dict[str, Any]:
-    """Computes aggregated channel and agent activity metrics for the board UI."""
+    """Computes aggregated channel and agent activity metrics for the board UI using distinct database queries (PERF-02)."""
     total_messages = session.query(AgentMessage).count()
     recent = read_agent_memory(session, limit=10)
 
-    # Distinct channels and agents
-    all_msgs = session.query(AgentMessage).all()
-    channels = sorted(list({m.channel for m in all_msgs if m.channel}))
-    agents = sorted(list({m.agent_name for m in all_msgs if m.agent_name}))
-    types = sorted(list({m.memory_type for m in all_msgs if m.memory_type}))
+    # Efficient distinct queries rather than fetching full table
+    channels = [
+        r[0]
+        for r in session.query(AgentMessage.channel)
+        .distinct()
+        .filter(AgentMessage.channel.isnot(None), AgentMessage.channel != "")
+        .order_by(AgentMessage.channel)
+        .all()
+    ]
+    agents = [
+        r[0]
+        for r in session.query(AgentMessage.agent_name)
+        .distinct()
+        .filter(AgentMessage.agent_name.isnot(None), AgentMessage.agent_name != "")
+        .order_by(AgentMessage.agent_name)
+        .all()
+    ]
+    types = [
+        r[0]
+        for r in session.query(AgentMessage.memory_type)
+        .distinct()
+        .filter(AgentMessage.memory_type.isnot(None), AgentMessage.memory_type != "")
+        .order_by(AgentMessage.memory_type)
+        .all()
+    ]
 
     return {
         "total_messages": total_messages,

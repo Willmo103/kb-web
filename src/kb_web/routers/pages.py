@@ -20,6 +20,7 @@ from ..base import (
     db_session,
 )
 import math
+from collections import deque
 from ..models import HTMLPage, extract_youtube_video_id
 from ..models_orm import FetchedPage, YouTubeVideo, Collection, CollectionItem, PageVersion, PageCardView, ChunkEmbedding
 from ..utils import (
@@ -487,8 +488,9 @@ def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
     if base_domain.startswith("www."):
         base_domain = base_domain[4:]
 
-    queue = [(base_url, 0)]
+    queue = deque([(base_url, 0)])
     visited = set()
+    enqueued = {base_url}
 
     logger.info(
         f"[CRAWLER] Starting recursive crawl from: {base_url} (depth={depth}, interval={interval}s, normalized domain={base_domain})"
@@ -498,7 +500,7 @@ def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
     max_pages = 50  # safeguard
 
     while queue and count < max_pages:
-        current_url, current_depth = queue.pop(0)
+        current_url, current_depth = queue.popleft()
 
         if current_url in visited:
             continue
@@ -556,7 +558,8 @@ def run_recursive_crawl(base_url: str, depth: int, interval: int, config_obj):
                         parsed_link.scheme in ("http", "https")
                         and link_domain == base_domain
                     ):
-                        if abs_link not in visited:
+                        if abs_link not in visited and abs_link not in enqueued:
+                            enqueued.add(abs_link)
                             queue.append((abs_link, current_depth + 1))
             except Exception as e:
                 logger.error(

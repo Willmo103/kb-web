@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.5.10] - 2026-10-18
-### Security
+### Security & Hardening
 - **Rate-Limit Spoofing Defense & Trusted Reverse Proxies (`routers/auth.py`, `config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Fixes #93, SEC-01)**:
   - **Root Cause**: `_get_client_ip()` previously trusted the first IP in `X-Forwarded-For` without validating whether the connecting peer was a recognized reverse proxy, allowing brute-force attackers to bypass the 5-attempt login lockout by sending randomized header values.
   - **Fix**: Added `trusted_proxies` property to `config.py` (default: `127.0.0.1, ::1`, configurable via `KB_TRUSTED_PROXIES` and Admin Portal General settings per Rule 7). `_get_client_ip()` verifies `request.client.host` against trusted IPs and CIDR ranges via `ipaddress`, only evaluating `X-Forwarded-For` when forwarded by a trusted proxy and picking the rightmost untrusted hop. Added `_global_failed_attempts` tracking with a 50-attempt global lockout ceiling.
@@ -25,6 +25,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scrypt Salted Password Hashing & Secret Redaction (`src/kb_web/config.py` & `routers/auth.py`) (Fixes #110, SEC-06)**:
   - **Root Cause**: Passwords were stored in plaintext and written out to `kb-web.json` backup exports.
   - **Fix**: Added `hash_password()` and `verify_password()` using standard library `hashlib.scrypt` with random 16-byte salts (`scrypt$<salt>$<hash>`). Login transparently verifies existing plaintext passwords and automatically migrates them to scrypt hashes. Redacted sensitive secrets (`admin_password`, `api_key`) from `kb-web.json` exports.
+- **SSRF Prevention & Internal IP Guard (`src/kb_web/utils.py`) (Fixes #109, SEC-07)**:
+  - **Root Cause**: Ingestion targets were fetched without IP resolution checks, permitting requests to loopback addresses (`127.0.0.1`), RFC1918 private subnets, and cloud metadata endpoints (`169.254.169.254`).
+  - **Fix**: Added `validate_target_url()` resolving hostnames via `socket.getaddrinfo()` and verifying IP addresses against `is_internal_ip()` (blocking loopback, private, link-local, multicast, and cloud metadata).
+- **HTTP Header Hardening (`src/kb_web/server.py`) (Fixes #97, SEC-08)**:
+  - Injected `Strict-Transport-Security: max-age=31536000; includeSubDomains` and `Permissions-Policy: geolocation=(), camera=(), microphone=()`. Removed deprecated `X-XSS-Protection` header.
+
+### Fixed
+- **Non-ASCII Credential Crash (`src/kb_web/base.py` & `config.py`) (Fixes #98, BUG-01)**:
+  - **Root Cause**: `hmac.compare_digest` raises `TypeError` when comparing non-ASCII `str` instances, turning non-ASCII passwords or API keys into unhandled HTTP 500 errors.
+  - **Fix**: Implemented `safe_compare_digest()` using UTF-8 byte encoding (`a.encode("utf-8")`) and safe None checks.
+- **Article View Extra Closing Div (`src/kb_web/templates/view_page.j2.html`) (Fixes #100, HTML-01)**:
+  - **Root Cause**: Unmatched extra `</div>` at line 443 prematurely closed the container layout before modal and details elements.
+  - **Fix**: Removed the redundant closing tag and verified template balance across all 25 Jinja2 files.
+- **Modernized MCP Server Database Connectivity (`src/kb_web/mcp_server.py`) (Fixes #99, BUG-03)**:
+  - **Root Cause**: MCP server read the legacy `db.sqlite` database using `sqlite_utils`, presenting empty or stale results on PostgreSQL deployments.
+  - **Fix**: Refactored `mcp_server.py` to use `db_session()` and `FetchedPage` SQLAlchemy ORM models, providing transparent support for PostgreSQL and SQLite.
+
+### Performance & Tooling
+- **Batched Bulk Maintenance Routines (`src/kb_web/routers/admin.py`) (Fixes #102, PERF-01 & #105, QUAL-01)**:
+  - Refactored `run_bulk_description_maintenance()` and `run_bulk_embedding_maintenance()` to stream candidate URLs and commit updates per item, avoiding full-table memory loading and unbounded open database transactions. Replaced bare `print()` calls with structured logging.
+- **Optimized Agent Board Summary Distinct Queries (`src/kb_web/agent_memory.py`) (Fixes #103, PERF-02)**:
+  - Replaced full-table `session.query(AgentMessage).all()` and in-memory set comprehensions with `session.query(...).distinct()` queries.
+- **Crawler Queue Optimization with Deque (`src/kb_web/routers/pages.py`) (Fixes #104, PERF-03)**:
+  - Replaced $O(N)$ `queue.pop(0)` list popping with $O(1)$ `collections.deque.popleft()` and added `enqueued` set tracking.
+- **Timezone-Aware UTC Timestamps (`src/kb_web/utils.py`) (Fixes #106, QUAL-02)**:
+  - Implemented `utc_now_iso()` using `datetime.now(timezone.utc).isoformat()` to eliminate ambiguous naive local timestamps.
+- **Automated Div Balance & Structural Template Checking (`.agents/skills/ui-component-uat-check/scripts/verify_ui_templates.py`) (Fixes #101, TOOL-01)**:
+  - Enhanced pre-commit template checker to automatically verify `<div>` tag balance and syntax across all templates.
+- **Package Configuration & Lint Baseline (`pyproject.toml`) (Fixes #107, CFG-01 & #108, CFG-02)**:
+  - Synchronized package version to `0.5.10`, updated package description, and established `[tool.ruff]` linting baseline.
+- **Code Review & Issue Generator Skill (`.agents/skills/code-review-issue-generator/`)**:
+  - Created reusable agent skill with `SKILL.md`, `audit_report_template.html`, `generate_audit_report.py`, and `sweep_codebase.py` for generating interactive review reports with ready-to-post GitHub issues.
 
 ## [0.5.9] - 2026-10-13
 
