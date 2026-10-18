@@ -27,9 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Root Cause**: `export_report_data()` reused UI grid placeholder formatting, causing CSV, XLSX, and JSON downloads to output string literals like `[Content: 77,805 chars]` instead of actual content.
   - **Fix**: Updated `export_report_data()` to set `fetch_heavy=True` and bypass placeholder truncation, streaming complete raw text content into exported files.
 
-### Removed
-- **Eliminated Placeholder Tag Taxonomy Agent (`src/kb_web/worker.py` & `templates/admin.j2.html`)**:
-  - Removed placeholder `tag_curation` job from the worker engine registry and dashboard, leaving only active jobs prior to worker refactoring.
+### Changed
+- **Server Jobs Framework Registration (`src/kb_web/worker.py`)**:
+  - Ensured `tag_curation` is registered alongside `wiki_curation`, `embedding_refresh`, `synthetic_qa`, `rag_eval`, and `link_crawler` in the default server jobs registry.
 
 ### Security & Hardening
 - **Rate-Limit Spoofing Defense & Trusted Reverse Proxies (`routers/auth.py`, `config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Fixes #93, SEC-01)**:

@@ -124,36 +124,42 @@ def test_eval_dataset_min_20_rows_validation():
             session.add(p)
         session.commit()
 
-    with patch("kb_web.routers.evals.verify_session_token", return_value=True):
-        # Attempt to save dataset targeting test-tag (only 5 rows)
-        req = CreateDatasetRequest(
-            name="Test Small Dataset",
-            description="Should fail validation",
-            base_table="fetched_pages",
-            selected_columns=["fetched_pages.url", "fetched_pages.title"],
-            filters=[DatasetFilter(column="fetched_pages.url", operator="contains", value="https://test-eval-")],
-            joins=[],
-        )
+    try:
+        with patch("kb_web.routers.evals.verify_session_token", return_value=True):
+            # Attempt to save dataset targeting test-tag (only 5 rows)
+            req = CreateDatasetRequest(
+                name="Test Small Dataset",
+                description="Should fail validation",
+                base_table="fetched_pages",
+                selected_columns=["fetched_pages.url", "fetched_pages.title"],
+                filters=[DatasetFilter(column="fetched_pages.url", operator="contains", value="https://test-eval-")],
+                joins=[],
+            )
 
-        with pytest.raises(HTTPException) as exc_info:
-            create_eval_dataset(req, mock_request)
-        
-        assert exc_info.value.status_code == 400
-        assert "at least 20 rows" in exc_info.value.detail
+            with pytest.raises(HTTPException) as exc_info:
+                create_eval_dataset(req, mock_request)
+            
+            assert exc_info.value.status_code == 400
+            assert "at least 20 rows" in exc_info.value.detail
 
-        # Now seed 20 pages so total reaches 25
+            # Now seed 20 pages so total reaches 25
+            with db_session() as session:
+                for i in range(5, 25):
+                    p = FetchedPage(
+                        url=f"https://test-eval-{i}.com",
+                        title=f"Test Article {i}",
+                        md_content=f"Content {i}",
+                        tags="test-tag",
+                    )
+                    session.add(p)
+                session.commit()
+
+            # Should now succeed!
+            res = create_eval_dataset(req, mock_request)
+            assert res["status"] == "success"
+            assert res["dataset"]["row_count"] >= 20
+    finally:
         with db_session() as session:
-            for i in range(5, 25):
-                p = FetchedPage(
-                    url=f"https://test-eval-{i}.com",
-                    title=f"Test Article {i}",
-                    md_content=f"Content {i}",
-                    tags="test-tag",
-                )
-                session.add(p)
+            session.query(EvalDataset).filter_by(name="Test Small Dataset").delete()
+            session.query(FetchedPage).filter(FetchedPage.url.like("https://test-eval-%")).delete()
             session.commit()
-
-        # Should now succeed!
-        res = create_eval_dataset(req, mock_request)
-        assert res["status"] == "success"
-        assert res["dataset"]["row_count"] >= 20

@@ -214,6 +214,16 @@ class AutonomousWorker:
             runner=self._run_wiki_curation,
         )
 
+        self.jobs["tag_curation"] = ServerJob(
+            job_id="tag_curation",
+            name="Tag Taxonomy Agent",
+            description="Extracts and assigns structured taxonomy tags to newly imported articles.",
+            category="llm",
+            default_interval_minutes=5,
+            default_model=getattr(config, "ollama_model", "llama3.2"),
+            runner=self._run_tag_curation,
+        )
+
         self.jobs["embedding_refresh"] = ServerJob(
             job_id="embedding_refresh",
             name="Vector Embedding Indexer",
