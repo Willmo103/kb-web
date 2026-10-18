@@ -81,6 +81,7 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 - [kb-web-service-management](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/kb-web-service-management/SKILL.md): Systemd service configuration.
 - [gh-cli-operations](file:///c:/src/kb-web/.agents/skills/gh-cli-operations/SKILL.md): Guarded execution wrapper for GitHub CLI (`gh`) operations with observability, structured JSON logging, and safety dry-runs.
 - [live-server-test](file:///c:/src/kb-web/.agents/skills/live-server-test/SKILL.md): Uses curl to test and audit site routes against a live running test/production server without executing admin operations.
+- [code-review-issue-generator](file:///c:/src/kb-web/.agents/skills/code-review-issue-generator/SKILL.md): Generates interactive single-page HTML audit reports with dynamic charts, search, filters, and guarded GitHub issue creation scripts.
 
 ## Git Branching Strategy & Tiered Release Lifecycle
 

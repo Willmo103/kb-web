@@ -165,8 +165,33 @@ def test_http_security_headers_present(unauth_client: TestClient, auth_client: T
         resp = client.get(route)
         assert resp.headers.get("X-Content-Type-Options") == "nosniff"
         assert resp.headers.get("X-Frame-Options") == "SAMEORIGIN"
-        assert resp.headers.get("X-XSS-Protection") == "1; mode=block"
         assert resp.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+        assert resp.headers.get("Permissions-Policy") == "geolocation=(), camera=(), microphone=()"
+        assert resp.headers.get("Strict-Transport-Security") == "max-age=31536000; includeSubDomains"
+        assert "X-XSS-Protection" not in resp.headers
+
+
+def test_ssrf_url_validation():
+    """Verifies that SSRF protection blocks loopback, private, and cloud metadata addresses (SEC-07)."""
+    import pytest
+    from kb_web.utils import validate_target_url
+
+    # Blocked hosts / IPs
+    for bad_url in [
+        "http://localhost:8080/secret",
+        "http://127.0.0.1/admin",
+        "http://[::1]/private",
+        "http://169.254.169.254/latest/meta-data",
+        "http://0.0.0.0/",
+        "http://metadata.google.internal/computeMetadata/v1",
+        "ftp://example.com/file.txt",
+    ]:
+        with pytest.raises(ValueError):
+            validate_target_url(bad_url, allow_internal=False)
+
+    # Allowed public URL
+    validate_target_url("https://example.com/article", allow_internal=False)
+
 
 
 def test_login_rate_limiting(unauth_client: TestClient):
@@ -422,3 +447,36 @@ def test_config_save_redacts_credentials(tmp_path, monkeypatch):
     assert data.get("admin_password") == "[REDACTED]"
     assert data.get("api_key") == "[REDACTED]"
     assert "trusted_proxies" in data
+
+
+def test_non_ascii_credentials_handling(unauth_client: TestClient):
+    """Verifies that non-ASCII unicode passwords or API keys do not trigger HTTP 500 (BUG-01 / #98)."""
+    from kb_web.config import hash_password, verify_password
+    from kb_web.base import verify_session_token, safe_compare_digest
+
+    # 1. safe_compare_digest handles non-ASCII and None safely
+    assert safe_compare_digest("pásswørd🔑", "pásswørd🔑") is True
+    assert safe_compare_digest("pásswørd🔑", "other") is False
+    assert safe_compare_digest(None, "foo") is False
+    assert safe_compare_digest("foo", None) is False
+
+    # 2. verify_password handles non-ASCII
+    pw = "pásswørd_漢字_🔑"
+    h = hash_password(pw)
+    is_valid, _ = verify_password(pw, h)
+    assert is_valid is True
+
+    is_wrong, _ = verify_password("wroñg_🔑", h)
+    assert is_wrong is False
+
+    # 3. verify_session_token does not crash on non-ASCII token
+    assert verify_session_token("123456.sig_ñ_漢字") is False
+
+    # 4. Login with non-ASCII password returns 401, not 500
+    resp_login = unauth_client.post("/login", data={"password": "wroñg_pásswørd_漢字_🔑"})
+    assert resp_login.status_code == 401
+
+    # 5. API request with non-ASCII bytes in X-API-Key header returns 401, not 500
+    resp_api = unauth_client.get("/api/articles", headers={"X-API-Key": "këy_漢字_🔑".encode("utf-8")})
+    assert resp_api.status_code == 401
+

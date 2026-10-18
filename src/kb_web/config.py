@@ -51,7 +51,7 @@ def verify_password(plain_password: str, stored_hash_or_plain: str) -> Tuple[boo
             return False, False
     # Backward compatibility with plaintext
     try:
-        if hmac.compare_digest(plain_password, stored_hash_or_plain):
+        if hmac.compare_digest(plain_password.encode("utf-8"), stored_hash_or_plain.encode("utf-8")):
             return True, True
     except Exception:
         pass

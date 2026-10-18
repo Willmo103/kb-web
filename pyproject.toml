@@ -1,10 +1,10 @@
 [project]
 name = "kb-web"
-version = "0.2.0"
-description = "Add your description here"
+version = "0.5.10"
+description = "Knowledge Base Web Importer, PWA, and AI Curation Portal"
 readme = "README.md"
 authors = [
-    { name = "WIll Morris", email = "88165849+Willmo103@users.noreply.github.com" }
+    { name = "Will Morris", email = "88165849+Willmo103@users.noreply.github.com" }
 ]
 requires-python = ">=3.13"
 dependencies = [
@@ -55,4 +55,19 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = [".venv", "packages", "kb-web-cli", ".git", ".artifacts"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+exclude = [
+    ".venv",
+    ".git",
+    ".artifacts",
+    "uat",
+    "packages",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
 

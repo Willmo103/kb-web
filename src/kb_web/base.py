@@ -4,6 +4,7 @@ Base shared dependencies, configuration, and route guards for kb-web.
 
 import time
 import hashlib
+import hmac
 import threading
 import jinja2
 import ollama
@@ -499,13 +500,21 @@ def generate_session_token(expiry_time: float) -> str:
     return f"{payload}.{signature}"
 
 
+def safe_compare_digest(a: Optional[str], b: Optional[str]) -> bool:
+    """Constant-time string comparison safe against non-ASCII input and None types."""
+    if a is None or b is None:
+        return False
+    try:
+        return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+    except Exception:
+        return False
+
+
 def verify_session_token(token: str) -> bool:
     """Verifies a signed token's cryptographic signature and expiration."""
     if not token or "." not in token:
         return False
     try:
-        import hmac
-
         payload, signature = token.split(".", 1)
         expiry_time = int(payload)
         if expiry_time < time.time():
@@ -515,15 +524,13 @@ def verify_session_token(token: str) -> bool:
         expected_signature = hmac.new(
             secret, payload.encode("utf-8"), hashlib.sha256
         ).hexdigest()
-        return hmac.compare_digest(signature, expected_signature)
+        return safe_compare_digest(signature, expected_signature)
     except Exception:
         return False
 
 
 def is_request_authenticated(request: Request) -> bool:
     """Checks whether the request is authenticated via session cookie, master API key, or registered CLI API key."""
-    import hmac
-
     # 1. Check session cookie
     token = request.cookies.get(COOKIE_NAME)
     if token and verify_session_token(token):
@@ -543,7 +550,7 @@ def is_request_authenticated(request: Request) -> bool:
     if not api_key_header:
         return False
 
-    if config.api_key and hmac.compare_digest(api_key_header, config.api_key):
+    if config.api_key and safe_compare_digest(api_key_header, config.api_key):
         if config.is_default_api_key and not config.allow_insecure_defaults:
             return False
         return True
@@ -571,8 +578,6 @@ def verify_auth(request: Request) -> None:
 
 def verify_api_key(request: Request) -> str:
     """Security guard verifying API Key header matching KB_API_KEY or registered CLI API key."""
-    import hmac
-
     api_key_header = request.headers.get("X-API-Key")
     if not api_key_header:
         auth_header = request.headers.get("Authorization", "")
@@ -588,7 +593,7 @@ def verify_api_key(request: Request) -> str:
             status_code=401, detail="Unauthorized: API key required."
         )
 
-    if config.api_key and hmac.compare_digest(api_key_header, config.api_key):
+    if config.api_key and safe_compare_digest(api_key_header, config.api_key):
         if config.is_default_api_key and not config.allow_insecure_defaults:
             raise HTTPException(
                 status_code=401,

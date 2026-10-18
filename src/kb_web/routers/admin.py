@@ -74,54 +74,75 @@ from bs4 import BeautifulSoup  # type: ignore
 router = APIRouter()
 
 
+logger = logging.getLogger("kb_web")
+
 # --- Background Tasks Routine ---
 
 
 def run_bulk_description_maintenance() -> None:
-    """Loops through historical page captures, prompting Ollama to rewrite pages lacking proper descriptions."""
+    """Loops through historical page captures in batches, prompting Ollama to rewrite pages lacking proper descriptions."""
     client = _get_ollama_client()
     with db_session() as session:
-        rows = session.query(FetchedPage).all()
-        for row in rows:
-            desc = row.description or ""
-            if not desc or "AI Processing skipped" in desc:
-                try:
-                    p_dict = {col.name: getattr(row, col.name) for col in row.__table__.columns}
-                    for fld in ("links", "keywords", "tags"):
-                        if p_dict.get(fld):
-                            try:
-                                p_dict[fld] = json.loads(p_dict[fld])
-                            except Exception:
-                                p_dict[fld] = []
-                        else:
-                            p_dict[fld] = []
-                    page_obj = HTMLPage(**p_dict)
-                    print(f"Running maintenance extraction for: {page_obj.url}")
-                    wiki_text = extract_wiki_content(page_obj, config, client)
-                    row.description = wiki_text
-                except Exception as e:
-                    print(f"Failed background processing for {row.url}: {e}")
+        candidate_urls = [
+            r[0]
+            for r in session.query(FetchedPage.url)
+            .filter(
+                (FetchedPage.description.is_(None))
+                | (FetchedPage.description == "")
+                | (FetchedPage.description.like("%AI Processing skipped%"))
+            )
+            .all()
+        ]
+
+    logger.info(f"Found {len(candidate_urls)} page(s) requiring description maintenance.")
+    for url in candidate_urls:
+        try:
+            with db_session() as session:
+                row = session.query(FetchedPage).filter_by(url=url).first()
+                if not row:
                     continue
+                p_dict = {col.name: getattr(row, col.name) for col in row.__table__.columns}
+                for fld in ("links", "keywords", "tags"):
+                    if p_dict.get(fld):
+                        try:
+                            p_dict[fld] = json.loads(p_dict[fld])
+                        except Exception:
+                            p_dict[fld] = []
+                    else:
+                        p_dict[fld] = []
+                page_obj = HTMLPage(**p_dict)
+                logger.info(f"Running maintenance extraction for: {page_obj.url}")
+                wiki_text = extract_wiki_content(page_obj, config, client)
+                row.description = wiki_text
+                session.commit()
+        except Exception as e:
+            logger.error(f"Failed background processing for {url}: {e}", exc_info=True)
+            continue
 
 
 def run_bulk_embedding_maintenance() -> None:
-    """Loops through all fetched pages, generating embeddings for any that are missing."""
+    """Loops through fetched pages, generating embeddings in discrete batches for any that are missing."""
     client = _get_ollama_client()
     with db_session() as session:
-        rows = session.query(FetchedPage).all()
-        for row in rows:
-            url = row.url
-            art_emb = session.query(ArticleEmbedding).filter_by(url=url).first()
-            tit_emb = session.query(TitleEmbedding).filter_by(url=url).first()
+        all_urls = [r[0] for r in session.query(FetchedPage.url).all()]
 
-            if not art_emb or not tit_emb:
+    logger.info(f"Checking embedding status for {len(all_urls)} page(s).")
+    for url in all_urls:
+        try:
+            with db_session() as session:
+                art_emb = session.query(ArticleEmbedding).filter_by(url=url).first()
+                tit_emb = session.query(TitleEmbedding).filter_by(url=url).first()
+                needs_update = not art_emb or not tit_emb
+
+            if needs_update:
+                logger.info(f"Updating missing embeddings for: {url}")
                 update_article_embedding(None, url, config, client)
+        except Exception as e:
+            logger.error(f"Failed embedding generation for {url}: {e}", exc_info=True)
+            continue
 
 
 # --- Router Endpoints ---
-
-
-logger = logging.getLogger("kb_web")
 
 
 @router.get("/import", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
