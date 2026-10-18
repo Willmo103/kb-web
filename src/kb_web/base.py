@@ -482,7 +482,10 @@ def _get_ollama_client(timeout: Optional[float] = None) -> LoggedOllamaClient:
 
 
 def _get_session_secret() -> bytes:
-    """Derives a cryptographically secure key for session signatures from the admin password."""
+    """Derives a cryptographically secure key for session signatures from dedicated session secret."""
+    secret_str = getattr(config, "session_secret", None)
+    if secret_str:
+        return hashlib.sha256(secret_str.encode("utf-8")).digest()
     return hashlib.sha256(config.admin_password.encode("utf-8")).digest()
 
 
@@ -541,6 +544,8 @@ def is_request_authenticated(request: Request) -> bool:
         return False
 
     if config.api_key and hmac.compare_digest(api_key_header, config.api_key):
+        if config.is_default_api_key and not config.allow_insecure_defaults:
+            return False
         return True
 
     # Check registered CLI API keys in database
@@ -584,7 +589,13 @@ def verify_api_key(request: Request) -> str:
         )
 
     if config.api_key and hmac.compare_digest(api_key_header, config.api_key):
+        if config.is_default_api_key and not config.allow_insecure_defaults:
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized: Default API key 'kb-secret-key' is disabled for security. Please configure KB_API_KEY.",
+            )
         return api_key_header
+
 
     try:
         from .models_orm import CliApiKey
