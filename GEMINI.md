@@ -56,6 +56,7 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 11. **Autonomous Server Worker & Auto-Curation**: Periodic async worker engine (`src/kb_web/worker.py`) that monitors the database for newly imported pages, curates missing AI wikis and tags one-by-one with graceful error handling, and provides extensible hook foundations for synthetic QA generation, RAG evaluation, and autonomous link crawling.
 12. **Modular Server Jobs & Dedicated Agents**: Decoupled background job registry (`src/kb_web/worker.py` and `/api/jobs`, `/admin/jobs`) allowing independent scheduling intervals (`interval_minutes`), individual model bindings (LLM, embedding, decision models), toggle states, and on-demand trigger runs.
 13. **Git Repository Web Ingestion**: Pull remote Git repositories directly from the web interface (`/import` tab 3), perform shallow clone analysis (`src/kb_web/repo_importer.py`), generate markdown directory trees, and index source code into the knowledge base (`POST /api/import/repo`).
+14. **Model Evaluation Studio & Decision Calibration**: Top-level interactive evaluation portal (`/evals`) allowing comparative side-by-side model and prompt matrix testing, `d1`/`tev1` multi-question decision gating with 16k context window, and embedding retrieval benchmarks before worker agent deployment.
 
 ---
 

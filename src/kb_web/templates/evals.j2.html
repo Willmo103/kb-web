@@ -1,0 +1,975 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Model Evaluation Studio - kb-web{% endblock %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Header Section -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between pb-6 mb-6 border-b border-gray-200 gap-4">
+        <div>
+            <div class="flex items-center gap-2 mb-1">
+                <span class="text-3xl">🧪</span>
+                <h1 class="text-2xl font-black text-gray-900 tracking-tight">Model Evaluation Studio</h1>
+                <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    Calibration & Benchmarking
+                </span>
+            </div>
+            <p class="text-sm text-gray-500">
+                Side-by-side comparative testing across models, prompts, decision gating, and embedding retrieval before production worker deployment.
+            </p>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="/reports" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition">
+                <span>📊</span> Reports
+            </a>
+            <a href="/reports?table=ollama_logs" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 shadow-sm transition">
+                <span>📜</span> Model Logs
+            </a>
+        </div>
+    </div>
+
+    <!-- Tab Bar -->
+    <div class="border-b border-gray-200 mb-6">
+        <nav class="flex space-x-8" aria-label="Tabs">
+            <button
+                type="button"
+                id="tabBtnMatrix"
+                onclick="switchEvalTab('matrix')"
+                class="border-indigo-600 text-indigo-600 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2 transition"
+            >
+                <span>📐</span> Prompt &amp; Model Matrix
+            </button>
+            <button
+                type="button"
+                id="tabBtnDecision"
+                onclick="switchEvalTab('decision')"
+                class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2 transition"
+            >
+                <span>⚖️</span> Decision Gating
+            </button>
+            <button
+                type="button"
+                id="tabBtnEmbedding"
+                onclick="switchEvalTab('embedding')"
+                class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2 transition"
+            >
+                <span>🔍</span> Embedding Retrieval
+            </button>
+        </nav>
+    </div>
+
+    <!-- TAB 1: Prompt & Model Matrix -->
+    <div id="tabContentMatrix" class="space-y-6">
+        <!-- Configuration Card -->
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
+            <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
+                <span>⚙️</span> Matrix Execution Setup
+            </h2>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Left: Models & Parameters -->
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
+                            Select Models to Compare
+                        </label>
+                        <div id="matrixModelsList" class="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-2 bg-gray-50 border border-gray-200 rounded-xl">
+                            {% for m in models %}
+                            <label class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium cursor-pointer border border-gray-200 bg-white hover:border-indigo-300 transition">
+                                <input type="checkbox" name="matrixModel" value="{{ m }}" {% if m == default_model or m == 'd1' %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500">
+                                <span>{{ m }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label for="matrixTemperature" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
+                                Temperature
+                            </label>
+                            <input
+                                type="number"
+                                id="matrixTemperature"
+                                min="0.0"
+                                max="1.5"
+                                step="0.1"
+                                value="0.2"
+                                class="w-full text-xs p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                            >
+                        </div>
+                        <div>
+                            <label for="matrixMaxTokens" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
+                                Max Predict Tokens
+                            </label>
+                            <input
+                                type="number"
+                                id="matrixMaxTokens"
+                                min="128"
+                                max="16384"
+                                step="256"
+                                value="2048"
+                                class="w-full text-xs p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Prompt Selector -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label for="presetPromptSelect" class="text-xs font-bold uppercase tracking-wider text-gray-600">
+                                Preset System Prompts
+                            </label>
+                            <button type="button" onclick="insertSelectedPresetPrompt()" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">
+                                + Add Prompt to Matrix
+                            </button>
+                        </div>
+                        <select id="presetPromptSelect" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white">
+                            {% for p in prompts %}
+                            <option value="{{ p.id }}" data-name="{{ p.name }}" data-text="{{ p.value }}">{{ p.name }} ({{ p.category }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Selected Prompts List -->
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
+                            Active Prompts in Matrix (<span id="activePromptCount">1</span>)
+                        </label>
+                        <div id="activePromptsContainer" class="space-y-3">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Input Text / Source Loader -->
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <label for="matrixInputText" class="text-xs font-bold uppercase tracking-wider text-gray-600">
+                            Test Input Text / Article Content
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <!-- Article Quick Loader -->
+                            <select id="sampleArticleSelect" onchange="loadSampleArticleContent(this.value)" class="text-[11px] p-1.5 border border-gray-200 rounded-lg bg-gray-50 max-w-[200px] truncate">
+                                <option value="">Load from saved article...</option>
+                                {% for a in sample_articles %}
+                                <option value="{{ a.url }}">{{ a.title }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <textarea
+                        id="matrixInputText"
+                        rows="12"
+                        placeholder="Paste article markdown, unstructured text, or notes here for the models to process..."
+                        class="w-full text-xs p-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition font-mono text-gray-800 shadow-inner"
+                    ></textarea>
+
+                    <div class="flex items-center justify-between text-xs text-gray-400">
+                        <span id="matrixInputCharCount">0 characters</span>
+                        <button type="button" onclick="document.getElementById('matrixInputText').value = ''; updateInputCharCount();" class="text-gray-400 hover:text-red-500">
+                            Clear Input
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Run Matrix Action -->
+            <div class="pt-4 border-t border-gray-200 flex items-center justify-between">
+                <span class="text-xs text-gray-500">
+                    Runs each selected model against each configured prompt with automatic latency and token logging.
+                </span>
+                <button
+                    type="button"
+                    id="btnRunMatrix"
+                    onclick="executeMatrixEval()"
+                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition"
+                >
+                    <span id="matrixSpinner" class="hidden animate-spin">⏳</span>
+                    <span>⚡ Run Matrix Evaluation</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Matrix Results Section -->
+        <div id="matrixResultsSection" class="hidden space-y-4">
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+                    <span>📊</span> Side-by-Side Comparison (<span id="resultsCount">0</span> runs)
+                </h3>
+                <div class="flex items-center gap-2 text-xs">
+                    <button type="button" onclick="toggleAllMatrixViews('formatted')" class="px-2.5 py-1 rounded-md border border-gray-200 bg-white hover:bg-gray-50 font-medium text-gray-600">
+                        Rendered Markdown
+                    </button>
+                    <button type="button" onclick="toggleAllMatrixViews('raw')" class="px-2.5 py-1 rounded-md border border-gray-200 bg-white hover:bg-gray-50 font-medium text-gray-600">
+                        Raw Text
+                    </button>
+                </div>
+            </div>
+
+            <div id="matrixResultsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Injected via JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 2: Decision Gating Studio -->
+    <div id="tabContentDecision" class="hidden space-y-6">
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
+            <div class="flex items-center justify-between pb-4 border-b border-gray-100">
+                <div>
+                    <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
+                        <span>⚖️</span> Decision Gating Calibration
+                    </h2>
+                    <p class="text-xs text-gray-500 mt-0.5">
+                        Test structured multi-question decision models (default: <span class="font-semibold text-indigo-600">d1</span> with 16k context window) using native <code class="bg-gray-100 px-1 py-0.5 rounded text-[11px]">client.systemone</code>.
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-gray-500">Preset:</span>
+                    <select id="decisionPresetSelect" onchange="loadDecisionPreset(this.value)" class="text-xs p-1.5 border border-gray-200 rounded-lg bg-gray-50">
+                        <option value="link_crawler">Link Discovery &amp; Ingestion Gating</option>
+                        <option value="wiki_synthesis">Wiki Synthesis Source Candidate</option>
+                        <option value="taxonomy_classification">Taxonomy Category Gating</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Controls Column -->
+                <div class="space-y-4">
+                    <div>
+                        <label for="decisionModelInput" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
+                            Decision Model
+                        </label>
+                        <input
+                            type="text"
+                            id="decisionModelInput"
+                            value="{{ default_decision_model }}"
+                            placeholder="d1"
+                            class="w-full text-xs p-2 border border-gray-300 rounded-lg font-mono"
+                        >
+                    </div>
+
+                    <div>
+                        <label for="decisionContextWindow" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
+                            Context Window (<span id="ctxLabel">16384</span> tokens)
+                        </label>
+                        <input
+                            type="number"
+                            id="decisionContextWindow"
+                            value="16384"
+                            step="1024"
+                            min="2048"
+                            max="32768"
+                            oninput="document.getElementById('ctxLabel').innerText = this.value"
+                            class="w-full text-xs p-2 border border-gray-300 rounded-lg"
+                        >
+                    </div>
+
+                    <div class="p-3.5 bg-indigo-50 border border-indigo-100 rounded-xl text-xs space-y-2">
+                        <span class="font-bold text-indigo-900 block">💡 Decision Architecture</span>
+                        <p class="text-indigo-800 leading-relaxed">
+                            The <span class="font-semibold">d1</span> decision model accepts up to 64 structured questions per turn. Each question can be a probability assessment (<code class="bg-indigo-100 px-1 rounded">noul</code>) or discrete multi-choice.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- State JSON Editor -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label for="decisionStateJson" class="text-xs font-bold uppercase tracking-wider text-gray-600">
+                            State Context (JSON)
+                        </label>
+                        <button type="button" onclick="formatJsonField('decisionStateJson')" class="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold">
+                            Format JSON
+                        </button>
+                    </div>
+                    <textarea
+                        id="decisionStateJson"
+                        rows="12"
+                        class="w-full text-xs p-3 border border-gray-300 rounded-xl font-mono text-gray-800 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner"
+                    ></textarea>
+                </div>
+
+                <!-- Questions JSON Editor -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label for="decisionQuestionsJson" class="text-xs font-bold uppercase tracking-wider text-gray-600">
+                            Questions Definition (JSON)
+                        </label>
+                        <button type="button" onclick="formatJsonField('decisionQuestionsJson')" class="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold">
+                            Format JSON
+                        </button>
+                    </div>
+                    <textarea
+                        id="decisionQuestionsJson"
+                        rows="12"
+                        class="w-full text-xs p-3 border border-gray-300 rounded-xl font-mono text-gray-800 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner"
+                    ></textarea>
+                </div>
+            </div>
+
+            <!-- Action Button -->
+            <div class="pt-4 border-t border-gray-200 flex items-center justify-between">
+                <span id="decisionStatusMsg" class="text-xs text-gray-500">Ready to evaluate decision gating.</span>
+                <button
+                    type="button"
+                    id="btnRunDecision"
+                    onclick="executeDecisionEval()"
+                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition"
+                >
+                    <span id="decisionSpinner" class="hidden animate-spin">⏳</span>
+                    <span>⚖️ Evaluate Decision Gating</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Decision Results Section -->
+        <div id="decisionResultsSection" class="hidden bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-gray-100">
+                <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+                    <span>🎯</span> Gating Answers &amp; Evaluations
+                </h3>
+                <span id="decisionLatencyBadge" class="text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-mono">0 ms</span>
+            </div>
+
+            <div id="decisionAnswersContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Populated dynamically -->
+            </div>
+
+            <div class="pt-4 border-t border-gray-100">
+                <details class="text-xs">
+                    <summary class="font-semibold text-gray-500 cursor-pointer hover:text-gray-700">View Raw Model Response</summary>
+                    <pre id="decisionRawOutput" class="mt-2 p-3 bg-gray-900 text-gray-100 rounded-xl font-mono text-[11px] overflow-x-auto whitespace-pre-wrap"></pre>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 3: Embedding Retrieval Benchmarks -->
+    <div id="tabContentEmbedding" class="hidden space-y-6">
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
+            <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
+                <span>🔍</span> Embedding Retrieval Comparison
+            </h2>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Models Selector -->
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
+                            Select Embedding Models
+                        </label>
+                        <div class="space-y-2 p-2 bg-gray-50 border border-gray-200 rounded-xl">
+                            <label class="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                                <input type="checkbox" name="embModel" value="{{ default_embedding_model }}" checked class="rounded text-indigo-600">
+                                <span>{{ default_embedding_model }} (Default)</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                                <input type="checkbox" name="embModel" value="embeddinggemma" class="rounded text-indigo-600">
+                                <span>embeddinggemma</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                                <input type="checkbox" name="embModel" value="all-minilm" class="rounded text-indigo-600">
+                                <span>all-minilm</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="embeddingQueryInput" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
+                            Search Query / Target Concept
+                        </label>
+                        <input
+                            type="text"
+                            id="embeddingQueryInput"
+                            placeholder="e.g. PostgreSQL database indexing and view materialized cards"
+                            class="w-full text-xs p-2.5 border border-gray-300 rounded-xl shadow-inner focus:ring-indigo-500 focus:border-indigo-500"
+                        >
+                    </div>
+                </div>
+
+                <!-- Candidates Texts Editor -->
+                <div class="lg:col-span-2 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label for="embeddingCandidatesText" class="text-xs font-bold uppercase tracking-wider text-gray-600">
+                            Candidate Texts (One per block, separated by three dashes <code class="bg-gray-100 px-1">---</code>)
+                        </label>
+                        <button type="button" onclick="loadSampleCandidates()" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">
+                            + Load Sample Candidates
+                        </button>
+                    </div>
+                    <textarea
+                        id="embeddingCandidatesText"
+                        rows="10"
+                        placeholder="Candidate 1 text&#10;---&#10;Candidate 2 text&#10;---&#10;Candidate 3 text"
+                        class="w-full text-xs p-3.5 border border-gray-300 rounded-xl font-mono text-gray-800 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner"
+                    ></textarea>
+                </div>
+            </div>
+
+            <!-- Run Action -->
+            <div class="pt-4 border-t border-gray-200 flex items-center justify-between">
+                <span class="text-xs text-gray-500">Calculates cosine similarities between the query vector and candidate text embeddings.</span>
+                <button
+                    type="button"
+                    id="btnRunEmbedding"
+                    onclick="executeEmbeddingEval()"
+                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition"
+                >
+                    <span id="embSpinner" class="hidden animate-spin">⏳</span>
+                    <span>🔍 Benchmark Embeddings</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Embedding Results Section -->
+        <div id="embeddingResultsSection" class="hidden space-y-4">
+            <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+                <span>📈</span> Embedding Ranking &amp; Vector Dimensions
+            </h3>
+            <div id="embeddingResultsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- Dynamic Presets & State ---
+const SYSTEM_PROMPTS = {{ prompts | tojson }};
+let activePrompts = [
+    {
+        id: "wiki_prompt",
+        name: "Wiki Extraction & Synthesis",
+        text: SYSTEM_PROMPTS.find(p => p.id === "wiki_prompt")?.value || ""
+    }
+];
+
+const DECISION_PRESETS = {
+    link_crawler: {
+        state: {
+            base_url: "https://example.com/engineering",
+            page_title: "Distributed Systems & Event Streams Architecture",
+            candidate_url: "https://example.com/engineering/kafka-vs-pulsar-benchmarks",
+            candidate_anchor_text: "In-depth benchmarks between Kafka and Pulsar event messaging",
+            page_tags: ["architecture", "distributed-systems", "streaming"]
+        },
+        questions: {
+            relevance_gate: {
+                question: "Is this candidate link highly relevant to the technical knowledge base?",
+                type: "probability",
+                criteria: {
+                    true: "Direct technical engineering article, tutorial, or architectural benchmark.",
+                    false: "Off-topic marketing, generic legal terms, or social media share link."
+                }
+            },
+            priority_tier: {
+                question: "What priority tier should be assigned for immediate crawling?",
+                type: "choice",
+                choices: {
+                    high: "Core architectural insight or benchmark directly extending page content.",
+                    medium: "General related documentation or supplemental reference.",
+                    low: "Loose association or tertiary reference."
+                }
+            }
+        }
+    },
+    wiki_synthesis: {
+        state: {
+            topic: "PostgreSQL Materialized View Optimization",
+            source_candidates: [
+                { id: "s1", title: "Optimizing PostgreSQL Indexing Strategies", match_score: 0.88 },
+                { id: "s2", title: "SQLite vs Postgres Concurrent Transactions", match_score: 0.74 }
+            ]
+        },
+        questions: {
+            source_quality: {
+                question: "Does the primary candidate source provide sufficient concrete technical evidence?",
+                type: "probability",
+                criteria: {
+                    true: "Contains concrete query schemas, explain plan analysis, or actionable rules.",
+                    false: "Lacks technical depth or consists purely of generic marketing prose."
+                }
+            }
+        }
+    },
+    taxonomy_classification: {
+        state: {
+            url: "https://docs.python.org/3/library/asyncio.html",
+            title: "asyncio - Asynchronous I/O in Python",
+            description: "Standard library reference documentation for asynchronous programming in Python."
+        },
+        questions: {
+            domain_tier: {
+                question: "Which high-level category best classifies this resource?",
+                type: "choice",
+                choices: {
+                    development: "Programming languages, runtime libraries, and developer tools.",
+                    infrastructure: "DevOps, networking, servers, or cloud infrastructure.",
+                    research: "Machine learning, theoretical papers, or algorithmic research."
+                }
+            }
+        }
+    }
+};
+
+// --- Initialization ---
+document.addEventListener("DOMContentLoaded", () => {
+    renderActivePrompts();
+    loadDecisionPreset("link_crawler");
+    updateInputCharCount();
+
+    const matrixInput = document.getElementById("matrixInputText");
+    if (matrixInput) {
+        matrixInput.addEventListener("input", updateInputCharCount);
+    }
+});
+
+// --- Tab Navigation ---
+function switchEvalTab(tabName) {
+    const tabs = ["matrix", "decision", "embedding"];
+    tabs.forEach(t => {
+        const content = document.getElementById("tabContent" + capitalize(t));
+        const btn = document.getElementById("tabBtn" + capitalize(t));
+        if (t === tabName) {
+            content.classList.remove("hidden");
+            btn.className = "border-indigo-600 text-indigo-600 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2 transition";
+        } else {
+            content.classList.add("hidden");
+            btn.className = "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2 transition";
+        }
+    });
+}
+
+function capitalize(s) {
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// --- TAB 1: Matrix Functions ---
+function updateInputCharCount() {
+    const text = document.getElementById("matrixInputText").value || "";
+    const el = document.getElementById("matrixInputCharCount");
+    if (el) {
+        el.innerText = `${text.length.toLocaleString()} characters`;
+    }
+}
+
+function renderActivePrompts() {
+    const container = document.getElementById("activePromptsContainer");
+    const countEl = document.getElementById("activePromptCount");
+    if (countEl) countEl.innerText = activePrompts.length;
+
+    container.innerHTML = "";
+    activePrompts.forEach((p, idx) => {
+        const card = document.createElement("div");
+        card.className = "p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2 text-xs";
+        card.innerHTML = `
+            <div class="flex items-center justify-between">
+                <span class="font-bold text-gray-800">${escapeHtml(p.name)}</span>
+                ${activePrompts.length > 1 ? `<button type="button" onclick="removeActivePrompt(${idx})" class="text-gray-400 hover:text-red-500 font-semibold">&times; Remove</button>` : ''}
+            </div>
+            <textarea
+                rows="3"
+                onchange="updateActivePromptText(${idx}, this.value)"
+                class="w-full text-[11px] p-2 border border-gray-300 rounded-lg font-mono focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+            >${escapeHtml(p.text)}</textarea>
+        `;
+        container.appendChild(card);
+    });
+}
+
+function insertSelectedPresetPrompt() {
+    const select = document.getElementById("presetPromptSelect");
+    const opt = select.options[select.selectedIndex];
+    if (!opt) return;
+
+    activePrompts.push({
+        id: opt.value + "_" + Date.now(),
+        name: opt.getAttribute("data-name") || opt.value,
+        text: opt.getAttribute("data-text") || ""
+    });
+    renderActivePrompts();
+}
+
+function removeActivePrompt(index) {
+    activePrompts.splice(index, 1);
+    renderActivePrompts();
+}
+
+function updateActivePromptText(index, newText) {
+    if (activePrompts[index]) {
+        activePrompts[index].text = newText;
+    }
+}
+
+async function loadSampleArticleContent(url) {
+    if (!url) return;
+    try {
+        const resp = await fetch("/api/evals/content", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source_type: "article", identifier: url })
+        });
+        if (!resp.ok) throw new Error("Failed to load article content");
+        const data = await resp.json();
+        document.getElementById("matrixInputText").value = data.content || "";
+        updateInputCharCount();
+    } catch (err) {
+        alert("Error loading article: " + err.message);
+    }
+}
+
+async function executeMatrixEval() {
+    const selectedModels = Array.from(document.querySelectorAll("input[name='matrixModel']:checked")).map(cb => cb.value);
+    if (selectedModels.length === 0) {
+        alert("Please select at least one model.");
+        return;
+    }
+    const inputText = document.getElementById("matrixInputText").value.trim();
+    if (!inputText) {
+        alert("Please provide input text to evaluate.");
+        return;
+    }
+
+    const btn = document.getElementById("btnRunMatrix");
+    const spinner = document.getElementById("matrixSpinner");
+    btn.disabled = true;
+    spinner.classList.remove("hidden");
+
+    try {
+        const payload = {
+            models: selectedModels,
+            prompts: activePrompts,
+            input_text: inputText,
+            temperature: parseFloat(document.getElementById("matrixTemperature").value || "0.2"),
+            max_tokens: parseInt(document.getElementById("matrixMaxTokens").value || "2048", 10)
+        };
+
+        const resp = await fetch("/api/evals/matrix/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) {
+            const errData = await resp.json();
+            throw new Error(errData.detail || "Matrix execution failed");
+        }
+
+        const data = await resp.json();
+        renderMatrixResults(data.results || []);
+    } catch (err) {
+        alert("Evaluation Error: " + err.message);
+    } finally {
+        btn.disabled = false;
+        spinner.classList.add("hidden");
+    }
+}
+
+function renderMatrixResults(results) {
+    const section = document.getElementById("matrixResultsSection");
+    const grid = document.getElementById("matrixResultsGrid");
+    const countEl = document.getElementById("resultsCount");
+    countEl.innerText = results.length;
+    grid.innerHTML = "";
+
+    results.forEach((r, idx) => {
+        const card = document.createElement("div");
+        card.className = "bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col";
+        const isError = r.status === "error";
+
+        card.innerHTML = `
+            <div class="p-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                    <span class="font-bold text-xs text-gray-900">${escapeHtml(r.model)}</span>
+                    <span class="text-[11px] text-gray-500 block">${escapeHtml(r.prompt_name)}</span>
+                </div>
+                <div class="flex items-center gap-1.5 font-mono text-[11px]">
+                    <span class="px-2 py-0.5 rounded-full ${isError ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'}">
+                        ${r.latency_ms.toLocaleString()} ms
+                    </span>
+                    ${r.tokens_per_sec ? `<span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">${r.tokens_per_sec} tok/s</span>` : ''}
+                </div>
+            </div>
+            <div class="p-4 flex-1">
+                <div id="matrixFormatted_${idx}" class="prose prose-sm max-w-none text-xs text-gray-800 leading-relaxed max-h-96 overflow-y-auto">
+                    ${isError ? `<div class="p-3 bg-red-50 text-red-700 rounded-lg">${escapeHtml(r.response)}</div>` : marked.parse(r.response || '')}
+                </div>
+                <pre id="matrixRaw_${idx}" class="hidden p-3 bg-gray-900 text-gray-100 rounded-lg text-[11px] font-mono max-h-96 overflow-y-auto whitespace-pre-wrap">${escapeHtml(r.response)}</pre>
+            </div>
+            <div class="p-2.5 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                <button type="button" onclick="toggleCellView(${idx})" class="text-indigo-600 hover:text-indigo-800 font-semibold">
+                    Toggle Raw/Rendered
+                </button>
+                <button type="button" onclick="copyToClipboard('${escapeAttr(r.response)}')" class="hover:text-gray-700">
+                    📋 Copy Output
+                </button>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+
+    section.classList.remove("hidden");
+    section.scrollIntoView({ behavior: "smooth" });
+}
+
+function toggleCellView(idx) {
+    const formatted = document.getElementById("matrixFormatted_" + idx);
+    const raw = document.getElementById("matrixRaw_" + idx);
+    if (formatted && raw) {
+        formatted.classList.toggle("hidden");
+        raw.classList.toggle("hidden");
+    }
+}
+
+function toggleAllMatrixViews(mode) {
+    const formattedList = document.querySelectorAll("[id^='matrixFormatted_']");
+    const rawList = document.querySelectorAll("[id^='matrixRaw_']");
+    formattedList.forEach(el => {
+        if (mode === 'formatted') el.classList.remove('hidden');
+        else el.classList.add('hidden');
+    });
+    rawList.forEach(el => {
+        if (mode === 'raw') el.classList.remove('hidden');
+        else el.classList.add('hidden');
+    });
+}
+
+// --- TAB 2: Decision Gating Functions ---
+function loadDecisionPreset(key) {
+    const preset = DECISION_PRESETS[key];
+    if (!preset) return;
+    document.getElementById("decisionStateJson").value = JSON.stringify(preset.state, null, 2);
+    document.getElementById("decisionQuestionsJson").value = JSON.stringify(preset.questions, null, 2);
+}
+
+function formatJsonField(fieldId) {
+    try {
+        const val = JSON.parse(document.getElementById(fieldId).value);
+        document.getElementById(fieldId).value = JSON.stringify(val, null, 2);
+    } catch (e) {
+        alert("Invalid JSON: " + e.message);
+    }
+}
+
+async function executeDecisionEval() {
+    const model = document.getElementById("decisionModelInput").value.trim() || "d1";
+    let state = {};
+    let questions = {};
+
+    try {
+        state = JSON.parse(document.getElementById("decisionStateJson").value);
+    } catch (e) {
+        alert("State JSON is invalid: " + e.message);
+        return;
+    }
+
+    try {
+        questions = JSON.parse(document.getElementById("decisionQuestionsJson").value);
+    } catch (e) {
+        alert("Questions JSON is invalid: " + e.message);
+        return;
+    }
+
+    const btn = document.getElementById("btnRunDecision");
+    const spinner = document.getElementById("decisionSpinner");
+    const statusMsg = document.getElementById("decisionStatusMsg");
+    btn.disabled = true;
+    spinner.classList.remove("hidden");
+    statusMsg.innerText = "Evaluating decision model via systemone...";
+
+    try {
+        const payload = {
+            model: model,
+            state: state,
+            questions: questions,
+            context_window: parseInt(document.getElementById("decisionContextWindow").value || "16384", 10)
+        };
+
+        const resp = await fetch("/api/evals/decision/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const data = await resp.json();
+        renderDecisionResults(data);
+        statusMsg.innerText = data.success ? "Decision evaluated successfully." : "Decision evaluation completed with errors.";
+    } catch (err) {
+        alert("Decision Eval Error: " + err.message);
+        statusMsg.innerText = "Error during execution.";
+    } finally {
+        btn.disabled = false;
+        spinner.classList.add("hidden");
+    }
+}
+
+function renderDecisionResults(data) {
+    const section = document.getElementById("decisionResultsSection");
+    const container = document.getElementById("decisionAnswersContainer");
+    const latencyBadge = document.getElementById("decisionLatencyBadge");
+    const rawPre = document.getElementById("decisionRawOutput");
+
+    latencyBadge.innerText = `${data.latency_ms || 0} ms (${data.model})`;
+    rawPre.innerText = JSON.stringify(data, null, 2);
+    container.innerHTML = "";
+
+    const answers = data.answers || {};
+    const keys = Object.keys(answers);
+
+    if (keys.length === 0) {
+        container.innerHTML = `<div class="col-span-2 p-4 bg-amber-50 text-amber-800 rounded-xl text-xs">No structured answers extracted. ${escapeHtml(data.error || '')}</div>`;
+    } else {
+        keys.forEach(k => {
+            const ans = answers[k];
+            const choice = (ans && ans.choice) ? ans.choice : null;
+            const noul = (ans && ans.noul !== undefined && ans.noul !== null) ? parseFloat(ans.noul) : null;
+            const reasoning = (ans && ans.reasoning) ? ans.reasoning : "";
+
+            const card = document.createElement("div");
+            card.className = "p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-2 text-xs";
+            card.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span class="font-bold text-gray-800 text-xs">${escapeHtml(k)}</span>
+                    ${choice ? `<span class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold font-mono">${escapeHtml(choice)}</span>` : ''}
+                    ${noul !== null ? `<span class="px-2 py-0.5 rounded-full ${noul > 0.5 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'} font-bold font-mono">${(noul * 100).toFixed(1)}%</span>` : ''}
+                </div>
+                ${noul !== null ? `
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                        <div class="h-2 rounded-full ${noul > 0.5 ? 'bg-emerald-500' : 'bg-red-500'}" style="width: ${(noul * 100)}%"></div>
+                    </div>
+                ` : ''}
+                ${reasoning ? `<p class="text-gray-600 italic text-[11px]">${escapeHtml(reasoning)}</p>` : ''}
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    section.classList.remove("hidden");
+    section.scrollIntoView({ behavior: "smooth" });
+}
+
+// --- TAB 3: Embedding Functions ---
+function loadSampleCandidates() {
+    const samples = [
+        "PostgreSQL multi-column GIN and B-Tree indexes provide high-speed indexing for relational data views.",
+        "SQLite in-memory tables offer lightweight rapid prototyping but lack native concurrent write scaling.",
+        "Qdrant vector similarity search leverages HNSW graph indexing for sub-millisecond nearest neighbor retrieval."
+    ];
+    document.getElementById("embeddingCandidatesText").value = samples.join("\n---\n");
+}
+
+async function executeEmbeddingEval() {
+    const selectedModels = Array.from(document.querySelectorAll("input[name='embModel']:checked")).map(cb => cb.value);
+    if (selectedModels.length === 0) {
+        alert("Please select at least one embedding model.");
+        return;
+    }
+    const query = document.getElementById("embeddingQueryInput").value.trim();
+    if (!query) {
+        alert("Please enter a search query.");
+        return;
+    }
+
+    const rawCandidates = document.getElementById("embeddingCandidatesText").value;
+    const candidates = rawCandidates.split("---").map(c => c.trim()).filter(c => c.length > 0);
+
+    const btn = document.getElementById("btnRunEmbedding");
+    const spinner = document.getElementById("embSpinner");
+    btn.disabled = true;
+    spinner.classList.remove("hidden");
+
+    try {
+        const payload = {
+            models: selectedModels,
+            query: query,
+            candidates: candidates,
+            top_k: 5
+        };
+
+        const resp = await fetch("/api/evals/embedding/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const data = await resp.json();
+        renderEmbeddingResults(data.results || []);
+    } catch (err) {
+        alert("Embedding Eval Error: " + err.message);
+    } finally {
+        btn.disabled = false;
+        spinner.classList.add("hidden");
+    }
+}
+
+function renderEmbeddingResults(results) {
+    const section = document.getElementById("embeddingResultsSection");
+    const grid = document.getElementById("embeddingResultsGrid");
+    grid.innerHTML = "";
+
+    results.forEach(r => {
+        const card = document.createElement("div");
+        card.className = "bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4";
+        const isError = r.status === "error";
+
+        card.innerHTML = `
+            <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+                <div>
+                    <h4 class="font-bold text-xs text-gray-900">${escapeHtml(r.model)}</h4>
+                    <span class="text-[11px] text-gray-500 font-mono">${r.dimension} dims</span>
+                </div>
+                <span class="text-xs px-2 py-0.5 rounded-full ${isError ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'} font-mono">
+                    ${r.latency_ms} ms
+                </span>
+            </div>
+            ${isError ? `<div class="p-3 bg-red-50 text-red-700 text-xs rounded-lg">${escapeHtml(r.error)}</div>` : ''}
+            <div class="space-y-3">
+                ${(r.candidates || []).map((c, i) => `
+                    <div class="p-3 bg-gray-50 rounded-xl space-y-1.5 text-xs">
+                        <div class="flex items-center justify-between">
+                            <span class="font-bold text-gray-700 text-[11px]">Rank #${i+1}</span>
+                            <span class="font-mono font-bold text-indigo-600">${c.percentage}% (${c.similarity})</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-1.5">
+                            <div class="bg-indigo-600 h-1.5 rounded-full" style="width: ${Math.max(5, c.percentage)}%"></div>
+                        </div>
+                        <p class="text-gray-600 text-[11px] leading-relaxed">${escapeHtml(c.text)}</p>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+
+    section.classList.remove("hidden");
+    section.scrollIntoView({ behavior: "smooth" });
+}
+
+// --- Helpers ---
+function escapeHtml(str) {
+    if (!str) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function escapeAttr(str) {
+    if (!str) return "";
+    return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, '\\n');
+}
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        alert("Copied to clipboard!");
+    }).catch(err => {
+        console.error("Clipboard copy failed: ", err);
+    });
+}
+</script>
+{% endblock %}
