@@ -7,7 +7,7 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 from pydantic import BaseModel, Field
 from urllib.parse import unquote_plus, quote_plus, urlparse
 from fastapi import (
@@ -408,6 +408,13 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
     except Exception as e:
         print(f"Failed to retrieve worker status: {e}")
 
+    agent_configs = []
+    try:
+        from ..agent_config import list_agent_configs
+        agent_configs = list_agent_configs()
+    except Exception as e:
+        logger.warning(f"Failed to retrieve agent configs: {e}")
+
     template = _jinja_env.get_template("admin.j2.html")
     return HTMLResponse(
         content=template.render(
@@ -427,8 +434,53 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             video_backups=video_backups,
             video_files_count=video_files_count,
             worker_status=worker_status,
+            agent_configs=agent_configs,
         )
     )
+
+
+class AgentConfigUpdateRequest(BaseModel):
+    model: Optional[str] = None
+    call_type: Optional[str] = None
+    system_prompt: Optional[str] = None
+    user_prompt_template: Optional[str] = None
+    thinking: Optional[bool] = None
+    temperature: Optional[float] = None
+    num_predict: Optional[int] = None
+    num_ctx: Optional[int] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    tools: Optional[List[str]] = None
+    enabled: Optional[bool] = None
+    extra_options: Optional[Dict[str, Any]] = None
+
+
+@router.get("/api/admin/agents", dependencies=[Depends(verify_auth)])
+def api_get_agent_configs() -> dict:
+    """Returns all configured agents and their full parameter profiles."""
+    from ..agent_config import list_agent_configs
+    return {"status": "success", "agents": list_agent_configs()}
+
+
+@router.get("/api/admin/agents/{agent_id}", dependencies=[Depends(verify_auth)])
+def api_get_single_agent_config(agent_id: str) -> dict:
+    """Returns a single agent configuration."""
+    from ..agent_config import get_agent_config
+    cfg = get_agent_config(agent_id)
+    if not cfg:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    return {"status": "success", "agent": cfg}
+
+
+@router.post("/api/admin/agents/{agent_id}", dependencies=[Depends(verify_auth)])
+def api_update_agent_config(agent_id: str, payload: AgentConfigUpdateRequest) -> dict:
+    """Updates any or all parameters for an agent."""
+    from ..agent_config import save_agent_config
+    update_data = {k: v for k, v in payload.dict().items() if v is not None}
+    res = save_agent_config(agent_id, update_data)
+    if not res:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    return {"status": "success", "agent": res}
 
 
 class UpdatePromptRequest(BaseModel):

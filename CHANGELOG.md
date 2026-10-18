@@ -7,16 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.10] - 2026-10-18
 ### Added
-- **Model Evaluation Studio (`/evals`) & Calibration Suite (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`, & `templates/base.j2.html`)**:
-  - Added dedicated `/evals` portal with top-level navbar navigation for side-by-side comparative benchmarking.
-  - **Prompt & Model Matrix**: Tests models × prompt combinations across sample saved articles or custom markdown with latency and token-per-second metrics.
-  - **Decision Gating Studio**: Tests structured multi-question decision gating models (`d1` default with 16,384 context window and `tev1`) via native `client.systemone`, supporting discrete choices, probability scoring (`noul`), and preset question templates.
-  - **Embedding Retrieval Comparison**: Benchmarks embedding models against target search queries and candidate texts with cosine similarity scoring.
-- **Ollama Request Logs Catalog Exposure (`src/kb_web/routers/reports.py` & `templates/admin.j2.html`)**:
-  - Registered `ollama_logs` ORM table in `TABLE_METADATA` with heavy column placeholder support for `messages` and `response`.
-  - Added direct navigation button (`📊 Ollama Model Logs`) in the Admin Portal linking directly to `/reports?table=ollama_logs`.
-- **Transparent Decision Model Configuration (`src/kb_web/config.py`)**:
-  - Added `decision_model` property defaulting to `"d1"` (configurable via `KB_DECISION_MODEL`, persisted in `settings_ollama` and exported in JSON backups per Rule 7).
+- **Multi-Row Evaluation Datasets & Query Builder (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`, & `models_orm.py`)**:
+  - Added dedicated Tab 4 (**Eval Datasets & Query Builder**) in the Model Evaluation Studio allowing users to construct datasets using report filters and table projections.
+  - Enforces strict minimum $\ge 20$ matching rows requirement before saving to guarantee evaluation statistical validity.
+  - Integrated Jinja2 row templating (`{{ data.<key> }}`) with live Row 0 client previews for Prompt Matrix, Decision Gating, and Embedding Retrieval.
+- **Granular Agent Configuration Engine & Admin Exposure (`src/kb_web/agent_config.py`, `models_orm.py`, `routers/admin.py`, & `templates/admin.j2.html`)**:
+  - Implemented persistent `agent_configurations` ORM table exposing all parameters for all 11 background and interactive agents (`model`, `call_type`, `system_prompt`, `user_prompt_template`, `thinking`, `temperature`, `num_predict`, `num_ctx`, `top_p`, `top_k`, `tools`, `enabled`).
+  - Added dedicated **Agent Configurations** tab in the Admin Portal with category filter pills and live save indicators.
+  - Spotlighted the **Maintenance & Error Diagnostics Agent** (`maintenance_agent`), giving administrators full visibility and control over automated log diagnosis.
+- **Ollama `d1` / `/v1/systemone` Decision Model Calling Overhaul (`src/kb_web/base.py` & `routers/evals.py`)**:
+  - **Root Cause**: `client.systemone()` previously threw `TypeError: Client.systemone() got an unexpected keyword argument 'options'` when chat generation options were passed to decision models.
+  - **Fix**: Sanitized `LoggedOllamaClient.systemone()` to strip `options` prior to calling Ollama, normalized question keys (`question` -> `instructions`, `choices` -> `criteria`, `probability` -> `noul`), and added structured deserialization for `noul`, `choice`, `score`, `confidence`, and `probabilities`.
+- **Frontend Safe Error Response Parsing (`templates/evals.j2.html`)**:
+  - **Root Cause**: Fetch calls in `executeMatrixEval()` and `executeDecisionEval()` ran `await resp.json()` unconditionally on error responses, raising unhandled SyntaxErrors (`Unexpected token '<', "<!DOCTYPE ... is not valid JSON"`) when HTML error pages were returned.
+  - **Fix**: Wrapped error extraction with `await resp.text()` and guarded `JSON.parse()`, displaying human-readable server error details.
 
 ### Fixed
 - **Raw Un-Truncated Report Data Downloads (`src/kb_web/routers/reports.py`)**:

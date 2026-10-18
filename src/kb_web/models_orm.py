@@ -433,6 +433,42 @@ class ScheduledReportJob(Base):
     created_at = Column(String)
 
 
+class AgentConfiguration(Base):
+    __tablename__ = "agent_configurations"
+
+    id = Column(String, primary_key=True)  # unique string key e.g. "maintenance_agent", "wiki_curation"
+    name = Column(String, nullable=False)
+    category = Column(String, default="curation")  # curation, crawler, diagnostics, coding, rag, taxonomy
+    call_type = Column(String, default="llm")  # llm, decision, embedding, coding
+    model = Column(String, default="gemma4:e4b")
+    system_prompt = Column(Text, default="")
+    user_prompt_template = Column(Text, default="")
+    thinking = Column(Integer, default=0)
+    temperature = Column(Float, default=0.2, nullable=True)
+    num_predict = Column(Integer, default=2048, nullable=True)
+    num_ctx = Column(Integer, default=4096, nullable=True)
+    top_p = Column(Float, nullable=True)
+    top_k = Column(Integer, nullable=True)
+    tools = Column(Text, default="[]")  # JSON array of tools
+    enabled = Column(Integer, default=1)
+    extra_options = Column(Text, default="{}")  # JSON object for custom question templates or options
+    updated_at = Column(String)
+
+
+class EvalDataset(Base):
+    __tablename__ = "eval_datasets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, unique=True, nullable=False)
+    description = Column(Text, default="")
+    base_table = Column(String, default="fetched_pages")
+    selected_columns = Column(Text, default="[]")  # JSON array of column strings
+    query_config = Column(Text, nullable=False)  # JSON string of ReportQueryRequest
+    row_count = Column(Integer, default=0)
+    created_at = Column(String)
+    updated_at = Column(String)
+
+
 class Workspace(Base):
     __tablename__ = "workspaces"
 

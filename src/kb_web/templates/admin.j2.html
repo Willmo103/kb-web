@@ -121,6 +121,12 @@
                 <span class="bg-gray-200 text-gray-700 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{{ cli_keys | length }}</span>
                 {% endif %}
             </button>
+            <button type="button" onclick="switchAdminTab('tab-agents')" id="btn-tab-agents" class="admin-tab-btn px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-gray-200 sm:border-transparent">
+                <span>🧠</span> <span>Agent Configurations</span>
+                {% if agent_configs %}
+                <span class="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full" id="agentConfigsCountBadge">{{ agent_configs | length }}</span>
+                {% endif %}
+            </button>
         </nav>
     </div>
 
@@ -1042,6 +1048,139 @@
         </div>
     </div>
 
+    <!-- TAB 6: Agent Configurations & Parameter Exposure -->
+    <div id="tab-agents" class="admin-tab-pane hidden space-y-8 pb-12">
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-gray-100">
+                <div>
+                    <h3 class="text-xl font-extrabold text-gray-900 flex items-center gap-2.5">
+                        <span class="text-2xl">🧠</span> Agent Configurations &amp; Ollama Parameter Profiles
+                    </h3>
+                    <p class="text-xs text-gray-500 mt-1">
+                        Granular configuration for all autonomous background jobs, decision gating, maintenance bots, and chat agents. Configure assigned models, sampling parameters, system personas, and tool permissions.
+                    </p>
+                </div>
+                <!-- Filter Pills -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button" onclick="filterAgentCards('all')" class="agent-filter-btn active px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white">All ({{ agent_configs | length }})</button>
+                    <button type="button" onclick="filterAgentCards('System Maintenance')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">System Maintenance</button>
+                    <button type="button" onclick="filterAgentCards('Autonomous Curation')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Autonomous Curation</button>
+                    <button type="button" onclick="filterAgentCards('Decision Gating')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Decision Gating</button>
+                    <button type="button" onclick="filterAgentCards('Interactive Chat')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Interactive Chat</button>
+                    <button type="button" onclick="filterAgentCards('Code & Execution')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Code &amp; Execution</button>
+                </div>
+            </div>
+
+            <!-- Spotlight: Maintenance Agent -->
+            <div class="mt-6 p-4 rounded-xl border border-red-200 bg-red-50/60 flex items-start gap-3">
+                <span class="text-2xl">🚨</span>
+                <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                        <h4 class="text-sm font-bold text-red-900">Maintenance &amp; Error Diagnosis Agent (Background Watchdog)</h4>
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-red-200 text-red-800">system_watchdog</span>
+                    </div>
+                    <p class="text-xs text-red-700 mt-0.5">
+                        Continuously monitors runtime unhandled errors, parses stack traces, and analyzes log exceptions using Ollama. You have full visibility and control over its model, diagnostic prompt, thinking mode, and tools below.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Agents Grid -->
+            <div class="mt-6 space-y-6" id="agentConfigsList">
+                {% for agent in agent_configs %}
+                <div class="agent-card bg-gray-50/70 border border-gray-200 rounded-2xl p-5 shadow-xs transition hover:border-gray-300" id="agent-card-{{ agent.id }}" data-category="{{ agent.category }}">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-gray-200">
+                        <div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h4 class="text-sm font-extrabold text-gray-900">{{ agent.name }}</h4>
+                                <code class="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-200 text-gray-800">{{ agent.id }}</code>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider {% if agent.call_type == 'decision' %}bg-amber-100 text-amber-800 border border-amber-200{% elif agent.call_type == 'embedding' %}bg-purple-100 text-purple-800 border border-purple-200{% elif agent.call_type == 'coding' %}bg-blue-100 text-blue-800 border border-blue-200{% else %}bg-indigo-100 text-indigo-800 border border-indigo-200{% endif %}">
+                                    {{ agent.call_type }}
+                                </span>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+                                    {{ agent.category }}
+                                </span>
+                            </div>
+                            <span class="text-[11px] text-gray-500 mt-1 block">Last updated: {{ agent.updated_at.strftime('%Y-%m-%d %H:%M:%S') if agent.updated_at else 'Initial' }}</span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700">
+                                <input type="checkbox" data-field="enabled" {% if agent.enabled %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+                                <span>Active</span>
+                            </label>
+                            <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700">
+                                <input type="checkbox" data-field="thinking" {% if agent.thinking %}checked{% endif %} class="rounded text-amber-600 focus:ring-amber-500 h-4 w-4">
+                                <span>Thinking</span>
+                            </label>
+                            <button type="button" onclick="saveAgentConfig('{{ agent.id }}')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition flex items-center gap-1.5">
+                                <span>💾</span> Save
+                            </button>
+                            <span id="agent-status-{{ agent.id }}" class="text-xs"></span>
+                        </div>
+                    </div>
+
+                    <!-- Parameters Grid -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+                        <div class="col-span-2 sm:col-span-1">
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Model</label>
+                            <input type="text" data-field="model" value="{{ agent.model }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Temperature</label>
+                            <input type="number" step="0.05" min="0" max="2" data-field="temperature" value="{{ agent.temperature or 0.2 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Num Predict</label>
+                            <input type="number" step="128" min="64" max="16384" data-field="num_predict" value="{{ agent.num_predict or 2048 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Num Context</label>
+                            <input type="number" step="1024" min="1024" max="65536" data-field="num_ctx" value="{{ agent.num_ctx or 8192 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Top P</label>
+                            <input type="number" step="0.05" min="0.1" max="1.0" data-field="top_p" value="{{ agent.top_p or 0.9 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Top K</label>
+                            <input type="number" step="5" min="1" max="100" data-field="top_k" value="{{ agent.top_k or 40 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                        </div>
+                    </div>
+
+                    <!-- Prompts Editors -->
+                    {% if agent.call_type != 'embedding' %}
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-600 mb-1">
+                                System Prompt / Persona Directive
+                            </label>
+                            <textarea rows="6" data-field="system_prompt" class="w-full text-xs font-mono p-3 border border-gray-300 rounded-xl bg-white shadow-inner focus:ring-indigo-500 focus:border-indigo-500">{{ agent.system_prompt or '' }}</textarea>
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-[10px] font-bold uppercase tracking-wider text-gray-600">
+                                    User Prompt Template (Jinja2)
+                                </label>
+                                <span class="text-[10px] text-gray-400 font-mono">Variables: &#123;&#123; data.title &#125;&#125;, &#123;&#123; data.wiki &#125;&#125;, etc.</span>
+                            </div>
+                            <textarea rows="6" data-field="user_prompt_template" class="w-full text-xs font-mono p-3 border border-gray-300 rounded-xl bg-white shadow-inner focus:ring-indigo-500 focus:border-indigo-500">{{ agent.user_prompt_template or '' }}</textarea>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Tools Configuration -->
+                    <div class="mt-4 pt-3 border-t border-gray-200">
+                        <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                            Allowed Tool Primitives (comma-separated)
+                        </label>
+                        <input type="text" data-field="tools" value="{{ (agent.tools or []) | join(', ') }}" placeholder="fetch_page, get_system_logs, execute_sql, search_vectors, run_python, notify_gotify" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <!-- Hidden JSON Payloads for Prompts and Revisions -->
@@ -1114,6 +1253,95 @@
             setTimeout(initPromptStudio, 100);
         }
     });
+
+    /* =======================================================================
+       AGENT CONFIGURATIONS CONTROLLER
+       ======================================================================= */
+    function filterAgentCards(category) {
+        document.querySelectorAll('.agent-filter-btn').forEach(btn => {
+            btn.classList.remove('bg-indigo-600', 'text-white', 'active');
+            btn.classList.add('bg-gray-100', 'text-gray-700');
+        });
+        const activeBtn = event?.currentTarget;
+        if (activeBtn) {
+            activeBtn.classList.add('bg-indigo-600', 'text-white', 'active');
+            activeBtn.classList.remove('bg-gray-100', 'text-gray-700');
+        }
+
+        const cards = document.querySelectorAll('.agent-card');
+        cards.forEach(card => {
+            const cardCat = card.getAttribute('data-category');
+            if (category === 'all' || cardCat === category) {
+                card.classList.remove('hidden');
+            } else {
+                card.classList.add('hidden');
+            }
+        });
+    }
+
+    async function saveAgentConfig(agentId) {
+        const card = document.getElementById('agent-card-' + agentId);
+        if (!card) return;
+
+        const model = card.querySelector('[data-field="model"]')?.value;
+        const enabled = card.querySelector('[data-field="enabled"]')?.checked;
+        const thinking = card.querySelector('[data-field="thinking"]')?.checked;
+        const temperature = parseFloat(card.querySelector('[data-field="temperature"]')?.value || '0.2');
+        const num_predict = parseInt(card.querySelector('[data-field="num_predict"]')?.value || '2048', 10);
+        const num_ctx = parseInt(card.querySelector('[data-field="num_ctx"]')?.value || '8192', 10);
+        const top_p = parseFloat(card.querySelector('[data-field="top_p"]')?.value || '0.9');
+        const top_k = parseInt(card.querySelector('[data-field="top_k"]')?.value || '40', 10);
+        const system_prompt = card.querySelector('[data-field="system_prompt"]')?.value;
+        const user_prompt_template = card.querySelector('[data-field="user_prompt_template"]')?.value;
+        const toolsStr = card.querySelector('[data-field="tools"]')?.value || '';
+        const tools = toolsStr.split(',').map(s => s.trim()).filter(Boolean);
+
+        const payload = {
+            model,
+            enabled,
+            thinking,
+            temperature,
+            num_predict,
+            num_ctx,
+            top_p,
+            top_k,
+            system_prompt,
+            user_prompt_template,
+            tools
+        };
+
+        const statusEl = document.getElementById('agent-status-' + agentId);
+        if (statusEl) {
+            statusEl.className = 'text-xs text-indigo-600 font-bold';
+            statusEl.innerText = 'Saving...';
+        }
+
+        try {
+            const resp = await fetch('/api/admin/agents/' + encodeURIComponent(agentId), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!resp.ok) {
+                let errText = resp.statusText;
+                try {
+                    const errJson = await resp.json();
+                    errText = errJson.detail || errText;
+                } catch {}
+                throw new Error(errText);
+            }
+            if (statusEl) {
+                statusEl.className = 'text-xs text-emerald-600 font-bold';
+                statusEl.innerText = 'Saved!';
+                setTimeout(() => { if (statusEl.innerText === 'Saved!') statusEl.innerText = ''; }, 3000);
+            }
+        } catch (err) {
+            if (statusEl) {
+                statusEl.className = 'text-xs text-red-600 font-bold';
+                statusEl.innerText = 'Error: ' + err.message;
+            }
+        }
+    }
 
     /* =======================================================================
        PROMPT STUDIO CONTROLLER (MONACO + OBSIDIAN LIVE MARKDOWN PREVIEW)

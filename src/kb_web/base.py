@@ -182,6 +182,11 @@ def get_engine():
                 Base.metadata.create_all(_engine)
                 ensure_views_and_indexes(_engine)
                 _SessionFactory = sessionmaker(bind=_engine)
+                try:
+                    from .agent_config import ensure_default_agent_configs
+                    ensure_default_agent_configs()
+                except Exception as _cfg_err:
+                    print(f"Warning: Default agent configurations check deferred: {_cfg_err}")
     return _engine
 
 
@@ -395,22 +400,61 @@ class LoggedOllamaClient:
             raise e
 
     def systemone(self, *args, **kwargs):
-        """Native systemone decision routing method for tev1/nimble models."""
+        """Native systemone decision routing method for d1, tev1, and nimble models."""
         import traceback
 
         prompt_type = "systemone"
-        model = kwargs.get("model", "tev1")
+        model = kwargs.get("model", "d1")
         state = kwargs.get("state", "")
-        questions = kwargs.get("questions", {})
+        raw_questions = kwargs.get("questions", {})
+        
+        # Normalize questions mapping to Ollama /v1/systemone specification (instructions, type, criteria)
+        normalized_questions = {}
+        if isinstance(raw_questions, dict):
+            for q_name, q_val in raw_questions.items():
+                if isinstance(q_val, dict):
+                    q_copy = dict(q_val)
+                    if "question" in q_copy and "instructions" not in q_copy:
+                        q_copy["instructions"] = q_copy.pop("question")
+                    if "choices" in q_copy and "criteria" not in q_copy:
+                        q_copy["criteria"] = q_copy.pop("choices")
+                    if q_copy.get("type") in ("probability", "bool", "boolean"):
+                        q_copy["type"] = "noul"
+                    normalized_questions[q_name] = q_copy
+                else:
+                    normalized_questions[q_name] = q_val
+        else:
+            normalized_questions = raw_questions
+
+        # Strip any LLM chat options before calling systemone
+        clean_kwargs = {
+            "model": model,
+            "state": state,
+            "questions": normalized_questions,
+        }
+        if "keep_alive" in kwargs and kwargs["keep_alive"] is not None:
+            clean_kwargs["keep_alive"] = kwargs["keep_alive"]
+
         options = {
             k: v
             for k, v in kwargs.items()
-            if k not in ("model", "state", "questions")
+            if k not in ("model", "state", "questions", "keep_alive")
         }
 
         start_time = time.time()
         try:
-            resp = self._client.systemone(*args, **kwargs)
+            if hasattr(self._client, "systemone"):
+                resp = self._client.systemone(**clean_kwargs)
+            else:
+                import httpx
+                http_resp = httpx.post(
+                    f"{self.host.rstrip('/')}/v1/systemone",
+                    json=clean_kwargs,
+                    timeout=self.timeout or 120.0,
+                )
+                http_resp.raise_for_status()
+                resp = http_resp.json()
+
             duration = time.time() - start_time
             response_content = str(getattr(resp, "answers", resp))
 
@@ -420,7 +464,7 @@ class LoggedOllamaClient:
                 messages=[
                     {
                         "role": "system",
-                        "content": f"State: {str(state)[:300]}... Questions: {list(questions.keys()) if isinstance(questions, dict) else str(questions)[:100]}",
+                        "content": f"State: {str(state)[:300]}... Questions: {list(normalized_questions.keys()) if isinstance(normalized_questions, dict) else str(normalized_questions)[:100]}",
                     }
                 ],
                 options=options,
