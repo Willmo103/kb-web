@@ -2480,9 +2480,12 @@ def test_descriptive_video_download_and_resolution(
     )
     db.conn.commit()
 
+    captured_opts = {}
+
     class DummyYoutubeDL:
         def __init__(self, opts):
             self.opts = opts
+            captured_opts.update(opts)
 
         def __enter__(self):
             return self
@@ -2502,6 +2505,10 @@ def test_descriptive_video_download_and_resolution(
 
     local_path = download_youtube_video(video_id, server_config)
 
+    assert "merge_output_format" in captured_opts
+    assert captured_opts["merge_output_format"] == "mp4"
+    assert "ba" in captured_opts["format"]  # Must include audio stream specification
+
     filename = Path(local_path).name
     assert "RickAstleyVEVO" in filename
     assert "Never Gonna Give You Up" in filename
@@ -2514,6 +2521,35 @@ def test_descriptive_video_download_and_resolution(
     assert f"/media/videos/{filename}" in resp.text
 
     server_config.configs_dir = old_configs_dir
+
+
+def test_youtube_download_format_config_and_admin_update(client: TestClient) -> None:
+    """Verifies that youtube_download_format setting is exposed in config and updatable via admin form."""
+    from kb_web.config import DEFAULT_YOUTUBE_DOWNLOAD_FORMAT
+
+    # Default value
+    assert server_config.youtube_download_format == DEFAULT_YOUTUBE_DOWNLOAD_FORMAT
+
+    # Update via property
+    custom_format = "bestvideo[height<=1080]+bestaudio/best"
+    server_config.youtube_download_format = custom_format
+    assert server_config.youtube_download_format == custom_format
+
+    # Update via POST /admin/config
+    form_data = {
+        "ollama_host": server_config.ollama_host,
+        "ollama_model": server_config.ollama_model,
+        "ollama_embedding_model": server_config.ollama_embedding_model,
+        "api_key": server_config.api_key or "",
+        "max_input_length": server_config.max_input_length,
+        "youtube_download_format": "bv*+ba/b",
+    }
+    resp = client.post("/admin/config", data=form_data, follow_redirects=False)
+    assert resp.status_code == 303
+    assert server_config.youtube_download_format == "bv*+ba/b"
+
+    # Reset
+    server_config.youtube_download_format = DEFAULT_YOUTUBE_DOWNLOAD_FORMAT
 
 
 def test_cli_client_server_integration(client: TestClient, monkeypatch) -> None:

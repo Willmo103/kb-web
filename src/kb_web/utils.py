@@ -1321,8 +1321,15 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
     else:
         filename_base = f"{video_id}"
 
+    # Determine video download format from config or robust default
+    from .config import DEFAULT_YOUTUBE_DOWNLOAD_FORMAT
+    download_format = getattr(
+        config_obj, "youtube_download_format", DEFAULT_YOUTUBE_DOWNLOAD_FORMAT
+    ) or DEFAULT_YOUTUBE_DOWNLOAD_FORMAT
+
     ydl_opts = {
-        "format": "mp4/best",
+        "format": download_format,
+        "merge_output_format": "mp4",
         "outtmpl": str(media_dir / f"{filename_base}.%(ext)s"),
         "quiet": True,
         "no_warnings": True,

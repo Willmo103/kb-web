@@ -33,6 +33,10 @@ DEFAULT_WIKI_PROMPT = (
     "Output ONLY the final markdown text. Do not reply with conversational filler headers."
 )
 
+DEFAULT_YOUTUBE_DOWNLOAD_FORMAT = (
+    "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
+)
+
 DEFAULT_YOUTUBE_WIKI_PROMPT = (
     "You are an expert knowledge-base agent. Analyze the provided YouTube video transcript and metadata. "
     "Rewrite it as a clean, highly structured, and objective wiki article. "
@@ -854,6 +858,20 @@ class Config:
     def repo_import_default_depth(self, value: int) -> None:
         self._write_db_setting("settings_external", "repo_import_default_depth", int(value))
 
+    @property
+    def youtube_download_format(self) -> str:
+        return self._read_db_setting(
+            "settings_external",
+            "youtube_download_format",
+            DEFAULT_YOUTUBE_DOWNLOAD_FORMAT,
+        )
+
+    @youtube_download_format.setter
+    def youtube_download_format(self, value: str) -> None:
+        self._write_db_setting(
+            "settings_external", "youtube_download_format", str(value).strip()
+        )
+
     def save(self) -> None:
         """Writes current config values back to the ~/.kb/configs/kb-web.json file."""
         try:
@@ -886,6 +904,7 @@ class Config:
                 "page_cards_per_page": self.page_cards_per_page,
                 "crawler_default_max_pages": self.crawler_default_max_pages,
                 "repo_import_default_depth": self.repo_import_default_depth,
+                "youtube_download_format": self.youtube_download_format,
                 "gotify_url": self.gotify_url,
                 "gotify_token": self.gotify_token,
                 "qdrant_host_url": self.qdrant_host_url,
