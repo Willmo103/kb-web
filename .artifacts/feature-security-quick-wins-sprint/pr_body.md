@@ -15,3 +15,6 @@ Draft PR tracking progress for Task 1 security vulnerabilities and credential hy
 - Pre-commit template verification passed (25 templates, 0 errors)
 - Unit test suite passed (197 / 197 passed)
 - Walkthrough and changelog documentation updated
+
+### Child Sprints & Dependent Pull Requests
+- Child PR #114: [Code Review Issue Generator Skill & Remaining Audit Fixes](https://github.com/Willmo103/kb-web/pull/114) (target: `development`)

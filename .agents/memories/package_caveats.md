@@ -45,3 +45,9 @@ Record of package-specific traps, configurations, and quirks discovered across d
 - **Issue**: Passing user-supplied URLs to `git clone` with `shell=True` on Windows or without the `--` argument delimiter allows argument injection (e.g. `--upload-pack=...`) and local repository/file exfiltration (`file://...`).
 - **Rule**: Always validate URLs with protocol allowlists (`https://`, `http://`, `ssh://`, `git@`), forbid leading dashes, resolve the binary with `shutil.which("git")`, pass `shell=False`, and invoke git with `-c protocol.file.allow=never` and `--` delimiters before positional arguments.
 
+---
+
+### 8. Tailwind CSS v2 CDN & Monaco Editor Flex Collapsing
+- **Issue**: The application loads the standalone CDN build `tailwindcss@2.2.19/dist/tailwind.min.css`. This precompiled bundle does NOT support Tailwind JIT arbitrary bracket values (e.g. `min-h-[520px]`, `h-[500px]`, `max-h-[600px]`, `dark:from-slate-800`), nor modern palette names added in v3 (e.g. `slate`). When arbitrary height classes are placed on flex parents or Monaco editor containers, the browser ignores them, causing `#monacoPromptContainer` to collapse to Monaco's default 15px-18px sliver in half-screen/responsive views. Additionally, active gradient utilities (`bg-gradient-to-br from-... to-...`) retain light end-stops in dark mode unless overridden with `background-image: none !important`.
+- **Rule**: Never rely on arbitrary bracket classes (`[...px]`) for critical dimensions in templates styled by the v2 CDN. Always define concrete pixel dimensions in `<style>` blocks (e.g. `min-height: 480px; height: 500px;`) with inline style fallbacks, provide explicit dark-mode CSS overrides (`html.dark .class { background-color: #111827 !important; background-image: none !important; }`), and attach debounced `window.resize` listeners to trigger `monaco.editor.layout()`.
+
