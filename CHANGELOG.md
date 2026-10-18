@@ -7,12 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.9] - 2026-10-13
 ### Fixed
+- **YouTube Offline Downloads Audio Missing (`src/kb_web/utils.py`, `config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Issue #112)**:
+  - **Root cause**: `download_youtube_video()` requested `"format": "mp4/best"` without merging streams. When YouTube omits pre-muxed 720p/1080p MP4 formats, yt-dlp defaulted to video-only streams without sound.
+  - **Fix**: Configured yt-dlp with `bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b` and `merge_output_format: "mp4"`, muxing video and audio tracks with ffmpeg.
+  - **Rule 7 Exposure**: Exposed `youtube_download_format` property in `Config`, DB (`settings_external`), JSON (`kb-web.json`), and the Admin Portal under **Server Configurations**.
+  - Added regression test `test_youtube_download_format_config_and_admin_update` and verified audio stream selector in `test_descriptive_video_download_and_resolution`.
 - **Admin Portal blank tabs & `escapeHtml` ReferenceError (`templates/admin.j2.html`)** — regression from Issue #92 Prompt Studio merge:
   - **Root cause 1**: The `tab-prompts` refactor dropped 4 closing `</div>` tags after the *Quick Diagnostics* card, nesting `#tab-prompts`, `#tab-backups`, `#tab-media`, and `#tab-diagnostics` inside `#tab-general`. `switchAdminTab()` hid `#tab-general` and therefore every pane, rendering all non-General tabs blank. Restored the missing closing tags.
   - **Root cause 2**: Prompt Studio's `updateActivePromptUI()` (revision history) and the status banner called `escapeHtml()`, which was never defined in the admin template, throwing `Uncaught ReferenceError: escapeHtml is not defined` inside the Monaco init callback. Added a null-safe local `escapeHtml()` helper.
   - Added regression tests `test_admin_portal_tab_panes_are_siblings` and `test_admin_portal_defines_escape_html` in `tests/test_system_prompts_admin.py`.
 
 ### Added
+- **Durable Agent Working Memory & Guarded GitHub CLI Operations Skill (`.agents/memory/`, `.agents/skills/gh-cli-operations/`, & `rules/documentation_rules.md`)**:
+  - Established `.agents/memory/` directory with `package_caveats.md` and `github_cli_guardrails.md` for capturing durable package quirks, platform gotchas, and safe operational patterns across development turns.
+  - Added Section 6 to `.agents/rules/documentation_rules.md` requiring AI agents to record package-specific traps and actively maintain working memory.
+  - Implemented `gh-cli-operations` skill and Python script `scripts/gh_safe.py` providing safe, structured execution of `gh` operations with path quoting guardrails, draft PR enforcement, and structured JSON action logging to `.artifacts/gh-actions.log`.
+  - Delivered interactive single-page repository code audit report in `.artifacts/feature-agent-skills-memory-and-code-audit/code_audit_report.html`.
 - **AI Agent Personas & System Prompt Studio (`config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Issue #92)**:
   - Exposed all 10 non-numerical hardcoded prompt templates and system directives across the application in `config.py` backed by `AgentPrompt` versioning and `kb-web.json` serialization:
     - `wiki_prompt` (Wiki Extraction System Prompt)

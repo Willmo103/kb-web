@@ -25,3 +25,8 @@ Agents working in `kb-web` are required to maintain strict self-documentation st
 ## 5. Mandatory Implementation Plan Presentation
 - Whenever an implementation plan is created or updated and saved in `./.artifacts/`, the agent MUST ALWAYS present the implementation plan directly to the user in the response immediately after saving it in the artifacts folder, before asking for confirmation or proceeding to write code. (use the `present` tool **always** for this action)
 
+## 6. Agent Working Memory Guidelines (`.agents/memory/`)
+- AI agents MUST maintain and consult the `.agents/memory/` directory for technical lessons learned, edge cases, and environment-specific gotchas.
+- **Record specific package issues**: Whenever a non-obvious bug, package limitation, or configuration trap is solved (e.g. `yt-dlp` stream selection, `hmac` string encoding, Windows CLI path quoting), the agent MUST record the root cause and guardrails in a memory file under `.agents/memory/`.
+- **Be on the lookout**: Agents should proactively look out for knowledge, recurring patterns, and failure modes that could aid future agent turns, capturing them in memory files for durable cross-session recall.
+

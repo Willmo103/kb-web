@@ -512,8 +512,9 @@ def handle_config_update(
     page_cards_per_page: Optional[int] = Form(None),
     crawler_default_max_pages: Optional[int] = Form(None),
     repo_import_default_depth: Optional[int] = Form(None),
+    youtube_download_format: Optional[str] = Form(None),
 ) -> RedirectResponse:
-    """Saves updated server settings (Ollama, Gotify, Qdrant, and operational thresholds) to config."""
+    """Saves updated server settings (Ollama, Gotify, Qdrant, operational thresholds, and media download format) to config."""
     config.ollama_host = ollama_host
     config.ollama_model = ollama_model
     config.ollama_embedding_model = ollama_embedding_model
@@ -544,6 +545,8 @@ def handle_config_update(
         config.crawler_default_max_pages = crawler_default_max_pages
     if repo_import_default_depth is not None:
         config.repo_import_default_depth = repo_import_default_depth
+    if youtube_download_format is not None and youtube_download_format.strip():
+        config.youtube_download_format = youtube_download_format.strip()
     config.save()
 
     return RedirectResponse(
