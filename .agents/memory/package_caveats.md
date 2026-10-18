@@ -32,3 +32,16 @@ Record of package-specific traps, configurations, and quirks discovered across d
 ### 5. Multi-Statement SQL in SQLite / Alembic
 - **Issue**: SQLite's Python driver `sqlite3` does not allow multiple SQL statements in a single `cursor.execute()`. Running migration scripts containing multiple `CREATE TABLE` and `CREATE INDEX` queries in a single `session.execute(text(...))` call raises `sqlite3.ProgrammingError: You can only execute one statement at a time`.
 - **Rule**: Split multi-statement SQL strings by semicolon and execute statements individually.
+
+---
+
+### 6. `nh3` HTML Sanitizer & `link_rel` Attribute Trap
+- **Issue**: When using `nh3.clean()` in Python, `link_rel="noopener noreferrer"` is enabled by default for `<a>` tags. Specifying `"rel"` inside `attributes={"a": {"href", "rel", ...}}` triggers `ValueError: "rel" attribute is not allowed for tag "a" when link_rel is set; pass link_rel=None to manage the "rel" attribute directly`.
+- **Rule**: Omit `"rel"` from the `attributes["a"]` set and let `nh3` manage safe `link_rel` values automatically, or explicitly pass `link_rel=None` if custom `rel` values are required.
+
+---
+
+### 7. Git CLI Subprocess Invocation & Argument Injection
+- **Issue**: Passing user-supplied URLs to `git clone` with `shell=True` on Windows or without the `--` argument delimiter allows argument injection (e.g. `--upload-pack=...`) and local repository/file exfiltration (`file://...`).
+- **Rule**: Always validate URLs with protocol allowlists (`https://`, `http://`, `ssh://`, `git@`), forbid leading dashes, resolve the binary with `shutil.which("git")`, pass `shell=False`, and invoke git with `-c protocol.file.allow=never` and `--` delimiters before positional arguments.
+

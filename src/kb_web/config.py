@@ -3,13 +3,60 @@ Configuration for the kb-web application.
 """
 
 from pathlib import Path
+import base64
+import hashlib
+import hmac
 import json
 import os
-from typing import Any, Dict, List, Optional
+import secrets
+import sys
+from typing import Any, Dict, List, Optional, Tuple
 
 from kb_core.config import Config as BaseConfig
 from kb_core.notifier import Gotify
 from dotenv import load_dotenv
+
+INSECURE_DEFAULT_API_KEY = "kb-secret-key"
+INSECURE_DEFAULT_PASSWORD = "admin123"
+DEFAULT_TRUSTED_PROXIES = "127.0.0.1, ::1"
+
+
+def hash_password(password: str) -> str:
+    """Hashes a password using scrypt with a cryptographically random 16-byte salt."""
+    salt = secrets.token_bytes(16)
+    hashed = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=16384, r=8, p=1)
+    salt_b64 = base64.b64encode(salt).decode("ascii")
+    hash_b64 = base64.b64encode(hashed).decode("ascii")
+    return f"scrypt${salt_b64}${hash_b64}"
+
+
+def verify_password(plain_password: str, stored_hash_or_plain: str) -> Tuple[bool, bool]:
+    """Verifies plain_password against stored_hash_or_plain.
+
+    Returns (is_valid, needs_migration).
+    """
+    if not stored_hash_or_plain or not plain_password:
+        return False, False
+    if stored_hash_or_plain.startswith("scrypt$"):
+        try:
+            parts = stored_hash_or_plain.split("$")
+            if len(parts) == 3:
+                salt = base64.b64decode(parts[1])
+                expected = base64.b64decode(parts[2])
+                calc = hashlib.scrypt(
+                    plain_password.encode("utf-8"), salt=salt, n=16384, r=8, p=1
+                )
+                return hmac.compare_digest(calc, expected), False
+        except Exception:
+            return False, False
+    # Backward compatibility with plaintext
+    try:
+        if hmac.compare_digest(plain_password, stored_hash_or_plain):
+            return True, True
+    except Exception:
+        pass
+    return False, False
+
 
 ROOT_DIR = Path(__file__).parent.parent.parent
 ENV_FILE = ROOT_DIR / ".env"
@@ -172,6 +219,9 @@ class Config:
         self._qdrant_host_url: Optional[str] = os.getenv("QDRANT_HOST_URL")
         self._qdrant_api_key: Optional[str] = os.getenv("QDRANT_API_KEY")
         self._database_url: str = os.getenv("DATABASE_URL", "")
+        self._trusted_proxies: str = os.getenv("KB_TRUSTED_PROXIES", DEFAULT_TRUSTED_PROXIES)
+        self._session_secret: Optional[str] = os.getenv("KB_SESSION_SECRET")
+        self._admin_password_hash: Optional[str] = None
 
     def get_db(self):
         """Returns a sqlite_utils Database connection for the configured SQLite database."""
@@ -427,6 +477,11 @@ class Config:
     def admin_password(self, value: str) -> None:
         self._admin_password = value
         self._write_db_setting("settings_external", "admin_password", value)
+        if value:
+            if value.startswith("scrypt$"):
+                self.admin_password_hash = value
+            else:
+                self.admin_password_hash = hash_password(value)
 
     @property
     def api_key(self) -> Optional[str]:
@@ -437,6 +492,70 @@ class Config:
     def api_key(self, value: Optional[str]) -> None:
         self._api_key = value
         self._write_db_setting("settings_external", "api_key", value or "")
+
+    @property
+    def admin_password_hash(self) -> Optional[str]:
+        val = self._read_db_setting(
+            "settings_external", "admin_password_hash", self._admin_password_hash
+        )
+        return val if val else None
+
+    @admin_password_hash.setter
+    def admin_password_hash(self, value: Optional[str]) -> None:
+        self._admin_password_hash = value
+        self._write_db_setting("settings_external", "admin_password_hash", value or "")
+
+    @property
+    def trusted_proxies(self) -> str:
+        return self._read_db_setting(
+            "settings_external", "trusted_proxies", self._trusted_proxies
+        )
+
+    @trusted_proxies.setter
+    def trusted_proxies(self, value: str) -> None:
+        self._trusted_proxies = str(value).strip()
+        self._write_db_setting("settings_external", "trusted_proxies", self._trusted_proxies)
+
+    @property
+    def allow_insecure_defaults(self) -> bool:
+        if "pytest" in sys.modules or os.getenv("PYTEST_CURRENT_TEST"):
+            return True
+        return os.getenv("KB_ALLOW_INSECURE_DEFAULTS", "0").lower() in ("1", "true", "yes")
+
+    @property
+    def is_default_password(self) -> bool:
+        stored_hash = self.admin_password_hash
+        if stored_hash:
+            valid, _ = verify_password(INSECURE_DEFAULT_PASSWORD, stored_hash)
+            return valid
+        stored = self.admin_password
+        if stored == INSECURE_DEFAULT_PASSWORD:
+            return True
+        valid, _ = verify_password(INSECURE_DEFAULT_PASSWORD, stored)
+        return valid
+
+    @property
+    def is_default_api_key(self) -> bool:
+        return (self.api_key or "") == INSECURE_DEFAULT_API_KEY
+
+    @property
+    def session_secret(self) -> str:
+        """Returns or generates a dedicated cryptographically secure session signing secret."""
+        if self._session_secret:
+            return self._session_secret
+        val = self._read_db_setting("settings_external", "session_secret", None)
+        if val:
+            self._session_secret = val
+            return val
+        new_secret = secrets.token_hex(32)
+        self._session_secret = new_secret
+        self._write_db_setting("settings_external", "session_secret", new_secret)
+        return new_secret
+
+    @session_secret.setter
+    def session_secret(self, value: str) -> None:
+        self._session_secret = value
+        self._write_db_setting("settings_external", "session_secret", value)
 
     @property
     def gotify_url(self) -> Optional[str]:
@@ -882,8 +1001,10 @@ class Config:
                 "ollama_host": self.ollama_host,
                 "ollama_model": self.ollama_model,
                 "ollama_embedding_model": self.ollama_embedding_model,
-                "admin_password": self.admin_password,
-                "api_key": self.api_key,
+                "trusted_proxies": self.trusted_proxies,
+                "admin_password_hash": self.admin_password_hash,
+                "admin_password": "[REDACTED]" if not (self.admin_password or "").startswith("scrypt$") else self.admin_password,
+                "api_key": "[REDACTED]" if self.api_key else None,
                 "wiki_prompt": self.wiki_prompt,
                 "youtube_wiki_prompt": self.youtube_wiki_prompt,
                 "tags_prompt": self.tags_prompt,

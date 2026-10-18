@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
@@ -98,6 +99,35 @@ DEFAULT_IGNORE_EXTENSIONS = [
 ]
 
 
+def validate_repo_url(url: str) -> str:
+    """Validates that a repository URL is safe to pass to git clone.
+
+    Prevents argument injection and local filesystem exfiltration (SEC-03).
+    """
+    clean_url = url.strip()
+    if not clean_url:
+        raise ValueError("Repository URL cannot be empty.")
+    if clean_url.startswith("-"):
+        raise ValueError(f"Invalid repository URL '{clean_url}': URL cannot begin with a dash.")
+    if clean_url.startswith("/") or (len(clean_url) > 1 and clean_url[1] == ":" and clean_url[0].isalpha()):
+        raise ValueError("Local filesystem path repository URLs are not permitted.")
+
+    # Match SCP-style URLs like git@github.com:owner/repo.git
+    if re.match(r"^[\w.-]+@[\w.-]+:[\w.-]+/[\w.-]+(?:\.git)?$", clean_url):
+        return clean_url
+
+    parsed = urlparse(clean_url)
+    if not parsed.scheme or parsed.scheme.lower() in ("file", ""):
+        raise ValueError("Local filesystem or file:// repository URLs are not permitted.")
+
+    if parsed.scheme.lower() not in ("https", "http", "ssh", "git"):
+        raise ValueError(
+            f"Unsupported repository URL protocol: '{parsed.scheme}'. Only HTTPS, HTTP, SSH, and GIT are supported."
+        )
+
+    return clean_url
+
+
 def normalize_repo_url(url: str) -> Tuple[str, str]:
     """
     Normalizes a repository URL and extracts a human-readable title.
@@ -140,12 +170,12 @@ def get_git_metadata_dict(repo_path: Path) -> Dict[str, Any]:
         "remotes": "",
         "total_commits": 0,
     }
-    shell = os.name == "nt"
+    git_bin = shutil.which("git") or "git"
 
     try:
         res = subprocess.run(
-            ["git", "-C", str(repo_path), "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, check=True, shell=shell
+            [git_bin, "-C", str(repo_path), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, check=True, shell=False
         )
         metadata["current_branch"] = res.stdout.strip()
     except Exception:
@@ -153,8 +183,8 @@ def get_git_metadata_dict(repo_path: Path) -> Dict[str, Any]:
 
     try:
         res = subprocess.run(
-            ["git", "-C", str(repo_path), "log", "-1", "--format=%h|%s|%an|%cI"],
-            capture_output=True, text=True, check=True, shell=shell
+            [git_bin, "-C", str(repo_path), "log", "-1", "--format=%h|%s|%an|%cI"],
+            capture_output=True, text=True, check=True, shell=False
         )
         parts = res.stdout.strip().split("|")
         if len(parts) >= 4:
@@ -167,8 +197,8 @@ def get_git_metadata_dict(repo_path: Path) -> Dict[str, Any]:
 
     try:
         res = subprocess.run(
-            ["git", "-C", str(repo_path), "remote", "get-url", "origin"],
-            capture_output=True, text=True, check=True, shell=shell
+            [git_bin, "-C", str(repo_path), "remote", "get-url", "origin"],
+            capture_output=True, text=True, check=True, shell=False
         )
         metadata["remotes"] = res.stdout.strip()
     except Exception:
@@ -176,14 +206,15 @@ def get_git_metadata_dict(repo_path: Path) -> Dict[str, Any]:
 
     try:
         res = subprocess.run(
-            ["git", "-C", str(repo_path), "rev-list", "--count", "HEAD"],
-            capture_output=True, text=True, check=True, shell=shell
+            [git_bin, "-C", str(repo_path), "rev-list", "--count", "HEAD"],
+            capture_output=True, text=True, check=True, shell=False
         )
         metadata["total_commits"] = int(res.stdout.strip() or "0")
     except Exception:
         pass
 
     return metadata
+
 
 
 def build_ascii_tree(files: List[str], parent_name: str = ".") -> str:
@@ -428,22 +459,34 @@ def import_git_repo(
     devtul's Rpr pipeline, persists the resulting article in fetched_pages,
     and indexes chunks into the RAG vector store.
     """
-    canonical_url, repo_title = normalize_repo_url(repo_url)
-    shell = os.name == "nt"
+    safe_url = validate_repo_url(repo_url)
+    canonical_url, repo_title = normalize_repo_url(safe_url)
+    safe_depth = max(1, min(int(depth or 1), 100))
+    git_bin = shutil.which("git") or "git"
 
     with tempfile.TemporaryDirectory(prefix="kb_repo_clone_") as temp_dir:
         clone_path = Path(temp_dir) / "checkout"
         clone_path.mkdir(parents=True, exist_ok=True)
 
-        clone_cmd = ["git", "clone", "--depth", str(depth), repo_url, str(clone_path)]
-        res = subprocess.run(clone_cmd, capture_output=True, text=True, shell=shell)
+        clone_cmd = [
+            git_bin,
+            "-c",
+            "protocol.file.allow=never",
+            "clone",
+            "--depth",
+            str(safe_depth),
+            "--",
+            safe_url,
+            str(clone_path),
+        ]
+        res = subprocess.run(clone_cmd, capture_output=True, text=True, shell=False)
         if res.returncode != 0:
-            raise RuntimeError(f"Failed to clone repository '{repo_url}': {res.stderr.strip() or res.stdout.strip()}")
+            raise RuntimeError(f"Failed to clone repository '{safe_url}': {res.stderr.strip() or res.stdout.strip()}")
 
         # Build representation
         md_text, metrics = build_repo_markdown_repr(
             repo_path=clone_path,
-            repo_url=repo_url,
+            repo_url=safe_url,
             match_patterns=match_patterns,
             exclude_patterns=exclude_patterns,
         )

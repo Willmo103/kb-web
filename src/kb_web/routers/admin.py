@@ -394,8 +394,8 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             completion_message=msg,
             config=config,
             is_admin=True,
-            is_default_password=(config.admin_password == "admin123"),
-            is_default_api_key=(config.api_key == "kb-secret-key"),
+            is_default_password=config.is_default_password,
+            is_default_api_key=config.is_default_api_key,
             all_prompts=all_prompts,
             prompts_history=prompts_history,
             wiki_prompts_history=wiki_prompts_history,
@@ -513,6 +513,7 @@ def handle_config_update(
     crawler_default_max_pages: Optional[int] = Form(None),
     repo_import_default_depth: Optional[int] = Form(None),
     youtube_download_format: Optional[str] = Form(None),
+    trusted_proxies: Optional[str] = Form(None),
 ) -> RedirectResponse:
     """Saves updated server settings (Ollama, Gotify, Qdrant, operational thresholds, and media download format) to config."""
     config.ollama_host = ollama_host
@@ -547,6 +548,8 @@ def handle_config_update(
         config.repo_import_default_depth = repo_import_default_depth
     if youtube_download_format is not None and youtube_download_format.strip():
         config.youtube_download_format = youtube_download_format.strip()
+    if trusted_proxies is not None and trusted_proxies.strip():
+        config.trusted_proxies = trusted_proxies.strip()
     config.save()
 
     return RedirectResponse(

@@ -27,6 +27,7 @@ from ..utils import (
     preprocess_markdown,
     get_similar_articles,
     download_youtube_video,
+    sanitize_html,
 )
 
 import markdown
@@ -427,13 +428,17 @@ def view_saved_page(
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))
 
-    rendered_wiki_html = markdown.markdown(
-        preprocess_markdown(page_obj.description or ""),
-        extensions=["fenced_code", "tables"],
+    rendered_wiki_html = sanitize_html(
+        markdown.markdown(
+            preprocess_markdown(page_obj.description or ""),
+            extensions=["fenced_code", "tables"],
+        )
     )
-    rendered_md_html = markdown.markdown(
-        preprocess_markdown(page_obj.md_content or ""),
-        extensions=["fenced_code", "tables"],
+    rendered_md_html = sanitize_html(
+        markdown.markdown(
+            preprocess_markdown(page_obj.md_content or ""),
+            extensions=["fenced_code", "tables"],
+        )
     )
     video_id = extract_youtube_video_id(decoded_url)
     template = _jinja_env.get_template("view_page.j2.html")
