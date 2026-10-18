@@ -165,8 +165,33 @@ def test_http_security_headers_present(unauth_client: TestClient, auth_client: T
         resp = client.get(route)
         assert resp.headers.get("X-Content-Type-Options") == "nosniff"
         assert resp.headers.get("X-Frame-Options") == "SAMEORIGIN"
-        assert resp.headers.get("X-XSS-Protection") == "1; mode=block"
         assert resp.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+        assert resp.headers.get("Permissions-Policy") == "geolocation=(), camera=(), microphone=()"
+        assert resp.headers.get("Strict-Transport-Security") == "max-age=31536000; includeSubDomains"
+        assert "X-XSS-Protection" not in resp.headers
+
+
+def test_ssrf_url_validation():
+    """Verifies that SSRF protection blocks loopback, private, and cloud metadata addresses (SEC-07)."""
+    import pytest
+    from kb_web.utils import validate_target_url
+
+    # Blocked hosts / IPs
+    for bad_url in [
+        "http://localhost:8080/secret",
+        "http://127.0.0.1/admin",
+        "http://[::1]/private",
+        "http://169.254.169.254/latest/meta-data",
+        "http://0.0.0.0/",
+        "http://metadata.google.internal/computeMetadata/v1",
+        "ftp://example.com/file.txt",
+    ]:
+        with pytest.raises(ValueError):
+            validate_target_url(bad_url, allow_internal=False)
+
+    # Allowed public URL
+    validate_target_url("https://example.com/article", allow_internal=False)
+
 
 
 def test_login_rate_limiting(unauth_client: TestClient):

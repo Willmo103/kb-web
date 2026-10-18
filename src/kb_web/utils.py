@@ -3,13 +3,15 @@ Helper utilities for the Knowledge Base Web Importer application.
 """
 
 import hashlib
+import ipaddress
 import json
 import logging
 import math
 import re
+import socket
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlsplit
 
 import httpx
 import nh3
@@ -20,6 +22,57 @@ from html2text import HTML2Text
 from .models import HTMLPage, extract_youtube_video_id
 from .base import config as default_config, _get_ollama_client
 from .html_cleaner import html_to_clean_markdown, extract_links_from_raw_html
+
+
+def is_internal_ip(ip_str: str) -> bool:
+    """Checks whether an IP address is private, loopback, link-local, or cloud metadata."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or str(ip) in ("169.254.169.254", "0.0.0.0")
+        )
+    except Exception:
+        return True
+
+
+def validate_target_url(url: str, allow_internal: bool = False) -> None:
+    """Validates an ingestion URL to prevent SSRF against loopback or private networks (SEC-07)."""
+    if not url or not isinstance(url, str):
+        raise ValueError("URL must be a non-empty string.")
+
+    parsed = urlsplit(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported URL scheme '{scheme}'. Only http and https are permitted.")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL must contain a valid hostname.")
+
+    if allow_internal:
+        return
+
+    low_host = hostname.lower()
+    if (
+        low_host in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "metadata.google.internal")
+        or low_host.endswith(".local")
+        or low_host.endswith(".internal")
+    ):
+        raise ValueError(f"Fetching from internal host '{hostname}' is blocked for security.")
+
+    try:
+        addr_info = socket.getaddrinfo(hostname, None)
+        for _, _, _, _, sockaddr in addr_info:
+            ip_str = sockaddr[0]
+            if is_internal_ip(ip_str):
+                raise ValueError(f"Host '{hostname}' resolves to restricted internal IP '{ip_str}'.")
+    except socket.gaierror:
+        pass
 
 
 def sanitize_html(html_str: str) -> str:
@@ -448,6 +501,8 @@ def fetch_url(url: str) -> HTMLPage:
             return fetch_youtube_video_page(url, video_id)
         except Exception as e:
             raise RuntimeError(f"YouTube transcript extraction failed: {e}")
+
+    validate_target_url(url, allow_internal=getattr(default_config, "allow_internal_urls", False))
 
     try:
         response = httpx.get(url, timeout=60, follow_redirects=True, headers=HEADERS)
