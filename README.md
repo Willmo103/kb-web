@@ -85,19 +85,26 @@ All web views, media assets, personal notes, in-browser workspaces, and API endp
 - **Media Asset Gating**: All files under `/media/...` require authentication, preventing unauthorized access to personal attachments and downloaded video files.
 - **Public Allowlist**: Gated access is strictly exempted only for login flow and essential PWA resources: `/login`, `/logout`, `/favicon.ico`, `/icon.png`, `/manifest.json`, and `/sw.js`.
 
-### 2. Session Cookies & Rate Limiting
+### 2. Session Cookies, Random Session Secret & Rate Limiting
+- **Cryptographically Random Session Secret (SEC-05)**: Session token HMAC signing uses an independent, high-entropy 32-byte secret (`KB_SESSION_SECRET` or persisted in `settings_external`), fully decoupled from the administrative password.
+- **Scrypt Salted Password Hashing (SEC-06)**: Passwords are protected using standard `hashlib.scrypt` with random 16-byte salts (`scrypt$<salt>$<hash>`), with seamless transparent migration from legacy plaintext upon successful login. Plaintext secrets are strictly redacted from `kb-web.json` backup exports.
 - **Cookie Security**: Authentication session tokens (`kb_session`) are signed and set with `HttpOnly=True`, `SameSite=Lax`, and dynamically enabled `Secure=True` whenever HTTPS is detected directly or through reverse-proxy headers (`X-Forwarded-Proto: https`).
-- **Brute-Force Rate Limiting**: The `POST /login` endpoint employs an in-memory sliding-window rate limiter per client IP. More than 5 failed authentication attempts within a 60-second window triggers an immediate HTTP `429 Too Many Requests`.
+- **Brute-Force Rate Limiting & Proxy Verification (SEC-01)**: The `POST /login` endpoint employs an in-memory sliding-window rate limiter per client IP (max 5 failed attempts per 60s) and a global lockout ceiling (max 50 failed attempts per 60s across all clients). Forwarded proxy headers (`X-Forwarded-For`) are only evaluated if the connecting IP matches configured `trusted_proxies` (`KB_TRUSTED_PROXIES`), extracting the rightmost untrusted hop to eliminate spoofing attacks.
+- **Fail-Closed Default Credentials (SEC-04)**: Public default API keys (`kb-secret-key`) are rejected by default with HTTP `401 Unauthorized` unless explicitly permitted for local development via `KB_ALLOW_INSECURE_DEFAULTS=1`. Persistent warning banners alert administrators in the UI if default factory credentials remain active.
 - **Constant-Time Verification**: All password and API key checks utilize `hmac.compare_digest` to prevent side-channel timing attacks.
 
-### 3. HTTP Security Headers
+### 3. HTTP Security Headers & Stored XSS Sanitization (SEC-02)
 Every HTTP response automatically includes enterprise security headers:
-- `X-Content-Type-Options: nosniff` (prevents MIME-type sniffing)
-- `X-Frame-Options: SAMEORIGIN` (prevents clickjacking attacks)
-- `X-XSS-Protection: 1; mode=block` (legacy XSS filtering)
-- `Referrer-Policy: strict-origin-when-cross-origin` (prevents URL parameter leakage across domains)
+- `Content-Security-Policy`: Strict policy restricting script execution, style loading, and frame ancestors.
+- `X-Content-Type-Options: nosniff` (prevents MIME-type sniffing).
+- `X-Frame-Options: SAMEORIGIN` (prevents clickjacking attacks).
+- `Referrer-Policy: strict-origin-when-cross-origin` (prevents URL parameter leakage across domains).
+- `X-XSS-Protection: 1; mode=block`.
+- **Stored Markdown/HTML Sanitization**: All rendered wiki and page markdown content passes through `nh3` (high-performance Rust-based HTML allowlist sanitizer) before Jinja2 template delivery, stripping `<script>`, `<iframe>`, inline event handlers (`onerror`, `onload`), and dangerous URI schemes (`javascript:`).
 
-### 4. Path Traversal & ZipSlip Safeguards
+### 4. Git Ingestion & Path Traversal Safeguards (SEC-03)
+- **Safe Git Subprocess Execution**: Remote repository cloning strictly validates URLs against an allowlist protocol schema (`https://`, `http://`, `ssh://`, `git@`), forbidding leading dashes (argument injection) and `file://` / local paths. Subprocesses execute with `shell=False` across all platforms and enforce `-c protocol.file.allow=never` with `--` argument delimiters.
+
 - **Obsidian Vault Archives**: Zip file extractions under `/api/notes/upload-vault` sanitize all archive member paths against directory traversal (`..`) and enforce target path canonicalization before writing files to disk.
 - **Virtual Workspaces**: Workspace file CRUD endpoints (`/api/workspaces/...`) enforce path component validation to disallow directory escapes outside the workspace context.
 

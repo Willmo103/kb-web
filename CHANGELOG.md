@@ -5,7 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.10] - 2026-10-18
+### Security
+- **Rate-Limit Spoofing Defense & Trusted Reverse Proxies (`routers/auth.py`, `config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Fixes #93, SEC-01)**:
+  - **Root Cause**: `_get_client_ip()` previously trusted the first IP in `X-Forwarded-For` without validating whether the connecting peer was a recognized reverse proxy, allowing brute-force attackers to bypass the 5-attempt login lockout by sending randomized header values.
+  - **Fix**: Added `trusted_proxies` property to `config.py` (default: `127.0.0.1, ::1`, configurable via `KB_TRUSTED_PROXIES` and Admin Portal General settings per Rule 7). `_get_client_ip()` verifies `request.client.host` against trusted IPs and CIDR ranges via `ipaddress`, only evaluating `X-Forwarded-For` when forwarded by a trusted proxy and picking the rightmost untrusted hop. Added `_global_failed_attempts` tracking with a 50-attempt global lockout ceiling.
+- **Git Repo Import URL Validation & Subprocess Shell Elimination (`src/kb_web/repo_importer.py`) (Fixes #95, SEC-03)**:
+  - **Root Cause**: `clone_repo()` passed user-supplied URLs directly to `git clone` with `shell=True` on Windows. A URL beginning with dashes allowed option injection (e.g. `--upload-pack=...`), while `file://` or local paths allowed filesystem exfiltration.
+  - **Fix**: Implemented `validate_repo_url()` to reject empty URLs, leading dashes, local filesystem paths, and unsupported protocols. Invoked `git` via `shutil.which("git")` with `shell=False` across all platforms, passing `-c protocol.file.allow=never`, bounded clone depth (`1 <= depth <= 100`), and a `--` argument separator.
+- **Stored Markdown/HTML XSS Sanitization & Content-Security-Policy (`src/kb_web/utils.py`, `routers/pages.py`, & `server.py`) (Fixes #94 & #97, SEC-02)**:
+  - **Root Cause**: Rendered wiki and article markdown was passed directly into Jinja2 templates via `| safe` without sanitization. Ingested malicious web pages or AI wiki summaries could execute arbitrary script payloads. CSP was absent from response headers.
+  - **Fix**: Integrated Rust-backed `nh3` HTML sanitizer (`sanitize_html()`) stripping `<script>`, `<iframe>`, inline event handlers (`onerror`, `onload`), and `javascript:` URIs while preserving standard formatting, syntax highlighting code blocks, and tables. Injected strict `Content-Security-Policy` header in `_inject_security_headers()`.
+- **Fail-Closed Default Credentials (`src/kb_web/base.py`, `config.py`, & `routers/admin.py`) (Fixes #96, SEC-04)**:
+  - **Root Cause**: Well-known default credentials (`admin123` / `kb-secret-key`) were accepted out-of-the-box by authentication guards.
+  - **Fix**: `verify_api_key()` and `is_request_authenticated()` now fail closed, rejecting the default API key `kb-secret-key` with HTTP `401 Unauthorized` unless explicit development flag `KB_ALLOW_INSECURE_DEFAULTS=1` is set. Persistent alert banners notify administrators in the UI if default factory credentials remain active.
+- **Cryptographically Random Session Secret (`src/kb_web/base.py` & `config.py`) (Fixes #111, SEC-05)**:
+  - **Root Cause**: `_get_session_secret()` derived HMAC session signatures directly from `hashlib.sha256(config.admin_password)`. Knowing the password allowed offline forgery, and password rotation unexpectedly invalidated all active sessions.
+  - **Fix**: Generated and persisted an independent 32-byte cryptographically secure session signing secret (`KB_SESSION_SECRET` or persisted in `settings_external`), fully decoupling HMAC cookie verification from administrative passwords.
+- **Scrypt Salted Password Hashing & Secret Redaction (`src/kb_web/config.py` & `routers/auth.py`) (Fixes #110, SEC-06)**:
+  - **Root Cause**: Passwords were stored in plaintext and written out to `kb-web.json` backup exports.
+  - **Fix**: Added `hash_password()` and `verify_password()` using standard library `hashlib.scrypt` with random 16-byte salts (`scrypt$<salt>$<hash>`). Login transparently verifies existing plaintext passwords and automatically migrates them to scrypt hashes. Redacted sensitive secrets (`admin_password`, `api_key`) from `kb-web.json` exports.
+
 ## [0.5.9] - 2026-10-13
+
 ### Fixed
 - **YouTube Offline Downloads Audio Missing (`src/kb_web/utils.py`, `config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Issue #112)**:
   - **Root cause**: `download_youtube_video()` requested `"format": "mp4/best"` without merging streams. When YouTube omits pre-muxed 720p/1080p MP4 formats, yt-dlp defaulted to video-only streams without sound.

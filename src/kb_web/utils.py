@@ -12,6 +12,7 @@ from typing import Optional, List, Dict, Any
 from urllib.parse import urljoin, urlparse
 
 import httpx
+import nh3
 import ollama
 from bs4 import BeautifulSoup  # type: ignore
 from html2text import HTML2Text
@@ -19,6 +20,39 @@ from html2text import HTML2Text
 from .models import HTMLPage, extract_youtube_video_id
 from .base import config as default_config, _get_ollama_client
 from .html_cleaner import html_to_clean_markdown, extract_links_from_raw_html
+
+
+def sanitize_html(html_str: str) -> str:
+    """Sanitizes rendered HTML content to prevent stored XSS attacks (SEC-02).
+
+    Strips <script>, <iframe>, object, embed, inline event handlers, and javascript: URIs.
+    """
+    if not html_str:
+        return ""
+    return nh3.clean(
+        html_str,
+        tags={
+            "a", "abbr", "b", "blockquote", "br", "code", "dd", "del", "details",
+            "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr",
+            "i", "img", "ins", "kbd", "li", "ol", "p", "pre", "q", "rp", "rt",
+            "ruby", "s", "samp", "small", "span", "strong", "sub", "summary",
+            "sup", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "u",
+            "ul", "var", "wbr",
+        },
+        attributes={
+            "a": {"href", "title", "target"},
+            "img": {"src", "alt", "title", "width", "height", "loading"},
+            "code": {"class"},
+            "pre": {"class"},
+            "span": {"class"},
+            "div": {"class"},
+            "table": {"class"},
+            "th": {"align", "style"},
+            "td": {"align", "style"},
+        },
+        url_schemes={"http", "https", "mailto"},
+    )
+
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 HEADERS = {
