@@ -22,7 +22,9 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 > - Keep `README.md` updated with any CLI, service, configuration, or environment changes.
 > - Update this `GEMINI.md` file if architecture, routes, or workflows evolve.
 > - Log root causes and fixes using the `document-code-issue-and-fix` skill.
->
+> - update local agent memories as needed;
+>   - when encountering new information e.g. package caveats; deprication warnings, linter warnings, etc. by updating relevant documentation files. e.g. `avoid bare excepts or use ruff ignore comments '# noqa: E999'`,  `datetime.now()` is not timezone aware use `datetime.now(timezone.utc)` to avoid timezone warnings or linting errors. `os.urandom` should be used instead of `os.randint` for cryptographically secure random numbers.. etc.
+>   - update
 > **5. Strict Pre-Commit UI UAT & Artifact Verification**
 > All UI modifications MUST undergo local User Acceptance Testing (UAT) before committing. You MUST:
 > - Run template & theme verification (`ui-component-uat-check`).
@@ -82,6 +84,10 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 - [gh-cli-operations](file:///c:/src/kb-web/.agents/skills/gh-cli-operations/SKILL.md): Guarded execution wrapper for GitHub CLI (`gh`) operations with observability, structured JSON logging, and safety dry-runs.
 - [live-server-test](file:///c:/src/kb-web/.agents/skills/live-server-test/SKILL.md): Uses curl to test and audit site routes against a live running test/production server without executing admin operations.
 - [code-review-issue-generator](file:///c:/src/kb-web/.agents/skills/code-review-issue-generator/SKILL.md): Generates interactive single-page HTML audit reports with dynamic charts, search, filters, and guarded GitHub issue creation scripts.
+
+## Local Agent Memories
+- [package_caveats.md](file:///c:/src/kb-web/.agents/memories/package_caveats.md) — Known quirks and gotchas for core dependencies (`yt-dlp`, `jinja2`, `sqlite3`/PostgreSQL, `monaco`, `hmac`).
+- [github_cli_guardrails.md](file:///c:/src/kb-web/.agents/memories/github_cli_guardrails.md) — Safe patterns and guardrails for `gh` CLI invocations.
 
 ## Git Branching Strategy & Tiered Release Lifecycle
 

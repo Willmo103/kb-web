@@ -29,6 +29,37 @@
     html.dark .markdown-preview-obsidian th { background: rgba(30, 41, 59, 0.8); }
     .prompt-card.active { border-color: #6366f1 !important; background-color: rgba(99, 102, 241, 0.08) !important; }
     html.dark .prompt-card.active { border-color: #818cf8 !important; background-color: rgba(99, 102, 241, 0.2) !important; }
+
+    /* Quick Diagnostics Panel Theme Consistency */
+    .quick-diagnostics-panel {
+        background-color: #ffffff;
+        border-color: #e5e7eb;
+    }
+    html.dark .quick-diagnostics-panel {
+        background-color: #111827 !important;
+        background-image: none !important;
+        border-color: #1e293b !important;
+    }
+
+    /* Prompt Studio Monaco & Preview Dimensions */
+    #studioSplitContainer {
+        min-height: 520px;
+    }
+    #promptEditorCol {
+        min-height: 480px;
+    }
+    #monacoPromptContainer {
+        width: 100%;
+        min-height: 480px;
+        height: 500px;
+    }
+    #promptMarkdownPreview {
+        min-height: 480px;
+        height: 500px;
+    }
+    #promptsListContainer {
+        max-height: 600px;
+    }
 </style>
 {% endblock %}
 
@@ -314,8 +345,8 @@
                 </div>
 
                 <!-- Environment & Status Mini-Card with dark mode -->
-                <div class="bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-slate-800 dark:to-indigo-950 p-6 rounded-2xl border border-indigo-100 dark:border-slate-700 shadow-sm">
-                    <h4 class="text-xs font-extrabold uppercase tracking-wider text-indigo-900 dark:text-indigo-300 mb-3 flex items-center gap-1.5">
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm quick-diagnostics-panel">
+                    <h4 class="text-xs font-extrabold uppercase tracking-wider text-indigo-900 dark:text-indigo-400 mb-3 flex items-center gap-1.5">
                         <span>ℹ️</span> Quick Diagnostics
                     </h4>
                     <dl class="space-y-2 text-xs">
@@ -357,7 +388,7 @@
             </div>
 
             <!-- Studio Body: Sidebar List + Editor Workspace -->
-            <div class="grid grid-cols-1 lg:grid-cols-12 min-h-[640px]">
+            <div class="grid grid-cols-1 lg:grid-cols-12 min-h-[640px]" style="min-height: 640px;">
                 
                 <!-- Left Column: Prompt Selection List (4 Cols) -->
                 <div class="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-slate-700 p-4 bg-gray-50/30 dark:bg-slate-900/20 flex flex-col">
@@ -367,7 +398,7 @@
                     </div>
 
                     <!-- Category Groups & Prompt Items -->
-                    <div id="promptsListContainer" class="flex-grow space-y-4 overflow-y-auto max-h-[600px] pr-1">
+                    <div id="promptsListContainer" class="flex-grow space-y-4 overflow-y-auto max-h-[600px] pr-1" style="max-height: 600px;">
                         <!-- Populated dynamically via renderPromptList() -->
                     </div>
                 </div>
@@ -410,24 +441,24 @@
                     </div>
 
                     <!-- Split Container: Editor & Markdown Preview -->
-                    <div id="studioSplitContainer" class="flex-grow flex flex-col lg:flex-row divide-y lg:divide-y-0 lg:divide-x divide-gray-200 dark:border-slate-700 min-h-[520px]">
+                    <div id="studioSplitContainer" class="flex-grow flex flex-col lg:flex-row divide-y lg:divide-y-0 lg:divide-x divide-gray-200 dark:border-slate-700 min-h-[520px]" style="min-height: 520px;">
                         
                         <!-- Left Pane: Monaco Editor Container -->
-                        <div id="promptEditorCol" class="w-full lg:w-1/2 flex flex-col">
+                        <div id="promptEditorCol" class="w-full lg:w-1/2 flex flex-col" style="min-height: 480px;">
                             <div class="px-4 py-1.5 bg-gray-50 dark:bg-slate-900/60 border-b border-gray-200 dark:border-slate-700 text-[11px] font-semibold text-gray-500 dark:text-gray-400 flex justify-between items-center">
                                 <span>Monaco Editor (Markdown)</span>
                                 <span id="promptEditorStats" class="font-mono text-[10px]">0 lines · 0 chars</span>
                             </div>
-                            <div id="monacoPromptContainer" class="w-full flex-grow h-[500px]"></div>
+                            <div id="monacoPromptContainer" class="w-full flex-grow h-[500px]" style="min-height: 480px; height: 500px;"></div>
                         </div>
 
                         <!-- Right Pane: Obsidian Live Markdown Preview -->
-                        <div id="promptPreviewCol" class="w-full lg:w-1/2 flex flex-col bg-gray-50/40 dark:bg-slate-900/40">
+                        <div id="promptPreviewCol" class="w-full lg:w-1/2 flex flex-col bg-gray-50/40 dark:bg-slate-900/40" style="min-height: 480px;">
                             <div class="px-4 py-1.5 bg-gray-50 dark:bg-slate-900/60 border-b border-gray-200 dark:border-slate-700 text-[11px] font-semibold text-gray-500 dark:text-gray-400 flex justify-between items-center">
                                 <span>Obsidian Live Markdown Preview</span>
                                 <span class="text-[10px] text-indigo-500 dark:text-indigo-400 font-mono">Rendered marked.js</span>
                             </div>
-                            <div id="promptMarkdownPreview" class="p-6 flex-grow h-[500px] overflow-y-auto markdown-preview-obsidian"></div>
+                            <div id="promptMarkdownPreview" class="p-6 flex-grow h-[500px] overflow-y-auto markdown-preview-obsidian" style="min-height: 480px; height: 500px;"></div>
                         </div>
                     </div>
 
@@ -1160,8 +1191,25 @@
             updateMarkdownPreview();
             updateStudioStats();
             updateActivePromptUI();
+
+            setTimeout(() => {
+                if (promptMonacoEditor) promptMonacoEditor.layout();
+            }, 60);
+            setTimeout(() => {
+                if (promptMonacoEditor) promptMonacoEditor.layout();
+            }, 200);
         });
     }
+
+    // Debounced window resize listener to maintain editor layout on half-screen or split changes
+    window.addEventListener('resize', () => {
+        if (promptMonacoEditor) {
+            clearTimeout(window._promptMonacoResizeTimeout);
+            window._promptMonacoResizeTimeout = setTimeout(() => {
+                promptMonacoEditor.layout();
+            }, 80);
+        }
+    });
 
     function renderPromptList() {
         const container = document.getElementById('promptsListContainer');
@@ -1393,6 +1441,7 @@
 
         if (promptMonacoEditor) {
             setTimeout(() => promptMonacoEditor.layout(), 30);
+            setTimeout(() => promptMonacoEditor.layout(), 150);
         }
     }
 
