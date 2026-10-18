@@ -422,3 +422,36 @@ def test_config_save_redacts_credentials(tmp_path, monkeypatch):
     assert data.get("admin_password") == "[REDACTED]"
     assert data.get("api_key") == "[REDACTED]"
     assert "trusted_proxies" in data
+
+
+def test_non_ascii_credentials_handling(unauth_client: TestClient):
+    """Verifies that non-ASCII unicode passwords or API keys do not trigger HTTP 500 (BUG-01 / #98)."""
+    from kb_web.config import hash_password, verify_password
+    from kb_web.base import verify_session_token, safe_compare_digest
+
+    # 1. safe_compare_digest handles non-ASCII and None safely
+    assert safe_compare_digest("pásswørd🔑", "pásswørd🔑") is True
+    assert safe_compare_digest("pásswørd🔑", "other") is False
+    assert safe_compare_digest(None, "foo") is False
+    assert safe_compare_digest("foo", None) is False
+
+    # 2. verify_password handles non-ASCII
+    pw = "pásswørd_漢字_🔑"
+    h = hash_password(pw)
+    is_valid, _ = verify_password(pw, h)
+    assert is_valid is True
+
+    is_wrong, _ = verify_password("wroñg_🔑", h)
+    assert is_wrong is False
+
+    # 3. verify_session_token does not crash on non-ASCII token
+    assert verify_session_token("123456.sig_ñ_漢字") is False
+
+    # 4. Login with non-ASCII password returns 401, not 500
+    resp_login = unauth_client.post("/login", data={"password": "wroñg_pásswørd_漢字_🔑"})
+    assert resp_login.status_code == 401
+
+    # 5. API request with non-ASCII bytes in X-API-Key header returns 401, not 500
+    resp_api = unauth_client.get("/api/articles", headers={"X-API-Key": "këy_漢字_🔑".encode("utf-8")})
+    assert resp_api.status_code == 401
+
