@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added regression tests `test_admin_portal_tab_panes_are_siblings` and `test_admin_portal_defines_escape_html` in `tests/test_system_prompts_admin.py`.
 
 ### Added
+- **Durable Agent Working Memory & Guarded GitHub CLI Operations Skill (`.agents/memory/`, `.agents/skills/gh-cli-operations/`, & `rules/documentation_rules.md`)**:
+  - Established `.agents/memory/` directory with `package_caveats.md` and `github_cli_guardrails.md` for capturing durable package quirks, platform gotchas, and safe operational patterns across development turns.
+  - Added Section 6 to `.agents/rules/documentation_rules.md` requiring AI agents to record package-specific traps and actively maintain working memory.
+  - Implemented `gh-cli-operations` skill and Python script `scripts/gh_safe.py` providing safe, structured execution of `gh` operations with path quoting guardrails, draft PR enforcement, and structured JSON action logging to `.artifacts/gh-actions.log`.
+  - Delivered interactive single-page repository code audit report in `.artifacts/feature-agent-skills-memory-and-code-audit/code_audit_report.html`.
 - **AI Agent Personas & System Prompt Studio (`config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Issue #92)**:
   - Exposed all 10 non-numerical hardcoded prompt templates and system directives across the application in `config.py` backed by `AgentPrompt` versioning and `kb-web.json` serialization:
     - `wiki_prompt` (Wiki Extraction System Prompt)
