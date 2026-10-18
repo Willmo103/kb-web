@@ -5,7 +5,7 @@
 {% block content %}
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28">
     <!-- Header Section -->
     <div class="flex flex-col md:flex-row md:items-center justify-between pb-6 mb-6 border-b border-gray-200 gap-4">
         <div>
@@ -13,14 +13,17 @@
                 <span class="text-3xl">🧪</span>
                 <h1 class="text-2xl font-black text-gray-900 tracking-tight">Model Evaluation Studio</h1>
                 <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                    Calibration & Benchmarking
+                    Calibration &amp; Datasets
                 </span>
             </div>
             <p class="text-sm text-gray-500">
-                Side-by-side comparative testing across models, prompts, decision gating, and embedding retrieval before production worker deployment.
+                Side-by-side comparative testing across models, prompts, multi-row datasets, decision gating (<span class="font-mono font-bold text-indigo-600">d1</span>), and vector retrieval.
             </p>
         </div>
         <div class="flex items-center gap-2">
+            <a href="/admin" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition">
+                <span>⚙️</span> Admin Portal
+            </a>
             <a href="/reports" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition">
                 <span>📊</span> Reports
             </a>
@@ -32,7 +35,7 @@
 
     <!-- Tab Bar -->
     <div class="border-b border-gray-200 mb-6">
-        <nav class="flex space-x-8" aria-label="Tabs">
+        <nav class="flex space-x-8 overflow-x-auto" aria-label="Tabs">
             <button
                 type="button"
                 id="tabBtnMatrix"
@@ -47,7 +50,7 @@
                 onclick="switchEvalTab('decision')"
                 class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2 transition"
             >
-                <span>⚖️</span> Decision Gating
+                <span>⚖️</span> Decision Gating (d1)
             </button>
             <button
                 type="button"
@@ -57,19 +60,42 @@
             >
                 <span>🔍</span> Embedding Retrieval
             </button>
+            <button
+                type="button"
+                id="tabBtnDatasets"
+                onclick="switchEvalTab('datasets')"
+                class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2 transition"
+            >
+                <span>📊</span> Eval Datasets &amp; Query Builder
+                {% if saved_datasets %}
+                <span class="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{{ saved_datasets | length }}</span>
+                {% endif %}
+            </button>
         </nav>
     </div>
 
-    <!-- TAB 1: Prompt & Model Matrix -->
+    <!-- =======================================================================
+         TAB 1: Prompt & Model Matrix
+         ======================================================================= -->
     <div id="tabContentMatrix" class="space-y-6">
-        <!-- Configuration Card -->
         <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
-            <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
-                <span>⚙️</span> Matrix Execution Setup
-            </h2>
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-gray-100">
+                <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
+                    <span>⚙️</span> Matrix Execution Setup
+                </h2>
+                <!-- Mode Toggle -->
+                <div class="inline-flex rounded-xl border border-gray-200 p-1 bg-gray-50 text-xs">
+                    <button type="button" id="btnMatrixModeSingle" onclick="setMatrixInputMode('single')" class="px-3 py-1.5 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs">
+                        Single Input Text
+                    </button>
+                    <button type="button" id="btnMatrixModeDataset" onclick="setMatrixInputMode('dataset')" class="px-3 py-1.5 font-bold rounded-lg transition text-gray-600 hover:text-gray-900">
+                        Dataset Iteration (Report Rows)
+                    </button>
+                </div>
+            </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Left: Models & Parameters -->
+                <!-- Left: Models & Prompts -->
                 <div class="space-y-4">
                     <div>
                         <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
@@ -97,7 +123,7 @@
                                 max="1.5"
                                 step="0.1"
                                 value="0.2"
-                                class="w-full text-xs p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                class="w-full text-xs p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 font-mono"
                             >
                         </div>
                         <div>
@@ -111,12 +137,12 @@
                                 max="16384"
                                 step="256"
                                 value="2048"
-                                class="w-full text-xs p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                class="w-full text-xs p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 font-mono"
                             >
                         </div>
                     </div>
 
-                    <!-- Prompt Selector -->
+                    <!-- Preset System Prompts Selector -->
                     <div>
                         <div class="flex items-center justify-between mb-1.5">
                             <label for="presetPromptSelect" class="text-xs font-bold uppercase tracking-wider text-gray-600">
@@ -133,46 +159,102 @@
                         </select>
                     </div>
 
-                    <!-- Selected Prompts List -->
+                    <!-- Active Prompts in Matrix -->
                     <div>
                         <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
                             Active Prompts in Matrix (<span id="activePromptCount">1</span>)
                         </label>
                         <div id="activePromptsContainer" class="space-y-3">
-                            <!-- Populated dynamically -->
+                            <!-- Populated dynamically via JS -->
                         </div>
                     </div>
                 </div>
 
-                <!-- Right: Input Text / Source Loader -->
+                <!-- Right: Single Input or Dataset Template -->
                 <div class="space-y-4">
-                    <div class="flex items-center justify-between">
-                        <label for="matrixInputText" class="text-xs font-bold uppercase tracking-wider text-gray-600">
-                            Test Input Text / Article Content
-                        </label>
-                        <div class="flex items-center gap-2">
-                            <!-- Article Quick Loader -->
-                            <select id="sampleArticleSelect" onchange="loadSampleArticleContent(this.value)" class="text-[11px] p-1.5 border border-gray-200 rounded-lg bg-gray-50 max-w-[200px] truncate">
-                                <option value="">Load from saved article...</option>
-                                {% for a in sample_articles %}
-                                <option value="{{ a.url }}">{{ a.title }}</option>
-                                {% endfor %}
-                            </select>
+                    <!-- SINGLE INPUT VIEW -->
+                    <div id="matrixSingleInputView" class="space-y-4">
+                        <div class="flex items-center justify-between">
+                            <label for="matrixInputText" class="text-xs font-bold uppercase tracking-wider text-gray-600">
+                                Test Input Text / Article Content
+                            </label>
+                            <div class="flex items-center gap-2">
+                                <select id="sampleArticleSelect" onchange="loadSampleArticleContent(this.value)" class="text-[11px] p-1.5 border border-gray-200 rounded-lg bg-gray-50 max-w-[200px] truncate">
+                                    <option value="">Load from saved article...</option>
+                                    {% for a in sample_articles %}
+                                    <option value="{{ a.url }}">{{ a.title }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+
+                        <textarea
+                            id="matrixInputText"
+                            rows="12"
+                            placeholder="Paste article markdown, unstructured text, or notes here for the models to process..."
+                            class="w-full text-xs p-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition font-mono text-gray-800 shadow-inner"
+                        ></textarea>
+
+                        <div class="flex items-center justify-between text-xs text-gray-400">
+                            <span id="matrixInputCharCount">0 characters</span>
+                            <button type="button" onclick="document.getElementById('matrixInputText').value = ''; updateInputCharCount();" class="text-gray-400 hover:text-red-500">
+                                Clear Input
+                            </button>
                         </div>
                     </div>
 
-                    <textarea
-                        id="matrixInputText"
-                        rows="12"
-                        placeholder="Paste article markdown, unstructured text, or notes here for the models to process..."
-                        class="w-full text-xs p-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition font-mono text-gray-800 shadow-inner"
-                    ></textarea>
+                    <!-- DATASET ITERATION VIEW -->
+                    <div id="matrixDatasetInputView" class="hidden space-y-4">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label for="matrixDatasetSelect" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
+                                    Select Eval Dataset
+                                </label>
+                                <select id="matrixDatasetSelect" onchange="onMatrixDatasetChange(this.value)" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white font-medium">
+                                    <option value="">-- Choose Evaluation Dataset --</option>
+                                    {% for d in saved_datasets %}
+                                    <option value="{{ d.id }}" data-count="{{ d.row_count }}">{{ d.name }} ({{ d.row_count }} rows)</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label for="matrixSampleLimit" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
+                                    Rows to Evaluate
+                                </label>
+                                <select id="matrixSampleLimit" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white">
+                                    <option value="3">3 rows (Fast sample)</option>
+                                    <option value="5" selected>5 rows (Standard)</option>
+                                    <option value="10">10 rows (Deep benchmark)</option>
+                                    <option value="20">20 rows (Comprehensive)</option>
+                                </select>
+                            </div>
+                        </div>
 
-                    <div class="flex items-center justify-between text-xs text-gray-400">
-                        <span id="matrixInputCharCount">0 characters</span>
-                        <button type="button" onclick="document.getElementById('matrixInputText').value = ''; updateInputCharCount();" class="text-gray-400 hover:text-red-500">
-                            Clear Input
-                        </button>
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label for="matrixJinjaTemplate" class="text-xs font-bold uppercase tracking-wider text-gray-600">
+                                    User Prompt Jinja2 Template
+                                </label>
+                                <span class="text-[10px] text-gray-400 font-mono">Use &#123;&#123; data.title &#125;&#125;, &#123;&#123; data.wiki &#125;&#125;, &#123;&#123; data.url &#125;&#125;</span>
+                            </div>
+                            <textarea
+                                id="matrixJinjaTemplate"
+                                rows="7"
+                                class="w-full text-xs p-3 border border-gray-300 rounded-xl font-mono text-gray-800 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner"
+                            >{% raw %}--- url: {{ data.url }} tags: {{ data.tags }} ---
+# {{ data.title }}
+
+{{ data.wiki }}{% endraw %}</textarea>
+                        </div>
+
+                        <!-- Live Row 0 Preview Card -->
+                        <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500">Live Preview (Row 1 of Dataset)</span>
+                                <button type="button" onclick="refreshDatasetPreview('matrix')" class="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800">🔄 Refresh</button>
+                            </div>
+                            <pre id="matrixRowPreviewBox" class="text-[11px] font-mono p-2.5 bg-white border border-gray-200 rounded-lg text-gray-700 max-h-36 overflow-y-auto whitespace-pre-wrap">Select a dataset above to preview rendered prompt...</pre>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -216,24 +298,33 @@
         </div>
     </div>
 
-    <!-- TAB 2: Decision Gating Studio -->
+    <!-- =======================================================================
+         TAB 2: Decision Gating Studio (d1 via SystemOne)
+         ======================================================================= -->
     <div id="tabContentDecision" class="hidden space-y-6">
         <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
-            <div class="flex items-center justify-between pb-4 border-b border-gray-100">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 border-b border-gray-100 gap-3">
                 <div>
                     <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
-                        <span>⚖️</span> Decision Gating Calibration
+                        <span>⚖️</span> Decision Gating Calibration (<span class="font-mono text-indigo-600">d1</span>)
                     </h2>
                     <p class="text-xs text-gray-500 mt-0.5">
-                        Test structured multi-question decision models (default: <span class="font-semibold text-indigo-600">d1</span> with 16k context window) using native <code class="bg-gray-100 px-1 py-0.5 rounded text-[11px]">client.systemone</code>.
+                        Native <code class="bg-gray-100 px-1 py-0.5 rounded text-[11px]">client.systemone</code> decision gating (0 output tokens, calibrated probabilities, single forward pass).
                     </p>
                 </div>
-                <div class="flex items-center gap-2">
-                    <span class="text-xs text-gray-500">Preset:</span>
+                <div class="flex items-center gap-3">
+                    <div class="inline-flex rounded-xl border border-gray-200 p-1 bg-gray-50 text-xs">
+                        <button type="button" id="btnDecisionModeSingle" onclick="setDecisionInputMode('single')" class="px-3 py-1 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs">
+                            Single State JSON
+                        </button>
+                        <button type="button" id="btnDecisionModeDataset" onclick="setDecisionInputMode('dataset')" class="px-3 py-1 font-bold rounded-lg transition text-gray-600 hover:text-gray-900">
+                            Dataset Iteration
+                        </button>
+                    </div>
                     <select id="decisionPresetSelect" onchange="loadDecisionPreset(this.value)" class="text-xs p-1.5 border border-gray-200 rounded-lg bg-gray-50">
-                        <option value="link_crawler">Link Discovery &amp; Ingestion Gating</option>
-                        <option value="wiki_synthesis">Wiki Synthesis Source Candidate</option>
-                        <option value="taxonomy_classification">Taxonomy Category Gating</option>
+                        <option value="link_crawler">Preset: Link Discovery &amp; Ingestion Gating</option>
+                        <option value="wiki_synthesis">Preset: Wiki Synthesis Source Quality</option>
+                        <option value="taxonomy_classification">Preset: Taxonomy Category Gating</option>
                     </select>
                 </div>
             </div>
@@ -250,38 +341,48 @@
                             id="decisionModelInput"
                             value="{{ default_decision_model }}"
                             placeholder="d1"
-                            class="w-full text-xs p-2 border border-gray-300 rounded-lg font-mono"
+                            class="w-full text-xs p-2 border border-gray-300 rounded-lg font-mono bg-white"
                         >
                     </div>
 
-                    <div>
-                        <label for="decisionContextWindow" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
-                            Context Window (<span id="ctxLabel">16384</span> tokens)
-                        </label>
-                        <input
-                            type="number"
-                            id="decisionContextWindow"
-                            value="16384"
-                            step="1024"
-                            min="2048"
-                            max="32768"
-                            oninput="document.getElementById('ctxLabel').innerText = this.value"
-                            class="w-full text-xs p-2 border border-gray-300 rounded-lg"
-                        >
+                    <!-- Dataset iteration selectors (shown in dataset mode) -->
+                    <div id="decisionDatasetControls" class="hidden space-y-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl">
+                        <div>
+                            <label for="decisionDatasetSelect" class="block text-xs font-bold uppercase tracking-wider text-indigo-900 mb-1">
+                                Eval Dataset
+                            </label>
+                            <select id="decisionDatasetSelect" onchange="onDecisionDatasetChange(this.value)" class="w-full text-xs p-2 border border-indigo-200 rounded-lg bg-white">
+                                <option value="">-- Choose Dataset --</option>
+                                {% for d in saved_datasets %}
+                                <option value="{{ d.id }}">{{ d.name }} ({{ d.row_count }} rows)</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label for="decisionSampleLimit" class="block text-xs font-bold uppercase tracking-wider text-indigo-900 mb-1">
+                                Rows to Evaluate
+                            </label>
+                            <select id="decisionSampleLimit" class="w-full text-xs p-2 border border-indigo-200 rounded-lg bg-white">
+                                <option value="3">3 rows</option>
+                                <option value="5" selected>5 rows</option>
+                                <option value="10">10 rows</option>
+                                <option value="20">20 rows</option>
+                            </select>
+                        </div>
                     </div>
 
-                    <div class="p-3.5 bg-indigo-50 border border-indigo-100 rounded-xl text-xs space-y-2">
-                        <span class="font-bold text-indigo-900 block">💡 Decision Architecture</span>
-                        <p class="text-indigo-800 leading-relaxed">
-                            The <span class="font-semibold">d1</span> decision model accepts up to 64 structured questions per turn. Each question can be a probability assessment (<code class="bg-indigo-100 px-1 rounded">noul</code>) or discrete multi-choice.
+                    <div class="p-3.5 bg-gray-50 border border-gray-200 rounded-xl text-xs space-y-2">
+                        <span class="font-bold text-gray-800 block">💡 Ollama SystemOne Rules</span>
+                        <p class="text-gray-600 leading-relaxed text-[11px]">
+                            Decision models accept <code class="bg-gray-200 px-1 rounded">instructions</code>, <code class="bg-gray-200 px-1 rounded">type</code> (<span class="font-semibold text-indigo-600">noul</span>, <span class="font-semibold text-indigo-600">choice</span>, <span class="font-semibold text-indigo-600">score</span>), and <code class="bg-gray-200 px-1 rounded">criteria</code>. Standard chat options (temperature, max predict) are ignored.
                         </p>
                     </div>
                 </div>
 
-                <!-- State JSON Editor -->
+                <!-- State Context Editor (Single JSON or Jinja Template) -->
                 <div class="space-y-2">
                     <div class="flex items-center justify-between">
-                        <label for="decisionStateJson" class="text-xs font-bold uppercase tracking-wider text-gray-600">
+                        <label id="decisionStateLabel" for="decisionStateJson" class="text-xs font-bold uppercase tracking-wider text-gray-600">
                             State Context (JSON)
                         </label>
                         <button type="button" onclick="formatJsonField('decisionStateJson')" class="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold">
@@ -293,6 +394,11 @@
                         rows="12"
                         class="w-full text-xs p-3 border border-gray-300 rounded-xl font-mono text-gray-800 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner"
                     ></textarea>
+
+                    <div id="decisionRowPreviewWrapper" class="hidden mt-2 p-2.5 bg-gray-50 border border-gray-200 rounded-lg">
+                        <span class="text-[10px] font-bold uppercase text-gray-500 block mb-1">Live Row 1 Rendered State:</span>
+                        <pre id="decisionRowPreviewBox" class="text-[10px] font-mono max-h-28 overflow-y-auto whitespace-pre-wrap text-gray-700"></pre>
+                    </div>
                 </div>
 
                 <!-- Questions JSON Editor -->
@@ -332,13 +438,13 @@
         <div id="decisionResultsSection" class="hidden bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
             <div class="flex items-center justify-between pb-3 border-b border-gray-100">
                 <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
-                    <span>🎯</span> Gating Answers &amp; Evaluations
+                    <span>🎯</span> Gating Decisions &amp; Calibrated Probabilities
                 </h3>
                 <span id="decisionLatencyBadge" class="text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-mono">0 ms</span>
             </div>
 
-            <div id="decisionAnswersContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- Populated dynamically -->
+            <div id="decisionAnswersContainer" class="space-y-4">
+                <!-- Populated dynamically via JS -->
             </div>
 
             <div class="pt-4 border-t border-gray-100">
@@ -350,15 +456,28 @@
         </div>
     </div>
 
-    <!-- TAB 3: Embedding Retrieval Benchmarks -->
+    <!-- =======================================================================
+         TAB 3: Embedding Retrieval Benchmarks
+         ======================================================================= -->
     <div id="tabContentEmbedding" class="hidden space-y-6">
         <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
-            <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
-                <span>🔍</span> Embedding Retrieval Comparison
-            </h2>
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 border-b border-gray-100 gap-3">
+                <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
+                    <span>🔍</span> Embedding Retrieval Comparison
+                </h2>
+                <!-- Mode Toggle -->
+                <div class="inline-flex rounded-xl border border-gray-200 p-1 bg-gray-50 text-xs">
+                    <button type="button" id="btnEmbModeManual" onclick="setEmbeddingCandidateMode('manual')" class="px-3 py-1 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs">
+                        Manual Candidates
+                    </button>
+                    <button type="button" id="btnEmbModeDataset" onclick="setEmbeddingCandidateMode('dataset')" class="px-3 py-1 font-bold rounded-lg transition text-gray-600 hover:text-gray-900">
+                        Dataset Rows
+                    </button>
+                </div>
+            </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- Models Selector -->
+                <!-- Models & Query Selector -->
                 <div class="space-y-4">
                     <div>
                         <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
@@ -374,8 +493,8 @@
                                 <span>embeddinggemma</span>
                             </label>
                             <label class="flex items-center gap-2 text-xs font-medium cursor-pointer">
-                                <input type="checkbox" name="embModel" value="all-minilm" class="rounded text-indigo-600">
-                                <span>all-minilm</span>
+                                <input type="checkbox" name="embModel" value="nomic-embed-text" class="rounded text-indigo-600">
+                                <span>nomic-embed-text</span>
                             </label>
                         </div>
                     </div>
@@ -391,15 +510,40 @@
                             class="w-full text-xs p-2.5 border border-gray-300 rounded-xl shadow-inner focus:ring-indigo-500 focus:border-indigo-500"
                         >
                     </div>
+
+                    <!-- Dataset candidate selectors (dataset mode) -->
+                    <div id="embeddingDatasetControls" class="hidden space-y-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl">
+                        <div>
+                            <label for="embeddingDatasetSelect" class="block text-xs font-bold uppercase tracking-wider text-indigo-900 mb-1">
+                                Candidate Dataset
+                            </label>
+                            <select id="embeddingDatasetSelect" class="w-full text-xs p-2 border border-indigo-200 rounded-lg bg-white">
+                                <option value="">-- Choose Dataset --</option>
+                                {% for d in saved_datasets %}
+                                <option value="{{ d.id }}">{{ d.name }} ({{ d.row_count }} rows)</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label for="embeddingSampleLimit" class="block text-xs font-bold uppercase tracking-wider text-indigo-900 mb-1">
+                                Sample Rows to Score
+                            </label>
+                            <select id="embeddingSampleLimit" class="w-full text-xs p-2 border border-indigo-200 rounded-lg bg-white">
+                                <option value="5">5 rows</option>
+                                <option value="10" selected>10 rows</option>
+                                <option value="20">20 rows</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Candidates Texts Editor -->
                 <div class="lg:col-span-2 space-y-2">
                     <div class="flex items-center justify-between">
-                        <label for="embeddingCandidatesText" class="text-xs font-bold uppercase tracking-wider text-gray-600">
-                            Candidate Texts (One per block, separated by three dashes <code class="bg-gray-100 px-1">---</code>)
+                        <label id="embeddingCandidatesLabel" for="embeddingCandidatesText" class="text-xs font-bold uppercase tracking-wider text-gray-600">
+                            Candidate Texts (Separated by <code class="bg-gray-100 px-1 font-mono">---</code>)
                         </label>
-                        <button type="button" onclick="loadSampleCandidates()" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">
+                        <button type="button" id="btnLoadSampleCandidates" onclick="loadSampleCandidates()" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">
                             + Load Sample Candidates
                         </button>
                     </div>
@@ -433,15 +577,195 @@
                 <span>📈</span> Embedding Ranking &amp; Vector Dimensions
             </h3>
             <div id="embeddingResultsGrid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Populated dynamically -->
+                <!-- Populated dynamically via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- =======================================================================
+         TAB 4: Eval Datasets & Query Builder
+         ======================================================================= -->
+    <div id="tabContentDatasets" class="hidden space-y-6">
+        <!-- Saved Datasets List -->
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-4 border-b border-gray-100">
+                <div>
+                    <h2 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <span>📁</span> Saved Evaluation Datasets
+                    </h2>
+                    <p class="text-xs text-gray-500 mt-0.5">
+                        Evaluation datasets created with the query builder engine (strictly requires $\ge 20$ rows for statistical validity).
+                    </p>
+                </div>
+                <button type="button" onclick="document.getElementById('datasetBuilderCard').scrollIntoView({ behavior: 'smooth' });" class="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition flex items-center gap-1.5">
+                    <span>➕</span> Create New Dataset
+                </button>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-xs text-left">
+                    <thead class="bg-gray-50 text-gray-500 uppercase text-[10px] tracking-wider border-b border-gray-100">
+                        <tr>
+                            <th class="py-3 px-4 font-semibold">Name</th>
+                            <th class="py-3 px-4 font-semibold">Base Table</th>
+                            <th class="py-3 px-4 font-semibold">Row Count</th>
+                            <th class="py-3 px-4 font-semibold">Created</th>
+                            <th class="py-3 px-4 font-semibold text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100" id="savedDatasetsTableBody">
+                        {% if saved_datasets %}
+                        {% for d in saved_datasets %}
+                        <tr class="hover:bg-gray-50/70 transition" id="dataset-row-{{ d.id }}">
+                            <td class="py-3 px-4 font-bold text-gray-900">
+                                {{ d.name }}
+                                {% if d.description %}
+                                <span class="block text-[11px] font-normal text-gray-500 mt-0.5">{{ d.description }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="py-3 px-4 font-mono text-gray-600">{{ d.base_table }}</td>
+                            <td class="py-3 px-4 font-mono font-bold text-indigo-600">{{ d.row_count }} rows</td>
+                            <td class="py-3 px-4 text-gray-500">{{ d.created_at }}</td>
+                            <td class="py-3 px-4 text-right">
+                                <div class="inline-flex gap-2">
+                                    <button type="button" onclick="useDatasetInMode('matrix', {{ d.id }})" class="px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] transition">
+                                        📐 Matrix
+                                    </button>
+                                    <button type="button" onclick="useDatasetInMode('decision', {{ d.id }})" class="px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-[11px] transition">
+                                        ⚖️ Decision
+                                    </button>
+                                    <button type="button" onclick="deleteEvalDataset({{ d.id }})" class="px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-600 font-bold text-[11px] transition">
+                                        🗑️ Delete
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="py-6 text-center text-gray-400 italic">No evaluation datasets saved yet. Build one below!</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Create Evaluation Dataset Query Builder Card -->
+        <div id="datasetBuilderCard" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
+            <div class="border-b border-gray-100 pb-4">
+                <h2 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                    <span>🛠️</span> Query Builder &amp; Dataset Compiler
+                </h2>
+                <p class="text-xs text-gray-500 mt-0.5">
+                    Filter and project database records into an evaluation dataset. You must verify that your query matches at least <strong class="text-indigo-600">20 rows</strong> before saving.
+                </p>
+            </div>
+
+            <!-- Table & Column Selection -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div>
+                    <label for="dsBaseTable" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
+                        Base Source Table
+                    </label>
+                    <select id="dsBaseTable" onchange="onBaseTableChange(this.value)" class="w-full text-xs p-2.5 border border-gray-300 rounded-xl bg-white font-medium">
+                        {% for t_name, t_meta in tables_metadata.items() %}
+                        <option value="{{ t_name }}">{{ t_meta.label }} ({{ t_name }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="lg:col-span-2">
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
+                        Selected Columns for Jinja2 Templating
+                    </label>
+                    <div id="dsColumnsCheckboxContainer" class="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-2.5 bg-gray-50 border border-gray-200 rounded-xl">
+                        <!-- Populated dynamically via onBaseTableChange -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filter Builder -->
+            <div class="space-y-3 pt-2">
+                <div class="flex items-center justify-between">
+                    <label class="text-xs font-bold uppercase tracking-wider text-gray-600">
+                        Query Filter Conditions
+                    </label>
+                    <button type="button" onclick="addFilterRow()" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+                        + Add Filter Condition
+                    </button>
+                </div>
+                <div id="dsFilterRowsContainer" class="space-y-2">
+                    <!-- Filter rows populated dynamically via addFilterRow() -->
+                </div>
+            </div>
+
+            <!-- Preview & Row Count Verification Action -->
+            <div class="pt-4 border-t border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <span class="text-xs text-gray-500">
+                    Runs the count query and fetches up to 10 sample rows to verify minimum 20 rows.
+                </span>
+                <button
+                    type="button"
+                    id="btnPreviewDataset"
+                    onclick="previewDatasetQuery()"
+                    class="px-5 py-2.5 rounded-xl text-xs font-bold bg-gray-900 text-white hover:bg-black shadow-sm transition flex items-center gap-2"
+                >
+                    <span id="dsPreviewSpinner" class="hidden animate-spin">⏳</span>
+                    <span>🔍 Run Query &amp; Verify Row Count</span>
+                </button>
+            </div>
+
+            <!-- Validation Status Banner & Preview Results -->
+            <div id="dsPreviewResultsSection" class="hidden space-y-4 pt-2">
+                <div id="dsValidationAlert" class="p-4 rounded-xl text-xs flex items-center gap-3 font-medium"></div>
+
+                <!-- Sample Rows Table -->
+                <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 overflow-x-auto">
+                    <h4 class="text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">Sample Projected Rows (First 10)</h4>
+                    <table class="min-w-full text-[11px] text-left divide-y divide-gray-200" id="dsSampleRowsTable">
+                        <thead id="dsSampleRowsHeader" class="bg-gray-100 text-gray-600 uppercase font-semibold"></thead>
+                        <tbody id="dsSampleRowsBody" class="divide-y divide-gray-200 font-mono"></tbody>
+                    </table>
+                </div>
+
+                <!-- Save Dataset Form -->
+                <div class="bg-indigo-50/50 border border-indigo-100 rounded-xl p-5 space-y-4">
+                    <h4 class="text-xs font-extrabold uppercase tracking-wider text-indigo-900">Save as Reusable Eval Dataset</h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="dsNameInput" class="block text-[11px] font-bold text-gray-700 uppercase mb-1">Dataset Name *</label>
+                            <input type="text" id="dsNameInput" placeholder="e.g. Ingested AI Articles (20+)" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white">
+                        </div>
+                        <div>
+                            <label for="dsDescriptionInput" class="block text-[11px] font-bold text-gray-700 uppercase mb-1">Description (Optional)</label>
+                            <input type="text" id="dsDescriptionInput" placeholder="e.g. Filtered by tag containing AI" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white">
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        id="btnSaveDataset"
+                        onclick="saveDatasetFromBuilder()"
+                        disabled
+                        class="w-full py-2.5 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-sm transition flex items-center justify-center gap-2"
+                    >
+                        <span>💾</span> Save Evaluation Dataset
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
+<!-- ===========================================================================
+     JAVASCRIPT LOGIC & CONTROLLER
+     =========================================================================== -->
 <script>
-// --- Dynamic Presets & State ---
+// --- Globals & Initial State ---
+const TABLES_METADATA = {{ tables_metadata | tojson }};
+const SAVED_DATASETS = {{ saved_datasets | tojson }};
 const SYSTEM_PROMPTS = {{ prompts | tojson }};
+
 let activePrompts = [
     {
         id: "wiki_prompt",
@@ -450,28 +774,36 @@ let activePrompts = [
     }
 ];
 
+let matrixMode = 'single';      // 'single' | 'dataset'
+let decisionMode = 'single';    // 'single' | 'dataset'
+let embeddingMode = 'manual';   // 'manual' | 'dataset'
+
+let lastVerifiedRowCount = 0;
+let lastVerifiedPayload = null;
+
+// Presets for Decision Gating (d1)
 const DECISION_PRESETS = {
     link_crawler: {
         state: {
-            base_url: "https://example.com/engineering",
-            page_title: "Distributed Systems & Event Streams Architecture",
-            candidate_url: "https://example.com/engineering/kafka-vs-pulsar-benchmarks",
-            candidate_anchor_text: "In-depth benchmarks between Kafka and Pulsar event messaging",
-            page_tags: ["architecture", "distributed-systems", "streaming"]
+            policy: "Technical deep-dive engineering articles, architecture benchmarks, or language specs",
+            target_url: "https://example.com/engineering/distributed-messaging-benchmarks",
+            page_title: "Benchmarking Kafka, Pulsar, and NATS at 1M events/sec",
+            candidate_anchor: "Detailed throughput and latency benchmarks across distributed event streams",
+            tags: "distributed-systems, kafka, pulsar, messaging"
         },
         questions: {
             relevance_gate: {
-                question: "Is this candidate link highly relevant to the technical knowledge base?",
-                type: "probability",
+                instructions: "Is this candidate link highly relevant to the technical knowledge base?",
+                type: "noul",
                 criteria: {
                     true: "Direct technical engineering article, tutorial, or architectural benchmark.",
                     false: "Off-topic marketing, generic legal terms, or social media share link."
                 }
             },
             priority_tier: {
-                question: "What priority tier should be assigned for immediate crawling?",
+                instructions: "What priority tier should be assigned for immediate crawling?",
                 type: "choice",
-                choices: {
+                criteria: {
                     high: "Core architectural insight or benchmark directly extending page content.",
                     medium: "General related documentation or supplemental reference.",
                     low: "Loose association or tertiary reference."
@@ -489,8 +821,8 @@ const DECISION_PRESETS = {
         },
         questions: {
             source_quality: {
-                question: "Does the primary candidate source provide sufficient concrete technical evidence?",
-                type: "probability",
+                instructions: "Does the primary candidate source provide sufficient concrete technical evidence?",
+                type: "noul",
                 criteria: {
                     true: "Contains concrete query schemas, explain plan analysis, or actionable rules.",
                     false: "Lacks technical depth or consists purely of generic marketing prose."
@@ -506,9 +838,9 @@ const DECISION_PRESETS = {
         },
         questions: {
             domain_tier: {
-                question: "Which high-level category best classifies this resource?",
+                instructions: "Which high-level category best classifies this resource?",
                 type: "choice",
-                choices: {
+                criteria: {
                     development: "Programming languages, runtime libraries, and developer tools.",
                     infrastructure: "DevOps, networking, servers, or cloud infrastructure.",
                     research: "Machine learning, theoretical papers, or algorithmic research."
@@ -528,14 +860,18 @@ document.addEventListener("DOMContentLoaded", () => {
     if (matrixInput) {
         matrixInput.addEventListener("input", updateInputCharCount);
     }
+
+    // Populate dataset query builder table columns
+    onBaseTableChange("fetched_pages");
 });
 
 // --- Tab Navigation ---
 function switchEvalTab(tabName) {
-    const tabs = ["matrix", "decision", "embedding"];
+    const tabs = ["matrix", "decision", "embedding", "datasets"];
     tabs.forEach(t => {
         const content = document.getElementById("tabContent" + capitalize(t));
         const btn = document.getElementById("tabBtn" + capitalize(t));
+        if (!content || !btn) return;
         if (t === tabName) {
             content.classList.remove("hidden");
             btn.className = "border-indigo-600 text-indigo-600 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2 transition";
@@ -550,7 +886,44 @@ function capitalize(s) {
     return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function escapeAttr(str) {
+    if (!str) return '';
+    return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, '\\n');
+}
+
 // --- TAB 1: Matrix Functions ---
+function setMatrixInputMode(mode) {
+    matrixMode = mode;
+    const btnSingle = document.getElementById("btnMatrixModeSingle");
+    const btnDataset = document.getElementById("btnMatrixModeDataset");
+    const viewSingle = document.getElementById("matrixSingleInputView");
+    const viewDataset = document.getElementById("matrixDatasetInputView");
+
+    if (mode === 'single') {
+        btnSingle.className = "px-3 py-1.5 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs";
+        btnDataset.className = "px-3 py-1.5 font-bold rounded-lg transition text-gray-600 hover:text-gray-900";
+        viewSingle.classList.remove("hidden");
+        viewDataset.classList.add("hidden");
+    } else {
+        btnDataset.className = "px-3 py-1.5 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs";
+        btnSingle.className = "px-3 py-1.5 font-bold rounded-lg transition text-gray-600 hover:text-gray-900";
+        viewDataset.classList.remove("hidden");
+        viewSingle.classList.add("hidden");
+        const select = document.getElementById("matrixDatasetSelect");
+        if (select.value) refreshDatasetPreview('matrix');
+    }
+}
+
 function updateInputCharCount() {
     const text = document.getElementById("matrixInputText").value || "";
     const el = document.getElementById("matrixInputCharCount");
@@ -624,15 +997,63 @@ async function loadSampleArticleContent(url) {
     }
 }
 
+function onMatrixDatasetChange(datasetId) {
+    if (!datasetId) {
+        document.getElementById("matrixRowPreviewBox").innerText = "Select a dataset above to preview rendered prompt...";
+        return;
+    }
+    refreshDatasetPreview('matrix');
+}
+
+async function refreshDatasetPreview(mode) {
+    const datasetId = mode === 'matrix' 
+        ? document.getElementById("matrixDatasetSelect").value 
+        : document.getElementById("decisionDatasetSelect").value;
+
+    if (!datasetId) return;
+
+    try {
+        const resp = await fetch(`/api/evals/datasets/${datasetId}/rows?limit=1`);
+        if (!resp.ok) throw new Error("Could not fetch sample row");
+        const json = await resp.json();
+        const row = (json.rows && json.rows[0]) ? json.rows[0] : null;
+
+        if (mode === 'matrix') {
+            const previewBox = document.getElementById("matrixRowPreviewBox");
+            if (!row) {
+                previewBox.innerText = "No rows found in this dataset.";
+                return;
+            }
+            const tpl = document.getElementById("matrixJinjaTemplate").value;
+            // Simple client interpolation preview
+            let out = tpl
+                .replace(/\{\{\s*data\.title\s*\}\}/g, row.title || '')
+                .replace(/\{\{\s*data\.url\s*\}\}/g, row.url || '')
+                .replace(/\{\{\s*data\.tags\s*\}\}/g, row.tags || '')
+                .replace(/\{\{\s*data\.wiki\s*\}\}/g, (row.wiki || row.md_content || '').slice(0, 400));
+            previewBox.innerText = out;
+        } else if (mode === 'decision') {
+            const previewBox = document.getElementById("decisionRowPreviewBox");
+            if (!row) {
+                previewBox.innerText = "No rows found in this dataset.";
+                return;
+            }
+            const tpl = document.getElementById("decisionStateJson").value;
+            let out = tpl
+                .replace(/\{\{\s*data\.title\s*\}\}/g, row.title || '')
+                .replace(/\{\{\s*data\.url\s*\}\}/g, row.url || '')
+                .replace(/\{\{\s*data\.tags\s*\}\}/g, row.tags || '');
+            previewBox.innerText = out;
+        }
+    } catch (e) {
+        console.error("Preview error:", e);
+    }
+}
+
 async function executeMatrixEval() {
     const selectedModels = Array.from(document.querySelectorAll("input[name='matrixModel']:checked")).map(cb => cb.value);
     if (selectedModels.length === 0) {
         alert("Please select at least one model.");
-        return;
-    }
-    const inputText = document.getElementById("matrixInputText").value.trim();
-    if (!inputText) {
-        alert("Please provide input text to evaluate.");
         return;
     }
 
@@ -641,27 +1062,58 @@ async function executeMatrixEval() {
     btn.disabled = true;
     spinner.classList.remove("hidden");
 
-    try {
-        const payload = {
-            models: selectedModels,
-            prompts: activePrompts,
-            input_text: inputText,
-            temperature: parseFloat(document.getElementById("matrixTemperature").value || "0.2"),
-            max_tokens: parseInt(document.getElementById("matrixMaxTokens").value || "2048", 10)
-        };
+    let payload = {
+        models: selectedModels,
+        prompts: activePrompts,
+        temperature: parseFloat(document.getElementById("matrixTemperature").value || "0.2"),
+        max_tokens: parseInt(document.getElementById("matrixMaxTokens").value || "2048", 10)
+    };
 
+    if (matrixMode === 'dataset') {
+        const datasetId = parseInt(document.getElementById("matrixDatasetSelect").value, 10);
+        if (!datasetId) {
+            alert("Please select an evaluation dataset.");
+            btn.disabled = false;
+            spinner.classList.add("hidden");
+            return;
+        }
+        payload.dataset_id = datasetId;
+        payload.template = document.getElementById("matrixJinjaTemplate").value;
+        payload.sample_limit = parseInt(document.getElementById("matrixSampleLimit").value, 10);
+    } else {
+        const inputText = document.getElementById("matrixInputText").value.trim();
+        if (!inputText) {
+            alert("Please provide input text to evaluate.");
+            btn.disabled = false;
+            spinner.classList.add("hidden");
+            return;
+        }
+        payload.input_text = inputText;
+    }
+
+    try {
         const resp = await fetch("/api/evals/matrix/run", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
+
         if (!resp.ok) {
-            const errData = await resp.json();
-            throw new Error(errData.detail || "Matrix execution failed");
+            let errText = resp.statusText;
+            try {
+                const text = await resp.text();
+                try {
+                    const json = JSON.parse(text);
+                    errText = json.detail || json.message || text;
+                } catch {
+                    errText = text.slice(0, 300);
+                }
+            } catch {}
+            throw new Error(errText);
         }
 
         const data = await resp.json();
-        renderMatrixResults(data.results || []);
+        renderMatrixResults(data.results || [], data.is_dataset);
     } catch (err) {
         alert("Evaluation Error: " + err.message);
     } finally {
@@ -670,7 +1122,7 @@ async function executeMatrixEval() {
     }
 }
 
-function renderMatrixResults(results) {
+function renderMatrixResults(results, isDataset) {
     const section = document.getElementById("matrixResultsSection");
     const grid = document.getElementById("matrixResultsGrid");
     const countEl = document.getElementById("resultsCount");
@@ -685,8 +1137,11 @@ function renderMatrixResults(results) {
         card.innerHTML = `
             <div class="p-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
                 <div>
-                    <span class="font-bold text-xs text-gray-900">${escapeHtml(r.model)}</span>
-                    <span class="text-[11px] text-gray-500 block">${escapeHtml(r.prompt_name)}</span>
+                    <div class="flex items-center gap-2">
+                        <span class="font-bold text-xs text-gray-900">${escapeHtml(r.model)}</span>
+                        ${r.row_idx ? `<span class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-bold">Row #${r.row_idx}</span>` : ''}
+                    </div>
+                    <span class="text-[11px] text-gray-500 block truncate">${escapeHtml(r.prompt_name)} ${r.row_summary ? '• ' + escapeHtml(r.row_summary) : ''}</span>
                 </div>
                 <div class="flex items-center gap-1.5 font-mono text-[11px]">
                     <span class="px-2 py-0.5 rounded-full ${isError ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'}">
@@ -718,8 +1173,8 @@ function renderMatrixResults(results) {
 }
 
 function toggleCellView(idx) {
-    const formatted = document.getElementById("matrixFormatted_" + idx);
-    const raw = document.getElementById("matrixRaw_" + idx);
+    const formatted = document.getElementById(`matrixFormatted_${idx}`);
+    const raw = document.getElementById(`matrixRaw_${idx}`);
     if (formatted && raw) {
         formatted.classList.toggle("hidden");
         raw.classList.toggle("hidden");
@@ -727,46 +1182,68 @@ function toggleCellView(idx) {
 }
 
 function toggleAllMatrixViews(mode) {
-    const formattedList = document.querySelectorAll("[id^='matrixFormatted_']");
-    const rawList = document.querySelectorAll("[id^='matrixRaw_']");
-    formattedList.forEach(el => {
-        if (mode === 'formatted') el.classList.remove('hidden');
-        else el.classList.add('hidden');
+    document.querySelectorAll("[id^='matrixFormatted_']").forEach(el => {
+        if (mode === "formatted") el.classList.remove("hidden");
+        else el.classList.add("hidden");
     });
-    rawList.forEach(el => {
-        if (mode === 'raw') el.classList.remove('hidden');
-        else el.classList.add('hidden');
+    document.querySelectorAll("[id^='matrixRaw_']").forEach(el => {
+        if (mode === "raw") el.classList.remove("hidden");
+        else el.classList.add("hidden");
     });
 }
 
 // --- TAB 2: Decision Gating Functions ---
-function loadDecisionPreset(key) {
-    const preset = DECISION_PRESETS[key];
+function setDecisionInputMode(mode) {
+    decisionMode = mode;
+    const btnSingle = document.getElementById("btnDecisionModeSingle");
+    const btnDataset = document.getElementById("btnDecisionModeDataset");
+    const datasetControls = document.getElementById("decisionDatasetControls");
+    const label = document.getElementById("decisionStateLabel");
+    const previewWrapper = document.getElementById("decisionRowPreviewWrapper");
+
+    if (mode === 'single') {
+        btnSingle.className = "px-3 py-1 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs";
+        btnDataset.className = "px-3 py-1 font-bold rounded-lg transition text-gray-600 hover:text-gray-900";
+        datasetControls.classList.add("hidden");
+        previewWrapper.classList.add("hidden");
+        label.innerText = "State Context (JSON)";
+    } else {
+        btnDataset.className = "px-3 py-1 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs";
+        btnSingle.className = "px-3 py-1 font-bold rounded-lg transition text-gray-600 hover:text-gray-900";
+        datasetControls.classList.remove("hidden");
+        previewWrapper.classList.remove("hidden");
+        label.innerText = "State Jinja2 Template";
+        const select = document.getElementById("decisionDatasetSelect");
+        if (select.value) refreshDatasetPreview('decision');
+    }
+}
+
+function onDecisionDatasetChange(datasetId) {
+    if (!datasetId) return;
+    refreshDatasetPreview('decision');
+}
+
+function loadDecisionPreset(presetKey) {
+    const preset = DECISION_PRESETS[presetKey];
     if (!preset) return;
+
     document.getElementById("decisionStateJson").value = JSON.stringify(preset.state, null, 2);
     document.getElementById("decisionQuestionsJson").value = JSON.stringify(preset.questions, null, 2);
 }
 
 function formatJsonField(fieldId) {
+    const el = document.getElementById(fieldId);
     try {
-        const val = JSON.parse(document.getElementById(fieldId).value);
-        document.getElementById(fieldId).value = JSON.stringify(val, null, 2);
+        const parsed = JSON.parse(el.value);
+        el.value = JSON.stringify(parsed, null, 2);
     } catch (e) {
-        alert("Invalid JSON: " + e.message);
+        alert("JSON syntax error: " + e.message);
     }
 }
 
 async function executeDecisionEval() {
     const model = document.getElementById("decisionModelInput").value.trim() || "d1";
-    let state = {};
     let questions = {};
-
-    try {
-        state = JSON.parse(document.getElementById("decisionStateJson").value);
-    } catch (e) {
-        alert("State JSON is invalid: " + e.message);
-        return;
-    }
 
     try {
         questions = JSON.parse(document.getElementById("decisionQuestionsJson").value);
@@ -782,22 +1259,57 @@ async function executeDecisionEval() {
     spinner.classList.remove("hidden");
     statusMsg.innerText = "Evaluating decision model via systemone...";
 
-    try {
-        const payload = {
-            model: model,
-            state: state,
-            questions: questions,
-            context_window: parseInt(document.getElementById("decisionContextWindow").value || "16384", 10)
-        };
+    let payload = {
+        model: model,
+        questions: questions
+    };
 
+    if (decisionMode === 'dataset') {
+        const datasetId = parseInt(document.getElementById("decisionDatasetSelect").value, 10);
+        if (!datasetId) {
+            alert("Please select an evaluation dataset.");
+            btn.disabled = false;
+            spinner.classList.add("hidden");
+            return;
+        }
+        payload.dataset_id = datasetId;
+        payload.state_template = document.getElementById("decisionStateJson").value;
+        payload.sample_limit = parseInt(document.getElementById("decisionSampleLimit").value, 10);
+    } else {
+        try {
+            payload.state = JSON.parse(document.getElementById("decisionStateJson").value);
+        } catch (e) {
+            alert("State JSON is invalid: " + e.message);
+            btn.disabled = false;
+            spinner.classList.add("hidden");
+            return;
+        }
+    }
+
+    try {
         const resp = await fetch("/api/evals/decision/run", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
+
+        if (!resp.ok) {
+            let errText = resp.statusText;
+            try {
+                const text = await resp.text();
+                try {
+                    const json = JSON.parse(text);
+                    errText = json.detail || json.message || text;
+                } catch {
+                    errText = text.slice(0, 300);
+                }
+            } catch {}
+            throw new Error(errText);
+        }
+
         const data = await resp.json();
         renderDecisionResults(data);
-        statusMsg.innerText = data.success ? "Decision evaluated successfully." : "Decision evaluation completed with errors.";
+        statusMsg.innerText = data.success ? "Decision evaluated successfully." : "Decision completed with errors.";
     } catch (err) {
         alert("Decision Eval Error: " + err.message);
         statusMsg.innerText = "Error during execution.";
@@ -817,35 +1329,107 @@ function renderDecisionResults(data) {
     rawPre.innerText = JSON.stringify(data, null, 2);
     container.innerHTML = "";
 
+    // Case A: Multi-row Dataset Results
+    if (data.is_dataset && data.results) {
+        latencyBadge.innerText = `${data.total_runs} row(s) evaluated (${data.model})`;
+        const table = document.createElement("div");
+        table.className = "overflow-x-auto";
+        let tableHtml = `
+            <table class="min-w-full text-xs text-left divide-y divide-gray-200">
+                <thead class="bg-gray-50 text-gray-600 uppercase text-[10px]">
+                    <tr>
+                        <th class="py-2.5 px-3">Row</th>
+                        <th class="py-2.5 px-3">Subject / Target</th>
+                        <th class="py-2.5 px-3">Decisions &amp; Probabilities</th>
+                        <th class="py-2.5 px-3 text-right">Latency</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+        `;
+
+        data.results.forEach(r => {
+            let decisionsHtml = '';
+            const ans = r.answers || {};
+            Object.keys(ans).forEach(qk => {
+                const a = ans[qk];
+                const choice = a.choice;
+                const noul = (a.noul !== undefined && a.noul !== null) ? parseFloat(a.noul) : null;
+                const score = a.score;
+                const conf = (a.confidence !== undefined && a.confidence !== null) ? (parseFloat(a.confidence) * 100).toFixed(0) : null;
+
+                decisionsHtml += `
+                    <div class="inline-flex items-center gap-1.5 mr-3 my-1">
+                        <span class="font-bold text-gray-700">${escapeHtml(qk)}:</span>
+                        ${choice ? `<span class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold font-mono">${escapeHtml(choice)} ${conf ? `(${conf}%)` : ''}</span>` : ''}
+                        ${noul !== null ? `<span class="px-2 py-0.5 rounded-full ${noul > 0.5 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'} font-bold font-mono">${(noul * 100).toFixed(1)}%</span>` : ''}
+                        ${score !== undefined && score !== null ? `<span class="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold font-mono">${score}</span>` : ''}
+                    </div>
+                `;
+            });
+
+            tableHtml += `
+                <tr class="hover:bg-gray-50">
+                    <td class="py-2.5 px-3 font-mono font-bold text-gray-700">#${r.row_idx}</td>
+                    <td class="py-2.5 px-3 font-medium text-gray-900 max-w-xs truncate">${escapeHtml(r.row_summary)}</td>
+                    <td class="py-2.5 px-3">${decisionsHtml || '<span class="text-red-500">' + escapeHtml(r.error || 'No answers') + '</span>'}</td>
+                    <td class="py-2.5 px-3 text-right font-mono text-gray-500">${r.latency_ms} ms</td>
+                </tr>
+            `;
+        });
+
+        tableHtml += `</tbody></table>`;
+        table.innerHTML = tableHtml;
+        container.appendChild(table);
+        section.classList.remove("hidden");
+        section.scrollIntoView({ behavior: "smooth" });
+        return;
+    }
+
+    // Case B: Single State Result
     const answers = data.answers || {};
     const keys = Object.keys(answers);
 
     if (keys.length === 0) {
-        container.innerHTML = `<div class="col-span-2 p-4 bg-amber-50 text-amber-800 rounded-xl text-xs">No structured answers extracted. ${escapeHtml(data.error || '')}</div>`;
+        container.innerHTML = `<div class="p-4 bg-amber-50 text-amber-800 rounded-xl text-xs">No structured answers extracted. ${escapeHtml(data.error || '')}</div>`;
     } else {
+        const grid = document.createElement("div");
+        grid.className = "grid grid-cols-1 md:grid-cols-2 gap-4";
         keys.forEach(k => {
             const ans = answers[k];
             const choice = (ans && ans.choice) ? ans.choice : null;
             const noul = (ans && ans.noul !== undefined && ans.noul !== null) ? parseFloat(ans.noul) : null;
+            const score = (ans && ans.score !== undefined && ans.score !== null) ? ans.score : null;
+            const conf = (ans && ans.confidence !== undefined && ans.confidence !== null) ? (parseFloat(ans.confidence) * 100).toFixed(1) : null;
             const reasoning = (ans && ans.reasoning) ? ans.reasoning : "";
+            const probs = (ans && ans.probabilities) ? ans.probabilities : null;
 
             const card = document.createElement("div");
             card.className = "p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-2 text-xs";
             card.innerHTML = `
                 <div class="flex items-center justify-between">
                     <span class="font-bold text-gray-800 text-xs">${escapeHtml(k)}</span>
-                    ${choice ? `<span class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold font-mono">${escapeHtml(choice)}</span>` : ''}
-                    ${noul !== null ? `<span class="px-2 py-0.5 rounded-full ${noul > 0.5 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'} font-bold font-mono">${(noul * 100).toFixed(1)}%</span>` : ''}
+                    <div class="flex items-center gap-1.5">
+                        ${choice ? `<span class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold font-mono">${escapeHtml(choice)}</span>` : ''}
+                        ${conf ? `<span class="px-1.5 py-0.5 rounded-md bg-gray-200 text-gray-700 text-[10px] font-mono">${conf}% conf</span>` : ''}
+                        ${noul !== null ? `<span class="px-2 py-0.5 rounded-full ${noul > 0.5 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'} font-bold font-mono">${(noul * 100).toFixed(1)}%</span>` : ''}
+                        ${score !== null ? `<span class="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold font-mono">Score: ${score}</span>` : ''}
+                    </div>
                 </div>
                 ${noul !== null ? `
                     <div class="w-full bg-gray-200 rounded-full h-2">
                         <div class="h-2 rounded-full ${noul > 0.5 ? 'bg-emerald-500' : 'bg-red-500'}" style="width: ${(noul * 100)}%"></div>
                     </div>
                 ` : ''}
-                ${reasoning ? `<p class="text-gray-600 italic text-[11px]">${escapeHtml(reasoning)}</p>` : ''}
+                ${probs && typeof probs === 'object' ? `
+                    <div class="text-[11px] text-gray-500 font-mono space-y-1 pt-1">
+                        ${Object.keys(probs).map(pk => `<div class="flex justify-between"><span>${escapeHtml(pk)}</span><span>${(probs[pk] * 100).toFixed(1)}%</span></div>`).join('')}
+                    </div>
+                ` : ''}
+                ${reasoning ? `<p class="text-gray-600 italic text-[11px] pt-1">${escapeHtml(reasoning)}</p>` : ''}
             `;
-            container.appendChild(card);
+            grid.appendChild(card);
         });
+        container.appendChild(grid);
     }
 
     section.classList.remove("hidden");
@@ -853,11 +1437,35 @@ function renderDecisionResults(data) {
 }
 
 // --- TAB 3: Embedding Functions ---
+function setEmbeddingCandidateMode(mode) {
+    embeddingMode = mode;
+    const btnManual = document.getElementById("btnEmbModeManual");
+    const btnDataset = document.getElementById("btnEmbModeDataset");
+    const controls = document.getElementById("embeddingDatasetControls");
+    const label = document.getElementById("embeddingCandidatesLabel");
+    const sampleBtn = document.getElementById("btnLoadSampleCandidates");
+
+    if (mode === 'manual') {
+        btnManual.className = "px-3 py-1 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs";
+        btnDataset.className = "px-3 py-1 font-bold rounded-lg transition text-gray-600 hover:text-gray-900";
+        controls.classList.add("hidden");
+        sampleBtn.classList.remove("hidden");
+        label.innerText = "Candidate Texts (Separated by ---)";
+    } else {
+        btnDataset.className = "px-3 py-1 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs";
+        btnManual.className = "px-3 py-1 font-bold rounded-lg transition text-gray-600 hover:text-gray-900";
+        controls.classList.remove("hidden");
+        sampleBtn.classList.add("hidden");
+        label.innerText = "Manual Additional Candidates (Optional)";
+    }
+}
+
 function loadSampleCandidates() {
     const samples = [
         "PostgreSQL multi-column GIN and B-Tree indexes provide high-speed indexing for relational data views.",
         "SQLite in-memory tables offer lightweight rapid prototyping but lack native concurrent write scaling.",
-        "Qdrant vector similarity search leverages HNSW graph indexing for sub-millisecond nearest neighbor retrieval."
+        "Qdrant vector similarity search leverages HNSW graph indexing for sub-millisecond nearest neighbor retrieval.",
+        "FastAPI asynchronous ASGI routing delivers sub-millisecond endpoint concurrency with Pydantic validation."
     ];
     document.getElementById("embeddingCandidatesText").value = samples.join("\n---\n");
 }
@@ -870,12 +1478,34 @@ async function executeEmbeddingEval() {
     }
     const query = document.getElementById("embeddingQueryInput").value.trim();
     if (!query) {
-        alert("Please enter a search query.");
+        alert("Please enter a search query or concept.");
         return;
     }
 
     const rawCandidates = document.getElementById("embeddingCandidatesText").value;
-    const candidates = rawCandidates.split("---").map(c => c.trim()).filter(c => c.length > 0);
+    const candidates = rawCandidates.split("---").map(c => c.trim()).filter(Boolean);
+
+    let payload = {
+        models: selectedModels,
+        query: query,
+        candidates: candidates,
+        top_k: 5
+    };
+
+    if (embeddingMode === 'dataset') {
+        const datasetId = parseInt(document.getElementById("embeddingDatasetSelect").value, 10);
+        if (!datasetId && candidates.length === 0) {
+            alert("Please select a candidate dataset or supply manual candidates.");
+            return;
+        }
+        if (datasetId) {
+            payload.dataset_id = datasetId;
+            payload.sample_limit = parseInt(document.getElementById("embeddingSampleLimit").value, 10);
+        }
+    } else if (candidates.length === 0) {
+        alert("Please provide at least one candidate text block.");
+        return;
+    }
 
     const btn = document.getElementById("btnRunEmbedding");
     const spinner = document.getElementById("embSpinner");
@@ -883,18 +1513,26 @@ async function executeEmbeddingEval() {
     spinner.classList.remove("hidden");
 
     try {
-        const payload = {
-            models: selectedModels,
-            query: query,
-            candidates: candidates,
-            top_k: 5
-        };
-
         const resp = await fetch("/api/evals/embedding/run", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
+
+        if (!resp.ok) {
+            let errText = resp.statusText;
+            try {
+                const text = await resp.text();
+                try {
+                    const json = JSON.parse(text);
+                    errText = json.detail || json.message || text;
+                } catch {
+                    errText = text.slice(0, 300);
+                }
+            } catch {}
+            throw new Error(errText);
+        }
+
         const data = await resp.json();
         renderEmbeddingResults(data.results || []);
     } catch (err) {
@@ -912,33 +1550,38 @@ function renderEmbeddingResults(results) {
 
     results.forEach(r => {
         const card = document.createElement("div");
-        card.className = "bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4";
+        card.className = "bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col";
         const isError = r.status === "error";
 
-        card.innerHTML = `
-            <div class="flex items-center justify-between border-b border-gray-100 pb-3">
-                <div>
-                    <h4 class="font-bold text-xs text-gray-900">${escapeHtml(r.model)}</h4>
-                    <span class="text-[11px] text-gray-500 font-mono">${r.dimension} dims</span>
+        let candidateRows = "";
+        (r.candidates || []).forEach((c, idx) => {
+            const barWidth = Math.max(0, Math.min(100, c.percentage));
+            candidateRows += `
+                <div class="p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-1.5 text-xs">
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-gray-700">#${idx + 1} Match</span>
+                        <span class="font-mono font-bold text-indigo-600">${c.percentage}% (${c.similarity})</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-1.5">
+                        <div class="bg-indigo-600 h-1.5 rounded-full" style="width: ${barWidth}%"></div>
+                    </div>
+                    <p class="text-gray-600 text-[11px] line-clamp-3 leading-relaxed">${escapeHtml(c.text)}</p>
                 </div>
-                <span class="text-xs px-2 py-0.5 rounded-full ${isError ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'} font-mono">
+            `;
+        });
+
+        card.innerHTML = `
+            <div class="p-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                    <span class="font-bold text-xs text-gray-900">${escapeHtml(r.model)}</span>
+                    <span class="text-[11px] text-gray-500 block font-mono">${r.dimension} dimensions</span>
+                </div>
+                <span class="px-2.5 py-1 rounded-full ${isError ? 'bg-red-100 text-red-700' : 'bg-indigo-100 text-indigo-800'} text-xs font-mono font-bold">
                     ${r.latency_ms} ms
                 </span>
             </div>
-            ${isError ? `<div class="p-3 bg-red-50 text-red-700 text-xs rounded-lg">${escapeHtml(r.error)}</div>` : ''}
-            <div class="space-y-3">
-                ${(r.candidates || []).map((c, i) => `
-                    <div class="p-3 bg-gray-50 rounded-xl space-y-1.5 text-xs">
-                        <div class="flex items-center justify-between">
-                            <span class="font-bold text-gray-700 text-[11px]">Rank #${i+1}</span>
-                            <span class="font-mono font-bold text-indigo-600">${c.percentage}% (${c.similarity})</span>
-                        </div>
-                        <div class="w-full bg-gray-200 rounded-full h-1.5">
-                            <div class="bg-indigo-600 h-1.5 rounded-full" style="width: ${Math.max(5, c.percentage)}%"></div>
-                        </div>
-                        <p class="text-gray-600 text-[11px] leading-relaxed">${escapeHtml(c.text)}</p>
-                    </div>
-                `).join('')}
+            <div class="p-4 space-y-3 flex-1">
+                ${isError ? `<div class="p-3 bg-red-50 text-red-700 rounded-lg text-xs">${escapeHtml(r.error)}</div>` : candidateRows}
             </div>
         `;
         grid.appendChild(card);
@@ -948,27 +1591,284 @@ function renderEmbeddingResults(results) {
     section.scrollIntoView({ behavior: "smooth" });
 }
 
-// --- Helpers ---
-function escapeHtml(str) {
-    if (!str) return "";
-    return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+// --- TAB 4: Datasets & Query Builder Functions ---
+function onBaseTableChange(tableName) {
+    const tableMeta = TABLES_METADATA[tableName];
+    if (!tableMeta) return;
+
+    const container = document.getElementById("dsColumnsCheckboxContainer");
+    container.innerHTML = "";
+
+    (tableMeta.columns || []).forEach(col => {
+        const fullColName = `${tableName}.${col.name}`;
+        const isDefaultChecked = ["title", "url", "description", "tags", "md_content", "content"].includes(col.name);
+        const label = document.createElement("label");
+        label.className = "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono cursor-pointer border border-gray-200 bg-white hover:border-indigo-300 transition";
+        label.innerHTML = `
+            <input type="checkbox" name="dsCol" value="${fullColName}" ${isDefaultChecked ? 'checked' : ''} class="rounded text-indigo-600">
+            <span>${col.name}</span>
+        `;
+        container.appendChild(label);
+    });
+
+    // Reset filters and add a default row
+    document.getElementById("dsFilterRowsContainer").innerHTML = "";
+    addFilterRow();
 }
 
-function escapeAttr(str) {
-    if (!str) return "";
-    return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, '\\n');
+function addFilterRow() {
+    const container = document.getElementById("dsFilterRowsContainer");
+    const baseTable = document.getElementById("dsBaseTable").value;
+    const tableMeta = TABLES_METADATA[baseTable] || {};
+    const cols = tableMeta.columns || [];
+
+    const row = document.createElement("div");
+    row.className = "filter-row flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-200";
+
+    let colOptions = cols.map(c => `<option value="${baseTable}.${c.name}">${c.name} (${c.type})</option>`).join('');
+
+    row.innerHTML = `
+        <select class="filter-col text-xs p-2 border border-gray-300 rounded-lg bg-white flex-1 font-mono">
+            ${colOptions}
+        </select>
+        <select class="filter-op text-xs p-2 border border-gray-300 rounded-lg bg-white font-mono">
+            <option value="eq">equals (=)</option>
+            <option value="neq">not equals (!=)</option>
+            <option value="contains" selected>contains</option>
+            <option value="not_contains">does not contain</option>
+            <option value="gt">&gt;</option>
+            <option value="gte">&gt;=</option>
+            <option value="lt">&lt;</option>
+            <option value="lte">&lt;=</option>
+            <option value="is_not_null">is not null</option>
+        </select>
+        <input type="text" placeholder="Filter value..." class="filter-val text-xs p-2 border border-gray-300 rounded-lg bg-white flex-1">
+        <button type="button" onclick="this.parentElement.remove()" class="text-gray-400 hover:text-red-500 font-bold px-2 text-sm">&times;</button>
+    `;
+    container.appendChild(row);
+}
+
+function getSelectedDatasetColumns() {
+    const checked = Array.from(document.querySelectorAll("input[name='dsCol']:checked")).map(cb => cb.value);
+    if (checked.length === 0) {
+        const baseTable = document.getElementById("dsBaseTable").value;
+        return [`${baseTable}.*`];
+    }
+    return checked;
+}
+
+function getFilterRowsData() {
+    const rows = document.querySelectorAll(".filter-row");
+    const filters = [];
+    rows.forEach(r => {
+        const col = r.querySelector(".filter-col").value;
+        const op = r.querySelector(".filter-op").value;
+        const val = r.querySelector(".filter-val").value;
+        if (op === "is_not_null" || op === "is_null" || val.trim()) {
+            filters.push({ column: col, operator: op, value: val.trim() });
+        }
+    });
+    return filters;
+}
+
+async function previewDatasetQuery() {
+    const baseTable = document.getElementById("dsBaseTable").value;
+    const selectedColumns = getSelectedDatasetColumns();
+    const filters = getFilterRowsData();
+
+    const btn = document.getElementById("btnPreviewDataset");
+    const spinner = document.getElementById("dsPreviewSpinner");
+    const resultsSection = document.getElementById("dsPreviewResultsSection");
+    const alertBox = document.getElementById("dsValidationAlert");
+    const saveBtn = document.getElementById("btnSaveDataset");
+
+    btn.disabled = true;
+    spinner.classList.remove("hidden");
+
+    try {
+        const payload = {
+            base_table: baseTable,
+            selected_columns: selectedColumns,
+            filters: filters,
+            joins: []
+        };
+
+        const resp = await fetch("/api/evals/datasets/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        if (!resp.ok) {
+            let errText = resp.statusText;
+            try {
+                const text = await resp.text();
+                try {
+                    const json = JSON.parse(text);
+                    errText = json.detail || json.message || text;
+                } catch {
+                    errText = text.slice(0, 300);
+                }
+            } catch {}
+            throw new Error(errText);
+        }
+
+        const data = await resp.json();
+        lastVerifiedRowCount = data.total_count;
+        lastVerifiedPayload = payload;
+
+        resultsSection.classList.remove("hidden");
+
+        if (data.can_save) {
+            alertBox.className = "p-4 rounded-xl text-xs flex items-center gap-3 font-medium bg-emerald-50 border border-emerald-200 text-emerald-800 animate-fade-in";
+            alertBox.innerHTML = `
+                <span class="text-xl">✅</span>
+                <div>
+                    <strong class="font-bold">Dataset Validated:</strong> Found <span class="font-mono font-bold">${data.total_count.toLocaleString()}</span> matching rows (minimum 20 requirement satisfied). Ready to save!
+                </div>
+            `;
+            saveBtn.disabled = false;
+        } else {
+            alertBox.className = "p-4 rounded-xl text-xs flex items-center gap-3 font-medium bg-red-50 border border-red-200 text-red-800 animate-fade-in";
+            alertBox.innerHTML = `
+                <span class="text-xl">⚠️</span>
+                <div>
+                    <strong class="font-bold">Cannot Save Dataset:</strong> Query returned <span class="font-mono font-bold">${data.total_count}</span> matching row(s). A minimum of <span class="font-bold">20 rows</span> is strictly required for statistical validity. Please broaden your filter conditions.
+                </div>
+            `;
+            saveBtn.disabled = true;
+        }
+
+        // Render Sample Rows Table
+        renderSampleRowsTable(data.sample_rows || [], selectedColumns);
+        resultsSection.scrollIntoView({ behavior: "smooth" });
+    } catch (err) {
+        alert("Query Preview Error: " + err.message);
+    } finally {
+        btn.disabled = false;
+        spinner.classList.add("hidden");
+    }
+}
+
+function renderSampleRowsTable(rows, columns) {
+    const thead = document.getElementById("dsSampleRowsHeader");
+    const tbody = document.getElementById("dsSampleRowsBody");
+    thead.innerHTML = "";
+    tbody.innerHTML = "";
+
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="p-3 text-gray-400 italic">No sample rows returned.</td></tr>`;
+        return;
+    }
+
+    const firstRow = rows[0];
+    const displayKeys = Object.keys(firstRow).filter(k => !k.includes(".") && k !== "md_content" && k !== "html_content").slice(0, 6);
+
+    let headHtml = "<tr>";
+    displayKeys.forEach(k => headHtml += `<th class="py-2 px-3">${escapeHtml(k)}</th>`);
+    headHtml += "</tr>";
+    thead.innerHTML = headHtml;
+
+    rows.forEach(r => {
+        let rowHtml = "<tr class='hover:bg-gray-100/60'>";
+        displayKeys.forEach(k => {
+            const val = r[k];
+            const strVal = (val === null || val === undefined) ? '-' : String(val).slice(0, 60);
+            rowHtml += `<td class="py-2 px-3 text-gray-700">${escapeHtml(strVal)}</td>`;
+        });
+        rowHtml += "</tr>";
+        tbody.innerHTML += rowHtml;
+    });
+}
+
+async function saveDatasetFromBuilder() {
+    if (!lastVerifiedPayload || lastVerifiedRowCount < 20) {
+        alert("You must first verify that your query matches at least 20 rows.");
+        return;
+    }
+
+    const name = document.getElementById("dsNameInput").value.trim();
+    if (!name) {
+        alert("Please enter a name for the evaluation dataset.");
+        return;
+    }
+    const description = document.getElementById("dsDescriptionInput").value.trim();
+
+    const payload = {
+        name: name,
+        description: description,
+        base_table: lastVerifiedPayload.base_table,
+        selected_columns: lastVerifiedPayload.selected_columns,
+        filters: lastVerifiedPayload.filters,
+        joins: lastVerifiedPayload.joins
+    };
+
+    try {
+        const resp = await fetch("/api/evals/datasets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        if (!resp.ok) {
+            let errText = resp.statusText;
+            try {
+                const text = await resp.text();
+                try {
+                    const json = JSON.parse(text);
+                    errText = json.detail || json.message || text;
+                } catch {
+                    errText = text.slice(0, 300);
+                }
+            } catch {}
+            throw new Error(errText);
+        }
+
+        const data = await resp.json();
+        alert("Dataset Saved: " + data.message);
+        window.location.reload();
+    } catch (err) {
+        alert("Save Dataset Error: " + err.message);
+    }
+}
+
+async function deleteEvalDataset(datasetId) {
+    if (!confirm(`Are you sure you want to delete dataset #${datasetId}?`)) return;
+    try {
+        const resp = await fetch(`/api/evals/datasets/${datasetId}`, { method: "DELETE" });
+        if (!resp.ok) throw new Error("Delete failed");
+        const row = document.getElementById(`dataset-row-${datasetId}`);
+        if (row) row.remove();
+    } catch (e) {
+        alert("Error: " + e.message);
+    }
+}
+
+function useDatasetInMode(targetMode, datasetId) {
+    if (targetMode === 'matrix') {
+        switchEvalTab('matrix');
+        setMatrixInputMode('dataset');
+        const sel = document.getElementById("matrixDatasetSelect");
+        if (sel) {
+            sel.value = datasetId;
+            onMatrixDatasetChange(datasetId);
+        }
+    } else if (targetMode === 'decision') {
+        switchEvalTab('decision');
+        setDecisionInputMode('dataset');
+        const sel = document.getElementById("decisionDatasetSelect");
+        if (sel) {
+            sel.value = datasetId;
+            onDecisionDatasetChange(datasetId);
+        }
+    }
 }
 
 function copyToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
         alert("Copied to clipboard!");
     }).catch(err => {
-        console.error("Clipboard copy failed: ", err);
+        console.error("Copy failed", err);
     });
 }
 </script>
