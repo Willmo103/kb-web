@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Injected `Strict-Transport-Security: max-age=31536000; includeSubDomains` and `Permissions-Policy: geolocation=(), camera=(), microphone=()`. Removed deprecated `X-XSS-Protection` header.
 
 ### Fixed
+- **Admin Portal Quick Diagnostics Dark Mode Panel (`src/kb_web/templates/admin.j2.html`)**:
+  - **Root Cause**: The Quick Diagnostics mini-card in `#tab-general` used unsupported Tailwind 3 arbitrary gradient classes (`bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-slate-800 dark:to-indigo-950`). Under the Tailwind 2.2.19 CDN, the dark-mode classes were unrecognized and the active linear gradient to `#eff6ff` persisted in dark mode, rendering light status text over a stark white box.
+  - **Fix**: Replaced gradient classes with standard theme-consistent admin card classes (`bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700`) and added a dedicated `.quick-diagnostics-panel` rule (`background-color: #111827 !important; border-color: #1e293b !important;`).
+- **Prompt Studio Monaco Editor Half-Screen Collapsed Sliver (`src/kb_web/templates/admin.j2.html`)**:
+  - **Root Cause**: Monaco editor container and preview column relied on arbitrary Tailwind JIT height classes (`min-h-[520px]`, `h-[500px]`), which were ignored by the Tailwind 2.2.19 CDN. Inside unconstrained flex parents, `#monacoPromptContainer` defaulted to `height: auto` and collapsed into a ~15px horizontal sliver when viewed in half-screen/responsive or editor-only mode.
+  - **Fix**: Added explicit CSS dimensions and inline fallback styles (`min-height: 480px; height: 500px;`) across `#studioSplitContainer`, `#promptEditorCol`, `#monacoPromptContainer`, and `#promptMarkdownPreview`. Added debounced `window.resize` listener and follow-up layout triggers in `initPromptMonaco()` and `setViewMode()` to guarantee responsive Monaco re-layout.
 - **Non-ASCII Credential Crash (`src/kb_web/base.py` & `config.py`) (Fixes #98, BUG-01)**:
   - **Root Cause**: `hmac.compare_digest` raises `TypeError` when comparing non-ASCII `str` instances, turning non-ASCII passwords or API keys into unhandled HTTP 500 errors.
   - **Fix**: Implemented `safe_compare_digest()` using UTF-8 byte encoding (`a.encode("utf-8")`) and safe None checks.
