@@ -1101,7 +1101,7 @@
                                     {{ agent.category }}
                                 </span>
                             </div>
-                            <span class="text-[11px] text-gray-500 mt-1 block">Last updated: {{ agent.updated_at.strftime('%Y-%m-%d %H:%M:%S') if agent.updated_at else 'Initial' }}</span>
+                            <span class="text-[11px] text-gray-500 mt-1 block">Last updated: {{ agent.updated_at[:19] if agent.updated_at else 'Initial' }}</span>
                         </div>
                         <div class="flex items-center gap-3">
                             <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700">
