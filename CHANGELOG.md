@@ -7,25 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.10] - 2026-10-18
 ### Added
-- **Model Evaluation Studio (`/evals`) & Calibration Suite (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`, & `templates/base.j2.html`)**:
-  - Added dedicated `/evals` portal with top-level navbar navigation for side-by-side comparative benchmarking.
-  - **Prompt & Model Matrix**: Tests models × prompt combinations across sample saved articles or custom markdown with latency and token-per-second metrics.
-  - **Decision Gating Studio**: Tests structured multi-question decision gating models (`d1` default with 16,384 context window and `tev1`) via native `client.systemone`, supporting discrete choices, probability scoring (`noul`), and preset question templates.
-  - **Embedding Retrieval Comparison**: Benchmarks embedding models against target search queries and candidate texts with cosine similarity scoring.
-- **Ollama Request Logs Catalog Exposure (`src/kb_web/routers/reports.py` & `templates/admin.j2.html`)**:
-  - Registered `ollama_logs` ORM table in `TABLE_METADATA` with heavy column placeholder support for `messages` and `response`.
-  - Added direct navigation button (`📊 Ollama Model Logs`) in the Admin Portal linking directly to `/reports?table=ollama_logs`.
-- **Transparent Decision Model Configuration (`src/kb_web/config.py`)**:
-  - Added `decision_model` property defaulting to `"d1"` (configurable via `KB_DECISION_MODEL`, persisted in `settings_ollama` and exported in JSON backups per Rule 7).
+- **Live SSE Streaming & Thinking Token Buffering for Model Evaluations (`src/kb_web/base.py`, `routers/evals.py`, `templates/evals.j2.html`)**:
+  - **Root Cause**: Running multi-model matrix evaluations across multiple prompts and dataset rows caused Cloudflare 524 gateway timeouts (100s idle timeout) on synchronous HTTP POST endpoints. Thinking tokens produced by reasoning models were also uncaptured.
+  - **Fix**: Added `stream=True` support to `LoggedOllamaClient.chat()`, dynamically buffering `chunk.message.content` and `chunk.message.thinking` while logging the complete thought trace and output into `ollama_logs`. Implemented Server-Sent Events (SSE) streaming endpoint `POST /api/evals/matrix/stream` that immediately returns `event: start` (<10ms) to reset proxy idle timers, streams tokens live into the UI, updates progress, and renders live collapsible reasoning trace accordions.
+- **Dynamic Model Context Discovery & Limit Uncapping (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`)**:
+  - **Root Cause**: FastAPI strictly capped `max_tokens` at 16,384, causing 422 validation errors when users tested larger context windows (e.g. 32k or 128k).
+  - **Fix**: Raised maximum token validation ceiling to 262,144 tokens. Added `get_model_context_info()` querying Ollama `/api/ps` (for active runtime `context_length`) and `/api/show` (for architecture parameter limits), exposing `GET /api/evals/models/info` and dynamically labeling model context capabilities in UI pills.
+- **Cloudflare Beacon CSP Whitelist & Humanized Error Alerts (`src/kb_web/server.py`, `templates/evals.j2.html`)**:
+  - Added `https://static.cloudflareinsights.com` and `https://cloudflareinsights.com` to Content-Security-Policy directives (`script-src` and `connect-src`).
+  - Added `formatApiError()` in `evals.j2.html` parsing FastAPI 422 validation errors into readable strings instead of `[object Object]` and translating HTML gateway timeouts.
+- **Multi-Row Evaluation Datasets & Query Builder (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`, & `models_orm.py`)**:
+  - Added dedicated Tab 4 (**Eval Datasets & Query Builder**) in the Model Evaluation Studio allowing users to construct datasets using report filters and table projections.
+  - Enforces strict minimum $\ge 20$ matching rows requirement before saving to guarantee evaluation statistical validity.
+  - Integrated Jinja2 row templating (`{{ data.<key> }}`) with live Row 0 client previews for Prompt Matrix, Decision Gating, and Embedding Retrieval.
+- **Granular Agent Configuration Engine & Admin Exposure (`src/kb_web/agent_config.py`, `models_orm.py`, `routers/admin.py`, & `templates/admin.j2.html`)**:
+  - Implemented persistent `agent_configurations` ORM table exposing all parameters for all 11 background and interactive agents (`model`, `call_type`, `system_prompt`, `user_prompt_template`, `thinking`, `temperature`, `num_predict`, `num_ctx`, `top_p`, `top_k`, `tools`, `enabled`).
+  - Added dedicated **Agent Configurations** tab in the Admin Portal with category filter pills and live save indicators.
+  - Spotlighted the **Maintenance & Error Diagnostics Agent** (`maintenance_agent`), giving administrators full visibility and control over automated log diagnosis.
+- **Ollama `d1` / `/v1/systemone` Decision Model Calling Overhaul (`src/kb_web/base.py` & `routers/evals.py`)**:
+  - **Root Cause**: `client.systemone()` previously threw `TypeError: Client.systemone() got an unexpected keyword argument 'options'` when chat generation options were passed to decision models.
+  - **Fix**: Sanitized `LoggedOllamaClient.systemone()` to strip `options` prior to calling Ollama, normalized question keys (`question` -> `instructions`, `choices` -> `criteria`, `probability` -> `noul`), and added structured deserialization for `noul`, `choice`, `score`, `confidence`, and `probabilities`.
+- **Frontend Safe Error Response Parsing (`templates/evals.j2.html`)**:
+  - **Root Cause**: Fetch calls in `executeMatrixEval()` and `executeDecisionEval()` ran `await resp.json()` unconditionally on error responses, raising unhandled SyntaxErrors (`Unexpected token '<', "<!DOCTYPE ... is not valid JSON"`) when HTML error pages were returned.
+  - **Fix**: Wrapped error extraction with `await resp.text()` and guarded `JSON.parse()`, displaying human-readable server error details.
 
 ### Fixed
 - **Raw Un-Truncated Report Data Downloads (`src/kb_web/routers/reports.py`)**:
   - **Root Cause**: `export_report_data()` reused UI grid placeholder formatting, causing CSV, XLSX, and JSON downloads to output string literals like `[Content: 77,805 chars]` instead of actual content.
   - **Fix**: Updated `export_report_data()` to set `fetch_heavy=True` and bypass placeholder truncation, streaming complete raw text content into exported files.
 
-### Removed
-- **Eliminated Placeholder Tag Taxonomy Agent (`src/kb_web/worker.py` & `templates/admin.j2.html`)**:
-  - Removed placeholder `tag_curation` job from the worker engine registry and dashboard, leaving only active jobs prior to worker refactoring.
+### Changed
+- **Server Jobs Framework Registration (`src/kb_web/worker.py`)**:
+  - Ensured `tag_curation` is registered alongside `wiki_curation`, `embedding_refresh`, `synthetic_qa`, `rag_eval`, and `link_crawler` in the default server jobs registry.
 
 ### Security & Hardening
 - **Rate-Limit Spoofing Defense & Trusted Reverse Proxies (`routers/auth.py`, `config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Fixes #93, SEC-01)**:

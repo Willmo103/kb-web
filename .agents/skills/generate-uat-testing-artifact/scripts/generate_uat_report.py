@@ -16,6 +16,7 @@ def main():
     )
     parser.add_argument("--task", default="ui_update", help="Task or feature name")
     parser.add_argument("--tester", default="Agent & User", help="Tester name")
+    parser.add_argument("--test-path", default="", help="Optional specific test file(s) or directories to run")
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[4]
@@ -44,6 +45,9 @@ def main():
             pytest_cmd = [str(venv_pytest)]
         else:
             pytest_cmd = ["pytest"]
+
+    if args.test_path:
+        pytest_cmd.extend(args.test_path.split())
 
     pytest_res = subprocess.run(
         pytest_cmd, capture_output=True, text=True, cwd=str(repo_root)
