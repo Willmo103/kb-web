@@ -101,11 +101,17 @@
                         <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
                             Select Models to Compare
                         </label>
-                        <div id="matrixModelsList" class="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-2 bg-gray-50 border border-gray-200 rounded-xl">
+                        <div id="matrixModelsList" class="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 bg-gray-50 border border-gray-200 rounded-xl">
                             {% for m in models %}
-                            <label class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium cursor-pointer border border-gray-200 bg-white hover:border-indigo-300 transition">
-                                <input type="checkbox" name="matrixModel" value="{{ m }}" {% if m == default_model or m == 'd1' %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500">
+                            {% set info = models_info.get(m, {}) if models_info else {} %}
+                            {% set ctx_val = info.context_length if info.context_length else 16384 %}
+                            {% set ctx_k = (ctx_val // 1024) if ctx_val >= 1024 else ctx_val %}
+                            <label class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer border border-gray-200 bg-white hover:border-indigo-300 transition" title="Context: {{ ctx_val }} tokens{% if info.loaded %} • Loaded in VRAM{% endif %}">
+                                <input type="checkbox" name="matrixModel" value="{{ m }}" data-ctx="{{ ctx_val }}" {% if m == default_model or m == 'd1' %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500" onchange="updateMaxTokensHint()">
                                 <span>{{ m }}</span>
+                                <span class="text-[10px] px-1.5 py-0.5 rounded font-mono {% if info.loaded %}bg-emerald-100 text-emerald-800 font-bold{% else %}bg-gray-100 text-gray-600{% endif %}">
+                                    {{ ctx_k }}k{% if info.loaded %} • VRAM{% endif %}
+                                </span>
                             </label>
                             {% endfor %}
                         </div>
@@ -127,14 +133,17 @@
                             >
                         </div>
                         <div>
-                            <label for="matrixMaxTokens" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
-                                Max Predict Tokens
-                            </label>
+                            <div class="flex items-center justify-between mb-1">
+                                <label for="matrixMaxTokens" class="block text-xs font-bold uppercase tracking-wider text-gray-600">
+                                    Max Tokens (Predict / Context)
+                                </label>
+                                <span id="matrixMaxTokensHint" class="text-[10px] text-indigo-600 font-mono font-medium">Model context: 32k</span>
+                            </div>
                             <input
                                 type="number"
                                 id="matrixMaxTokens"
                                 min="128"
-                                max="16384"
+                                max="262144"
                                 step="256"
                                 value="2048"
                                 class="w-full text-xs p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 font-mono"
@@ -289,6 +298,19 @@
                     <button type="button" onclick="toggleAllMatrixViews('raw')" class="px-2.5 py-1 rounded-md border border-gray-200 bg-white hover:bg-gray-50 font-medium text-gray-600">
                         Raw Text
                     </button>
+                </div>
+            </div>
+
+            <!-- Live Streaming Progress Bar -->
+            <div id="matrixProgressContainer" class="hidden bg-white p-4 rounded-xl border border-indigo-100 shadow-xs space-y-2">
+                <div class="flex items-center justify-between text-xs">
+                    <span id="matrixProgressLabel" class="font-bold text-indigo-900 flex items-center gap-1.5">
+                        <span class="animate-spin inline-block">⏳</span> Live Streaming Evaluation: 0 / 0 runs
+                    </span>
+                    <span id="matrixProgressPct" class="font-mono text-indigo-700 font-bold">0%</span>
+                </div>
+                <div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                    <div id="matrixProgressBar" class="bg-indigo-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
                 </div>
             </div>
 
@@ -765,6 +787,51 @@
 const TABLES_METADATA = {{ tables_metadata | tojson }};
 const SAVED_DATASETS = {{ saved_datasets | tojson }};
 const SYSTEM_PROMPTS = {{ prompts | tojson }};
+const MODELS_INFO = {{ models_info | tojson if models_info else '{}' }};
+
+function formatApiError(errData, fallbackText) {
+    if (!errData) return fallbackText || "Unknown error";
+    if (typeof errData === 'string') {
+        if (errData.includes("<!DOCTYPE") || errData.includes("<html")) {
+            const match = errData.match(/<title>([^<]+)<\/title>/i);
+            if (match) return `Gateway / Server Error: ${match[1].trim()}`;
+            if (errData.includes("524") || errData.includes("timeout")) {
+                return "Gateway Timeout (Error 524): The upstream proxy timed out. Live streaming evaluation is recommended.";
+            }
+            return "Server returned an unexpected HTML error page.";
+        }
+        return errData;
+    }
+    if (typeof errData.detail === 'string') return errData.detail;
+    if (Array.isArray(errData.detail)) {
+        return errData.detail.map(d => {
+            const loc = Array.isArray(d.loc) ? d.loc.filter(x => x !== 'body').join('.') : '';
+            return loc ? `${loc}: ${d.msg}` : d.msg;
+        }).join('\n');
+    }
+    if (errData.detail && typeof errData.detail === 'object') {
+        return JSON.stringify(errData.detail);
+    }
+    return errData.message || fallbackText || "Unknown error";
+}
+
+function updateMaxTokensHint() {
+    const checked = Array.from(document.querySelectorAll("input[name='matrixModel']:checked"));
+    const hintEl = document.getElementById("matrixMaxTokensHint");
+    const inputEl = document.getElementById("matrixMaxTokens");
+    if (!hintEl || !inputEl) return;
+
+    if (checked.length === 0) {
+        hintEl.innerText = "Model context: 16k";
+        inputEl.max = "131072";
+        return;
+    }
+
+    const maxCtx = Math.max(...checked.map(cb => parseInt(cb.getAttribute("data-ctx") || "16384", 10)));
+    const ctxK = Math.round(maxCtx / 1024);
+    hintEl.innerText = `Max model context: ${ctxK}k tokens (${maxCtx.toLocaleString()})`;
+    inputEl.max = maxCtx.toString();
+}
 
 let activePrompts = [
     {
@@ -1091,8 +1158,24 @@ async function executeMatrixEval() {
         payload.input_text = inputText;
     }
 
+    // Prepare Results Section and Progress Bar
+    const section = document.getElementById("matrixResultsSection");
+    const grid = document.getElementById("matrixResultsGrid");
+    const countEl = document.getElementById("resultsCount");
+    const progressContainer = document.getElementById("matrixProgressContainer");
+    const progressLabel = document.getElementById("matrixProgressLabel");
+    const progressPct = document.getElementById("matrixProgressPct");
+    const progressBar = document.getElementById("matrixProgressBar");
+
+    section.classList.remove("hidden");
+    if (progressContainer) progressContainer.classList.remove("hidden");
+    grid.innerHTML = "";
+    countEl.innerText = "0";
+
+    const cardMap = {}; // run_id -> { card, rawText, thinkingText, isDone }
+
     try {
-        const resp = await fetch("/api/evals/matrix/run", {
+        const resp = await fetch("/api/evals/matrix/stream", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -1104,16 +1187,197 @@ async function executeMatrixEval() {
                 const text = await resp.text();
                 try {
                     const json = JSON.parse(text);
-                    errText = json.detail || json.message || text;
+                    errText = formatApiError(json, text);
                 } catch {
-                    errText = text.slice(0, 300);
+                    errText = formatApiError(text, text.slice(0, 300));
                 }
             } catch {}
             throw new Error(errText);
         }
 
-        const data = await resp.json();
-        renderMatrixResults(data.results || [], data.is_dataset);
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+        let totalRunsExpected = 0;
+        let runsCompleted = 0;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const blocks = buffer.split("\n\n");
+            buffer = blocks.pop(); // keep trailing incomplete block
+
+            for (const block of blocks) {
+                if (!block.trim() || block.startsWith(":")) continue; // heartbeat comment
+
+                let eventType = "message";
+                let dataStr = "";
+                for (const line of block.split("\n")) {
+                    if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+                    else if (line.startsWith("data: ")) dataStr = line.slice(6).trim();
+                }
+
+                if (!dataStr) continue;
+                let data;
+                try {
+                    data = JSON.parse(dataStr);
+                } catch (pe) {
+                    console.warn("SSE JSON parse error:", pe, dataStr);
+                    continue;
+                }
+
+                if (eventType === "start") {
+                    totalRunsExpected = data.total_runs || 0;
+                    if (progressLabel) progressLabel.innerText = `Live Streaming: 0 / ${totalRunsExpected} runs`;
+                    if (progressBar) progressBar.style.width = "0%";
+                    if (progressPct) progressPct.innerText = "0%";
+                } else if (eventType === "run_start") {
+                    const runId = data.run_id;
+                    const card = document.createElement("div");
+                    card.id = `card_${runId}`;
+                    card.className = "bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col transition-all duration-200";
+
+                    card.innerHTML = `
+                        <div class="p-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold text-xs text-gray-900">${escapeHtml(data.model)}</span>
+                                    ${data.row_idx ? `<span class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-bold">Row #${data.row_idx}</span>` : ''}
+                                </div>
+                                <span class="text-[11px] text-gray-500 block truncate">${escapeHtml(data.prompt_name)} ${data.row_summary ? '• ' + escapeHtml(data.row_summary) : ''}</span>
+                            </div>
+                            <div id="badge_${runId}" class="flex items-center gap-1.5 font-mono text-[11px]">
+                                <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 animate-pulse font-semibold">
+                                    Generating...
+                                </span>
+                            </div>
+                        </div>
+                        <div class="p-4 flex-1 space-y-2">
+                            <!-- Live Reasoning / Thinking Accordion -->
+                            <details id="details_thinking_${runId}" class="hidden bg-purple-50/70 border border-purple-200 rounded-xl p-2.5 transition">
+                                <summary class="text-[11px] font-bold text-purple-800 cursor-pointer flex items-center gap-1.5 select-none">
+                                    <span>💭</span> Reasoning Trace / Thinking (Live)
+                                </summary>
+                                <pre id="thinking_${runId}" class="text-[11px] font-mono text-purple-950 mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap leading-tight bg-white p-2 rounded-lg border border-purple-100"></pre>
+                            </details>
+
+                            <!-- Content Output -->
+                            <div id="matrixFormatted_${runId}" class="prose prose-sm max-w-none text-xs text-gray-800 leading-relaxed max-h-96 overflow-y-auto whitespace-pre-wrap font-sans">
+                                <span class="text-gray-400 italic text-xs animate-pulse">Initializing model output...</span>
+                            </div>
+                            <pre id="matrixRaw_${runId}" class="hidden p-3 bg-gray-900 text-gray-100 rounded-lg text-[11px] font-mono max-h-96 overflow-y-auto whitespace-pre-wrap"></pre>
+                        </div>
+                        <div class="p-2.5 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                            <button type="button" onclick="toggleCellView('${runId}')" class="text-indigo-600 hover:text-indigo-800 font-semibold">
+                                Toggle Raw/Rendered
+                            </button>
+                            <button type="button" id="copyBtn_${runId}" class="hover:text-gray-700">
+                                📋 Copy Output
+                            </button>
+                        </div>
+                    `;
+
+                    grid.appendChild(card);
+                    cardMap[runId] = { card: card, rawText: "", thinkingText: "", isDone: false };
+
+                    if (data.run_idx === 1) card.scrollIntoView({ behavior: "smooth" });
+
+                } else if (eventType === "token") {
+                    const entry = cardMap[data.run_id];
+                    if (!entry) continue;
+
+                    // Stream thinking token
+                    if (data.thinking) {
+                        const details = document.getElementById(`details_thinking_${data.run_id}`);
+                        const thinkingBox = document.getElementById(`thinking_${data.run_id}`);
+                        if (details && thinkingBox) {
+                            if (details.classList.contains("hidden")) {
+                                details.classList.remove("hidden");
+                                details.open = true;
+                            }
+                            thinkingBox.innerText += data.thinking;
+                            thinkingBox.scrollTop = thinkingBox.scrollHeight;
+                        }
+                    }
+
+                    // Stream content token
+                    if (data.delta) {
+                        const formattedBox = document.getElementById(`matrixFormatted_${data.run_id}`);
+                        const rawBox = document.getElementById(`matrixRaw_${data.run_id}`);
+                        if (formattedBox) {
+                            if (!entry.rawText) formattedBox.innerHTML = "";
+                            entry.rawText += data.delta;
+                            formattedBox.innerText = entry.rawText;
+                            formattedBox.scrollTop = formattedBox.scrollHeight;
+                        }
+                        if (rawBox) rawBox.innerText = entry.rawText;
+                    }
+
+                } else if (eventType === "item") {
+                    runsCompleted++;
+                    countEl.innerText = runsCompleted;
+
+                    const runId = data.run_id;
+                    const entry = cardMap[runId];
+                    const isError = data.status === "error";
+
+                    // Update Badge
+                    const badge = document.getElementById(`badge_${runId}`);
+                    if (badge) {
+                        badge.innerHTML = `
+                            <span class="px-2 py-0.5 rounded-full ${isError ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'}">
+                                ${data.latency_ms.toLocaleString()} ms
+                            </span>
+                            ${data.tokens_per_sec ? `<span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">${data.tokens_per_sec} tok/s</span>` : ''}
+                        `;
+                    }
+
+                    // Render Markdown & Thinking
+                    const formattedBox = document.getElementById(`matrixFormatted_${runId}`);
+                    const rawBox = document.getElementById(`matrixRaw_${runId}`);
+                    const copyBtn = document.getElementById(`copyBtn_${runId}`);
+
+                    const finalResponse = data.response || (entry ? entry.rawText : "");
+                    if (formattedBox) {
+                        if (isError) {
+                            formattedBox.innerHTML = `<div class="p-3 bg-red-50 text-red-700 rounded-lg">${escapeHtml(finalResponse)}</div>`;
+                        } else {
+                            formattedBox.innerHTML = marked.parse(finalResponse || '');
+                        }
+                    }
+                    if (rawBox) rawBox.innerText = finalResponse;
+                    if (copyBtn) {
+                        copyBtn.onclick = () => copyToClipboard(finalResponse);
+                    }
+
+                    // If thinking exists, keep accordion
+                    if (data.thinking) {
+                        const details = document.getElementById(`details_thinking_${runId}`);
+                        const thinkingBox = document.getElementById(`thinking_${runId}`);
+                        if (details && thinkingBox) {
+                            details.classList.remove("hidden");
+                            thinkingBox.innerText = data.thinking;
+                        }
+                    }
+
+                    // Update progress bar
+                    if (totalRunsExpected > 0) {
+                        const pct = Math.round((runsCompleted / totalRunsExpected) * 100);
+                        if (progressBar) progressBar.style.width = `${pct}%`;
+                        if (progressPct) progressPct.innerText = `${pct}%`;
+                        if (progressLabel) progressLabel.innerText = `Live Streaming: ${runsCompleted} / ${totalRunsExpected} runs`;
+                    }
+
+                } else if (eventType === "done") {
+                    if (progressLabel) progressLabel.innerHTML = `<span class="text-emerald-700 font-bold">✅ Evaluation Finished: all ${runsCompleted} runs completed</span>`;
+                    if (progressBar) progressBar.style.width = "100%";
+                    if (progressPct) progressPct.innerText = "100%";
+                }
+            }
+        }
+
     } catch (err) {
         alert("Evaluation Error: " + err.message);
     } finally {
@@ -1122,59 +1386,9 @@ async function executeMatrixEval() {
     }
 }
 
-function renderMatrixResults(results, isDataset) {
-    const section = document.getElementById("matrixResultsSection");
-    const grid = document.getElementById("matrixResultsGrid");
-    const countEl = document.getElementById("resultsCount");
-    countEl.innerText = results.length;
-    grid.innerHTML = "";
-
-    results.forEach((r, idx) => {
-        const card = document.createElement("div");
-        card.className = "bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col";
-        const isError = r.status === "error";
-
-        card.innerHTML = `
-            <div class="p-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                    <div class="flex items-center gap-2">
-                        <span class="font-bold text-xs text-gray-900">${escapeHtml(r.model)}</span>
-                        ${r.row_idx ? `<span class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-bold">Row #${r.row_idx}</span>` : ''}
-                    </div>
-                    <span class="text-[11px] text-gray-500 block truncate">${escapeHtml(r.prompt_name)} ${r.row_summary ? '• ' + escapeHtml(r.row_summary) : ''}</span>
-                </div>
-                <div class="flex items-center gap-1.5 font-mono text-[11px]">
-                    <span class="px-2 py-0.5 rounded-full ${isError ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'}">
-                        ${r.latency_ms.toLocaleString()} ms
-                    </span>
-                    ${r.tokens_per_sec ? `<span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">${r.tokens_per_sec} tok/s</span>` : ''}
-                </div>
-            </div>
-            <div class="p-4 flex-1">
-                <div id="matrixFormatted_${idx}" class="prose prose-sm max-w-none text-xs text-gray-800 leading-relaxed max-h-96 overflow-y-auto">
-                    ${isError ? `<div class="p-3 bg-red-50 text-red-700 rounded-lg">${escapeHtml(r.response)}</div>` : marked.parse(r.response || '')}
-                </div>
-                <pre id="matrixRaw_${idx}" class="hidden p-3 bg-gray-900 text-gray-100 rounded-lg text-[11px] font-mono max-h-96 overflow-y-auto whitespace-pre-wrap">${escapeHtml(r.response)}</pre>
-            </div>
-            <div class="p-2.5 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
-                <button type="button" onclick="toggleCellView(${idx})" class="text-indigo-600 hover:text-indigo-800 font-semibold">
-                    Toggle Raw/Rendered
-                </button>
-                <button type="button" onclick="copyToClipboard('${escapeAttr(r.response)}')" class="hover:text-gray-700">
-                    📋 Copy Output
-                </button>
-            </div>
-        `;
-        grid.appendChild(card);
-    });
-
-    section.classList.remove("hidden");
-    section.scrollIntoView({ behavior: "smooth" });
-}
-
-function toggleCellView(idx) {
-    const formatted = document.getElementById(`matrixFormatted_${idx}`);
-    const raw = document.getElementById(`matrixRaw_${idx}`);
+function toggleCellView(id) {
+    const formatted = document.getElementById(`matrixFormatted_${id}`);
+    const raw = document.getElementById(`matrixRaw_${id}`);
     if (formatted && raw) {
         formatted.classList.toggle("hidden");
         raw.classList.toggle("hidden");
@@ -1299,9 +1513,9 @@ async function executeDecisionEval() {
                 const text = await resp.text();
                 try {
                     const json = JSON.parse(text);
-                    errText = json.detail || json.message || text;
+                    errText = formatApiError(json, text);
                 } catch {
-                    errText = text.slice(0, 300);
+                    errText = formatApiError(text, text.slice(0, 300));
                 }
             } catch {}
             throw new Error(errText);
@@ -1525,9 +1739,9 @@ async function executeEmbeddingEval() {
                 const text = await resp.text();
                 try {
                     const json = JSON.parse(text);
-                    errText = json.detail || json.message || text;
+                    errText = formatApiError(json, text);
                 } catch {
-                    errText = text.slice(0, 300);
+                    errText = formatApiError(text, text.slice(0, 300));
                 }
             } catch {}
             throw new Error(errText);
@@ -1705,9 +1919,9 @@ async function previewDatasetQuery() {
                 const text = await resp.text();
                 try {
                     const json = JSON.parse(text);
-                    errText = json.detail || json.message || text;
+                    errText = formatApiError(json, text);
                 } catch {
-                    errText = text.slice(0, 300);
+                    errText = formatApiError(text, text.slice(0, 300));
                 }
             } catch {}
             throw new Error(errText);
@@ -1816,9 +2030,9 @@ async function saveDatasetFromBuilder() {
                 const text = await resp.text();
                 try {
                     const json = JSON.parse(text);
-                    errText = json.detail || json.message || text;
+                    errText = formatApiError(json, text);
                 } catch {
-                    errText = text.slice(0, 300);
+                    errText = formatApiError(text, text.slice(0, 300));
                 }
             } catch {}
             throw new Error(errText);
@@ -1871,5 +2085,9 @@ function copyToClipboard(text) {
         console.error("Copy failed", err);
     });
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+    updateMaxTokensHint();
+});
 </script>
 {% endblock %}

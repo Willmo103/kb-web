@@ -138,10 +138,11 @@ def test_evals_embedding_run_mock(auth_client):
         assert res["candidates"][0]["similarity"] == 0.8
 
 
-def test_worker_tag_curation_removed():
-    """Verify that tag_curation (Tag Taxonomy Agent) placeholder was eliminated from worker registry."""
+def test_worker_default_jobs_registered():
+    """Verify that core jobs (wiki_curation, tag_curation, embedding_refresh) are registered in worker."""
     job_ids = [j["id"] for j in autonomous_worker.get_jobs()]
-    assert "tag_curation" not in job_ids
+    assert "wiki_curation" in job_ids
+    assert "tag_curation" in job_ids
     assert "embedding_refresh" in job_ids
 
 

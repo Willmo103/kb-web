@@ -247,9 +247,58 @@ class LoggedOllamaClient:
         model = kwargs.get("model", "")
         options = {k: v for k, v in kwargs.items() if k not in ("model", "messages")}
 
+        is_stream = bool(kwargs.get("stream"))
+
         start_time = time.time()
         try:
             resp = self._client.chat(*args, **kwargs)
+
+            if is_stream:
+                def _stream_generator():
+                    accumulated_content = []
+                    accumulated_thinking = []
+                    try:
+                        for chunk in resp:
+                            msg = getattr(chunk, "message", None) or (chunk.get("message") if isinstance(chunk, dict) else None)
+                            if msg:
+                                c = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else "")
+                                if c:
+                                    accumulated_content.append(c)
+                                th = getattr(msg, "thinking", None) or (msg.get("thinking") if isinstance(msg, dict) else "")
+                                if th:
+                                    accumulated_thinking.append(th)
+                            yield chunk
+
+                        duration = time.time() - start_time
+                        full_resp = "".join(accumulated_content)
+                        full_thinking = "".join(accumulated_thinking)
+                        log_text = full_resp
+                        if full_thinking:
+                            log_text = f"<think>\n{full_thinking}\n</think>\n\n{full_resp}"
+                        self._log_call(
+                            prompt_type=prompt_type,
+                            model=model,
+                            messages=messages,
+                            options=options,
+                            response=log_text,
+                            duration=duration,
+                            status="success",
+                        )
+                    except Exception as stream_err:
+                        duration = time.time() - start_time
+                        self._log_call(
+                            prompt_type=prompt_type,
+                            model=model,
+                            messages=messages,
+                            options=options,
+                            response=f"Stream Error: {stream_err}\n{traceback.format_exc()}",
+                            duration=duration,
+                            status="failed",
+                        )
+                        raise stream_err
+
+                return _stream_generator()
+
             duration = time.time() - start_time
 
             # Retrieve content response safely

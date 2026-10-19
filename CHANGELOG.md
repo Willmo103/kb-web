@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.10] - 2026-10-18
 ### Added
+- **Live SSE Streaming & Thinking Token Buffering for Model Evaluations (`src/kb_web/base.py`, `routers/evals.py`, `templates/evals.j2.html`)**:
+  - **Root Cause**: Running multi-model matrix evaluations across multiple prompts and dataset rows caused Cloudflare 524 gateway timeouts (100s idle timeout) on synchronous HTTP POST endpoints. Thinking tokens produced by reasoning models were also uncaptured.
+  - **Fix**: Added `stream=True` support to `LoggedOllamaClient.chat()`, dynamically buffering `chunk.message.content` and `chunk.message.thinking` while logging the complete thought trace and output into `ollama_logs`. Implemented Server-Sent Events (SSE) streaming endpoint `POST /api/evals/matrix/stream` that immediately returns `event: start` (<10ms) to reset proxy idle timers, streams tokens live into the UI, updates progress, and renders live collapsible reasoning trace accordions.
+- **Dynamic Model Context Discovery & Limit Uncapping (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`)**:
+  - **Root Cause**: FastAPI strictly capped `max_tokens` at 16,384, causing 422 validation errors when users tested larger context windows (e.g. 32k or 128k).
+  - **Fix**: Raised maximum token validation ceiling to 262,144 tokens. Added `get_model_context_info()` querying Ollama `/api/ps` (for active runtime `context_length`) and `/api/show` (for architecture parameter limits), exposing `GET /api/evals/models/info` and dynamically labeling model context capabilities in UI pills.
+- **Cloudflare Beacon CSP Whitelist & Humanized Error Alerts (`src/kb_web/server.py`, `templates/evals.j2.html`)**:
+  - Added `https://static.cloudflareinsights.com` and `https://cloudflareinsights.com` to Content-Security-Policy directives (`script-src` and `connect-src`).
+  - Added `formatApiError()` in `evals.j2.html` parsing FastAPI 422 validation errors into readable strings instead of `[object Object]` and translating HTML gateway timeouts.
 - **Multi-Row Evaluation Datasets & Query Builder (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`, & `models_orm.py`)**:
   - Added dedicated Tab 4 (**Eval Datasets & Query Builder**) in the Model Evaluation Studio allowing users to construct datasets using report filters and table projections.
   - Enforces strict minimum $\ge 20$ matching rows requirement before saving to guarantee evaluation statistical validity.
