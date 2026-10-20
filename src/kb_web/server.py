@@ -6,6 +6,7 @@ import os
 import logging
 import traceback
 from contextlib import asynccontextmanager
+from pathlib import Path
 from urllib.parse import quote_plus
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse, Response
@@ -173,8 +174,8 @@ async def log_request_middleware(request: Request, call_next):
 async def security_and_auth_middleware(request: Request, call_next):
     path = request.url.path
 
-    # 1. Allow public metadata and login/logout paths
-    if path in PUBLIC_EXACT_PATHS:
+    # 1. Allow public metadata, login/logout, and static assets
+    if path in PUBLIC_EXACT_PATHS or path.startswith("/static/"):
         response = await call_next(request)
         _inject_security_headers(response)
         return response
@@ -308,6 +309,11 @@ media_dir = config.configs_dir.parent / "media"
 media_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(media_dir)), name="media")
 
+# Serve static assets (e.g. jinja_highlighter.js)
+static_dir = Path(__file__).resolve().parent / "static"
+static_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
 
 # Import and register routers
 from .routers import (  # noqa: E402
@@ -333,6 +339,7 @@ from .routers import (  # noqa: E402
     errors,
     worker,
     evals,
+    agent_pages,
 )
 
 app.include_router(auth.router)
@@ -357,6 +364,7 @@ app.include_router(agent_board.router)
 app.include_router(errors.router)
 app.include_router(worker.router)
 app.include_router(evals.router)
+app.include_router(agent_pages.router)
 
 
 # --- Re-export utility functions for backward test compatibility ---

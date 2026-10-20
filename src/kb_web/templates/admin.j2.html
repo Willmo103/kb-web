@@ -1054,20 +1054,26 @@
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-gray-100">
                 <div>
                     <h3 class="text-xl font-extrabold text-gray-900 flex items-center gap-2.5">
-                        <span class="text-2xl">🧠</span> Agent Configurations &amp; Ollama Parameter Profiles
+                        <span class="text-2xl">🧠</span> Worker Agent Configurations &amp; Model Profiles
                     </h3>
                     <p class="text-xs text-gray-500 mt-1">
                         Granular configuration for all autonomous background jobs, decision gating, maintenance bots, and chat agents. Configure assigned models, sampling parameters, system personas, and tool permissions.
                     </p>
                 </div>
-                <!-- Filter Pills -->
-                <div class="flex flex-wrap items-center gap-2">
-                    <button type="button" onclick="filterAgentCards('all')" class="agent-filter-btn active px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white">All ({{ agent_configs | length }})</button>
-                    <button type="button" onclick="filterAgentCards('System Maintenance')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">System Maintenance</button>
-                    <button type="button" onclick="filterAgentCards('Autonomous Curation')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Autonomous Curation</button>
-                    <button type="button" onclick="filterAgentCards('Decision Gating')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Decision Gating</button>
-                    <button type="button" onclick="filterAgentCards('Interactive Chat')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Interactive Chat</button>
-                    <button type="button" onclick="filterAgentCards('Code & Execution')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Code &amp; Execution</button>
+                <div class="flex items-center gap-2.5 flex-wrap">
+                    <!-- Filter Pills -->
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" onclick="filterAgentCards('all')" class="agent-filter-btn active px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white">All ({{ agent_configs | length }})</button>
+                        <button type="button" onclick="filterAgentCards('System Maintenance')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">System Maintenance</button>
+                        <button type="button" onclick="filterAgentCards('Autonomous Curation')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Autonomous Curation</button>
+                        <button type="button" onclick="filterAgentCards('Decision Gating')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Decision Gating</button>
+                        <button type="button" onclick="filterAgentCards('Interactive Chat')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Interactive Chat</button>
+                        <button type="button" onclick="filterAgentCards('Code & Execution')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Code &amp; Execution</button>
+                    </div>
+                    <!-- Create New Agent Button -->
+                    <button type="button" onclick="openCreateAgentModal()" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition flex items-center gap-1.5">
+                        <span>➕</span> Create Worker Agent
+                    </button>
                 </div>
             </div>
 
@@ -1085,98 +1091,268 @@
                 </div>
             </div>
 
-            <!-- Agents Grid -->
-            <div class="mt-6 space-y-6" id="agentConfigsList">
-                {% for agent in agent_configs %}
-                <div class="agent-card bg-gray-50/70 border border-gray-200 rounded-2xl p-5 shadow-xs transition hover:border-gray-300" id="agent-card-{{ agent.id }}" data-category="{{ agent.category }}">
-                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-gray-200">
-                        <div>
-                            <div class="flex items-center gap-2 flex-wrap">
-                                <h4 class="text-sm font-extrabold text-gray-900">{{ agent.name }}</h4>
-                                <code class="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-200 text-gray-800">{{ agent.id }}</code>
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider {% if agent.call_type == 'decision' %}bg-amber-100 text-amber-800 border border-amber-200{% elif agent.call_type == 'embedding' %}bg-purple-100 text-purple-800 border border-purple-200{% elif agent.call_type == 'coding' %}bg-blue-100 text-blue-800 border border-blue-200{% else %}bg-indigo-100 text-indigo-800 border border-indigo-200{% endif %}">
-                                    {{ agent.call_type }}
-                                </span>
-                                <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
-                                    {{ agent.category }}
-                                </span>
-                            </div>
-                            <span class="text-[11px] text-gray-500 mt-1 block">Last updated: {{ agent.updated_at[:19] if agent.updated_at else 'Initial' }}</span>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700">
-                                <input type="checkbox" data-field="enabled" {% if agent.enabled %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
-                                <span>Active</span>
-                            </label>
-                            <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700">
-                                <input type="checkbox" data-field="thinking" {% if agent.thinking %}checked{% endif %} class="rounded text-amber-600 focus:ring-amber-500 h-4 w-4">
-                                <span>Thinking</span>
-                            </label>
-                            <button type="button" onclick="saveAgentConfig('{{ agent.id }}')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition flex items-center gap-1.5">
-                                <span>💾</span> Save
-                            </button>
-                            <span id="agent-status-{{ agent.id }}" class="text-xs"></span>
-                        </div>
+            <!-- ===============================================================
+                 SECTION 1: SYSTEMONE DECISION GATING MODELS
+                 =============================================================== -->
+            <div class="mt-8 space-y-4">
+                <div class="p-4 rounded-2xl border border-amber-300 bg-amber-50/70">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                        <h4 class="text-sm font-extrabold text-amber-950 flex items-center gap-2">
+                            <span class="text-lg">⚖️</span> SystemOne Decision Gating Models &amp; Classifiers
+                        </h4>
+                        <span class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-amber-200 text-amber-900 border border-amber-300">
+                            ollama.systemone architecture
+                        </span>
                     </div>
-
-                    <!-- Parameters Grid -->
-                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
-                        <div class="col-span-2 sm:col-span-1">
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Model</label>
-                            <input type="text" data-field="model" value="{{ agent.model }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Temperature</label>
-                            <input type="number" step="0.05" min="0" max="2" data-field="temperature" value="{{ agent.temperature or 0.2 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Num Predict</label>
-                            <input type="number" step="128" min="64" max="16384" data-field="num_predict" value="{{ agent.num_predict or 2048 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Num Context</label>
-                            <input type="number" step="1024" min="1024" max="65536" data-field="num_ctx" value="{{ agent.num_ctx or 8192 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Top P</label>
-                            <input type="number" step="0.05" min="0.1" max="1.0" data-field="top_p" value="{{ agent.top_p or 0.9 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Top K</label>
-                            <input type="number" step="5" min="1" max="100" data-field="top_k" value="{{ agent.top_k or 40 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
-                        </div>
-                    </div>
-
-                    <!-- Prompts Editors -->
-                    {% if agent.call_type != 'embedding' %}
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-                        <div>
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-600 mb-1">
-                                System Prompt / Persona Directive
-                            </label>
-                            <textarea rows="6" data-field="system_prompt" class="w-full text-xs font-mono p-3 border border-gray-300 rounded-xl bg-white shadow-inner focus:ring-indigo-500 focus:border-indigo-500">{{ agent.system_prompt or '' }}</textarea>
-                        </div>
-                        <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <label class="text-[10px] font-bold uppercase tracking-wider text-gray-600">
-                                    User Prompt Template (Jinja2)
-                                </label>
-                                <span class="text-[10px] text-gray-400 font-mono">Variables: &#123;&#123; data.title &#125;&#125;, &#123;&#123; data.wiki &#125;&#125;, etc.</span>
-                            </div>
-                            <textarea rows="6" data-field="user_prompt_template" class="w-full text-xs font-mono p-3 border border-gray-300 rounded-xl bg-white shadow-inner focus:ring-indigo-500 focus:border-indigo-500">{{ agent.user_prompt_template or '' }}</textarea>
-                        </div>
-                    </div>
-                    {% endif %}
-
-                    <!-- Tools Configuration -->
-                    <div class="mt-4 pt-3 border-t border-gray-200">
-                        <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
-                            Allowed Tool Primitives (comma-separated)
-                        </label>
-                        <input type="text" data-field="tools" value="{{ (agent.tools or []) | join(', ') }}" placeholder="fetch_page, get_system_logs, execute_sql, search_vectors, run_python, notify_gotify" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
-                    </div>
+                    <p class="text-xs text-amber-900/80 mt-1">
+                        <strong>Architecture Guarantee:</strong> SystemOne models (<span class="font-mono font-bold">d1</span>, <span class="font-mono font-bold">tev1</span>) evaluate an arbitrary input state against structured criteria questions in a single calibrated forward pass without generating output tokens. <strong>SystemOne models DO NOT get tools, system messages, thinking mode, or sampling randomness (temperature, top_p, top_k, num_predict).</strong>
+                    </p>
                 </div>
-                {% endfor %}
+
+                <div class="space-y-5" id="decisionAgentsList">
+                    {% for agent in agent_configs if agent.call_type == 'decision' %}
+                    <div class="agent-card bg-amber-50/30 border border-amber-200 rounded-2xl p-5 shadow-xs transition hover:border-amber-300" id="agent-card-{{ agent.id }}" data-category="{{ agent.category }}">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-amber-200/70">
+                            <div>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <h4 class="text-sm font-extrabold text-gray-900">{{ agent.name }}</h4>
+                                    <code class="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-200 text-gray-800">{{ agent.id }}</code>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
+                                        SystemOne Decision
+                                    </span>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+                                        {{ agent.category }}
+                                    </span>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                        v{{ agent.version or 1 }}
+                                    </span>
+                                    {% if agent.is_published %}
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1" title="Published {{ agent.published_at }}">
+                                        <span>🔒</span> Frozen Snapshot
+                                    </span>
+                                    {% else %}
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                                        <span>📝</span> Draft (Staged Changes)
+                                    </span>
+                                    {% endif %}
+                                </div>
+                                <span class="text-[11px] text-gray-500 mt-1 block">Last updated: {{ agent.updated_at[:19] if agent.updated_at else 'Initial' }}</span>
+                            </div>
+                            <div class="flex items-center gap-2.5 flex-wrap">
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer text-xs font-bold text-gray-700">
+                                    <input type="checkbox" data-field="enabled" {% if agent.enabled %}checked{% endif %} class="rounded text-amber-600 focus:ring-amber-500 h-4 w-4">
+                                    <span>Active</span>
+                                </label>
+                                <button type="button" onclick="testRunAgent('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 shadow-xs transition flex items-center gap-1">
+                                    <span>🧪</span> Test Run
+                                </button>
+                                <button type="button" onclick="saveAgentConfig('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition flex items-center gap-1">
+                                    <span>💾</span> Save Draft
+                                </button>
+                                <button type="button" onclick="publishAgentConfig('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition flex items-center gap-1">
+                                    <span>🚀</span> Publish Snapshot
+                                </button>
+                                {% if agent.id not in ['link_crawler'] %}
+                                <button type="button" onclick="deleteAgentConfig('{{ agent.id }}')" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 transition" title="Delete custom agent">
+                                    <span>🗑️</span>
+                                </button>
+                                {% endif %}
+                                <span id="agent-status-{{ agent.id }}" class="text-xs"></span>
+                            </div>
+                        </div>
+
+                        <!-- SystemOne Parameters (Strictly context window and model only) -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-amber-900 mb-1" title="The specific SystemOne decision model identifier.">Decision Model</label>
+                                <input type="text" data-field="model" value="{{ agent.model }}" title="The specific SystemOne decision model identifier." class="w-full text-xs font-mono p-2 border border-amber-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-amber-900 mb-1 cursor-help flex items-center gap-1" title="Context window size in tokens for state payload ingestion.">
+                                    <span>Context Window (num_ctx)</span>
+                                    <span class="text-amber-500 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="1024" min="1024" max="65536" data-field="num_ctx" value="{{ agent.num_ctx or 16384 }}" title="Context window size in tokens for state payload ingestion." class="w-full text-xs font-mono p-2 border border-amber-300 rounded-lg bg-white">
+                            </div>
+                        </div>
+
+                        <!-- State Context Jinja Template -->
+                        <div class="mt-4">
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-[10px] font-bold uppercase tracking-wider text-amber-900">
+                                    State Context Jinja2 Template (Evaluated into State Payload)
+                                </label>
+                                <span class="text-[10px] text-gray-400 font-mono">Variables: &#123;&#123; data.title &#125;&#125;, &#123;&#123; data.url &#125;&#125;, etc.</span>
+                            </div>
+                            <textarea rows="5" data-field="user_prompt_template" id="agent-template-{{ agent.id }}" data-available-fields="{{ (agent.available_fields or []) | tojson }}" class="agent-jinja-template w-full text-xs font-mono p-3 border border-amber-300 rounded-xl bg-white shadow-inner focus:ring-amber-500 focus:border-amber-500">{{ agent.user_prompt_template or '' }}</textarea>
+                        </div>
+
+                        <!-- Questions & Criteria Schema -->
+                        <div class="mt-4 pt-3 border-t border-amber-200">
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-[10px] font-bold uppercase tracking-wider text-amber-900 flex items-center gap-1.5" title="Structured questions, instructions, and criteria sent to client.systemone() during forward pass.">
+                                    <span>⚖️ Decision Questions &amp; Evaluation Criteria Schema (JSON)</span>
+                                    <span class="text-xs font-normal text-amber-600">ⓘ</span>
+                                </label>
+                                <span class="text-[10px] text-gray-400 font-mono">Schema: {"questions": {"&lt;id&gt;": {"type": "score|choice|noul", "instructions": "...", "criteria": {...}}}}</span>
+                            </div>
+                            <textarea rows="6" data-field="extra_options" class="w-full text-xs font-mono p-3 border border-amber-300 rounded-xl bg-white focus:ring-amber-500 focus:border-amber-500 shadow-inner" placeholder='{"questions": { ... }}'>{{ (agent.extra_options | tojson(indent=2)) if agent.extra_options else '{}' }}</textarea>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- ===============================================================
+                 SECTION 2: GENERATIVE LLM & CODING WORKER AGENTS
+                 =============================================================== -->
+            <div class="mt-10 pt-8 border-t border-gray-200 space-y-4">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div>
+                        <h4 class="text-sm font-extrabold text-gray-900 flex items-center gap-2">
+                            <span class="text-lg">🤖</span> Generative LLM &amp; Coding Worker Agents
+                        </h4>
+                        <p class="text-xs text-gray-500 mt-0.5">
+                            Autonomous curation, tagging, interactive chat, code synthesis, and error diagnosis agents using standard Ollama completion/chat models with configurable sampling, tool primitives, and persona directives.
+                        </p>
+                    </div>
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-indigo-100 text-indigo-900 border border-indigo-200">
+                        Ollama Chat Architecture
+                    </span>
+                </div>
+
+                <div class="space-y-6" id="llmAgentsList">
+                    {% for agent in agent_configs if agent.call_type != 'decision' %}
+                    <div class="agent-card bg-gray-50/70 border border-gray-200 rounded-2xl p-5 shadow-xs transition hover:border-gray-300" id="agent-card-{{ agent.id }}" data-category="{{ agent.category }}">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-gray-200">
+                            <div>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <h4 class="text-sm font-extrabold text-gray-900">{{ agent.name }}</h4>
+                                    <code class="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-200 text-gray-800">{{ agent.id }}</code>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider {% if agent.call_type == 'embedding' %}bg-purple-100 text-purple-800 border border-purple-200{% elif agent.call_type == 'coding' %}bg-blue-100 text-blue-800 border border-blue-200{% else %}bg-indigo-100 text-indigo-800 border border-indigo-200{% endif %}">
+                                        {{ agent.call_type }}
+                                    </span>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+                                        {{ agent.category }}
+                                    </span>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                        v{{ agent.version or 1 }}
+                                    </span>
+                                    {% if agent.is_published %}
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1" title="Published {{ agent.published_at }}">
+                                        <span>🔒</span> Frozen Snapshot
+                                    </span>
+                                    {% else %}
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                                        <span>📝</span> Draft (Staged Changes)
+                                    </span>
+                                    {% endif %}
+                                </div>
+                                <span class="text-[11px] text-gray-500 mt-1 block">Last updated: {{ agent.updated_at[:19] if agent.updated_at else 'Initial' }}</span>
+                            </div>
+                            <div class="flex items-center gap-2.5 flex-wrap">
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer text-xs font-bold text-gray-700">
+                                    <input type="checkbox" data-field="enabled" {% if agent.enabled %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+                                    <span>Active</span>
+                                </label>
+                                {% if agent.call_type != 'embedding' %}
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer text-xs font-bold text-gray-700" title="Enable model internal reasoning and thinking tokens before outputting response.">
+                                    <input type="checkbox" data-field="thinking" {% if agent.thinking %}checked{% endif %} class="rounded text-amber-600 focus:ring-amber-500 h-4 w-4">
+                                    <span>Thinking</span>
+                                </label>
+                                {% endif %}
+                                <button type="button" onclick="testRunAgent('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 shadow-xs transition flex items-center gap-1">
+                                    <span>🧪</span> Test Run
+                                </button>
+                                <button type="button" onclick="saveAgentConfig('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition flex items-center gap-1">
+                                    <span>💾</span> Save Draft
+                                </button>
+                                <button type="button" onclick="publishAgentConfig('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition flex items-center gap-1">
+                                    <span>🚀</span> Publish Snapshot
+                                </button>
+                                {% if agent.id not in ['maintenance_agent', 'wiki_curation', 'tag_curation', 'youtube_curation', 'article_chat', 'workspace_agent', 'taxonomy_agent', 'rag_synthesis', 'embedding_default'] %}
+                                <button type="button" onclick="deleteAgentConfig('{{ agent.id }}')" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 transition" title="Delete custom agent">
+                                    <span>🗑️</span>
+                                </button>
+                                {% endif %}
+                                <span id="agent-status-{{ agent.id }}" class="text-xs"></span>
+                            </div>
+                        </div>
+
+                        <!-- Parameters Grid (Sampling Options) -->
+                        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+                            <div class="col-span-2 sm:col-span-1">
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1" title="The specific Ollama model identifier to invoke for this agent.">Model</label>
+                                <input type="text" data-field="model" value="{{ agent.model }}" title="The specific Ollama model identifier to invoke for this agent." class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Determines how 'creative' or random the model's answers are. Lower values (0.0 - 0.3) are factual, focused, and deterministic. Higher values (0.7 - 1.2) produce more diverse, creative answers.">
+                                    <span>Temperature</span>
+                                    <span class="text-indigo-400 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="0.05" min="0" max="2" data-field="temperature" value="{{ agent.temperature or 0.2 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Maximum number of tokens to generate in the output response (completion length cutoff). Higher values allow longer outputs.">
+                                    <span>Num Predict</span>
+                                    <span class="text-indigo-400 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="128" min="64" max="16384" data-field="num_predict" value="{{ agent.num_predict or 2048 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Context window size in tokens. Sets how much prior text, context, or document data the model can consider simultaneously.">
+                                    <span>Num Context</span>
+                                    <span class="text-indigo-400 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="1024" min="1024" max="65536" data-field="num_ctx" value="{{ agent.num_ctx or 8192 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Nucleus sampling threshold. The model considers only tokens comprising the top P probability mass (e.g. 0.9 = top 90%). Lower values reduce unlikely words.">
+                                    <span>Top P</span>
+                                    <span class="text-indigo-400 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="0.05" min="0.1" max="1.0" data-field="top_p" value="{{ agent.top_p or 0.9 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Top-K sampling limit. Limits token selection to the K highest-probability choices (e.g. 40). Lower values (e.g. 10 - 20) make output more predictable.">
+                                    <span>Top K</span>
+                                    <span class="text-indigo-400 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="5" min="1" max="100" data-field="top_k" value="{{ agent.top_k or 40 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                        </div>
+
+                        <!-- Prompts Editors -->
+                        {% if agent.call_type != 'embedding' %}
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-600 mb-1">
+                                    System Prompt / Persona Directive
+                                </label>
+                                <textarea rows="6" data-field="system_prompt" class="w-full text-xs font-mono p-3 border border-gray-300 rounded-xl bg-white shadow-inner focus:ring-indigo-500 focus:border-indigo-500">{{ agent.system_prompt or '' }}</textarea>
+                            </div>
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-[10px] font-bold uppercase tracking-wider text-gray-600">
+                                        User Prompt Template (Jinja2)
+                                    </label>
+                                    <span class="text-[10px] text-gray-400 font-mono">Variables: &#123;&#123; data.title &#125;&#125;, &#123;&#123; data.wiki &#125;&#125;, etc.</span>
+                                </div>
+                                <textarea rows="6" data-field="user_prompt_template" id="agent-template-{{ agent.id }}" data-available-fields="{{ (agent.available_fields or []) | tojson }}" class="agent-jinja-template w-full text-xs font-mono p-3 border border-gray-300 rounded-xl bg-white shadow-inner focus:ring-indigo-500 focus:border-indigo-500">{{ agent.user_prompt_template or '' }}</textarea>
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Tools Configuration -->
+                        <div class="mt-4 pt-3 border-t border-gray-200">
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5" title="Comma-separated tool primitives that the model is permitted to execute autonomously.">
+                                Allowed Tool Primitives (comma-separated)
+                            </label>
+                            <input type="text" data-field="tools" value="{{ (agent.tools or []) | join(', ') }}" placeholder="fetch_page, get_system_logs, execute_sql, search_vectors, run_python, notify_gotify" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
             </div>
         </div>
     </div>
@@ -1295,6 +1471,16 @@
         const user_prompt_template = card.querySelector('[data-field="user_prompt_template"]')?.value;
         const toolsStr = card.querySelector('[data-field="tools"]')?.value || '';
         const tools = toolsStr.split(',').map(s => s.trim()).filter(Boolean);
+        const extraOptionsEl = card.querySelector('[data-field="extra_options"]');
+        let extra_options = undefined;
+        if (extraOptionsEl && extraOptionsEl.value.trim()) {
+            try {
+                extra_options = JSON.parse(extraOptionsEl.value.trim());
+            } catch (err) {
+                alert("Invalid JSON in Decision Questions / Extra Options for " + agentId + ": " + err.message);
+                return;
+            }
+        }
 
         const payload = {
             model,
@@ -1307,7 +1493,8 @@
             top_k,
             system_prompt,
             user_prompt_template,
-            tools
+            tools,
+            ...(extra_options !== undefined ? { extra_options } : {})
         };
 
         const statusEl = document.getElementById('agent-status-' + agentId);
@@ -1342,6 +1529,148 @@
             }
         }
     }
+
+    async function publishAgentConfig(agentId) {
+        if (!confirm(`Publish a frozen snapshot for '${agentId}'? This increments the agent version and commits the current draft configuration.`)) {
+            return;
+        }
+        const statusEl = document.getElementById('agent-status-' + agentId);
+        if (statusEl) {
+            statusEl.className = 'text-xs text-indigo-600 font-bold';
+            statusEl.innerText = 'Publishing snapshot...';
+        }
+        try {
+            const resp = await fetch('/api/admin/agents/' + encodeURIComponent(agentId) + '/publish', {
+                method: 'POST'
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Publish failed');
+            alert(`Agent '${agentId}' successfully published as version v${data.agent.version} (Frozen Snapshot)!`);
+            window.location.reload();
+        } catch (err) {
+            alert('Failed to publish snapshot: ' + err.message);
+            if (statusEl) statusEl.innerText = '';
+        }
+    }
+
+    async function deleteAgentConfig(agentId) {
+        if (!confirm(`Are you sure you want to permanently delete custom agent '${agentId}'? This action cannot be undone.`)) {
+            return;
+        }
+        try {
+            const resp = await fetch('/api/admin/agents/' + encodeURIComponent(agentId), {
+                method: 'DELETE'
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Delete failed');
+            alert(data.message || `Agent '${agentId}' deleted.`);
+            const card = document.getElementById('agent-card-' + agentId);
+            if (card) card.remove();
+        } catch (err) {
+            alert('Delete failed: ' + err.message);
+        }
+    }
+
+    async function testRunAgent(agentId) {
+        const modal = document.getElementById('testRunModal');
+        const titleEl = document.getElementById('testRunModalTitle');
+        const outputEl = document.getElementById('testRunModalOutput');
+        const latencyEl = document.getElementById('testRunModalLatency');
+        const promptEl = document.getElementById('testRunModalPrompt');
+
+        if (!modal) return;
+        titleEl.innerText = `🧪 Test Run: ${agentId}`;
+        outputEl.innerText = 'Executing test run with sample knowledge base article... Please wait.';
+        latencyEl.innerText = 'Waiting...';
+        promptEl.innerText = 'Rendering template...';
+        modal.classList.remove('hidden');
+
+        try {
+            const resp = await fetch('/api/admin/agents/' + encodeURIComponent(agentId) + '/test-run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+            const data = await resp.json();
+            if (!resp.ok || data.status === 'error') {
+                outputEl.innerText = 'ERROR: ' + (data.error || data.detail || 'Unknown test error');
+                latencyEl.innerText = (data.latency_ms || 0) + ' ms';
+                promptEl.innerText = data.rendered_prompt || 'N/A';
+                return;
+            }
+
+            latencyEl.innerText = `${data.latency_ms} ms (${data.model})`;
+            promptEl.innerText = data.rendered_prompt || '';
+
+            if (typeof data.output === 'object') {
+                outputEl.innerText = JSON.stringify(data.output, null, 2);
+            } else {
+                outputEl.innerText = data.output || '(No output returned)';
+            }
+        } catch (err) {
+            outputEl.innerText = 'Network error during test execution: ' + err.message;
+        }
+    }
+
+    function closeTestRunModal() {
+        document.getElementById('testRunModal')?.classList.add('hidden');
+    }
+
+    function openCreateAgentModal() {
+        document.getElementById('createAgentModal')?.classList.remove('hidden');
+    }
+
+    function closeCreateAgentModal() {
+        document.getElementById('createAgentModal')?.classList.add('hidden');
+    }
+
+    async function submitCreateAgent() {
+        const id = document.getElementById('newAgentId')?.value.trim();
+        const name = document.getElementById('newAgentName')?.value.trim();
+        const category = document.getElementById('newAgentCategory')?.value.trim() || 'custom';
+        const call_type = document.getElementById('newAgentCallType')?.value;
+        const model = document.getElementById('newAgentModel')?.value.trim();
+        const system_prompt = document.getElementById('newAgentSystemPrompt')?.value || '';
+        const user_prompt_template = document.getElementById('newAgentTemplate')?.value || '';
+
+        if (!id || !name || !model) {
+            alert('Please fill in required fields: Agent ID, Name, and Model.');
+            return;
+        }
+
+        try {
+            const resp = await fetch('/api/admin/agents/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id, name, category, call_type, model, system_prompt, user_prompt_template
+                })
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Failed to create agent');
+            alert(`Worker Agent '${name}' created successfully in draft mode!`);
+            window.location.reload();
+        } catch (err) {
+            alert('Error creating agent: ' + err.message);
+        }
+    }
+
+    // Initialize Jinja Highlighter on all agent prompt templates
+    document.addEventListener('DOMContentLoaded', () => {
+        if (typeof window.initJinjaHighlighter === 'function') {
+            document.querySelectorAll('.agent-jinja-template').forEach(ta => {
+                let fields = null;
+                if (ta.dataset.availableFields) {
+                    try {
+                        fields = JSON.parse(ta.dataset.availableFields);
+                    } catch (e) {}
+                }
+                window.initJinjaHighlighter(ta, {
+                    availableFields: fields || ['title', 'url', 'md_content', 'description', 'tags', 'content', 'reading_time_minutes', 'fetched_at']
+                });
+            });
+        }
+    });
 
     /* =======================================================================
        PROMPT STUDIO CONTROLLER (MONACO + OBSIDIAN LIVE MARKDOWN PREVIEW)
@@ -2216,4 +2545,104 @@
         </div>
     </div>
 </div>
+
+<!-- Modal: Create New Worker Agent -->
+<div id="createAgentModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4 animate-fade-in">
+    <div class="bg-white rounded-2xl border border-gray-200 w-full max-w-xl flex flex-col shadow-2xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+            <div>
+                <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                    ➕ Create New Worker Agent
+                </h3>
+                <p class="text-xs text-gray-500">Configure a custom agent for autonomous curation, coding, or decision gating.</p>
+            </div>
+            <button type="button" onclick="closeCreateAgentModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold p-1 rounded-lg hover:bg-gray-200 transition">
+                ✕
+            </button>
+        </div>
+        <div class="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Agent ID (slug)</label>
+                    <input type="text" id="newAgentId" placeholder="e.g. news_synthesizer" class="w-full text-xs font-mono p-2.5 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Display Name</label>
+                    <input type="text" id="newAgentName" placeholder="e.g. Technical News Synthesizer" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg">
+                </div>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Category</label>
+                    <input type="text" id="newAgentCategory" value="custom" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Architecture</label>
+                    <select id="newAgentCallType" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg bg-white font-medium">
+                        <option value="llm">Generative LLM</option>
+                        <option value="decision">SystemOne Decision (d1/tev1)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Model</label>
+                    <input type="text" id="newAgentModel" value="gemma4:e4b" class="w-full text-xs font-mono p-2.5 border border-gray-300 rounded-lg">
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">System Prompt (LLM Only)</label>
+                <textarea rows="3" id="newAgentSystemPrompt" placeholder="You are an autonomous technical curation agent..." class="w-full text-xs font-mono p-2.5 border border-gray-300 rounded-lg"></textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">User Prompt / State Template (Jinja2)</label>
+                <textarea rows="3" id="newAgentTemplate" placeholder="{% raw %}Article Title: {{ data.title }}&#10;URL: {{ data.url }}&#10;Content: {{ data.md_content }}{% endraw %}" class="w-full text-xs font-mono p-2.5 border border-gray-300 rounded-lg"></textarea>
+            </div>
+        </div>
+        <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+            <button type="button" onclick="closeCreateAgentModal()" class="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 text-xs font-bold rounded-xl transition shadow-xs">
+                Cancel
+            </button>
+            <button type="button" onclick="submitCreateAgent()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition shadow-xs">
+                Create Draft Agent
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Test Run Execution Preview -->
+<div id="testRunModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4 animate-fade-in">
+    <div class="bg-white rounded-2xl border border-gray-200 w-full max-w-3xl flex flex-col shadow-2xl overflow-hidden max-h-[85vh]">
+        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+            <div>
+                <h3 id="testRunModalTitle" class="text-base font-bold text-gray-900 flex items-center gap-2">
+                    🧪 Test Run Output
+                </h3>
+                <p class="text-xs text-gray-500">Live preview of agent execution on sample data before publishing snapshot.</p>
+            </div>
+            <button type="button" onclick="closeTestRunModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold p-1 rounded-lg hover:bg-gray-200 transition">
+                ✕
+            </button>
+        </div>
+        <div class="p-6 space-y-4 overflow-y-auto">
+            <div class="flex items-center justify-between text-xs p-3 rounded-xl bg-gray-50 border border-gray-200 font-mono">
+                <span class="text-gray-600 font-bold">Execution Latency:</span>
+                <span id="testRunModalLatency" class="font-extrabold text-indigo-600">Waiting...</span>
+            </div>
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Rendered Prompt / State Context</label>
+                <div id="testRunModalPrompt" class="p-3 bg-gray-50 border border-gray-200 rounded-xl font-mono text-xs whitespace-pre-wrap max-h-36 overflow-y-auto text-gray-700"></div>
+            </div>
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Agent Response / Structured Output</label>
+                <div id="testRunModalOutput" class="p-4 bg-gray-900 text-emerald-400 rounded-xl font-mono text-xs whitespace-pre-wrap max-h-72 overflow-y-auto shadow-inner leading-relaxed"></div>
+            </div>
+        </div>
+        <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end">
+            <button type="button" onclick="closeTestRunModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition shadow-xs">
+                Close Preview
+            </button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/jinja_highlighter.js"></script>
 {% endblock %}

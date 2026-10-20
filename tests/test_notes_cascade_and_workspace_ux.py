@@ -182,10 +182,9 @@ def test_cascade_delete_notes_full_graph(client: TestClient):
         assert session.query(FetchedPage).filter_by(url=note_url).first() is None
         # Taxonomy item deleted
         assert session.query(TaxonomyItem).filter_by(item_id=f"note_{note_id}").first() is None
-        # Category item_count decremented
+        # Category was pruned because it became empty
         c = session.query(TaxonomyCategory).filter_by(id=cat_id).first()
-        assert c is not None
-        assert c.item_count == 0
+        assert c is None
         # Embeddings deleted
         assert session.query(ChunkEmbedding).filter_by(source_id=note_url).first() is None
         assert session.query(ArticleEmbedding).filter_by(url=note_url).first() is None

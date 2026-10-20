@@ -1,6 +1,6 @@
 [project]
 name = "kb-web"
-version = "0.5.10"
+version = "0.5.11"
 description = "Knowledge Base Web Importer, PWA, and AI Curation Portal"
 readme = "README.md"
 authors = [

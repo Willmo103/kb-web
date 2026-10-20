@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Set
 from urllib.parse import quote_plus, unquote_plus
 import zipfile
 
@@ -499,6 +499,39 @@ def toggle_freeze_note(note_id: int) -> Dict[str, Any]:
     return {"status": "success", "note_id": note_id, "is_frozen": new_state}
 
 
+def _prune_empty_taxonomy_categories(session, candidate_ids: Set[int]) -> List[int]:
+    """Recursively prunes empty taxonomy categories bottom-up when they contain 0 items and 0 subcategories."""
+    if not candidate_ids:
+        return []
+
+    pruned: List[int] = []
+    current_candidates = set(candidate_ids)
+
+    while current_candidates:
+        next_candidates = set()
+        for cat_id in current_candidates:
+            cat = session.query(TaxonomyCategory).filter_by(id=cat_id).first()
+            if not cat:
+                continue
+
+            remaining_items = session.query(TaxonomyItem).filter_by(category_id=cat.id).count()
+            child_count = session.query(TaxonomyCategory).filter_by(parent_id=cat.id).count()
+
+            if remaining_items == 0 and child_count == 0:
+                parent_id = cat.parent_id
+                pruned.append(cat.id)
+                session.delete(cat)
+                session.flush()
+                if parent_id:
+                    next_candidates.add(parent_id)
+            else:
+                cat.item_count = remaining_items
+
+        current_candidates = next_candidates
+
+    return pruned
+
+
 def _cascade_delete_notes(
     session,
     note_ids: Optional[List[int]] = None,
@@ -526,7 +559,7 @@ def _cascade_delete_notes(
     deleted_urls = [n.url for n in unique_notes if n.url]
 
     if not unique_notes:
-        return {"deleted_count": 0, "deleted_ids": [], "deleted_urls": []}
+        return {"deleted_count": 0, "deleted_ids": [], "deleted_urls": [], "pruned_categories": []}
 
     # 1. Cascade Chat Conversations & Messages
     conv_ids = []
@@ -557,12 +590,15 @@ def _cascade_delete_notes(
             and_(TaxonomyItem.item_type == "note", TaxonomyItem.item_id.in_([str(i) for i in deleted_ids])),
         )
     ).all()
+    affected_category_ids = set()
     for ti in tax_items:
         if ti.category_id:
-            cat = session.query(TaxonomyCategory).filter_by(id=ti.category_id).first()
-            if cat and cat.item_count and cat.item_count > 0:
-                cat.item_count -= 1
+            affected_category_ids.add(ti.category_id)
         session.delete(ti)
+    session.flush()
+
+    # Prune empty taxonomy folders / categories bottom-up
+    pruned_categories = _prune_empty_taxonomy_categories(session, affected_category_ids)
 
     # 3. Cascade Chunk Embeddings
     for u in deleted_urls:
@@ -590,6 +626,7 @@ def _cascade_delete_notes(
         "deleted_count": len(deleted_ids),
         "deleted_ids": deleted_ids,
         "deleted_urls": deleted_urls,
+        "pruned_categories": pruned_categories,
     }
 
 

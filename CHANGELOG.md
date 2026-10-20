@@ -5,8 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.11] - 2026-10-19
+### Added
+- **Persistent Evaluation Run History & Re-Run Portal (`src/kb_web/models_orm.py`, `routers/evals.py`, `templates/evals.j2.html`)**:
+  - Persisted all streaming and batch evaluation executions into new `evaluation_runs` database table (`eval_type`, `title`, `status`, `config_json`, `results_json`, `metrics_json`, `created_at`, `completed_at`).
+  - Added dedicated Tab 5 (**Run History**) in the Model Evaluation Studio allowing users to review completed, running, or failed evaluations with latency and token metrics, inspect full model outputs in a modal viewer, delete run records, and restore prompts/model options directly back into the active Studio form.
+  - Added REST endpoints: `GET /api/evals/runs`, `GET /api/evals/runs/{id}`, and `DELETE /api/evals/runs/{id}`.
+- **Dataset-Only Matrix Evaluations & Randomized Row Sampling (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`)**:
+  - Completely removed single article/text input mode from Matrix evaluations, enforcing evaluation discipline strictly against curated datasets.
+  - Added randomized/shuffled sampling option (`randomize: bool`) with UI toggle checkbox to pull varied test batches across iterations instead of sequential rows.
+  - Added `GET /api/evals/datasets/{id}/fields` extracting active column projections and fetched row keys for client-side template completions.
+- **Real-Time Jinja Parameter Syntax Highlighter (`src/kb_web/static/js/jinja_highlighter.js`, `server.py`, `templates/evals.j2.html`, `templates/admin.j2.html`)**:
+  - Created reusable client-side module providing real-time Jinja parameter validation across template editors.
+  - Renders live visual status pills: green badges for recognized dataset fields (e.g. `{{ data.title }}`) and red animated alert badges for non-matching or misspelled keys.
+  - Added click-to-insert available fields explorer bar above editors with field name insertion and count pills.
+  - Mounted `/static` directory via FastAPI `StaticFiles` with CSP and security middleware whitelisting.
+- **Configurable Worker Agents & Frozen Snapshot Commit Workflow (`src/kb_web/agent_config.py`, `models_orm.py`, `routers/admin.py`, `templates/admin.j2.html`)**:
+  - Transformed background worker agents from fixed presets into fully configurable entities with "+ Create Worker Agent" dialog (`POST /api/admin/agents/create`) and custom deletion (`DELETE /api/admin/agents/{id}`).
+  - Implemented test execution engine (`POST /api/admin/agents/{id}/test-run`) enabling administrators to test agent prompts and question schemas against sample KB articles prior to deployment.
+  - Implemented versioned frozen snapshot commits (`POST /api/admin/agents/{id}/publish`), recording immutable snapshots (`frozen_snapshot_json`) with automatic version number increments and timestamp tracking.
+
+### Changed
+- **Direct Database Field Adherence & Elimination of Confusing Aliases (`src/kb_web/agent_config.py`, `templates/admin.j2.html`, `templates/evals.j2.html`)**:
+  - Replaced legacy parameter aliases in preconfigured agent templates with canonical database columns from `fetched_pages`:
+    * `Link Discovery Gating Agent (d1)`: migrated `page_title` and `base_url` to direct database fields `title` and `url`.
+    * `Article Reading Assistant`: migrated `article_content` to database field `md_content or data.content`.
+  - Added auto-migration in `ensure_default_agent_configs()` updating any existing rows in the database to standard column names.
+  - Registered `available_fields` on all agent configurations combining core database fields (`title`, `url`, `description`, `md_content`, `content`, `tags`, `reading_time_minutes`, `fetched_at`) with specific agent runtime parameters (`candidate_url`, `query`, `question`, etc.), eliminating false-positive "invalid field" alerts.
+- **In-Textentry Field Syntax Highlighting & Visual Contrast (`src/kb_web/static/js/jinja_highlighter.js`)**:
+  - Injected dedicated `.jinja-editor-wrapper` and `.jinja-backdrop` styling rules into the DOM, enforcing `background-color: transparent !important` on active textareas so underlying highlight pill layers remain visible across both dark and light modes.
+  - Configured `<mark>` highlights with `color: transparent !important` and glowing pill box-shadows (`rgba(34, 197, 94, 0.32)` for valid database/runtime fields and `rgba(239, 68, 68, 0.35)` with wavy red underlines for invalid keys), allowing the textarea's crisp native text to render cleanly on top with zero character displacement.
+  - Added `ResizeObserver` and scroll synchronization to ensure backdrop and textarea metrics remain in sync upon resizing or dynamic content insertion.
+- **Strict Isolation of SystemOne Decision Gating Models (`src/kb_web/agent_config.py`, `routers/evals.py`, `templates/admin.j2.html`, `templates/evals.j2.html`)**:
+  - Completely excluded SystemOne decision models (`d1`, `tev1`) from generative completion and wiki creation model selectors across the entire application.
+  - Structurally separated the Admin Agent tab into two distinct sections: **Section 1: SystemOne Decision Gating Models** and **Section 2: Generative LLM & Coding Worker Agents**.
+  - Respects SystemOne architecture by completely removing invalid configuration controls (tools, system prompts, thinking mode, temperature, top_p, top_k, num_predict) from SystemOne agents, exposing strictly the `state` template and `questions` criteria.
+
 ## [0.5.10] - 2026-10-18
 ### Added
+- **Autonomous Topic-Expert Custom Agent System & Dynamic Canvas Pages (`src/kb_web/models_orm.py`, `routers/agent_pages.py`, `custom_agent_engine.py`, `templates/topic_wiki_page.j2.html`, `templates/agent_page_themed.j2.html`)**:
+  - **Topic Wiki Domain Pages (`TopicWikiPage`)**: Dedicated entity representing living, curated topic knowledge organized by logical paths (e.g. `/wiki/{agent_id}/architecture`), providing hierarchical navigation trees, markdown rendering, internal wiki linking, and citations back to imported library articles.
+  - **Dynamic Agent Canvas Pages (`AgentPage`)**: Distinct canvas entity identified by unique hash IDs (`/pages/agent/{hash_id}`) featuring two rendering modes:
+    * `raw`: Emits pure unstyled HTML directly without inherited base template or site chrome.
+    * `themed`: Renders rich interactive agent dashboards within base application layout, supporting JSON form schemas, user input capture, and approval decision dialogs.
+  - **Topic-Steered Grounding Discovery**: Restricts agent discovery strictly to already-imported library items (`FetchedPage`) in the database, continuously logging findings into `agent_observations` working memory.
+  - **Goal-Directed Deliberation Engine**: Background loop reviewing pending self-tasks (`agent_self_tasks`), synthesizing grounding observations, and compiling/updating topic wiki entries.
+- **Strict Human-In-The-Loop (HITL) Local Python Execution Kernel (`src/kb_web/python_kernel.py`)**:
+  - Gated execution kernel allowing autonomous agents to propose local Python code execution in the `.venv` environment (`propose_python_execution`).
+  - Gated behind human review: proposals automatically dispatch high-priority notifications linking to interactive review forms (`AgentPage` with HITL approval action).
+  - Enforces fail-safe execution: code runs locally only upon explicit human approval (`execute_approved_code`), capturing isolated stdout/stderr and timestamps in `agent_python_approvals`.
+- **Perpetual Notification History Portal & Management API (`src/kb_web/routers/api.py`, `routers/pages.py`, `templates/notifications_history.j2.html`, `templates/base.j2.html`)**:
+  - Preserves ingestion notifications indefinitely until explicitly cleared by the user.
+  - Added dedicated `/notifications` management portal with server-side pagination, filters by stage (`fetch`, `wiki`, `tags`, `vector`, `video`, `agent`, `error`), status (`success`, `warning`, `failed`, `info`), read/unread state, and keyword search.
+  - Added per-notification deletion (`DELETE /api/notifications/{id}`), read state toggle (`PATCH /api/notifications/{id}/read`), and batch deletion (`DELETE /api/notifications`).
+- **Evals Studio Model Categorization, Per-Model Generation Overrides, & Prompt Promotion (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`)**:
+  - Filtered models strictly by capability across tabs: Tab 1 displays only completion/chat LLMs; Tab 2 displays only Decision/SystemOne gating models (`d1`, `tev1`); Tab 3 displays only vector embedding models (`embeddinggemma`, `nomic-embed-text`, `bge-m3`).
+  - Added per-model generation options drawer (`temperature`, `top_p`, `top_k`, `num_predict`, `num_ctx`) with hover tooltips and dynamic parameter overrides in streaming and batch evaluation requests.
+  - Added free-form prompt testing via a "+ Add Empty Prompt" scratchpad card.
+  - Added "Set As... ▾" prompt promotion select allowing tested prompts to be applied directly to system instructions (`wiki_prompt`, `youtube_wiki_prompt`, `tags_prompt`, `rag_system_prompt`) or custom agents (`POST /api/evals/prompts/promote`).
 - **Live SSE Streaming & Thinking Token Buffering for Model Evaluations (`src/kb_web/base.py`, `routers/evals.py`, `templates/evals.j2.html`)**:
   - **Root Cause**: Running multi-model matrix evaluations across multiple prompts and dataset rows caused Cloudflare 524 gateway timeouts (100s idle timeout) on synchronous HTTP POST endpoints. Thinking tokens produced by reasoning models were also uncaptured.
   - **Fix**: Added `stream=True` support to `LoggedOllamaClient.chat()`, dynamically buffering `chunk.message.content` and `chunk.message.thinking` while logging the complete thought trace and output into `ollama_logs`. Implemented Server-Sent Events (SSE) streaming endpoint `POST /api/evals/matrix/stream` that immediately returns `event: start` (<10ms) to reset proxy idle timers, streams tokens live into the UI, updates progress, and renders live collapsible reasoning trace accordions.
@@ -32,6 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Fix**: Wrapped error extraction with `await resp.text()` and guarded `JSON.parse()`, displaying human-readable server error details.
 
 ### Fixed
+- **Recursive Taxonomy Category Pruning on Note Deletion (`src/kb_web/routers/notes.py` & `src/kb_web/routers/admin_batch.py`)**:
+  - **Root Cause**: Deleting notes (`DELETE /api/notes/{id}` or `DELETE /api/notes/batch`) left behind empty parent taxonomy categories as orphaned stubs in the knowledge base navigation hierarchy.
+  - **Fix**: Implemented `_prune_empty_taxonomy_categories()` to recursively prune empty taxonomy categories bottom-up after note deletion or category reassignment, ensuring no empty categories linger in the taxonomy hierarchy.
 - **Raw Un-Truncated Report Data Downloads (`src/kb_web/routers/reports.py`)**:
   - **Root Cause**: `export_report_data()` reused UI grid placeholder formatting, causing CSV, XLSX, and JSON downloads to output string literals like `[Content: 77,805 chars]` instead of actual content.
   - **Fix**: Updated `export_report_data()` to set `fetch_heavy=True` and bypass placeholder truncation, streaming complete raw text content into exported files.
