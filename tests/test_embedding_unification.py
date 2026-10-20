@@ -37,6 +37,7 @@ def test_generate_embeddings_stores_model_name():
     test_url = "https://example.com/test-embedding-unify"
     with db_session() as session:
         session.query(ChunkEmbedding).filter_by(source_id=test_url).delete()
+        session.query(ArticleEmbedding).filter_by(url=test_url).delete()
         session.query(FetchedPage).filter_by(url=test_url).delete()
         page = FetchedPage(
             url=test_url,
@@ -69,6 +70,7 @@ def test_generate_embeddings_stores_model_name():
     finally:
         with db_session() as session:
             session.query(ChunkEmbedding).filter_by(source_id=test_url).delete()
+            session.query(ArticleEmbedding).filter_by(url=test_url).delete()
             session.query(FetchedPage).filter_by(url=test_url).delete()
             session.commit()
 
