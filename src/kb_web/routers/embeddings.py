@@ -19,7 +19,13 @@ from ..models_orm import (
     SettingOllama,
     SettingExternal,
 )
-from ..utils import _get_ollama_client, ensure_model_available, chunk_text_with_overlap, cosine_similarity
+from ..utils import (
+    _get_ollama_client,
+    ensure_model_available,
+    chunk_text_with_overlap,
+    cosine_similarity,
+    get_active_embedding_model as resolve_active_model,
+)
 
 router = APIRouter(tags=["Embeddings"])
 
@@ -85,15 +91,14 @@ def list_embedding_models() -> Dict[str, Any]:
         pass
 
     with db_session() as session:
-        active_setting = session.query(SettingExternal).filter_by(key="active_embedding_model").first()
-        active_model = active_setting.value if active_setting else getattr(config, "ollama_embedding_model", "embeddinggemma")
+        active_model = resolve_active_model(session=session, config=config)
 
         counts = (
             session.query(ChunkEmbedding.model_name, func.count(ChunkEmbedding.id))
             .group_by(ChunkEmbedding.model_name)
             .all()
         )
-        counts_dict = {m or "embeddinggemma": cnt for m, cnt in counts}
+        counts_dict = {m or active_model: cnt for m, cnt in counts}
 
     return {
         "active_model": active_model,
@@ -106,8 +111,7 @@ def list_embedding_models() -> Dict[str, Any]:
 def get_active_embedding_model() -> Dict[str, Any]:
     """Returns the currently active embedding model."""
     with db_session() as session:
-        active_setting = session.query(SettingExternal).filter_by(key="active_embedding_model").first()
-        active_model = active_setting.value if active_setting else getattr(config, "ollama_embedding_model", "embeddinggemma")
+        active_model = resolve_active_model(session=session, config=config)
         return {"active_model": active_model}
 
 
@@ -126,13 +130,14 @@ def set_active_embedding_model(payload: Dict[str, Any], token: Optional[str] = D
         else:
             setting.value = model_name
 
-        # Also update SettingOllama for backward compatibility
+        # Also update SettingOllama and runtime config
         ollama_setting = session.query(SettingOllama).filter_by(key="ollama_embedding_model").first()
         if ollama_setting:
             ollama_setting.value = model_name
         else:
             session.add(SettingOllama(key="ollama_embedding_model", value=model_name))
 
+        config.ollama_embedding_model = model_name
         session.commit()
 
     return {"status": "success", "active_model": model_name}

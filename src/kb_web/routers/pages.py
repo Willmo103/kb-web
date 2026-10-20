@@ -419,7 +419,7 @@ def view_saved_page(
                     "id": c.id,
                     "chunk_number": c.chunk_number if c.chunk_number is not None else 0,
                     "chunk_content": c.chunk_content or "",
-                    "model_name": getattr(c, "model_name", "embeddinggemma"),
+                    "model_name": getattr(c, "model_name", None) or getattr(config, "ollama_embedding_model", "nomic-embed-text"),
                 }
                 for c in chunk_rows
             ]

@@ -187,8 +187,8 @@ def generate_rag_report_api(
             synthesis_model = setting.value if setting else getattr(config, "ollama_model", "gemma4:latest")
 
         # Determine active embedding model
-        emb_setting = session.query(SettingExternal).filter_by(key="active_embedding_model").first()
-        active_embedding_model = emb_setting.value if emb_setting else "embeddinggemma"
+        from ..utils import get_active_embedding_model
+        active_embedding_model = get_active_embedding_model(session=session, config=config)
 
         # Execute multi-agent RAG pipeline
         result = run_agentic_rag_pipeline(

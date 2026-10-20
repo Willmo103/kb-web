@@ -209,7 +209,7 @@ class ChunkEmbedding(Base):
     chunk_number = Column(Integer)
     chunk_content = Column(Text)
     chunk_vector = Column(SafeVector())
-    model_name = Column(String, default="embeddinggemma")
+    model_name = Column(String, default="nomic-embed-text")
     created_at = Column(String)
 
 

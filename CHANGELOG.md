@@ -41,6 +41,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Structurally separated the Admin Agent tab into two distinct sections: **Section 1: SystemOne Decision Gating Models** and **Section 2: Generative LLM & Coding Worker Agents**.
   - Respects SystemOne architecture by completely removing invalid configuration controls (tools, system prompts, thinking mode, temperature, top_p, top_k, num_predict) from SystemOne agents, exposing strictly the `state` template and `questions` criteria.
 
+### Fixed
+- **Embedding Model Unification & Cross-Space Query Collision Fix (`src/kb_web/utils.py`, `rag_agent.py`, `worker.py`, `cli.py`, `models_orm.py`, `routers/cli_api.py`, `routers/admin.py`, `routers/embeddings.py`, `routers/rag_reports.py`)**:
+  - **Root Cause**: Document vectors were indexed using one model (hardcoded `"embeddinggemma"` in `generate_gemma_embeddings_for_page`), while search/RAG queries and article-level embeddings were using another (e.g. `nomic-embed-text` via `config.ollama_embedding_model`). In addition, `find_nearest_chunks` calculated cosine similarity without filtering by `ChunkEmbedding.model_name`, causing distance computations across incompatible vector spaces (e.g. querying with Nomic against Gemma embeddings resulting in degraded or zero matches).
+  - **Resolution**:
+    * Created centralized `get_active_embedding_model(session=None, config=None)` ensuring a single source of truth across all vector creation, query embedding, and similarity search routines.
+    * Refactored `generate_gemma_embeddings_for_page` (aliased as `generate_embeddings_for_page`) to use the active embedding model, explicitly record `ChunkEmbedding.model_name`, and apply prompt prefixes (`search_document: `) dynamically.
+    * Updated `find_nearest_chunks` to strictly filter by `ChunkEmbedding.model_name == emb_model`, preventing cross-model vector distance calculations.
+    * Synchronized `SettingOllama(key="ollama_embedding_model")` and `SettingExternal(key="active_embedding_model")` across Admin Portal updates, REST API endpoints, and worker jobs.
+    * Added `kb-web-cli reindex-embeddings [--model MODEL]` command allowing on-demand reindexing of all document chunks with the active embedding model.
+    * Added comprehensive unit test suite `tests/test_embedding_unification.py`.
+
 ## [0.5.10] - 2026-10-18
 ### Added
 - **Autonomous Topic-Expert Custom Agent System & Dynamic Canvas Pages (`src/kb_web/models_orm.py`, `routers/agent_pages.py`, `custom_agent_engine.py`, `templates/topic_wiki_page.j2.html`, `templates/agent_page_themed.j2.html`)**:
