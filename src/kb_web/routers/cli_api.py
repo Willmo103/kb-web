@@ -230,10 +230,12 @@ def cli_query_similar(
     limit: int = Form(5),
     api_key: str = Depends(verify_api_key),
 ):
-    emb_model = "embeddinggemma"
+    from ..utils import get_active_embedding_model
+    emb_model = get_active_embedding_model(config=config)
+    prompt = f"search_query: {query}" if ("gemma" in emb_model.lower() or "nomic" in emb_model.lower()) else query
     try:
         client = _get_ollama_client()
-        resp = client.embeddings(model=emb_model, prompt=f"search_query: {query}")
+        resp = client.embeddings(model=emb_model, prompt=prompt)
         vector = resp["embedding"]
     except Exception as e:
         raise HTTPException(
@@ -495,10 +497,12 @@ def cli_chat(
     limit: int = Form(5),
     api_key: str = Depends(verify_api_key),
 ):
-    emb_model = "embeddinggemma"
+    from ..utils import get_active_embedding_model
+    emb_model = get_active_embedding_model(config=config)
+    prompt = f"search_query: {query}" if ("gemma" in emb_model.lower() or "nomic" in emb_model.lower()) else query
     try:
         client = _get_ollama_client()
-        resp = client.embeddings(model=emb_model, prompt=f"search_query: {query}")
+        resp = client.embeddings(model=emb_model, prompt=prompt)
         vector = resp["embedding"]
     except Exception as e:
         raise HTTPException(

@@ -23,6 +23,27 @@ from .models import HTMLPage, extract_youtube_video_id
 from .base import config as default_config, _get_ollama_client
 from .html_cleaner import html_to_clean_markdown, extract_links_from_raw_html
 
+logger = logging.getLogger(__name__)
+
+
+def get_active_embedding_model(session=None, config=None) -> str:
+    """Returns the single active embedding model used across the entire application."""
+    if config is None:
+        config = default_config
+
+    if session is not None:
+        try:
+            from .models_orm import SettingOllama, SettingExternal
+            setting = session.query(SettingOllama).filter_by(key="ollama_embedding_model").first()
+            if not setting or not setting.value:
+                setting = session.query(SettingExternal).filter_by(key="active_embedding_model").first()
+            if setting and setting.value:
+                return setting.value
+        except Exception:
+            pass
+
+    return getattr(config, "ollama_embedding_model", None) or "nomic-embed-text"
+
 
 def is_internal_ip(ip_str: str) -> bool:
     """Checks whether an IP address is private, loopback, link-local, or cloud metadata."""
@@ -823,7 +844,11 @@ def save_youtube_metadata_helper(
 
 
 def update_article_embedding(
-    db, url: str, config=None, client: Optional[ollama.Client] = None
+    db,
+    url: str,
+    config=None,
+    client: Optional[ollama.Client] = None,
+    model: Optional[str] = None,
 ) -> None:
     """Generates embedding for the article and saves/updates it in the database."""
     if config is None:
@@ -853,21 +878,17 @@ def update_article_embedding(
         if not text_to_embed.strip():
             return
 
-        emb_model = getattr(config, "ollama_embedding_model", "nomic-embed-text")
+        emb_model = model or getattr(config, "ollama_embedding_model", None) or get_active_embedding_model(config=config)
         ensure_model_available(client, emb_model)
 
+        prompt_prefix = "search_document: " if ("gemma" in emb_model.lower() or "nomic" in emb_model.lower()) else ""
+        prompt_text = f"{prompt_prefix}{text_to_embed[:4000]}"
         try:
-            response = client.embeddings(model=emb_model, prompt=text_to_embed[:4000])
+            response = client.embeddings(model=emb_model, prompt=prompt_text)
             embedding = response["embedding"]
         except Exception as e:
-            print(
-                f"Ollama embedding with model '{emb_model}' failed: {e}. Trying main model '{config.ollama_model}'..."
-            )
-            ensure_model_available(client, config.ollama_model)
-            response = client.embeddings(
-                model=config.ollama_model, prompt=text_to_embed[:4000]
-            )
-            embedding = response["embedding"]
+            print(f"Ollama embedding with model '{emb_model}' failed: {e}")
+            return
 
         now_str = utc_now_iso()
         with db_session() as session:
@@ -884,20 +905,11 @@ def update_article_embedding(
             # Generate and store title embedding
             if title.strip():
                 try:
-                    try:
-                        title_resp = client.embeddings(
-                            model=emb_model, prompt=title[:4000]
-                        )
-                        title_embedding = title_resp["embedding"]
-                    except Exception as e2:
-                        print(
-                            f"Ollama title embedding with model '{emb_model}' failed: {e2}. Trying main model '{config.ollama_model}'..."
-                        )
-                        ensure_model_available(client, config.ollama_model)
-                        title_resp = client.embeddings(
-                            model=config.ollama_model, prompt=title[:4000]
-                        )
-                        title_embedding = title_resp["embedding"]
+                    title_prompt = f"{prompt_prefix}{title[:4000]}"
+                    title_resp = client.embeddings(
+                        model=emb_model, prompt=title_prompt
+                    )
+                    title_embedding = title_resp["embedding"]
 
                     title_emb = (
                         session.query(TitleEmbedding).filter_by(url=url).first()
@@ -914,7 +926,7 @@ def update_article_embedding(
                         f"Successfully generated and stored title embedding for: {url}"
                     )
                 except Exception as te:
-                    print(f"Failed to generate title embedding for {url}: {te}")
+                    print(f"Failed to generate title embedding for {url} with {emb_model}: {te}")
     except Exception as e:
         print(f"Failed to generate embedding for {url}: {e}")
 
@@ -932,9 +944,14 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
 
 
 def get_similar_articles(
-    db, current_url: str, config=None, limit: int = 5
+    db,
+    current_url: Optional[str] = None,
+    config=None,
+    limit: int = 5,
+    query_vector: Optional[list] = None,
+    collection_id: Optional[int] = None,
 ) -> list[dict]:
-    """Calculates cosine similarity between current_url and all other articles."""
+    """Calculates cosine similarity between current_url (or query_vector) and all other articles."""
     if config is None:
         config = default_config
 
@@ -944,20 +961,31 @@ def get_similar_articles(
     try:
         with db_session() as session:
             dialect_name = session.bind.dialect.name
-            curr = session.query(ArticleEmbedding).filter_by(url=current_url).first()
-            if not curr or not curr.embedding:
+            target_vector = query_vector
+            if not target_vector and current_url:
+                curr = session.query(ArticleEmbedding).filter_by(url=current_url).first()
+                if curr and curr.embedding:
+                    target_vector = curr.embedding
+
+            if not target_vector:
                 return []
 
+            if isinstance(target_vector, str):
+                try:
+                    target_vector = json.loads(target_vector)
+                except Exception:
+                    return []
+
             if dialect_name == "postgresql":
-                distance_col = ArticleEmbedding.embedding.cosine_distance(curr.embedding)
-                results = (
+                distance_col = ArticleEmbedding.embedding.cosine_distance(target_vector)
+                query = (
                     session.query(ArticleEmbedding, FetchedPage, distance_col)
                     .join(FetchedPage, ArticleEmbedding.url == FetchedPage.url)
-                    .filter(ArticleEmbedding.url != current_url)
-                    .order_by(distance_col)
-                    .limit(limit)
-                    .all()
                 )
+                if current_url:
+                    query = query.filter(ArticleEmbedding.url != current_url)
+
+                results = query.order_by(distance_col).limit(limit).all()
 
                 similarities = []
                 for emb, page, distance in results:
@@ -982,21 +1010,16 @@ def get_similar_articles(
                 return similarities
             else:
                 # SQLite fallback utilizing python cosine_similarity
-                all_embs = (
+                query = (
                     session.query(ArticleEmbedding, FetchedPage)
                     .join(FetchedPage, ArticleEmbedding.url == FetchedPage.url)
-                    .filter(ArticleEmbedding.url != current_url)
-                    .all()
                 )
+                if current_url:
+                    query = query.filter(ArticleEmbedding.url != current_url)
+
+                all_embs = query.all()
 
                 similarities = []
-                current_emb = curr.embedding
-                if isinstance(current_emb, str):
-                    try:
-                        current_emb = json.loads(current_emb)
-                    except Exception:
-                        pass
-
                 for emb, page in all_embs:
                     if not emb.embedding:
                         continue
@@ -1006,7 +1029,7 @@ def get_similar_articles(
                             val_emb = json.loads(val_emb)
                         except Exception:
                             continue
-                    similarity = cosine_similarity(current_emb, val_emb)
+                    similarity = cosine_similarity(target_vector, val_emb)
                     if similarity >= getattr(config, "similarity_threshold", 0.8):
                         tags_json = page.tags or "[]"
                         try:
@@ -1038,15 +1061,15 @@ def find_nearest_chunks(
 ) -> list[dict]:
     """Retrieves top-k closest document/transcript chunks matching a semantic query.
 
-    Generates embedding for query using the configured Ollama embedding model,
-    then executes cosine distance similarity across ChunkEmbedding records.
+    Generates embedding for query using the unified configured Ollama embedding model,
+    then executes cosine distance similarity across ChunkEmbedding records for that exact model.
     """
     if config is None:
         config = default_config
     if client is None:
         client = _get_ollama_client()
 
-    emb_model = model or getattr(config, "ollama_embedding_model", "embeddinggemma")
+    emb_model = model or getattr(config, "ollama_embedding_model", None) or get_active_embedding_model(config=config)
     if "gemma" in emb_model.lower() or "nomic" in emb_model.lower():
         prompt = f"search_query: {query}"
     else:
@@ -1058,13 +1081,6 @@ def find_nearest_chunks(
         query_vector = resp.get("embedding")
     except Exception as e:
         print(f"Warning: Failed to generate query embedding with {emb_model}: {e}")
-        fallback = "nomic-embed-text" if emb_model != "nomic-embed-text" else "embeddinggemma"
-        try:
-            resp = client.embeddings(model=fallback, prompt=f"search_query: {query}")
-            query_vector = resp.get("embedding")
-            emb_model = fallback
-        except Exception:
-            pass
 
     if not query_vector:
         return []
@@ -1077,7 +1093,7 @@ def find_nearest_chunks(
     try:
         with db_session() as session:
             dialect_name = session.bind.dialect.name
-            query_obj = session.query(ChunkEmbedding)
+            query_obj = session.query(ChunkEmbedding).filter(ChunkEmbedding.model_name == emb_model)
             if source_type:
                 query_obj = query_obj.filter(ChunkEmbedding.source_type == source_type)
 
@@ -1164,9 +1180,20 @@ def serialize_page_for_db(page_data: HTMLPage) -> tuple[dict, Optional[str]]:
 
 
 def generate_gemma_embeddings_for_page(
-    db, url: str, config=None, client: Optional[ollama.Client] = None
+    db=None,
+    url: Optional[str] = None,
+    config=None,
+    client: Optional[ollama.Client] = None,
+    model: Optional[str] = None,
 ) -> None:
-    """Generates embeddinggemma chunk embeddings and description embedding for a page/video."""
+    """Generates chunk embeddings and description embedding for a page/video using the unified embedding model."""
+    if url is None and isinstance(db, str):
+        url = db
+        db = None
+
+    if not url:
+        return
+
     if config is None:
         config = default_config
     if client is None:
@@ -1178,7 +1205,7 @@ def generate_gemma_embeddings_for_page(
     with db_session() as session:
         page = session.query(FetchedPage).filter_by(url=url).first()
         if not page:
-            print(f"Page {url} not found for gemma embedding generation.")
+            print(f"Page {url} not found for embedding generation.")
             return
 
         title = page.title or url
@@ -1190,45 +1217,42 @@ def generate_gemma_embeddings_for_page(
 
     source_type = "videos" if is_video else "articles"
 
-    # Check model availability for embeddinggemma
-    emb_model = "embeddinggemma"
+    emb_model = model or getattr(config, "ollama_embedding_model", None) or get_active_embedding_model(config=config)
     try:
         ensure_model_available(client, emb_model)
     except Exception as e:
-        print(
-            f"Warning: failed to verify/pull '{emb_model}': {e}. Using configured model."
-        )
-        emb_model = getattr(config, "ollama_embedding_model", "nomic-embed-text")
+        print(f"Warning: failed to verify/pull '{emb_model}': {e}.")
 
     # 1. Chunk and embed md_content
     chunks = chunk_text_with_overlap(md_content, 1500, 150)
 
+    prompt_prefix = "search_document: " if ("gemma" in emb_model.lower() or "nomic" in emb_model.lower()) else ""
     chunk_vectors = []
     for idx, chunk in enumerate(chunks):
-        prompt = f"search_document: {chunk}"
+        prompt = f"{prompt_prefix}{chunk}"
         try:
             resp = client.embeddings(model=emb_model, prompt=prompt)
             vector = resp["embedding"]
             chunk_vectors.append((idx, chunk, vector))
         except Exception as e:
             print(
-                f"Failed to generate chunk embedding for {url} chunk {idx}: {e}"
+                f"Failed to generate chunk embedding for {url} chunk {idx} with {emb_model}: {e}"
             )
 
     # 2. Embed description and save to article_embeddings or video_embeddings
     vector_desc = None
     if description.strip():
-        prompt_desc = f"search_document: {description}"
+        prompt_desc = f"{prompt_prefix}{description}"
         try:
             resp = client.embeddings(model=emb_model, prompt=prompt_desc)
             vector_desc = resp["embedding"]
         except Exception as e:
-            print(f"Failed to generate description embedding for {url}: {e}")
+            print(f"Failed to generate description embedding for {url} with {emb_model}: {e}")
 
     with db_session() as session:
-        # Delete existing chunks for this url to avoid stale ones
+        # Delete existing chunks for this url and model to avoid stale ones
         session.query(ChunkEmbedding).filter_by(
-            source_type=source_type, source_id=url
+            source_type=source_type, source_id=url, model_name=emb_model
         ).delete()
 
         for idx, chunk, vector in chunk_vectors:
@@ -1239,6 +1263,7 @@ def generate_gemma_embeddings_for_page(
                 chunk_number=idx,
                 chunk_content=chunk,
                 chunk_vector=vector,
+                model_name=emb_model,
                 created_at=utc_now_iso(),
             )
             session.add(new_chunk)
@@ -1270,8 +1295,11 @@ def generate_gemma_embeddings_for_page(
                     )
                     session.add(art_emb)
             print(
-                f"Successfully stored gemma embedding of description for {url}"
+                f"Successfully stored {emb_model} embedding of description for {url}"
             )
+
+
+generate_embeddings_for_page = generate_gemma_embeddings_for_page
 
 
 def ingest_url_sync(db, url: str, config=None, client=None) -> dict:

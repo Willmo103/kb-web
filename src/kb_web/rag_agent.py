@@ -14,8 +14,8 @@ from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc
 
-from .models_orm import FetchedPage, Note, ChunkEmbedding, SettingExternal
-from .utils import _get_ollama_client, chunk_text_with_overlap, cosine_similarity
+from .models_orm import FetchedPage, Note, ChunkEmbedding, SettingExternal, SettingOllama
+from .utils import _get_ollama_client, chunk_text_with_overlap, cosine_similarity, get_active_embedding_model
 from .base import config
 from .config import DEFAULT_RAG_REPORT_PROMPT
 
@@ -254,7 +254,7 @@ def vector_rag_subagent(
     session: Session,
     client: Any,
     query: str,
-    active_model: str = "embeddinggemma",
+    active_model: Optional[str] = None,
     limit: int = 15,
     enabled: bool = True,
     min_similarity: float = 0.0,
@@ -262,6 +262,8 @@ def vector_rag_subagent(
     """Sub-agent that embeds search query and performs cosine vector similarity search."""
     if not enabled:
         return []
+    if not active_model:
+        active_model = get_active_embedding_model(session=session, config=config)
     prompt = f"search_query: {query}" if ("gemma" in active_model or "nomic" in active_model) else query
     query_vector = None
     try:
@@ -823,8 +825,7 @@ def run_agentic_rag_pipeline(
     )
 
     if not active_embedding_model:
-        setting = session.query(SettingExternal).filter_by(key="active_embedding_model").first()
-        active_embedding_model = setting.value if setting else "embeddinggemma"
+        active_embedding_model = get_active_embedding_model(session=session, config=config)
 
     chosen_synthesis_model = (
         synthesis_model

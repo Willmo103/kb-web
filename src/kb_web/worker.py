@@ -109,7 +109,7 @@ class ServerJob:
     @property
     def model(self) -> str:
         fallback = (
-            getattr(config, "ollama_embedding_model", "embeddinggemma")
+            getattr(config, "ollama_embedding_model", "nomic-embed-text")
             if self.category == "embedding"
             else getattr(config, "ollama_model", "llama3.2")
         )
@@ -230,7 +230,7 @@ class AutonomousWorker:
             description="Indexes document and chunk vectors into Qdrant for semantic similarity search.",
             category="embedding",
             default_interval_minutes=15,
-            default_model=getattr(config, "ollama_embedding_model", "embeddinggemma"),
+            default_model=getattr(config, "ollama_embedding_model", "nomic-embed-text"),
             runner=self._run_embedding_refresh,
         )
 
@@ -322,11 +322,12 @@ class AutonomousWorker:
 
                 # Generate embeddings
                 try:
+                    emb_target_model = getattr(job_cfg, "ollama_embedding_model", None) or getattr(config, "ollama_embedding_model", "nomic-embed-text")
                     await run_in_threadpool(
-                        update_article_embedding, None, url, job_cfg, client
+                        update_article_embedding, None, url, job_cfg, client, emb_target_model
                     )
                     await run_in_threadpool(
-                        generate_gemma_embeddings_for_page, None, url, job_cfg, client
+                        generate_gemma_embeddings_for_page, None, url, job_cfg, client, emb_target_model
                     )
                 except Exception as emb_err:
                     logger.warning(f"[JOB wiki_curation] Embedding indexing warning for {url}: {emb_err}")
@@ -458,7 +459,7 @@ class AutonomousWorker:
             client = _get_ollama_client()
             job_cfg = JobConfigProxy(config, model=job.model, is_embedding=True)
             await run_in_threadpool(
-                generate_gemma_embeddings_for_page, None, target_url, job_cfg, client
+                generate_gemma_embeddings_for_page, None, target_url, job_cfg, client, job.model
             )
             job.items_processed_total += 1
             job.last_activity = f"Embeddings synced for: {target_title[:40]}"

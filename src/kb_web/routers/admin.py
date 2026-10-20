@@ -52,6 +52,7 @@ from ..models_orm import (
     CliApiKey,
     RegisteredClient,
     SystemLog,
+    SettingExternal,
 )
 from sqlalchemy import or_, text, func
 from ..utils import (
@@ -685,6 +686,16 @@ def handle_config_update(
     config.ollama_host = ollama_host
     config.ollama_model = ollama_model
     config.ollama_embedding_model = ollama_embedding_model
+    try:
+        with db_session() as session:
+            ext_setting = session.query(SettingExternal).filter_by(key="active_embedding_model").first()
+            if ext_setting:
+                ext_setting.value = ollama_embedding_model
+            else:
+                session.add(SettingExternal(key="active_embedding_model", value=ollama_embedding_model))
+            session.commit()
+    except Exception:
+        pass
     config.api_key = api_key
     config.gotify_url = gotify_url or None
     config.gotify_token = gotify_token or None

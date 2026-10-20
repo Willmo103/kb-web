@@ -593,7 +593,7 @@ def search_rag_chunks_get(
     )
     return {
         "query": q,
-        "model": model or getattr(config, "ollama_embedding_model", "embeddinggemma"),
+        "model": model or getattr(config, "ollama_embedding_model", "nomic-embed-text"),
         "count": len(results),
         "results": results,
     }
@@ -622,7 +622,7 @@ def search_rag_chunks_post(
     )
     return {
         "query": query,
-        "model": model or getattr(config, "ollama_embedding_model", "embeddinggemma"),
+        "model": model or getattr(config, "ollama_embedding_model", "nomic-embed-text"),
         "count": len(results),
         "results": results,
     }
