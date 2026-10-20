@@ -1,0 +1,112 @@
+{% extends "base.j2.html" %}
+
+{% block title %}{{ page_title }} - {{ agent.name }} Topic Wiki{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Breadcrumb & Agent Header Banner -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5 shadow-sm mb-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <div class="flex items-center gap-2 text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                    <a href="/" class="hover:text-indigo-600">Home</a>
+                    <span>/</span>
+                    <span class="text-gray-400">Topic Wiki</span>
+                    <span>/</span>
+                    <span class="text-indigo-600 font-bold">{{ agent.name }}</span>
+                    <span>/</span>
+                    <span class="font-mono">{{ logical_path }}</span>
+                </div>
+                <h1 class="text-2xl font-black text-gray-900 dark:text-gray-100 tracking-tight flex items-center gap-2.5">
+                    <span>📚</span> {{ page_title }}
+                </h1>
+            </div>
+
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="px-2.5 py-1 text-xs font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900">
+                    🎯 Domain: {{ agent.topic_domain }}
+                </span>
+                <span class="px-2.5 py-1 text-xs font-mono font-medium rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700">
+                    🤖 {{ agent.model }}
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2-Column Living Wiki Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <!-- Sidebar Navigation Tree -->
+        <aside class="lg:col-span-1 space-y-4">
+            <div class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm">
+                <h3 class="text-xs font-extrabold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                    <span>📑</span> Topic Navigation
+                </h3>
+                <nav class="space-y-1">
+                    {% for item in wiki_tree %}
+                    <a href="{{ item.url }}" class="block px-3 py-2 rounded-xl text-xs font-medium transition {% if item.is_current %}bg-indigo-600 text-white font-bold shadow-sm{% else %}text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800{% endif %}">
+                        {{ item.title }}
+                    </a>
+                    {% else %}
+                    <p class="text-xs text-gray-400 italic p-2">No pages in this wiki tree.</p>
+                    {% endfor %}
+                </nav>
+            </div>
+
+            <!-- Agent Summary Card -->
+            <div class="bg-gray-50 dark:bg-gray-850 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 text-xs space-y-2">
+                <h4 class="font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wider text-[11px]">Autonomous Curator</h4>
+                <p class="text-gray-600 dark:text-gray-400 leading-relaxed">
+                    This living wiki is independently vetted, organized, and authored by <strong>{{ agent.name }}</strong> studying verified knowledge base records.
+                </p>
+            </div>
+        </aside>
+
+        <!-- Main Wiki Article Canvas -->
+        <main class="lg:col-span-3 space-y-6">
+            <article class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 sm:p-8 shadow-sm">
+                <div class="prose prose-indigo dark:prose-invert max-w-none text-sm leading-relaxed">
+                    {{ rendered_body | safe }}
+                </div>
+
+                <!-- Internal Wiki Links -->
+                {% if links %}
+                <div class="mt-8 pt-6 border-t border-gray-200 dark:border-gray-800">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-1.5">
+                        <span>🔗</span> Related Topic Articles
+                    </h3>
+                    <div class="flex flex-wrap gap-2">
+                        {% for l in links %}
+                        <a href="/wiki/{{ agent.id }}/{{ l }}" class="px-3 py-1 text-xs font-semibold rounded-lg bg-gray-100 dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 transition">
+                            {{ l }} →
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Cited Library Articles & Grounding References -->
+                {% if references %}
+                <div class="mt-8 pt-6 border-t border-gray-200 dark:border-gray-800">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-1.5">
+                        <span>📚</span> Cited Library Articles & Grounding Sources
+                    </h3>
+                    <div class="space-y-2">
+                        {% for ref in references %}
+                        <div class="p-3 bg-gray-50 dark:bg-gray-800/60 rounded-xl border border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs">
+                            <div class="truncate mr-3">
+                                <span class="font-bold text-gray-800 dark:text-gray-200">{{ ref.title or ref.url }}</span>
+                                <span class="text-gray-400 block truncate text-[11px] font-mono">{{ ref.url }}</span>
+                            </div>
+                            <a href="/view/page?url={{ ref.url | urlencode }}" class="px-3 py-1 rounded-lg bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 transition text-xs flex-shrink-0">
+                                Open Source →
+                            </a>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </article>
+        </main>
+    </div>
+</div>
+{% endblock %}

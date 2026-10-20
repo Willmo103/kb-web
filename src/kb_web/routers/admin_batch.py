@@ -138,6 +138,7 @@ def batch_delete_notes(payload: BatchDeleteNotesRequest) -> Dict[str, Any]:
             "deleted_count": res["deleted_count"],
             "deleted_ids": res["deleted_ids"],
             "deleted_urls": res["deleted_urls"],
+            "pruned_categories": res.get("pruned_categories", []),
         }
 
 

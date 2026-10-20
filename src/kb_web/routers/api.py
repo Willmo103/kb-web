@@ -4,7 +4,8 @@ FastAPI Router for extension/external programmatic imports.
 
 import hashlib
 from urllib.parse import urlparse, urljoin
-from fastapi import APIRouter, Depends, HTTPException, Request
+from typing import Optional, List, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from html2text import HTML2Text
 from bs4 import BeautifulSoup  # type: ignore
 
@@ -250,15 +251,41 @@ def datetime_now_str() -> str:
 
 @router.get("/api/notifications")
 def get_ingestion_notifications(
-    limit: int = 30,
+    limit: int = Query(30, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    stage: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    is_read: Optional[bool] = Query(None),
+    search: Optional[str] = Query(None),
 ) -> dict:
-    """Returns recent background ingestion notifications and the unread count."""
-    from ..models_orm import IngestionNotification
+    """Returns background ingestion notifications with pagination, filters, and total/unread counts."""
+    from ..models_orm import IngestionNotification, FetchedPage
+    from sqlalchemy import or_
+    import re
 
     with db_session() as session:
+        query = session.query(IngestionNotification)
+        if stage:
+            query = query.filter(IngestionNotification.stage == stage)
+        if status:
+            query = query.filter(IngestionNotification.status == status)
+        if is_read is not None:
+            query = query.filter(IngestionNotification.read == (1 if is_read else 0))
+        if search:
+            term = f"%{search}%"
+            query = query.filter(
+                or_(
+                    IngestionNotification.message.ilike(term),
+                    IngestionNotification.title.ilike(term),
+                    IngestionNotification.url.ilike(term),
+                    IngestionNotification.stage.ilike(term),
+                )
+            )
+
+        total_count = query.count()
         notifs = (
-            session.query(IngestionNotification)
-            .order_by(IngestionNotification.id.desc())
+            query.order_by(IngestionNotification.id.desc())
+            .offset(offset)
             .limit(limit)
             .all()
         )
@@ -270,7 +297,6 @@ def get_ingestion_notifications(
         url_list = [n.url for n in notifs if n.url]
         existing_urls = set()
         if url_list:
-            from ..models_orm import FetchedPage
             pages = (
                 session.query(FetchedPage.url)
                 .filter(FetchedPage.url.in_(url_list))
@@ -279,7 +305,6 @@ def get_ingestion_notifications(
             existing_urls = {p[0] for p in pages}
 
         items = []
-        import re
         for n in notifs:
             resolved_page_id = None
             if n.url and n.url in existing_urls:
@@ -307,9 +332,71 @@ def get_ingestion_notifications(
             )
         return {
             "status": "success",
+            "total_count": total_count,
             "unread_count": unread_count,
+            "offset": offset,
+            "limit": limit,
             "notifications": items,
         }
+
+
+@router.delete("/api/notifications/{notification_id}")
+def delete_single_notification(notification_id: int) -> dict:
+    """Permanently deletes a single notification by ID."""
+    from ..models_orm import IngestionNotification
+
+    with db_session() as session:
+        notif = session.query(IngestionNotification).filter_by(id=notification_id).first()
+        if not notif:
+            raise HTTPException(status_code=404, detail="Notification not found")
+        session.delete(notif)
+        session.commit()
+    return {"status": "success", "deleted_id": notification_id}
+
+
+@router.patch("/api/notifications/{notification_id}/read")
+def toggle_notification_read(notification_id: int, is_read: bool = True) -> dict:
+    """Marks a single notification as read or unread."""
+    from ..models_orm import IngestionNotification
+
+    with db_session() as session:
+        notif = session.query(IngestionNotification).filter_by(id=notification_id).first()
+        if not notif:
+            raise HTTPException(status_code=404, detail="Notification not found")
+        notif.read = 1 if is_read else 0
+        session.commit()
+    return {"status": "success", "id": notification_id, "is_read": is_read}
+
+
+@router.delete("/api/notifications")
+def delete_notifications_batch(
+    payload: Optional[Dict[str, Any]] = None,
+    ids: Optional[str] = Query(None, description="Comma-separated list of notification IDs to delete"),
+    read_only: bool = Query(False, description="If true, delete all read notifications"),
+) -> dict:
+    """Batch deletes notifications by ID list, read status, or filter criteria."""
+    from ..models_orm import IngestionNotification
+
+    with db_session() as session:
+        id_list = []
+        if payload and "ids" in payload and isinstance(payload["ids"], list):
+            id_list.extend(payload["ids"])
+        elif ids:
+            try:
+                id_list.extend([int(x.strip()) for x in ids.split(",") if x.strip()])
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid ID list format")
+
+        if id_list:
+            deleted = session.query(IngestionNotification).filter(IngestionNotification.id.in_(id_list)).delete(synchronize_session=False)
+            session.commit()
+            return {"status": "success", "deleted_count": deleted}
+        elif read_only:
+            deleted = session.query(IngestionNotification).filter_by(read=1).delete(synchronize_session=False)
+            session.commit()
+            return {"status": "success", "deleted_count": deleted}
+        else:
+            raise HTTPException(status_code=400, detail="Must provide ids or set read_only=True")
 
 
 @router.post("/api/notifications/read")

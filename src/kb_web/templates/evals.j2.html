@@ -102,12 +102,12 @@
                             Select Models to Compare
                         </label>
                         <div id="matrixModelsList" class="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 bg-gray-50 border border-gray-200 rounded-xl">
-                            {% for m in models %}
+                            {% for m in llm_models %}
                             {% set info = models_info.get(m, {}) if models_info else {} %}
                             {% set ctx_val = info.context_length if info.context_length else 16384 %}
                             {% set ctx_k = (ctx_val // 1024) if ctx_val >= 1024 else ctx_val %}
                             <label class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer border border-gray-200 bg-white hover:border-indigo-300 transition" title="Context: {{ ctx_val }} tokens{% if info.loaded %} • Loaded in VRAM{% endif %}">
-                                <input type="checkbox" name="matrixModel" value="{{ m }}" data-ctx="{{ ctx_val }}" {% if m == default_model or m == 'd1' %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500" onchange="updateMaxTokensHint()">
+                                <input type="checkbox" name="matrixModel" value="{{ m }}" data-ctx="{{ ctx_val }}" {% if m == default_model or loop.first %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500" onchange="updateMaxTokensHint(); renderPerModelConfigDrawer();">
                                 <span>{{ m }}</span>
                                 <span class="text-[10px] px-1.5 py-0.5 rounded font-mono {% if info.loaded %}bg-emerald-100 text-emerald-800 font-bold{% else %}bg-gray-100 text-gray-600{% endif %}">
                                     {{ ctx_k }}k{% if info.loaded %} • VRAM{% endif %}
@@ -119,8 +119,8 @@
 
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label for="matrixTemperature" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
-                                Temperature
+                            <label for="matrixTemperature" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1" title="Controls randomness in responses. Lower values (0.0 - 0.2) make output deterministic and focused; higher values (0.7 - 1.0) increase diversity.">
+                                Global Temperature ⓘ
                             </label>
                             <input
                                 type="number"
@@ -134,8 +134,8 @@
                         </div>
                         <div>
                             <div class="flex items-center justify-between mb-1">
-                                <label for="matrixMaxTokens" class="block text-xs font-bold uppercase tracking-wider text-gray-600">
-                                    Max Tokens (Predict / Context)
+                                <label for="matrixMaxTokens" class="block text-xs font-bold uppercase tracking-wider text-gray-600" title="Maximum number of tokens to generate in the model response.">
+                                    Max Tokens ⓘ
                                 </label>
                                 <span id="matrixMaxTokensHint" class="text-[10px] text-indigo-600 font-mono font-medium">Model context: 32k</span>
                             </div>
@@ -151,15 +151,36 @@
                         </div>
                     </div>
 
+                    <!-- Per-Model Generation Overrides Drawer -->
+                    <details class="bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs group" id="perModelDetails">
+                        <summary class="font-bold text-gray-700 cursor-pointer flex items-center justify-between select-none">
+                            <span class="flex items-center gap-1.5">
+                                <span>⚡</span> Per-Model Parameter Overrides (Temp, Top-P, Top-K, Tokens)
+                            </span>
+                            <span class="text-[10px] text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-[11px] text-gray-500 mt-1 mb-2">
+                            Configure individual sampling options per model. When left blank, global settings above apply.
+                        </p>
+                        <div id="perModelConfigContainer" class="space-y-3 mt-2">
+                            <!-- Populated via renderPerModelConfigDrawer() -->
+                        </div>
+                    </details>
+
                     <!-- Preset System Prompts Selector -->
                     <div>
                         <div class="flex items-center justify-between mb-1.5">
                             <label for="presetPromptSelect" class="text-xs font-bold uppercase tracking-wider text-gray-600">
-                                Preset System Prompts
+                                System Prompts
                             </label>
-                            <button type="button" onclick="insertSelectedPresetPrompt()" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">
-                                + Add Prompt to Matrix
-                            </button>
+                            <div class="flex items-center gap-2">
+                                <button type="button" onclick="addEmptyPromptCard()" class="text-xs text-emerald-600 hover:text-emerald-800 font-bold flex items-center gap-1">
+                                    <span>➕</span> Add Empty Prompt
+                                </button>
+                                <button type="button" onclick="insertSelectedPresetPrompt()" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">
+                                    + Add Preset
+                                </button>
+                            </div>
                         </div>
                         <select id="presetPromptSelect" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white">
                             {% for p in prompts %}
@@ -358,13 +379,11 @@
                         <label for="decisionModelInput" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
                             Decision Model
                         </label>
-                        <input
-                            type="text"
-                            id="decisionModelInput"
-                            value="{{ default_decision_model }}"
-                            placeholder="d1"
-                            class="w-full text-xs p-2 border border-gray-300 rounded-lg font-mono bg-white"
-                        >
+                        <select id="decisionModelInput" class="w-full text-xs p-2 border border-gray-300 rounded-lg font-mono bg-white">
+                            {% for dm in decision_models %}
+                            <option value="{{ dm }}" {% if dm == default_decision_model %}selected{% endif %}>{{ dm }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
 
                     <!-- Dataset iteration selectors (shown in dataset mode) -->
@@ -505,19 +524,13 @@
                         <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
                             Select Embedding Models
                         </label>
-                        <div class="space-y-2 p-2 bg-gray-50 border border-gray-200 rounded-xl">
+                        <div class="space-y-2 p-2 bg-gray-50 border border-gray-200 rounded-xl max-h-40 overflow-y-auto">
+                            {% for em in embedding_models %}
                             <label class="flex items-center gap-2 text-xs font-medium cursor-pointer">
-                                <input type="checkbox" name="embModel" value="{{ default_embedding_model }}" checked class="rounded text-indigo-600">
-                                <span>{{ default_embedding_model }} (Default)</span>
+                                <input type="checkbox" name="embModel" value="{{ em }}" {% if em == default_embedding_model or loop.first %}checked{% endif %} class="rounded text-indigo-600">
+                                <span>{{ em }} {% if em == default_embedding_model %}(Default){% endif %}</span>
                             </label>
-                            <label class="flex items-center gap-2 text-xs font-medium cursor-pointer">
-                                <input type="checkbox" name="embModel" value="embeddinggemma" class="rounded text-indigo-600">
-                                <span>embeddinggemma</span>
-                            </label>
-                            <label class="flex items-center gap-2 text-xs font-medium cursor-pointer">
-                                <input type="checkbox" name="embModel" value="nomic-embed-text" class="rounded text-indigo-600">
-                                <span>nomic-embed-text</span>
-                            </label>
+                            {% endfor %}
                         </div>
                     </div>
 
@@ -920,6 +933,7 @@ const DECISION_PRESETS = {
 // --- Initialization ---
 document.addEventListener("DOMContentLoaded", () => {
     renderActivePrompts();
+    renderPerModelConfigDrawer();
     loadDecisionPreset("link_crawler");
     updateInputCharCount();
 
@@ -999,6 +1013,66 @@ function updateInputCharCount() {
     }
 }
 
+// --- Per-Model Options State & Drawer ---
+let perModelOptions = {}; // { [modelName]: { temperature, top_p, top_k, max_tokens, num_ctx } }
+
+function renderPerModelConfigDrawer() {
+    const container = document.getElementById("perModelConfigContainer");
+    if (!container) return;
+    const checkedModels = Array.from(document.querySelectorAll("input[name='matrixModel']:checked")).map(cb => cb.value);
+
+    if (checkedModels.length === 0) {
+        container.innerHTML = '<div class="text-gray-400 italic text-[11px]">Select at least one model above to configure individual parameters.</div>';
+        return;
+    }
+
+    let html = '';
+    checkedModels.forEach(m => {
+        const opts = perModelOptions[m] || {};
+        html += `
+        <div class="p-3 bg-white border border-gray-200 rounded-xl space-y-2">
+            <div class="flex items-center justify-between">
+                <span class="font-bold text-gray-800 text-xs">${escapeHtml(m)}</span>
+                <button type="button" onclick="resetModelConfig('${escapeAttr(m)}')" class="text-[10px] text-gray-400 hover:text-indigo-600 font-semibold">Reset to Global</button>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <div title="Controls randomness in responses. 0.0 is deterministic and focused; 1.0 is creative and diverse.">
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase cursor-help">Temp ⓘ</label>
+                    <input type="number" step="0.05" min="0" max="1.5" placeholder="Global" value="${opts.temperature !== undefined ? opts.temperature : ''}" onchange="updateModelParam('${escapeAttr(m)}', 'temperature', this.value)" class="w-full p-1.5 border border-gray-200 rounded text-xs font-mono">
+                </div>
+                <div title="Nucleus sampling probability cutoff (e.g. 0.9 discards tokens outside top 90% probability mass).">
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase cursor-help">Top-P ⓘ</label>
+                    <input type="number" step="0.05" min="0" max="1.0" placeholder="Default" value="${opts.top_p !== undefined ? opts.top_p : ''}" onchange="updateModelParam('${escapeAttr(m)}', 'top_p', this.value)" class="w-full p-1.5 border border-gray-200 rounded text-xs font-mono">
+                </div>
+                <div title="Limits candidate tokens to top K at each step (e.g. 40 reduces low-probability drift).">
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase cursor-help">Top-K ⓘ</label>
+                    <input type="number" step="5" min="1" max="100" placeholder="Default" value="${opts.top_k !== undefined ? opts.top_k : ''}" onchange="updateModelParam('${escapeAttr(m)}', 'top_k', this.value)" class="w-full p-1.5 border border-gray-200 rounded text-xs font-mono">
+                </div>
+                <div title="Maximum number of tokens to generate in the model response.">
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase cursor-help">Max Tokens ⓘ</label>
+                    <input type="number" step="128" min="128" max="131072" placeholder="Global" value="${opts.max_tokens !== undefined ? opts.max_tokens : ''}" onchange="updateModelParam('${escapeAttr(m)}', 'max_tokens', this.value)" class="w-full p-1.5 border border-gray-200 rounded text-xs font-mono">
+                </div>
+            </div>
+        </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+function updateModelParam(modelName, param, value) {
+    if (!perModelOptions[modelName]) perModelOptions[modelName] = {};
+    if (value === '' || value === null || isNaN(Number(value))) {
+        delete perModelOptions[modelName][param];
+    } else {
+        perModelOptions[modelName][param] = Number(value);
+    }
+}
+
+function resetModelConfig(modelName) {
+    delete perModelOptions[modelName];
+    renderPerModelConfigDrawer();
+}
+
 function renderActivePrompts() {
     const container = document.getElementById("activePromptsContainer");
     const countEl = document.getElementById("activePromptCount");
@@ -1007,20 +1081,87 @@ function renderActivePrompts() {
     container.innerHTML = "";
     activePrompts.forEach((p, idx) => {
         const card = document.createElement("div");
-        card.className = "p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2 text-xs";
+        card.className = "p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2 text-xs shadow-xs";
         card.innerHTML = `
-            <div class="flex items-center justify-between">
-                <span class="font-bold text-gray-800">${escapeHtml(p.name)}</span>
-                ${activePrompts.length > 1 ? `<button type="button" onclick="removeActivePrompt(${idx})" class="text-gray-400 hover:text-red-500 font-semibold">&times; Remove</button>` : ''}
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+                <input type="text" value="${escapeHtml(p.name)}" onchange="updateActivePromptName(${idx}, this.value)" class="font-bold text-gray-800 text-xs bg-transparent border-b border-transparent hover:border-gray-300 focus:border-indigo-500 focus:bg-white focus:outline-none px-1 py-0.5 rounded transition max-w-[200px]" title="Click to rename prompt">
+                <div class="flex items-center gap-2">
+                    <!-- Set As Dropdown -->
+                    <div class="relative inline-block text-left">
+                        <select onchange="promotePromptFromSelect(${idx}, this)" class="text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1 hover:bg-indigo-100 transition cursor-pointer">
+                            <option value="">Set As... ▾</option>
+                            <option value="wiki_prompt">Article Wiki System Prompt</option>
+                            <option value="youtube_wiki_prompt">YouTube Wiki System Prompt</option>
+                            <option value="tags_prompt">Taxonomy Tags System Prompt</option>
+                            <option value="rag_system_prompt">Agentic RAG Assistant Prompt</option>
+                        </select>
+                    </div>
+                    ${activePrompts.length > 1 ? `<button type="button" onclick="removeActivePrompt(${idx})" class="text-gray-400 hover:text-red-500 font-semibold p-1" title="Remove Prompt">&times; Remove</button>` : ''}
+                </div>
             </div>
             <textarea
                 rows="3"
                 onchange="updateActivePromptText(${idx}, this.value)"
+                placeholder="Enter prompt instructions, constraints, and output formatting..."
                 class="w-full text-[11px] p-2 border border-gray-300 rounded-lg font-mono focus:ring-indigo-500 focus:border-indigo-500 bg-white"
             >${escapeHtml(p.text)}</textarea>
         `;
         container.appendChild(card);
     });
+}
+
+function addEmptyPromptCard() {
+    activePrompts.push({
+        id: "custom_" + Date.now(),
+        name: "Custom Prompt #" + (activePrompts.length + 1),
+        text: ""
+    });
+    renderActivePrompts();
+}
+
+function updateActivePromptName(index, newName) {
+    if (activePrompts[index]) {
+        activePrompts[index].name = newName || `Prompt #${index + 1}`;
+    }
+}
+
+async function promotePromptFromSelect(index, selectEl) {
+    const targetId = selectEl.value;
+    if (!targetId) return;
+    const prompt = activePrompts[index];
+    if (!prompt || !prompt.text.trim()) {
+        alert("Cannot promote an empty prompt. Please enter prompt instructions first.");
+        selectEl.value = "";
+        return;
+    }
+
+    if (!confirm(`Promote this prompt directly to server system instruction '${targetId}'?`)) {
+        selectEl.value = "";
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/evals/prompts/promote", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                target_type: "system_prompt",
+                target_id: targetId,
+                prompt_text: prompt.text,
+                prompt_name: prompt.name
+            })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            alert(`✅ ${data.message}`);
+        } else {
+            alert(`❌ Error: ${data.detail || data.message || "Failed to promote prompt"}`);
+        }
+    } catch (e) {
+        alert(`❌ Network error: ${e.message}`);
+    } finally {
+        selectEl.value = "";
+    }
 }
 
 function insertSelectedPresetPrompt() {
@@ -1133,7 +1274,8 @@ async function executeMatrixEval() {
         models: selectedModels,
         prompts: activePrompts,
         temperature: parseFloat(document.getElementById("matrixTemperature").value || "0.2"),
-        max_tokens: parseInt(document.getElementById("matrixMaxTokens").value || "2048", 10)
+        max_tokens: parseInt(document.getElementById("matrixMaxTokens").value || "2048", 10),
+        model_options: perModelOptions
     };
 
     if (matrixMode === 'dataset') {

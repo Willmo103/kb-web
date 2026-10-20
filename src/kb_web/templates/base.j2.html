@@ -509,6 +509,12 @@
                             <div id="notificationsList" class="max-h-80 overflow-y-auto divide-y divide-gray-100 text-xs">
                                 <div class="p-4 text-center text-gray-400 italic">No notifications yet.</div>
                             </div>
+                            <div class="p-2 border-t border-gray-100 bg-gray-50 text-center">
+                                <a href="/notifications" class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 font-semibold inline-flex items-center gap-1">
+                                    <span>View All History</span>
+                                    <span>→</span>
+                                </a>
+                            </div>
                         </div>
                     </div>
                     {% endif %}
@@ -716,16 +722,18 @@
                             var pageLink = pageHref ? '<a href="' + pageHref + '" class="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline block mt-1">View Page →</a>' : '';
                             var timeStr = n.created_at ? n.created_at.replace('T', ' ').substring(0, 16) : '';
 
-                            html += '<div class="p-3 ' + unreadBg + ' hover:bg-gray-50 transition flex items-start gap-2.5 notif-row border-b border-gray-100 last:border-b-0">';
+                            html += '<div class="p-3 ' + unreadBg + ' hover:bg-gray-50 transition flex items-start gap-2.5 notif-row border-b border-gray-100 last:border-b-0 group relative">';
                             html += '<span class="text-base flex-shrink-0">' + icon + '</span>';
-                            html += '<div class="flex-grow min-w-0">';
+                            html += '<div class="flex-grow min-w-0 pr-4">';
                             html += '<div class="flex items-center justify-between">';
                             html += '<span class="font-bold notif-title text-gray-850 text-[11px] uppercase tracking-wider">' + (n.stage || 'Ingest') + '</span>';
                             html += '<span class="text-[10px] text-gray-400 font-mono">' + timeStr + '</span>';
                             html += '</div>';
                             html += '<p class="notif-msg text-gray-700 mt-0.5 break-words text-xs">' + (n.message || '') + '</p>';
                             html += pageLink;
-                            html += '</div></div>';
+                            html += '</div>';
+                            html += '<button type="button" onclick="deleteNotification(' + n.id + ', event)" class="opacity-0 group-hover:opacity-100 transition absolute top-2 right-2 text-gray-400 hover:text-red-500 p-1 text-xs" title="Delete notification">✕</button>';
+                            html += '</div>';
 
                             if (!isFirstNotifLoad && !n.is_read && !knownNotifIds.has(n.id)) {
                                 showToastNotification(icon, n.stage, n.message, n.page_id, n.url);
@@ -738,6 +746,16 @@
                 isFirstNotifLoad = false;
             } catch (err) {
                 console.error("fetchNotifications error:", err);
+            }
+        }
+
+        async function deleteNotification(id, ev) {
+            if (ev) ev.stopPropagation();
+            try {
+                await fetch('/api/notifications/' + id, { method: 'DELETE' });
+                await fetchNotifications();
+            } catch (e) {
+                console.error("deleteNotification error:", e);
             }
         }
 

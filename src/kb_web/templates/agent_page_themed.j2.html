@@ -1,0 +1,109 @@
+{% extends "base.j2.html" %}
+
+{% block title %}{{ page.title }} - Agent Canvas{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <!-- Header Banner -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm">
+        <div class="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+                <span class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 block mb-1">
+                    🤖 Autonomous Agent Canvas &bull; {{ agent_name }}
+                </span>
+                <h1 class="text-2xl font-black text-gray-900 dark:text-gray-100 tracking-tight">
+                    {{ page.title }}
+                </h1>
+            </div>
+            <div class="flex items-center gap-2">
+                {% if page.is_temporary %}
+                <span class="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900">
+                    ⏱️ Ephemeral Canvas
+                </span>
+                {% endif %}
+                <span class="text-xs font-mono text-gray-400">
+                    ID: {{ page.hash_id }}
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Canvas -->
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 sm:p-8 shadow-sm">
+        <div class="prose prose-indigo dark:prose-invert max-w-none text-sm leading-relaxed">
+            {{ rendered_body | safe }}
+        </div>
+
+        <!-- Interactive Form / Human-In-The-Loop Approval Box -->
+        {% if form_schema and form_schema.fields %}
+        <div class="mt-8 pt-6 border-t border-gray-200 dark:border-gray-800">
+            {% if user_response and user_response.data %}
+            <!-- Prior Submission Status -->
+            <div class="p-4 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 space-y-2">
+                <div class="flex items-center justify-between text-xs font-bold">
+                    <span class="text-emerald-600 dark:text-emerald-400">✅ User Response Submitted</span>
+                    <span class="text-gray-400 font-mono">{{ user_response.submitted_at[:19] if user_response.submitted_at else '' }}</span>
+                </div>
+                <div class="text-xs text-gray-700 dark:text-gray-300">
+                    Decision: <strong>{{ user_response.data.get('decision', 'N/A') }}</strong>
+                    {% if user_response.data.get('feedback') %}
+                    <p class="mt-1 italic text-gray-500">"{{ user_response.data.get('feedback') }}"</p>
+                    {% endif %}
+                </div>
+                {% if user_response.execution_result %}
+                <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <span class="text-[11px] font-bold text-gray-500 uppercase block mb-1">Execution Output</span>
+                    <pre class="p-3 bg-gray-900 text-gray-100 rounded-lg text-xs font-mono whitespace-pre-wrap max-h-60 overflow-y-auto">{{ user_response.execution_result.get('output', '') }}</pre>
+                </div>
+                {% endif %}
+            </div>
+            {% else %}
+            <!-- Active Interactive Form -->
+            <form method="POST" action="/api/pages/agent/{{ page.hash_id }}/submit" class="space-y-4">
+                <div>
+                    <h3 class="text-sm font-extrabold uppercase tracking-wider text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                        <span>✍️</span> {{ form_schema.title or 'Human Review & Input' }}
+                    </h3>
+                    {% if form_schema.description %}
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ form_schema.description }}</p>
+                    {% endif %}
+                </div>
+
+                {% for field in form_schema.fields %}
+                <div class="space-y-1 text-xs">
+                    <label class="block font-bold text-gray-700 dark:text-gray-300">{{ field.label }}</label>
+                    {% if field.type == 'radio' %}
+                    <div class="flex items-center gap-4 mt-1">
+                        {% for opt in field.options %}
+                        <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                            <input type="radio" name="{{ field.name }}" value="{{ opt }}" {% if opt == field.default %}checked{% endif %} class="text-indigo-600 focus:ring-indigo-500">
+                            <span class="capitalize font-medium">{{ opt }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    {% elif field.type == 'select' %}
+                    <select name="{{ field.name }}" class="w-full p-2.5 border border-gray-300 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-xs focus:ring-indigo-500 focus:border-indigo-500">
+                        {% for opt in field.options %}
+                        <option value="{{ opt }}" {% if opt == field.default %}selected{% endif %}>{{ opt }}</option>
+                        {% endfor %}
+                    </select>
+                    {% elif field.type == 'textarea' %}
+                    <textarea name="{{ field.name }}" rows="3" placeholder="{{ field.placeholder or '' }}" class="w-full p-2.5 border border-gray-300 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 text-xs focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                    {% else %}
+                    <input type="text" name="{{ field.name }}" placeholder="{{ field.placeholder or '' }}" class="w-full p-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-xs">
+                    {% endif %}
+                </div>
+                {% endfor %}
+
+                <div class="pt-2 text-right">
+                    <button type="submit" class="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition">
+                        Submit Response &rarr;
+                    </button>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

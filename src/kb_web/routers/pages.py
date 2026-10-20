@@ -614,3 +614,18 @@ def start_video_download(
         "status": "success",
         "message": f"Downloading video {video_id} in background.",
     }
+
+
+@router.get("/notifications", response_class=HTMLResponse)
+def view_notifications_history(request: Request):
+    """HTML Dashboard displaying the complete notification archive and ingestion history in perpetuity."""
+    token = request.cookies.get(COOKIE_NAME)
+    is_admin = bool(token and verify_session_token(token))
+
+    template = _jinja_env.get_template("notifications_history.j2.html")
+    html_content = template.render(
+        request=request,
+        is_admin=is_admin,
+    )
+    return HTMLResponse(content=html_content)
+

@@ -333,6 +333,7 @@ from .routers import (  # noqa: E402
     errors,
     worker,
     evals,
+    agent_pages,
 )
 
 app.include_router(auth.router)
@@ -357,6 +358,7 @@ app.include_router(agent_board.router)
 app.include_router(errors.router)
 app.include_router(worker.router)
 app.include_router(evals.router)
+app.include_router(agent_pages.router)
 
 
 # --- Re-export utility functions for backward test compatibility ---
