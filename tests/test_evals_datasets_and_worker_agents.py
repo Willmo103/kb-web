@@ -300,3 +300,45 @@ def test_systemone_agent_test_run_does_not_use_chat_or_tools():
         assert "relevance" in test_result["output"]
 
     delete_agent_config(agent_id)
+
+
+def test_agent_available_fields_and_database_field_adherence():
+    """Verify default agent templates strictly adhere to real database column names and provide valid available_fields."""
+    from kb_web.agent_config import (
+        DATABASE_FIELDS,
+        get_available_fields_for_agent,
+        list_agent_configs,
+    )
+
+    # 1. Standard database columns must contain core FetchedPage fields
+    assert "title" in DATABASE_FIELDS
+    assert "url" in DATABASE_FIELDS
+    assert "md_content" in DATABASE_FIELDS
+    assert "description" in DATABASE_FIELDS
+    assert "tags" in DATABASE_FIELDS
+    assert "content" in DATABASE_FIELDS
+
+    # 2. Per-agent available fields must include database fields + specific runtime parameters
+    crawler_fields = get_available_fields_for_agent("link_crawler")
+    assert "title" in crawler_fields
+    assert "url" in crawler_fields
+    assert "candidate_url" in crawler_fields
+    assert "candidate_anchor_text" in crawler_fields
+
+    rag_fields = get_available_fields_for_agent("rag_eval")
+    assert "query" in rag_fields
+    assert "title" in rag_fields
+
+    chat_fields = get_available_fields_for_agent("article_chat")
+    assert "question" in chat_fields
+    assert "md_content" in chat_fields
+
+    # 3. Default agent configs must NOT use old aliases (page_title, base_url, article_content)
+    agents = {a["id"]: a for a in list_agent_configs()}
+    assert "page_title" not in agents["link_crawler"]["user_prompt_template"]
+    assert "base_url" not in agents["link_crawler"]["user_prompt_template"]
+    assert "{{ data.title }}" in agents["link_crawler"]["user_prompt_template"]
+    assert "{{ data.url }}" in agents["link_crawler"]["user_prompt_template"]
+
+    assert "article_content" not in agents["article_chat"]["user_prompt_template"]
+    assert "md_content" in agents["article_chat"]["user_prompt_template"]

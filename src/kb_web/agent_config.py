@@ -99,8 +99,8 @@ DEFAULT_AGENT_DEFINITIONS: List[Dict[str, Any]] = [
         "model": "d1",
         "system_prompt": "Evaluate candidate URLs extracted from web articles for high-value technical ingestion.",
         "user_prompt_template": json.dumps({
-            "source_page": "{{ data.page_title }}",
-            "source_url": "{{ data.base_url }}",
+            "source_page": "{{ data.title }}",
+            "source_url": "{{ data.url }}",
             "candidate_url": "{{ data.candidate_url }}",
             "candidate_anchor": "{{ data.candidate_anchor_text }}"
         }, indent=2),
@@ -197,7 +197,7 @@ DEFAULT_AGENT_DEFINITIONS: List[Dict[str, Any]] = [
         "call_type": "llm",
         "model": "gemma4:e4b",
         "system_prompt": DEFAULT_ARTICLE_CHAT_PROMPT,
-        "user_prompt_template": "Document Content:\n{{ data.article_content }}\n\nUser Question:\n{{ data.question }}",
+        "user_prompt_template": "Document Content:\n{{ data.md_content or data.content }}\n\nUser Question:\n{{ data.question }}",
         "thinking": 0,
         "temperature": 0.3,
         "num_predict": 2048,
@@ -283,6 +283,44 @@ DEFAULT_AGENT_DEFINITIONS: List[Dict[str, Any]] = [
 ]
 
 
+DATABASE_FIELDS: List[str] = [
+    "title",
+    "url",
+    "description",
+    "md_content",
+    "content",
+    "tags",
+    "reading_time_minutes",
+    "fetched_at",
+]
+
+AGENT_RUNTIME_FIELDS: Dict[str, List[str]] = {
+    "maintenance_agent": ["error_message", "stack_trace", "request_url"],
+    "link_crawler": ["candidate_url", "candidate_anchor_text"],
+    "rag_eval": ["query"],
+    "article_chat": ["question"],
+    "workspace_agent": ["files_summary", "user_prompt"],
+    "taxonomy_agent": ["taxonomy_tree_str"],
+    "rag_synthesis": ["query", "purpose", "evidence_table", "evidence_chunks"],
+    "embedding_default": ["text_to_embed"],
+}
+
+
+def get_available_fields_for_agent(agent_id: str, template: Optional[str] = None) -> List[str]:
+    """Returns valid Jinja parameter keys for an agent, combining standard database fields with agent runtime parameters."""
+    fields = list(DATABASE_FIELDS)
+    for rf in AGENT_RUNTIME_FIELDS.get(agent_id, []):
+        if rf not in fields:
+            fields.append(rf)
+    if template:
+        import re
+        tokens = re.findall(r"\{\{\s*data\.([a-zA-Z0-9_]+)\s*\}\}", template)
+        for token in tokens:
+            if token not in fields:
+                fields.append(token)
+    return fields
+
+
 def ensure_default_agent_configs(session: Optional[Session] = None) -> None:
     """Seeds the agent_configurations table with default entries if not already present."""
     owns_session = session is None
@@ -315,6 +353,18 @@ def ensure_default_agent_configs(session: Optional[Session] = None) -> None:
                     updated_at=now_iso,
                 )
                 session.add(row)
+            else:
+                # Migrate any legacy alias variables in existing default agent templates to standard database fields
+                existing_row = session.query(AgentConfiguration).filter_by(id=d["id"]).first()
+                if existing_row and existing_row.user_prompt_template:
+                    tpl = existing_row.user_prompt_template
+                    updated_tpl = (
+                        tpl.replace("{{ data.page_title }}", "{{ data.title }}")
+                           .replace("{{ data.base_url }}", "{{ data.url }}")
+                           .replace("{{ data.article_content }}", "{{ data.md_content or data.content }}")
+                    )
+                    if updated_tpl != tpl:
+                        existing_row.user_prompt_template = updated_tpl
         session.commit()
     except Exception as e:
         session.rollback()
@@ -359,6 +409,7 @@ def get_agent_config(agent_id: str, session: Optional[Session] = None) -> Option
             "is_published": bool(getattr(row, "is_published", 0)),
             "published_at": getattr(row, "published_at", None),
             "frozen_snapshot_json": getattr(row, "frozen_snapshot_json", None),
+            "available_fields": get_available_fields_for_agent(row.id, row.user_prompt_template),
             "updated_at": row.updated_at,
         }
     finally:
@@ -408,6 +459,7 @@ def list_agent_configs(session: Optional[Session] = None) -> List[Dict[str, Any]
                 "is_published": bool(getattr(r, "is_published", 0)),
                 "published_at": getattr(r, "published_at", None),
                 "frozen_snapshot_json": getattr(r, "frozen_snapshot_json", None),
+                "available_fields": get_available_fields_for_agent(r.id, r.user_prompt_template),
                 "updated_at": r.updated_at,
             })
         return result

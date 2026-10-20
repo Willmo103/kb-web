@@ -1184,7 +1184,7 @@
                                 </label>
                                 <span class="text-[10px] text-gray-400 font-mono">Variables: &#123;&#123; data.title &#125;&#125;, &#123;&#123; data.url &#125;&#125;, etc.</span>
                             </div>
-                            <textarea rows="5" data-field="user_prompt_template" id="agent-template-{{ agent.id }}" class="agent-jinja-template w-full text-xs font-mono p-3 border border-amber-300 rounded-xl bg-white shadow-inner focus:ring-amber-500 focus:border-amber-500">{{ agent.user_prompt_template or '' }}</textarea>
+                            <textarea rows="5" data-field="user_prompt_template" id="agent-template-{{ agent.id }}" data-available-fields="{{ (agent.available_fields or []) | tojson }}" class="agent-jinja-template w-full text-xs font-mono p-3 border border-amber-300 rounded-xl bg-white shadow-inner focus:ring-amber-500 focus:border-amber-500">{{ agent.user_prompt_template or '' }}</textarea>
                         </div>
 
                         <!-- Questions & Criteria Schema -->
@@ -1338,7 +1338,7 @@
                                     </label>
                                     <span class="text-[10px] text-gray-400 font-mono">Variables: &#123;&#123; data.title &#125;&#125;, &#123;&#123; data.wiki &#125;&#125;, etc.</span>
                                 </div>
-                                <textarea rows="6" data-field="user_prompt_template" id="agent-template-{{ agent.id }}" class="agent-jinja-template w-full text-xs font-mono p-3 border border-gray-300 rounded-xl bg-white shadow-inner focus:ring-indigo-500 focus:border-indigo-500">{{ agent.user_prompt_template or '' }}</textarea>
+                                <textarea rows="6" data-field="user_prompt_template" id="agent-template-{{ agent.id }}" data-available-fields="{{ (agent.available_fields or []) | tojson }}" class="agent-jinja-template w-full text-xs font-mono p-3 border border-gray-300 rounded-xl bg-white shadow-inner focus:ring-indigo-500 focus:border-indigo-500">{{ agent.user_prompt_template or '' }}</textarea>
                             </div>
                         </div>
                         {% endif %}
@@ -1659,8 +1659,14 @@
     document.addEventListener('DOMContentLoaded', () => {
         if (typeof window.initJinjaHighlighter === 'function') {
             document.querySelectorAll('.agent-jinja-template').forEach(ta => {
+                let fields = null;
+                if (ta.dataset.availableFields) {
+                    try {
+                        fields = JSON.parse(ta.dataset.availableFields);
+                    } catch (e) {}
+                }
                 window.initJinjaHighlighter(ta, {
-                    availableFields: ['title', 'url', 'md_content', 'description', 'tags', 'wiki', 'content', 'error_message', 'stack_trace', 'request_url']
+                    availableFields: fields || ['title', 'url', 'md_content', 'description', 'tags', 'content', 'reading_time_minutes', 'fetched_at']
                 });
             });
         }

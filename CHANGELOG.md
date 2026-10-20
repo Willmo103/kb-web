@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Implemented versioned frozen snapshot commits (`POST /api/admin/agents/{id}/publish`), recording immutable snapshots (`frozen_snapshot_json`) with automatic version number increments and timestamp tracking.
 
 ### Changed
+- **Direct Database Field Adherence & Elimination of Confusing Aliases (`src/kb_web/agent_config.py`, `templates/admin.j2.html`, `templates/evals.j2.html`)**:
+  - Replaced legacy parameter aliases in preconfigured agent templates with canonical database columns from `fetched_pages`:
+    * `Link Discovery Gating Agent (d1)`: migrated `page_title` and `base_url` to direct database fields `title` and `url`.
+    * `Article Reading Assistant`: migrated `article_content` to database field `md_content or data.content`.
+  - Added auto-migration in `ensure_default_agent_configs()` updating any existing rows in the database to standard column names.
+  - Registered `available_fields` on all agent configurations combining core database fields (`title`, `url`, `description`, `md_content`, `content`, `tags`, `reading_time_minutes`, `fetched_at`) with specific agent runtime parameters (`candidate_url`, `query`, `question`, etc.), eliminating false-positive "invalid field" alerts.
+- **In-Textentry Field Syntax Highlighting & Visual Contrast (`src/kb_web/static/js/jinja_highlighter.js`)**:
+  - Injected dedicated `.jinja-editor-wrapper` and `.jinja-backdrop` styling rules into the DOM, enforcing `background-color: transparent !important` on active textareas so underlying highlight pill layers remain visible across both dark and light modes.
+  - Configured `<mark>` highlights with `color: transparent !important` and glowing pill box-shadows (`rgba(34, 197, 94, 0.32)` for valid database/runtime fields and `rgba(239, 68, 68, 0.35)` with wavy red underlines for invalid keys), allowing the textarea's crisp native text to render cleanly on top with zero character displacement.
+  - Added `ResizeObserver` and scroll synchronization to ensure backdrop and textarea metrics remain in sync upon resizing or dynamic content insertion.
 - **Strict Isolation of SystemOne Decision Gating Models (`src/kb_web/agent_config.py`, `routers/evals.py`, `templates/admin.j2.html`, `templates/evals.j2.html`)**:
   - Completely excluded SystemOne decision models (`d1`, `tev1`) from generative completion and wiki creation model selectors across the entire application.
   - Structurally separated the Admin Agent tab into two distinct sections: **Section 1: SystemOne Decision Gating Models** and **Section 2: Generative LLM & Coding Worker Agents**.

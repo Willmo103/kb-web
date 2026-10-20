@@ -3,15 +3,68 @@
  * Reusable Jinja2 parameter syntax & dataset field validation highlighter.
  * 
  * Features:
- * - Real-time syntax validation:
- *   - Green highlighting & badges for valid fields (e.g. {{ data.title }}, {{ data.url }})
- *   - Red highlighting & badges for unrecognized/invalid fields (e.g. {{ data.nonexistent }})
- * - Interactive Available Fields bar:
- *   - Displays all accessible dataset fields with click-to-insert tokens at cursor position
- * - Backdrop mirror layer for in-editor colored parameter highlighting
+ * - Direct in-textarea parameter syntax highlighting:
+ *   - Green glowing pills for valid database/runtime fields (e.g. {{ data.title }}, {{ data.url }})
+ *   - Red wavy glowing alert pills for unrecognized/invalid fields (e.g. {{ data.nonexistent }})
+ * - Interactive Available Fields Bar:
+ *   - Categorized by Database Fields (fetched_pages) and Agent Runtime Parameters
+ *   - Click-to-insert tokens at cursor position
+ * - Backdrop mirror layer with pixel-accurate layout synchronization and scroll sync
  */
 
 (function () {
+    // Inject global highlighter styles once into document head
+    function ensureHighlighterStyles() {
+        if (document.getElementById('jinja-highlighter-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'jinja-highlighter-styles';
+        style.textContent = `
+            .jinja-editor-wrapper {
+                position: relative !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            .jinja-backdrop {
+                position: absolute !important;
+                inset: 0 !important;
+                pointer-events: none !important;
+                overflow: hidden !important;
+                user-select: none !important;
+                color: transparent !important;
+                z-index: 1 !important;
+                white-space: pre-wrap !important;
+                word-break: break-word !important;
+                overflow-wrap: break-word !important;
+                box-sizing: border-box !important;
+            }
+            .jinja-backdrop mark {
+                color: transparent !important;
+                display: inline !important;
+                border-radius: 4px !important;
+            }
+            .jinja-backdrop mark.jinja-param-green {
+                background-color: rgba(34, 197, 94, 0.32) !important;
+                box-shadow: 0 0 0 1.5px rgba(34, 197, 94, 0.75) !important;
+            }
+            .jinja-backdrop mark.jinja-param-red {
+                background-color: rgba(239, 68, 68, 0.35) !important;
+                box-shadow: 0 0 0 1.5px rgba(239, 68, 68, 0.8) !important;
+                text-decoration: underline wavy #ef4444 !important;
+            }
+            .jinja-editor-wrapper textarea {
+                position: relative !important;
+                z-index: 2 !important;
+                background-color: transparent !important;
+                background: transparent !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const STANDARD_DB_FIELDS = new Set([
+        'title', 'url', 'description', 'md_content', 'content', 'tags', 'reading_time_minutes', 'fetched_at', 'wiki'
+    ]);
+
     class JinjaHighlighter {
         constructor(textarea, options = {}) {
             this.textarea = typeof textarea === 'string' ? document.getElementById(textarea) : textarea;
@@ -33,51 +86,62 @@
         }
 
         init() {
-            // Check if already initialized
             if (this.textarea.dataset.highlighterInit === 'true') {
                 return;
             }
             this.textarea.dataset.highlighterInit = 'true';
 
-            // Wrap textarea in relative container if not already wrapped
+            ensureHighlighterStyles();
             this.setupEditorDOM();
 
-            // Setup listeners
+            // Setup event listeners
             this.textarea.addEventListener('input', () => this.update());
             this.textarea.addEventListener('scroll', () => this.syncScroll());
             window.addEventListener('resize', () => this.syncDimensions());
 
+            if (window.ResizeObserver) {
+                this.resizeObserver = new ResizeObserver(() => this.syncDimensions());
+                this.resizeObserver.observe(this.textarea);
+            }
+
             // Initial render
             this.renderFieldsBar();
+            this.syncDimensions();
             this.update();
         }
 
         setupEditorDOM() {
-            // Container for textarea and mirror overlay
             const parent = this.textarea.parentNode;
             this.wrapper = document.createElement('div');
             this.wrapper.className = 'jinja-editor-wrapper relative w-full';
 
-            // Insert wrapper before textarea, then move textarea into wrapper
+            // Preserve background color on the wrapper so transparency doesn't make it blank
+            const cs = window.getComputedStyle(this.textarea);
+            const bg = cs.backgroundColor;
+            if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') {
+                this.wrapper.style.backgroundColor = bg;
+            }
+            if (cs.borderRadius) {
+                this.wrapper.style.borderRadius = cs.borderRadius;
+            }
+
             parent.insertBefore(this.wrapper, this.textarea);
             this.wrapper.appendChild(this.textarea);
 
             // Create backdrop highlight layer positioned behind textarea
             this.backdrop = document.createElement('div');
-            this.backdrop.className = 'jinja-backdrop pointer-events-none absolute inset-0 font-mono text-xs overflow-hidden select-none border border-transparent box-border rounded-xl p-3.5';
-            this.backdrop.style.whiteSpace = 'pre-wrap';
-            this.backdrop.style.wordBreak = 'break-word';
-            this.backdrop.style.color = 'transparent';
-            this.backdrop.style.zIndex = '1';
+            this.backdrop.className = 'jinja-backdrop pointer-events-none absolute inset-0 select-none overflow-hidden';
+            this.applyTextareaMetrics(cs);
 
             this.wrapper.insertBefore(this.backdrop, this.textarea);
 
-            // Style textarea to be transparent so highlights show through cleanly
+            // Force textarea background to transparent
             this.textarea.style.position = 'relative';
             this.textarea.style.zIndex = '2';
-            this.textarea.style.backgroundColor = 'transparent';
+            this.textarea.style.setProperty('background-color', 'transparent', 'important');
+            this.textarea.style.setProperty('background', 'transparent', 'important');
 
-            // Create Fields Bar if container specified or append below textarea
+            // Create Fields Bar
             if (this.options.fieldsBarContainerId) {
                 this.fieldsBar = document.getElementById(this.options.fieldsBarContainerId);
             } else {
@@ -96,6 +160,27 @@
             }
         }
 
+        applyTextareaMetrics(cs) {
+            if (!this.backdrop) return;
+            this.backdrop.style.fontFamily = cs.fontFamily;
+            this.backdrop.style.fontSize = cs.fontSize;
+            this.backdrop.style.fontWeight = cs.fontWeight;
+            this.backdrop.style.lineHeight = cs.lineHeight;
+            this.backdrop.style.letterSpacing = cs.letterSpacing;
+            this.backdrop.style.paddingTop = cs.paddingTop;
+            this.backdrop.style.paddingRight = cs.paddingRight;
+            this.backdrop.style.paddingBottom = cs.paddingBottom;
+            this.backdrop.style.paddingLeft = cs.paddingLeft;
+            this.backdrop.style.borderTopWidth = cs.borderTopWidth;
+            this.backdrop.style.borderRightWidth = cs.borderRightWidth;
+            this.backdrop.style.borderBottomWidth = cs.borderBottomWidth;
+            this.backdrop.style.borderLeftWidth = cs.borderLeftWidth;
+            this.backdrop.style.borderStyle = 'solid';
+            this.backdrop.style.borderColor = 'transparent';
+            this.backdrop.style.borderRadius = cs.borderRadius;
+            this.backdrop.style.boxSizing = cs.boxSizing || 'border-box';
+        }
+
         setAvailableFields(fields) {
             this.availableFields = new Set(Array.isArray(fields) ? fields : []);
             this.renderFieldsBar();
@@ -108,7 +193,7 @@
 
             const label = document.createElement('span');
             label.className = 'text-[10px] font-bold uppercase tracking-wider text-gray-500 mr-1 flex items-center gap-1';
-            label.innerHTML = '<span>🏷️</span> Available Dataset Fields:';
+            label.innerHTML = '<span>🏷️</span> Available Fields:';
             this.fieldsBar.appendChild(label);
 
             if (this.availableFields.size === 0) {
@@ -119,13 +204,23 @@
                 return;
             }
 
-            const sortedFields = Array.from(this.availableFields).sort();
+            const sortedFields = Array.from(this.availableFields).sort((a, b) => {
+                const aIsDb = STANDARD_DB_FIELDS.has(a);
+                const bIsDb = STANDARD_DB_FIELDS.has(b);
+                if (aIsDb && !bIsDb) return -1;
+                if (!aIsDb && bIsDb) return 1;
+                return a.localeCompare(b);
+            });
+
             for (const field of sortedFields) {
+                const isDbField = STANDARD_DB_FIELDS.has(field);
                 const btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = 'px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer flex items-center gap-1 shadow-2xs';
-                btn.title = `Click to insert {{ data.${field} }}`;
-                btn.innerHTML = `<span class="text-indigo-400 font-bold">+</span> {{ data.${this.escapeHtml(field)} }}`;
+                btn.className = isDbField
+                    ? 'px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer flex items-center gap-1 shadow-2xs'
+                    : 'px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition cursor-pointer flex items-center gap-1 shadow-2xs';
+                btn.title = `Click to insert {{ data.${field} }} (${isDbField ? 'Database field' : 'Runtime parameter'})`;
+                btn.innerHTML = `<span class="${isDbField ? 'text-indigo-400' : 'text-amber-500'} font-bold">+</span> {{ data.${this.escapeHtml(field)} }}`;
                 btn.addEventListener('click', (e) => {
                     e.preventDefault();
                     this.insertFieldToken(field);
@@ -169,14 +264,12 @@
             let match;
 
             while ((match = regex.exec(text)) !== null) {
-                // Non-matched plain text before this match
                 const plainText = text.substring(lastIndex, match.index);
                 highlightedHtml += this.escapeHtml(plainText);
 
                 const rawExpr = match[0];
                 const varPath = match[1];
 
-                // Extract field name (handle both `data.field_name` and direct `field_name`)
                 let fieldName = varPath;
                 if (varPath.startsWith('data.')) {
                     fieldName = varPath.substring(5);
@@ -190,20 +283,16 @@
                 });
 
                 if (isValid) {
-                    // Green highlight for proper assignment
-                    highlightedHtml += `<mark class="jinja-param-green" style="background-color: #bbf7d0; color: #14532d; border-radius: 3px; padding: 1px 3px; font-weight: bold; border: 1px solid #86efac;">${this.escapeHtml(rawExpr)}</mark>`;
+                    highlightedHtml += `<mark class="jinja-param-green">${this.escapeHtml(rawExpr)}</mark>`;
                 } else {
-                    // Red highlight for incorrect or non-matching parameter
-                    highlightedHtml += `<mark class="jinja-param-red" style="background-color: #fecaca; color: #7f1d1d; border-radius: 3px; padding: 1px 3px; font-weight: bold; border: 1px solid #fca5a5;" title="Unrecognized field '${fieldName}'">${this.escapeHtml(rawExpr)}</mark>`;
+                    highlightedHtml += `<mark class="jinja-param-red" title="Unrecognized field '${this.escapeHtml(fieldName)}'">${this.escapeHtml(rawExpr)}</mark>`;
                 }
 
                 lastIndex = regex.lastIndex;
             }
 
-            // Append remaining plain text
             highlightedHtml += this.escapeHtml(text.substring(lastIndex));
 
-            // Trailing newline fix for pre-wrap mirror scrolling
             if (text.endsWith('\n')) {
                 highlightedHtml += ' ';
             }
@@ -230,7 +319,6 @@
             header.innerText = 'Template Variables:';
             this.statusBar.appendChild(header);
 
-            // Deduplicate parameters
             const seen = new Set();
             for (const p of params) {
                 if (seen.has(p.raw)) continue;
@@ -257,6 +345,10 @@
 
         syncDimensions() {
             if (!this.backdrop || !this.textarea) return;
+            const cs = window.getComputedStyle(this.textarea);
+            this.applyTextareaMetrics(cs);
+            this.backdrop.style.width = this.textarea.clientWidth + 'px';
+            this.backdrop.style.height = this.textarea.clientHeight + 'px';
             this.syncScroll();
         }
     }
