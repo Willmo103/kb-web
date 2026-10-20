@@ -452,7 +452,28 @@ class AgentConfiguration(Base):
     tools = Column(Text, default="[]")  # JSON array of tools
     enabled = Column(Integer, default=1)
     extra_options = Column(Text, default="{}")  # JSON object for custom question templates or options
+    version = Column(Integer, default=1)
+    is_published = Column(Integer, default=0)  # 0 = draft/staging, 1 = published/frozen
+    published_at = Column(String, nullable=True)
+    frozen_snapshot_json = Column(Text, nullable=True)  # Immutable snapshot when published
     updated_at = Column(String)
+
+
+class EvaluationRun(Base):
+    """Stores full historical evaluation runs, execution parameters, metrics,
+    and streaming partial/completed results across Prompt Matrix, Decision Gating, and Embeddings.
+    """
+    __tablename__ = "evaluation_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    eval_type = Column(String(32), default="matrix", index=True)  # "matrix", "decision", "embedding"
+    title = Column(String(256), nullable=False)
+    status = Column(String(32), default="running", index=True)  # "running", "completed", "failed", "cancelled"
+    config_json = Column(Text, default="{}")  # models, prompts, dataset_id, sample_limit, randomize, parameters
+    results_json = Column(Text, default="[]")  # live/completed cell outputs
+    metrics_json = Column(Text, default="{}")  # latency, tokens, error counts
+    created_at = Column(String, index=True)
+    completed_at = Column(String, nullable=True)
 
 
 class EvalDataset(Base):
@@ -750,6 +771,20 @@ def ensure_views_and_indexes(engine):
                         conn.execute(text("ALTER TABLE notes ADD COLUMN links TEXT DEFAULT '[]';"))
                 except Exception:
                     pass
+                try:
+                    table_info = conn.execute(text("PRAGMA table_info(agent_configurations);")).fetchall()
+                    cols = [r[1] for r in table_info]
+                    if table_info:
+                        if "version" not in cols:
+                            conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN version INTEGER DEFAULT 1;"))
+                        if "is_published" not in cols:
+                            conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN is_published INTEGER DEFAULT 0;"))
+                        if "published_at" not in cols:
+                            conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN published_at TEXT;"))
+                        if "frozen_snapshot_json" not in cols:
+                            conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN frozen_snapshot_json TEXT;"))
+                except Exception:
+                    pass
 
             if dialect == "postgresql":
                 try:
@@ -761,6 +796,10 @@ def ensure_views_and_indexes(engine):
                     conn.execute(text("ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"))
                     conn.execute(text("ALTER TABLE notes ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"))
                     conn.execute(text("ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"))
+                    conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;"))
+                    conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS is_published INTEGER DEFAULT 0;"))
+                    conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS published_at VARCHAR;"))
+                    conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS frozen_snapshot_json TEXT;"))
                 except Exception as e:
                     print(f"Warning creating PostgreSQL indexes or columns: {e}")
 

@@ -440,6 +440,8 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
 
 
 class AgentConfigUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
     model: Optional[str] = None
     call_type: Optional[str] = None
     system_prompt: Optional[str] = None
@@ -455,11 +457,64 @@ class AgentConfigUpdateRequest(BaseModel):
     extra_options: Optional[Dict[str, Any]] = None
 
 
+class CreateAgentRequest(BaseModel):
+    id: str = Field(..., min_length=2, max_length=64)
+    name: str = Field(..., min_length=2)
+    category: str = Field("custom", min_length=2)
+    call_type: str = Field("llm", description="'llm' or 'decision'")
+    model: str = Field(..., min_length=1)
+    system_prompt: Optional[str] = ""
+    user_prompt_template: Optional[str] = ""
+    num_ctx: Optional[int] = 8192
+    temperature: Optional[float] = 0.2
+    num_predict: Optional[int] = 2048
+    top_p: Optional[float] = 0.9
+    top_k: Optional[int] = 40
+    tools: Optional[List[str]] = Field(default_factory=list)
+    extra_options: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+
+class AgentTestRunRequest(BaseModel):
+    sample_data: Dict[str, Any] = Field(default_factory=dict)
+
+
 @router.get("/api/admin/agents", dependencies=[Depends(verify_auth)])
 def api_get_agent_configs() -> dict:
     """Returns all configured agents and their full parameter profiles."""
     from ..agent_config import list_agent_configs
     return {"status": "success", "agents": list_agent_configs()}
+
+
+@router.post("/api/admin/agents/create", dependencies=[Depends(verify_auth)])
+def api_create_agent_config(payload: CreateAgentRequest) -> dict:
+    """Creates a new custom worker agent in draft mode."""
+    from ..agent_config import get_agent_config, save_agent_config
+    # Normalize ID
+    clean_id = payload.id.strip().lower().replace(" ", "_")
+    existing = get_agent_config(clean_id)
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Agent with ID '{clean_id}' already exists")
+
+    agent_data = {
+        "name": payload.name,
+        "category": payload.category,
+        "call_type": payload.call_type,
+        "model": payload.model,
+        "system_prompt": payload.system_prompt if payload.call_type != "decision" else "",
+        "user_prompt_template": payload.user_prompt_template,
+        "num_ctx": payload.num_ctx or 8192,
+        "temperature": payload.temperature if payload.call_type != "decision" else None,
+        "num_predict": payload.num_predict if payload.call_type != "decision" else None,
+        "top_p": payload.top_p if payload.call_type != "decision" else None,
+        "top_k": payload.top_k if payload.call_type != "decision" else None,
+        "tools": payload.tools if payload.call_type != "decision" else [],
+        "extra_options": payload.extra_options or {},
+        "enabled": 1,
+        "is_published": 0,
+        "version": 1,
+    }
+    created = save_agent_config(clean_id, agent_data)
+    return {"status": "success", "agent": created}
 
 
 @router.get("/api/admin/agents/{agent_id}", dependencies=[Depends(verify_auth)])
@@ -481,6 +536,44 @@ def api_update_agent_config(agent_id: str, payload: AgentConfigUpdateRequest) ->
     if not res:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
     return {"status": "success", "agent": res}
+
+
+@router.delete("/api/admin/agents/{agent_id}", dependencies=[Depends(verify_auth)])
+def api_delete_agent_config(agent_id: str) -> dict:
+    """Deletes an agent configuration."""
+    from ..agent_config import delete_agent_config
+    success = delete_agent_config(agent_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found or could not be deleted")
+    return {"status": "success", "message": f"Agent '{agent_id}' successfully deleted"}
+
+
+@router.post("/api/admin/agents/{agent_id}/publish", dependencies=[Depends(verify_auth)])
+def api_publish_agent_config(agent_id: str) -> dict:
+    """Publishes a frozen snapshot commit of the agent configuration, incrementing its version."""
+    from ..agent_config import publish_agent_config
+    try:
+        updated = publish_agent_config(agent_id)
+        return {"status": "success", "agent": updated}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/api/admin/agents/{agent_id}/test-run", dependencies=[Depends(verify_auth)])
+def api_test_run_agent(agent_id: str, payload: AgentTestRunRequest) -> dict:
+    """Runs a draft or published agent on sample input data to preview outputs before publishing."""
+    from ..agent_config import test_run_agent_config
+    try:
+        sample_data = payload.sample_data or {
+            "title": "Sample Knowledge Base Article",
+            "url": "https://example.com/test-article",
+            "md_content": "This is test markdown content to verify the agent's prompt template and model responses.",
+            "description": "Test article description for worker agent evaluation.",
+        }
+        result = test_run_agent_config(agent_id, sample_data)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 class UpdatePromptRequest(BaseModel):
