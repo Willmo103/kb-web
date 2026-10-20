@@ -1,0 +1,477 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Notification History & System Log - Knowledge Base{% endblock %}
+
+{% block extra_head %}
+<style>
+    .notif-card {
+        transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+    }
+    .notif-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.08);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between pb-6 border-b border-gray-200 dark:border-gray-800 gap-4">
+        <div>
+            <div class="flex items-center gap-3">
+                <span class="text-3xl">🔔</span>
+                <h1 class="text-2xl font-black text-gray-900 dark:text-gray-100 tracking-tight">Notification History & Logs</h1>
+            </div>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Background ingestion events, worker activity, and autonomous agent logs preserved in perpetuity until explicitly cleared.
+            </p>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+            <button type="button" onclick="markAllRead()" class="px-3.5 py-2 text-xs font-semibold rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition shadow-sm flex items-center gap-1.5">
+                <span>✓</span> Mark All Read
+            </button>
+            <button type="button" onclick="deleteSelected()" id="btnDeleteSelected" class="hidden px-3.5 py-2 text-xs font-semibold rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/60 transition shadow-sm flex items-center gap-1.5">
+                <span>🗑️</span> Delete Selected (<span id="selectedCountLabel">0</span>)
+            </button>
+            <button type="button" onclick="confirmClearAll()" class="px-3.5 py-2 text-xs font-semibold rounded-lg border border-red-300 dark:border-red-800 bg-white dark:bg-gray-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition shadow-sm flex items-center gap-1.5">
+                <span>⚠️</span> Clear All History
+            </button>
+        </div>
+    </div>
+
+    <!-- Filters & Search Toolbar -->
+    <div class="mt-6 bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800 shadow-sm flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+        <!-- Search -->
+        <div class="relative w-full lg:w-96">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                🔍
+            </span>
+            <input type="text" id="searchInput" placeholder="Search notifications by message, URL, or title..." oninput="onSearchChanged()" class="w-full pl-9 pr-4 py-2 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition">
+        </div>
+
+        <!-- Filter Dropdowns & Pills -->
+        <div class="flex items-center gap-2.5 flex-wrap w-full lg:w-auto">
+            <!-- Stage filter -->
+            <select id="stageFilter" onchange="applyFilters()" class="text-xs py-2 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">All Stages</option>
+                <option value="fetch">Fetch / Ingestion</option>
+                <option value="wiki">Wiki Generation</option>
+                <option value="tags">Taxonomy & Tags</option>
+                <option value="vector">Vector Chunks</option>
+                <option value="video">YouTube / Media</option>
+                <option value="agent">Autonomous Agent</option>
+                <option value="error">Errors</option>
+            </select>
+
+            <!-- Status filter -->
+            <select id="statusFilter" onchange="applyFilters()" class="text-xs py-2 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">All Statuses</option>
+                <option value="success">Success</option>
+                <option value="failed">Failed</option>
+                <option value="warning">Warning</option>
+                <option value="info">Info</option>
+                <option value="started">Started</option>
+            </select>
+
+            <!-- Read status -->
+            <select id="readFilter" onchange="applyFilters()" class="text-xs py-2 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">All (Read + Unread)</option>
+                <option value="unread">Unread Only</option>
+                <option value="read">Read Only</option>
+            </select>
+
+            <!-- Batch select all toggle -->
+            <button type="button" onclick="toggleSelectAll()" class="text-xs py-2 px-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-200 font-medium transition">
+                <span id="selectAllLabel">Select All</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Notifications Stream / Table -->
+    <div class="mt-6">
+        <div id="loadingState" class="p-12 text-center text-gray-500 dark:text-gray-400">
+            <div class="inline-block animate-spin text-2xl mb-2">⏳</div>
+            <p class="text-sm">Loading notification history...</p>
+        </div>
+
+        <div id="emptyState" class="hidden p-16 text-center bg-white dark:bg-gray-900 rounded-xl border border-dashed border-gray-200 dark:border-gray-800">
+            <span class="text-4xl block mb-3">📭</span>
+            <h3 class="text-base font-bold text-gray-800 dark:text-gray-200">No Notifications Found</h3>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">There are no notifications matching your active filters.</p>
+        </div>
+
+        <div id="notificationsContainer" class="space-y-3">
+            <!-- Dynamic Notification Cards Rendered Here -->
+        </div>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div id="paginationBar" class="hidden mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-gray-200 dark:border-gray-800 pt-4">
+        <div class="text-xs text-gray-500 dark:text-gray-400">
+            Showing <span id="pageRangeLabel" class="font-bold text-gray-800 dark:text-gray-200">0 - 0</span> of <span id="totalItemsLabel" class="font-bold text-gray-800 dark:text-gray-200">0</span> records
+        </div>
+        <div class="flex items-center gap-2">
+            <button type="button" id="btnPrevPage" onclick="prevPage()" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                ← Previous
+            </button>
+            <span id="pageNumberLabel" class="text-xs font-semibold text-gray-700 dark:text-gray-300 px-2">Page 1</span>
+            <button type="button" id="btnNextPage" onclick="nextPage()" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                Next →
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Details Modal -->
+<div id="detailsModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl max-w-2xl w-full border border-gray-200 dark:border-gray-800 overflow-hidden text-left">
+        <div class="p-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between bg-gray-50 dark:bg-gray-800/50">
+            <h3 class="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                <span>📋</span> Full Event Details
+            </h3>
+            <button type="button" onclick="closeDetailsModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-base font-bold">✕</button>
+        </div>
+        <div class="p-5 space-y-4 text-xs">
+            <div>
+                <span class="font-bold text-gray-500 uppercase tracking-wider block text-[10px] mb-1">Message</span>
+                <p id="modalMessage" class="text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-100 dark:border-gray-700 font-medium"></p>
+            </div>
+            <div id="modalDetailsContainer">
+                <span class="font-bold text-gray-500 uppercase tracking-wider block text-[10px] mb-1">Technical Trace & Payload</span>
+                <pre id="modalDetails" class="text-[11px] text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-100 dark:border-gray-700 overflow-x-auto whitespace-pre-wrap font-mono"></pre>
+            </div>
+        </div>
+        <div class="p-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 text-right">
+            <button type="button" onclick="closeDetailsModal()" class="px-4 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    var currentOffset = 0;
+    var pageSize = 25;
+    var totalCount = 0;
+    var searchDebounceTimer = null;
+    var selectedIds = new Set();
+    var loadedNotifications = [];
+
+    async function loadNotifications() {
+        var loading = document.getElementById('loadingState');
+        var empty = document.getElementById('emptyState');
+        var container = document.getElementById('notificationsContainer');
+        var pagBar = document.getElementById('paginationBar');
+
+        loading.classList.remove('hidden');
+        empty.classList.add('hidden');
+        container.innerHTML = '';
+
+        var stage = document.getElementById('stageFilter').value;
+        var status = document.getElementById('statusFilter').value;
+        var readVal = document.getElementById('readFilter').value;
+        var searchVal = document.getElementById('searchInput').value.trim();
+
+        var params = new URLSearchParams();
+        params.append('limit', pageSize);
+        params.append('offset', currentOffset);
+        if (stage) params.append('stage', stage);
+        if (status) params.append('status', status);
+        if (readVal === 'unread') params.append('is_read', 'false');
+        if (readVal === 'read') params.append('is_read', 'true');
+        if (searchVal) params.append('search', searchVal);
+
+        try {
+            var res = await fetch('/api/notifications?' + params.toString());
+            var data = await res.json();
+            loading.classList.add('hidden');
+
+            if (!res.ok) {
+                alert('Error loading notifications: ' + (data.detail || 'Server error'));
+                return;
+            }
+
+            loadedNotifications = data.notifications || [];
+            totalCount = data.total_count || 0;
+
+            if (loadedNotifications.length === 0) {
+                empty.classList.remove('hidden');
+                pagBar.classList.add('hidden');
+                return;
+            }
+
+            renderNotifications(loadedNotifications);
+            renderPagination();
+        } catch (err) {
+            loading.classList.add('hidden');
+            console.error('Failed to load notifications:', err);
+        }
+    }
+
+    function renderNotifications(notifs) {
+        var container = document.getElementById('notificationsContainer');
+        var html = '';
+
+        notifs.forEach(function(n) {
+            var isSelected = selectedIds.has(n.id);
+            var isUnread = !n.is_read;
+            var unreadBorder = isUnread ? 'border-l-4 border-l-indigo-500 bg-indigo-50/20 dark:bg-indigo-950/20' : 'bg-white dark:bg-gray-900';
+
+            var icon = 'ℹ️';
+            var badgeClass = 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300';
+            if (n.status === 'success') {
+                icon = '✅';
+                badgeClass = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300';
+            } else if (n.status === 'failed' || n.status === 'error') {
+                icon = '❌';
+                badgeClass = 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300';
+            } else if (n.status === 'warning') {
+                icon = '⚠️';
+                badgeClass = 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300';
+            }
+
+            var timeStr = n.created_at ? n.created_at.replace('T', ' ').substring(0, 19) : '';
+            var targetUrl = n.url || (n.page_id && String(n.page_id).indexOf('://') !== -1 ? n.page_id : null);
+            var pageHref = targetUrl ? ('/view/page?url=' + encodeURIComponent(targetUrl)) : (n.page_id ? ('/pages/' + n.page_id) : '');
+
+            html += '<div class="notif-card p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm flex items-start gap-3 ' + unreadBorder + '">';
+            html += '<input type="checkbox" onchange="toggleSelectId(' + n.id + ', this.checked)" ' + (isSelected ? 'checked' : '') + ' class="mt-1 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 flex-shrink-0 cursor-pointer">';
+            html += '<span class="text-xl flex-shrink-0 mt-0.5">' + icon + '</span>';
+            
+            html += '<div class="flex-grow min-w-0">';
+            html += '<div class="flex items-center justify-between gap-2 flex-wrap">';
+            html += '<div class="flex items-center gap-2 flex-wrap">';
+            html += '<span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ' + badgeClass + '">' + (n.stage || 'Ingest') + '</span>';
+            if (n.status) {
+                html += '<span class="text-[10px] font-semibold text-gray-500 uppercase">' + n.status + '</span>';
+            }
+            if (isUnread) {
+                html += '<span class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-900/50 px-1.5 py-0.2 rounded">NEW</span>';
+            }
+            html += '</div>';
+            html += '<span class="text-xs font-mono text-gray-400 dark:text-gray-500">' + timeStr + '</span>';
+            html += '</div>';
+
+            html += '<p class="text-xs font-medium text-gray-850 dark:text-gray-200 mt-1.5 break-words leading-relaxed">' + escapeHtml(n.message || '') + '</p>';
+
+            if (n.title || n.url) {
+                var displayTitle = n.title || n.url;
+                html += '<div class="mt-1 text-[11px] text-gray-500 dark:text-gray-400 truncate">';
+                if (targetUrl) {
+                    html += '<a href="' + escapeHtml(pageHref) + '" class="hover:text-indigo-600 font-semibold underline truncate inline-block max-w-full">🔗 ' + escapeHtml(displayTitle) + '</a>';
+                } else {
+                    html += '<span class="truncate">🔗 ' + escapeHtml(displayTitle) + '</span>';
+                }
+                html += '</div>';
+            }
+
+            html += '<div class="mt-3 flex items-center justify-between border-t border-gray-100 dark:border-gray-800/60 pt-2">';
+            html += '<div class="flex items-center gap-3">';
+            if (n.details) {
+                html += '<button type="button" onclick="openDetailsModal(' + n.id + ')" class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-semibold">View Details / Trace</button>';
+            }
+            if (pageHref) {
+                html += '<a href="' + escapeHtml(pageHref) + '" class="text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline font-semibold">View Page →</a>';
+            }
+            html += '</div>';
+
+            html += '<div class="flex items-center gap-2">';
+            html += '<button type="button" onclick="toggleRead(' + n.id + ', ' + (n.is_read ? 'false' : 'true') + ')" class="text-[11px] text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium px-2 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition">' + (n.is_read ? 'Mark Unread' : 'Mark Read') + '</button>';
+            html += '<button type="button" onclick="deleteSingle(' + n.id + ')" class="text-[11px] text-red-500 hover:text-red-700 font-medium px-2 py-0.5 rounded hover:bg-red-50 dark:hover:bg-red-950/30 transition">Delete</button>';
+            html += '</div>';
+            html += '</div>';
+
+            html += '</div>'; // flex-grow
+            html += '</div>'; // notif-card
+        });
+
+        container.innerHTML = html;
+    }
+
+    function renderPagination() {
+        var pagBar = document.getElementById('paginationBar');
+        pagBar.classList.remove('hidden');
+
+        var start = currentOffset + 1;
+        var end = Math.min(currentOffset + pageSize, totalCount);
+        document.getElementById('pageRangeLabel').textContent = start + ' - ' + end;
+        document.getElementById('totalItemsLabel').textContent = totalCount;
+
+        var currentPage = Math.floor(currentOffset / pageSize) + 1;
+        var totalPages = Math.ceil(totalCount / pageSize) || 1;
+        document.getElementById('pageNumberLabel').textContent = 'Page ' + currentPage + ' of ' + totalPages;
+
+        document.getElementById('btnPrevPage').disabled = (currentOffset === 0);
+        document.getElementById('btnNextPage').disabled = (end >= totalCount);
+    }
+
+    function prevPage() {
+        if (currentOffset >= pageSize) {
+            currentOffset -= pageSize;
+            loadNotifications();
+        }
+    }
+
+    function nextPage() {
+        if (currentOffset + pageSize < totalCount) {
+            currentOffset += pageSize;
+            loadNotifications();
+        }
+    }
+
+    function onSearchChanged() {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(function() {
+            currentOffset = 0;
+            loadNotifications();
+        }, 350);
+    }
+
+    function applyFilters() {
+        currentOffset = 0;
+        loadNotifications();
+    }
+
+    function toggleSelectId(id, checked) {
+        if (checked) {
+            selectedIds.add(id);
+        } else {
+            selectedIds.delete(id);
+        }
+        updateSelectedUI();
+    }
+
+    function toggleSelectAll() {
+        var allChecked = loadedNotifications.every(function(n) { return selectedIds.has(n.id); });
+        if (allChecked) {
+            loadedNotifications.forEach(function(n) { selectedIds.delete(n.id); });
+        } else {
+            loadedNotifications.forEach(function(n) { selectedIds.add(n.id); });
+        }
+        renderNotifications(loadedNotifications);
+        updateSelectedUI();
+    }
+
+    function updateSelectedUI() {
+        var btn = document.getElementById('btnDeleteSelected');
+        var lbl = document.getElementById('selectedCountLabel');
+        var count = selectedIds.size;
+        lbl.textContent = count;
+        if (count > 0) {
+            btn.classList.remove('hidden');
+        } else {
+            btn.classList.add('hidden');
+        }
+    }
+
+    async function toggleRead(id, newReadState) {
+        try {
+            var res = await fetch('/api/notifications/' + id + '/read?is_read=' + newReadState, { method: 'PATCH' });
+            if (res.ok) {
+                var found = loadedNotifications.find(function(n) { return n.id === id; });
+                if (found) {
+                    found.is_read = (newReadState === true || newReadState === 'true');
+                    found.read = found.is_read ? 1 : 0;
+                }
+                renderNotifications(loadedNotifications);
+            }
+        } catch (e) {
+            console.error('Error toggling read:', e);
+        }
+    }
+
+    async function deleteSingle(id) {
+        if (!confirm('Are you sure you want to permanently delete this notification?')) return;
+        try {
+            var res = await fetch('/api/notifications/' + id, { method: 'DELETE' });
+            if (res.ok) {
+                selectedIds.delete(id);
+                loadNotifications();
+            }
+        } catch (e) {
+            console.error('Error deleting notification:', e);
+        }
+    }
+
+    async function deleteSelected() {
+        var count = selectedIds.size;
+        if (count === 0) return;
+        if (!confirm('Permanently delete ' + count + ' selected notification(s)?')) return;
+
+        try {
+            var res = await fetch('/api/notifications', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: Array.from(selectedIds) })
+            });
+            if (res.ok) {
+                selectedIds.clear();
+                updateSelectedUI();
+                loadNotifications();
+            }
+        } catch (e) {
+            console.error('Error deleting selected:', e);
+        }
+    }
+
+    async function markAllRead() {
+        try {
+            var res = await fetch('/api/notifications/read', { method: 'POST' });
+            if (res.ok) {
+                loadNotifications();
+            }
+        } catch (e) {
+            console.error('Error marking all read:', e);
+        }
+    }
+
+    async function confirmClearAll() {
+        if (!confirm('DANGER: Are you sure you want to completely purge ALL notifications across all history? This cannot be undone.')) return;
+        try {
+            var res = await fetch('/api/notifications/clear', { method: 'POST' });
+            if (res.ok) {
+                selectedIds.clear();
+                updateSelectedUI();
+                loadNotifications();
+            }
+        } catch (e) {
+            console.error('Error clearing all notifications:', e);
+        }
+    }
+
+    function openDetailsModal(id) {
+        var n = loadedNotifications.find(function(item) { return item.id === id; });
+        if (!n) return;
+
+        document.getElementById('modalMessage').textContent = n.message || '(no message)';
+        var detailsEl = document.getElementById('modalDetails');
+        var containerEl = document.getElementById('modalDetailsContainer');
+        if (n.details) {
+            containerEl.classList.remove('hidden');
+            detailsEl.textContent = n.details;
+        } else {
+            containerEl.classList.add('hidden');
+        }
+        document.getElementById('detailsModal').classList.remove('hidden');
+    }
+
+    function closeDetailsModal() {
+        document.getElementById('detailsModal').classList.add('hidden');
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        loadNotifications();
+    });
+</script>
+{% endblock %}

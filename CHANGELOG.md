@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.10] - 2026-10-18
 ### Added
+- **Autonomous Topic-Expert Custom Agent System & Dynamic Canvas Pages (`src/kb_web/models_orm.py`, `routers/agent_pages.py`, `custom_agent_engine.py`, `templates/topic_wiki_page.j2.html`, `templates/agent_page_themed.j2.html`)**:
+  - **Topic Wiki Domain Pages (`TopicWikiPage`)**: Dedicated entity representing living, curated topic knowledge organized by logical paths (e.g. `/wiki/{agent_id}/architecture`), providing hierarchical navigation trees, markdown rendering, internal wiki linking, and citations back to imported library articles.
+  - **Dynamic Agent Canvas Pages (`AgentPage`)**: Distinct canvas entity identified by unique hash IDs (`/pages/agent/{hash_id}`) featuring two rendering modes:
+    * `raw`: Emits pure unstyled HTML directly without inherited base template or site chrome.
+    * `themed`: Renders rich interactive agent dashboards within base application layout, supporting JSON form schemas, user input capture, and approval decision dialogs.
+  - **Topic-Steered Grounding Discovery**: Restricts agent discovery strictly to already-imported library items (`FetchedPage`) in the database, continuously logging findings into `agent_observations` working memory.
+  - **Goal-Directed Deliberation Engine**: Background loop reviewing pending self-tasks (`agent_self_tasks`), synthesizing grounding observations, and compiling/updating topic wiki entries.
+- **Strict Human-In-The-Loop (HITL) Local Python Execution Kernel (`src/kb_web/python_kernel.py`)**:
+  - Gated execution kernel allowing autonomous agents to propose local Python code execution in the `.venv` environment (`propose_python_execution`).
+  - Gated behind human review: proposals automatically dispatch high-priority notifications linking to interactive review forms (`AgentPage` with HITL approval action).
+  - Enforces fail-safe execution: code runs locally only upon explicit human approval (`execute_approved_code`), capturing isolated stdout/stderr and timestamps in `agent_python_approvals`.
+- **Perpetual Notification History Portal & Management API (`src/kb_web/routers/api.py`, `routers/pages.py`, `templates/notifications_history.j2.html`, `templates/base.j2.html`)**:
+  - Preserves ingestion notifications indefinitely until explicitly cleared by the user.
+  - Added dedicated `/notifications` management portal with server-side pagination, filters by stage (`fetch`, `wiki`, `tags`, `vector`, `video`, `agent`, `error`), status (`success`, `warning`, `failed`, `info`), read/unread state, and keyword search.
+  - Added per-notification deletion (`DELETE /api/notifications/{id}`), read state toggle (`PATCH /api/notifications/{id}/read`), and batch deletion (`DELETE /api/notifications`).
+- **Evals Studio Model Categorization, Per-Model Generation Overrides, & Prompt Promotion (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`)**:
+  - Filtered models strictly by capability across tabs: Tab 1 displays only completion/chat LLMs; Tab 2 displays only Decision/SystemOne gating models (`d1`, `tev1`); Tab 3 displays only vector embedding models (`embeddinggemma`, `nomic-embed-text`, `bge-m3`).
+  - Added per-model generation options drawer (`temperature`, `top_p`, `top_k`, `num_predict`, `num_ctx`) with hover tooltips and dynamic parameter overrides in streaming and batch evaluation requests.
+  - Added free-form prompt testing via a "+ Add Empty Prompt" scratchpad card.
+  - Added "Set As... ▾" prompt promotion select allowing tested prompts to be applied directly to system instructions (`wiki_prompt`, `youtube_wiki_prompt`, `tags_prompt`, `rag_system_prompt`) or custom agents (`POST /api/evals/prompts/promote`).
 - **Live SSE Streaming & Thinking Token Buffering for Model Evaluations (`src/kb_web/base.py`, `routers/evals.py`, `templates/evals.j2.html`)**:
   - **Root Cause**: Running multi-model matrix evaluations across multiple prompts and dataset rows caused Cloudflare 524 gateway timeouts (100s idle timeout) on synchronous HTTP POST endpoints. Thinking tokens produced by reasoning models were also uncaptured.
   - **Fix**: Added `stream=True` support to `LoggedOllamaClient.chat()`, dynamically buffering `chunk.message.content` and `chunk.message.thinking` while logging the complete thought trace and output into `ollama_logs`. Implemented Server-Sent Events (SSE) streaming endpoint `POST /api/evals/matrix/stream` that immediately returns `event: start` (<10ms) to reset proxy idle timers, streams tokens live into the UI, updates progress, and renders live collapsible reasoning trace accordions.
@@ -32,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Fix**: Wrapped error extraction with `await resp.text()` and guarded `JSON.parse()`, displaying human-readable server error details.
 
 ### Fixed
+- **Recursive Taxonomy Category Pruning on Note Deletion (`src/kb_web/routers/notes.py` & `src/kb_web/routers/admin_batch.py`)**:
+  - **Root Cause**: Deleting notes (`DELETE /api/notes/{id}` or `DELETE /api/notes/batch`) left behind empty parent taxonomy categories as orphaned stubs in the knowledge base navigation hierarchy.
+  - **Fix**: Implemented `_prune_empty_taxonomy_categories()` to recursively prune empty taxonomy categories bottom-up after note deletion or category reassignment, ensuring no empty categories linger in the taxonomy hierarchy.
 - **Raw Un-Truncated Report Data Downloads (`src/kb_web/routers/reports.py`)**:
   - **Root Cause**: `export_report_data()` reused UI grid placeholder formatting, causing CSV, XLSX, and JSON downloads to output string literals like `[Content: 77,805 chars]` instead of actual content.
   - **Fix**: Updated `export_report_data()` to set `fetch_heavy=True` and bypass placeholder truncation, streaming complete raw text content into exported files.

@@ -92,6 +92,17 @@ class MatrixRunRequest(BaseModel):
     sample_limit: Optional[int] = Field(5, ge=1, le=50, description="Max rows to process when using dataset")
     temperature: Optional[float] = Field(0.2, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(2048, ge=16, le=262144, description="Max predict tokens / context window limit")
+    model_options: Optional[Dict[str, Dict[str, Any]]] = Field(
+        default_factory=dict,
+        description="Optional per-model parameter overrides: {model_name: {'temperature': float, 'top_p': float, 'top_k': int, 'num_predict': int, 'num_ctx': int}}",
+    )
+
+
+class PromotePromptRequest(BaseModel):
+    target_type: str = Field(..., description="'system_prompt' or 'agent'")
+    target_id: str = Field(..., description="Prompt ID (e.g. wiki_prompt, youtube_wiki_prompt) or Agent ID")
+    prompt_text: str = Field(..., min_length=1)
+    prompt_name: Optional[str] = None
 
 
 class DecisionRunRequest(BaseModel):
@@ -301,6 +312,36 @@ def _serialize_systemone_answers(raw_answers: Any) -> Dict[str, Any]:
     return serialized
 
 
+def classify_model_type(model_name: str, model_obj: Any = None) -> str:
+    """Classifies an Ollama model as 'embedding', 'decision', or 'llm'.
+    - 'embedding': If name/family contains embed, bge, nomic, minilm, gte, e5, bert, or capabilities indicate embedding.
+    - 'decision': If name is 'd1', 'tev1', or contains 'decision' or 'systemone'.
+    - 'llm': General completion/chat LLM (e.g. qwen, llama, mistral, gemma).
+    """
+    m_lower = (model_name or "").lower()
+    clean_name = m_lower.split(":")[0]
+
+    # Check decision
+    if clean_name in ("d1", "tev1") or "decision" in clean_name or "systemone" in clean_name:
+        return "decision"
+
+    # Check embedding
+    emb_keywords = ["embed", "embedding", "bge-", "nomic-", "minilm", "gte-", "e5-"]
+    if any(k in m_lower for k in emb_keywords):
+        return "embedding"
+
+    if model_obj:
+        details = getattr(model_obj, "details", None) or (model_obj.get("details") if isinstance(model_obj, dict) else {})
+        family = getattr(details, "family", "") if hasattr(details, "family") else (details.get("family", "") if isinstance(details, dict) else "")
+        if family and any(k in str(family).lower() for k in ["bert", "nomic", "embedding"]):
+            return "embedding"
+        capabilities = getattr(model_obj, "capabilities", None) or (model_obj.get("capabilities") if isinstance(model_obj, dict) else None)
+        if capabilities and "embedding" in capabilities and "completion" not in capabilities:
+            return "embedding"
+
+    return "llm"
+
+
 # ==============================================================================
 # UI ROUTE
 # ==============================================================================
@@ -339,6 +380,32 @@ def view_evals_studio(request: Request):
     for b in baseline_models:
         if b and b not in models:
             models.append(b)
+
+    # Separate models strictly by type
+    llm_models: List[str] = []
+    decision_models: List[str] = []
+    embedding_models: List[str] = []
+
+    for m in models:
+        m_type = classify_model_type(m)
+        if m_type == "embedding":
+            if m not in embedding_models:
+                embedding_models.append(m)
+        elif m_type == "decision":
+            if m not in decision_models:
+                decision_models.append(m)
+        else:
+            if m not in llm_models:
+                llm_models.append(m)
+
+    # Ensure baselines exist in their respective categorized lists
+    if config.ollama_model and config.ollama_model not in llm_models:
+        llm_models.insert(0, config.ollama_model)
+    for dm in ("d1", "tev1", getattr(config, "decision_model", "d1")):
+        if dm and dm not in decision_models:
+            decision_models.append(dm)
+    if config.ollama_embedding_model and config.ollama_embedding_model not in embedding_models:
+        embedding_models.insert(0, config.ollama_embedding_model)
 
     # 2. Get registered system prompts
     prompts = config.get_all_prompts()
@@ -420,6 +487,9 @@ def view_evals_studio(request: Request):
     html_content = template.render(
         is_admin=True,
         models=models,
+        llm_models=llm_models,
+        decision_models=decision_models,
+        embedding_models=embedding_models,
         models_info=models_info,
         prompts=prompts,
         sample_articles=sample_articles,
@@ -749,11 +819,19 @@ async def run_matrix_eval_stream(payload: MatrixRunRequest, request: Request):
                         {"role": "system", "content": prompt_text},
                         {"role": "user", "content": rendered_input},
                     ]
+                    m_opts = (payload.model_options or {}).get(model_name, {})
+                    temp = float(m_opts.get("temperature", payload.temperature))
+                    pred = int(m_opts.get("num_predict", m_opts.get("max_tokens", payload.max_tokens)))
+                    ctx = int(m_opts.get("num_ctx", eff_num_ctx))
                     options = {
-                        "temperature": payload.temperature,
-                        "num_predict": payload.max_tokens,
-                        "num_ctx": max(4096, eff_num_ctx),
+                        "temperature": temp,
+                        "num_predict": pred,
+                        "num_ctx": max(4096, ctx),
                     }
+                    if "top_p" in m_opts and m_opts["top_p"] is not None:
+                        options["top_p"] = float(m_opts["top_p"])
+                    if "top_k" in m_opts and m_opts["top_k"] is not None:
+                        options["top_k"] = int(m_opts["top_k"])
 
                     start_t = time.time()
                     accumulated_content = []
@@ -898,11 +976,19 @@ def run_matrix_eval(payload: MatrixRunRequest, request: Request):
                         ]
                         model_ctx = get_model_context_info(model_name, client).get("context_length", 16384)
                         eff_num_ctx = min(payload.max_tokens, model_ctx) if payload.max_tokens else model_ctx
+                        m_opts = (payload.model_options or {}).get(model_name, {})
+                        temp = float(m_opts.get("temperature", payload.temperature))
+                        pred = int(m_opts.get("num_predict", m_opts.get("max_tokens", payload.max_tokens)))
+                        ctx = int(m_opts.get("num_ctx", eff_num_ctx))
                         options = {
-                            "temperature": payload.temperature,
-                            "num_predict": payload.max_tokens,
-                            "num_ctx": max(4096, eff_num_ctx),
+                            "temperature": temp,
+                            "num_predict": pred,
+                            "num_ctx": max(4096, ctx),
                         }
+                        if "top_p" in m_opts and m_opts["top_p"] is not None:
+                            options["top_p"] = float(m_opts["top_p"])
+                        if "top_k" in m_opts and m_opts["top_k"] is not None:
+                            options["top_k"] = int(m_opts["top_k"])
                         resp = client.chat(model=model_name, messages=messages, options=options)
                         duration = time.time() - start_t
 
@@ -974,11 +1060,19 @@ def run_matrix_eval(payload: MatrixRunRequest, request: Request):
                 ]
                 model_ctx = get_model_context_info(model_name, client).get("context_length", 16384)
                 eff_num_ctx = min(payload.max_tokens, model_ctx) if payload.max_tokens else model_ctx
+                m_opts = (payload.model_options or {}).get(model_name, {})
+                temp = float(m_opts.get("temperature", payload.temperature))
+                pred = int(m_opts.get("num_predict", m_opts.get("max_tokens", payload.max_tokens)))
+                ctx = int(m_opts.get("num_ctx", eff_num_ctx))
                 options = {
-                    "temperature": payload.temperature,
-                    "num_predict": payload.max_tokens,
-                    "num_ctx": max(4096, eff_num_ctx),
+                    "temperature": temp,
+                    "num_predict": pred,
+                    "num_ctx": max(4096, ctx),
                 }
+                if "top_p" in m_opts and m_opts["top_p"] is not None:
+                    options["top_p"] = float(m_opts["top_p"])
+                if "top_k" in m_opts and m_opts["top_k"] is not None:
+                    options["top_k"] = int(m_opts["top_k"])
                 resp = client.chat(model=model_name, messages=messages, options=options)
                 duration = time.time() - start_t
 
@@ -1231,3 +1325,45 @@ def run_embedding_eval(payload: EmbeddingRunRequest, request: Request):
             })
 
     return {"results": results}
+
+
+@router.post("/api/evals/prompts/promote")
+def promote_eval_prompt(payload: PromotePromptRequest, request: Request) -> Dict[str, Any]:
+    """Promotes an evaluated/tested prompt directly to a server system prompt or custom agent configuration."""
+    token = request.cookies.get(COOKIE_NAME)
+    if not (token and verify_session_token(token)):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    if payload.target_type == "system_prompt":
+        valid_prompts = {p["id"]: p for p in config.get_all_prompts()}
+        if payload.target_id not in valid_prompts:
+            raise HTTPException(status_code=400, detail=f"Invalid system prompt target '{payload.target_id}'")
+
+        setattr(config, payload.target_id, payload.prompt_text)
+        config.save()
+        return {
+            "status": "success",
+            "message": f"Successfully promoted prompt to system instruction '{payload.target_id}'.",
+            "target": payload.target_id,
+        }
+    elif payload.target_type == "agent":
+        try:
+            from ..models_orm import CustomAgent
+            with db_session() as session:
+                agent = session.query(CustomAgent).filter_by(id=payload.target_id).first()
+                if not agent:
+                    agent = session.query(CustomAgent).filter_by(name=payload.target_id).first()
+                if not agent:
+                    raise HTTPException(status_code=404, detail=f"Agent '{payload.target_id}' not found")
+                agent.system_prompt = payload.prompt_text
+                session.commit()
+                return {
+                    "status": "success",
+                    "message": f"Successfully updated system prompt for Agent '{agent.name}'.",
+                    "target": agent.id,
+                }
+        except ImportError:
+            raise HTTPException(status_code=501, detail="CustomAgent model not yet loaded")
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported target_type '{payload.target_type}'")
+

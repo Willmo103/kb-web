@@ -1122,28 +1122,43 @@
                     <!-- Parameters Grid -->
                     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
                         <div class="col-span-2 sm:col-span-1">
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Model</label>
-                            <input type="text" data-field="model" value="{{ agent.model }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1" title="The specific Ollama model identifier to invoke for this agent.">Model</label>
+                            <input type="text" data-field="model" value="{{ agent.model }}" title="The specific Ollama model identifier to invoke for this agent." class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
                         </div>
                         <div>
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Temperature</label>
-                            <input type="number" step="0.05" min="0" max="2" data-field="temperature" value="{{ agent.temperature or 0.2 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Determines how 'creative' or random the model's answers are. Lower values (0.0 - 0.3) are factual, focused, and deterministic. Higher values (0.7 - 1.2) produce more diverse, creative answers.">
+                                <span>Temperature</span>
+                                <span class="text-indigo-400 font-normal">ⓘ</span>
+                            </label>
+                            <input type="number" step="0.05" min="0" max="2" data-field="temperature" value="{{ agent.temperature or 0.2 }}" title="Determines how 'creative' or random the model's answers are. Lower values (0.0 - 0.3) are factual, focused, and deterministic. Higher values (0.7 - 1.2) produce more diverse, creative answers." class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
                         </div>
                         <div>
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Num Predict</label>
-                            <input type="number" step="128" min="64" max="16384" data-field="num_predict" value="{{ agent.num_predict or 2048 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Maximum number of tokens to generate in the output response (completion length cutoff). Higher values allow longer outputs.">
+                                <span>Num Predict</span>
+                                <span class="text-indigo-400 font-normal">ⓘ</span>
+                            </label>
+                            <input type="number" step="128" min="64" max="16384" data-field="num_predict" value="{{ agent.num_predict or 2048 }}" title="Maximum number of tokens to generate in the output response (completion length cutoff). Higher values allow longer outputs." class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
                         </div>
                         <div>
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Num Context</label>
-                            <input type="number" step="1024" min="1024" max="65536" data-field="num_ctx" value="{{ agent.num_ctx or 8192 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Context window size in tokens. Sets how much prior text, context, or document data the model can consider simultaneously.">
+                                <span>Num Context</span>
+                                <span class="text-indigo-400 font-normal">ⓘ</span>
+                            </label>
+                            <input type="number" step="1024" min="1024" max="65536" data-field="num_ctx" value="{{ agent.num_ctx or 8192 }}" title="Context window size in tokens. Sets how much prior text, context, or document data the model can consider simultaneously." class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
                         </div>
                         <div>
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Top P</label>
-                            <input type="number" step="0.05" min="0.1" max="1.0" data-field="top_p" value="{{ agent.top_p or 0.9 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Nucleus sampling threshold. The model considers only tokens comprising the top P probability mass (e.g. 0.9 = top 90%). Lower values reduce unlikely words.">
+                                <span>Top P</span>
+                                <span class="text-indigo-400 font-normal">ⓘ</span>
+                            </label>
+                            <input type="number" step="0.05" min="0.1" max="1.0" data-field="top_p" value="{{ agent.top_p or 0.9 }}" title="Nucleus sampling threshold. The model considers only tokens comprising the top P probability mass (e.g. 0.9 = top 90%). Lower values reduce unlikely words." class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
                         </div>
                         <div>
-                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Top K</label>
-                            <input type="number" step="5" min="1" max="100" data-field="top_k" value="{{ agent.top_k or 40 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Top-K sampling limit. Limits token selection to the K highest-probability choices (e.g. 40). Lower values (e.g. 10 - 20) make output more predictable.">
+                                <span>Top K</span>
+                                <span class="text-indigo-400 font-normal">ⓘ</span>
+                            </label>
+                            <input type="number" step="5" min="1" max="100" data-field="top_k" value="{{ agent.top_k or 40 }}" title="Top-K sampling limit. Limits token selection to the K highest-probability choices (e.g. 40). Lower values (e.g. 10 - 20) make output more predictable." class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
                         </div>
                     </div>
 
@@ -1165,6 +1180,20 @@
                             </div>
                             <textarea rows="6" data-field="user_prompt_template" class="w-full text-xs font-mono p-3 border border-gray-300 rounded-xl bg-white shadow-inner focus:ring-indigo-500 focus:border-indigo-500">{{ agent.user_prompt_template or '' }}</textarea>
                         </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Decision Gating Questions & Criteria Editor (for Decision / SystemOne Agents) -->
+                    {% if agent.call_type == 'decision' or (agent.extra_options and 'questions' in agent.extra_options) %}
+                    <div class="mt-4 pt-3 border-t border-gray-200">
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="text-[10px] font-bold uppercase tracking-wider text-amber-800 flex items-center gap-1.5" title="Defines the structured questions, instructions, and criteria sent to client.systemone() during the forward pass.">
+                                <span>⚖️ Decision Gating Questions &amp; Evaluation Criteria (JSON)</span>
+                                <span class="text-xs font-normal text-amber-600">ⓘ</span>
+                            </label>
+                            <span class="text-[10px] text-gray-400 font-mono">Schema: {"questions": {"&lt;id&gt;": {"type": "noul|choice", "instructions": "...", "criteria": {...}}}}</span>
+                        </div>
+                        <textarea rows="6" data-field="extra_options" class="w-full text-xs font-mono p-3 border border-amber-300 rounded-xl bg-amber-50/40 focus:ring-amber-500 focus:border-amber-500 shadow-inner" placeholder='{"questions": { ... }}'>{{ (agent.extra_options | tojson(indent=2)) if agent.extra_options else '{}' }}</textarea>
                     </div>
                     {% endif %}
 
@@ -1295,6 +1324,16 @@
         const user_prompt_template = card.querySelector('[data-field="user_prompt_template"]')?.value;
         const toolsStr = card.querySelector('[data-field="tools"]')?.value || '';
         const tools = toolsStr.split(',').map(s => s.trim()).filter(Boolean);
+        const extraOptionsEl = card.querySelector('[data-field="extra_options"]');
+        let extra_options = undefined;
+        if (extraOptionsEl && extraOptionsEl.value.trim()) {
+            try {
+                extra_options = JSON.parse(extraOptionsEl.value.trim());
+            } catch (err) {
+                alert("Invalid JSON in Decision Questions / Extra Options for " + agentId + ": " + err.message);
+                return;
+            }
+        }
 
         const payload = {
             model,
@@ -1307,7 +1346,8 @@
             top_k,
             system_prompt,
             user_prompt_template,
-            tools
+            tools,
+            ...(extra_options !== undefined ? { extra_options } : {})
         };
 
         const statusEl = document.getElementById('agent-status-' + agentId);
