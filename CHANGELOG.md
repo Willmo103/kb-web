@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.11] - 2026-10-19
+### Added
+- **Persistent Evaluation Run History & Re-Run Portal (`src/kb_web/models_orm.py`, `routers/evals.py`, `templates/evals.j2.html`)**:
+  - Persisted all streaming and batch evaluation executions into new `evaluation_runs` database table (`eval_type`, `title`, `status`, `config_json`, `results_json`, `metrics_json`, `created_at`, `completed_at`).
+  - Added dedicated Tab 5 (**Run History**) in the Model Evaluation Studio allowing users to review completed, running, or failed evaluations with latency and token metrics, inspect full model outputs in a modal viewer, delete run records, and restore prompts/model options directly back into the active Studio form.
+  - Added REST endpoints: `GET /api/evals/runs`, `GET /api/evals/runs/{id}`, and `DELETE /api/evals/runs/{id}`.
+- **Dataset-Only Matrix Evaluations & Randomized Row Sampling (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`)**:
+  - Completely removed single article/text input mode from Matrix evaluations, enforcing evaluation discipline strictly against curated datasets.
+  - Added randomized/shuffled sampling option (`randomize: bool`) with UI toggle checkbox to pull varied test batches across iterations instead of sequential rows.
+  - Added `GET /api/evals/datasets/{id}/fields` extracting active column projections and fetched row keys for client-side template completions.
+- **Real-Time Jinja Parameter Syntax Highlighter (`src/kb_web/static/js/jinja_highlighter.js`, `server.py`, `templates/evals.j2.html`, `templates/admin.j2.html`)**:
+  - Created reusable client-side module providing real-time Jinja parameter validation across template editors.
+  - Renders live visual status pills: green badges for recognized dataset fields (e.g. `{{ data.title }}`) and red animated alert badges for non-matching or misspelled keys.
+  - Added click-to-insert available fields explorer bar above editors with field name insertion and count pills.
+  - Mounted `/static` directory via FastAPI `StaticFiles` with CSP and security middleware whitelisting.
+- **Configurable Worker Agents & Frozen Snapshot Commit Workflow (`src/kb_web/agent_config.py`, `models_orm.py`, `routers/admin.py`, `templates/admin.j2.html`)**:
+  - Transformed background worker agents from fixed presets into fully configurable entities with "+ Create Worker Agent" dialog (`POST /api/admin/agents/create`) and custom deletion (`DELETE /api/admin/agents/{id}`).
+  - Implemented test execution engine (`POST /api/admin/agents/{id}/test-run`) enabling administrators to test agent prompts and question schemas against sample KB articles prior to deployment.
+  - Implemented versioned frozen snapshot commits (`POST /api/admin/agents/{id}/publish`), recording immutable snapshots (`frozen_snapshot_json`) with automatic version number increments and timestamp tracking.
+
+### Changed
+- **Strict Isolation of SystemOne Decision Gating Models (`src/kb_web/agent_config.py`, `routers/evals.py`, `templates/admin.j2.html`, `templates/evals.j2.html`)**:
+  - Completely excluded SystemOne decision models (`d1`, `tev1`) from generative completion and wiki creation model selectors across the entire application.
+  - Structurally separated the Admin Agent tab into two distinct sections: **Section 1: SystemOne Decision Gating Models** and **Section 2: Generative LLM & Coding Worker Agents**.
+  - Respects SystemOne architecture by completely removing invalid configuration controls (tools, system prompts, thinking mode, temperature, top_p, top_k, num_predict) from SystemOne agents, exposing strictly the `state` template and `questions` criteria.
+
 ## [0.5.10] - 2026-10-18
 ### Added
 - **Autonomous Topic-Expert Custom Agent System & Dynamic Canvas Pages (`src/kb_web/models_orm.py`, `routers/agent_pages.py`, `custom_agent_engine.py`, `templates/topic_wiki_page.j2.html`, `templates/agent_page_themed.j2.html`)**:

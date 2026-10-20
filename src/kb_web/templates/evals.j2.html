@@ -4,6 +4,7 @@
 
 {% block content %}
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="/static/js/jinja_highlighter.js"></script>
 
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28">
     <!-- Header Section -->
@@ -71,6 +72,17 @@
                 <span class="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{{ saved_datasets | length }}</span>
                 {% endif %}
             </button>
+            <button
+                type="button"
+                id="tabBtnHistory"
+                onclick="switchEvalTab('history')"
+                class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2 transition"
+            >
+                <span>📜</span> Run History
+                {% if saved_runs %}
+                <span class="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{{ saved_runs | length }}</span>
+                {% endif %}
+            </button>
         </nav>
     </div>
 
@@ -83,15 +95,7 @@
                 <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
                     <span>⚙️</span> Matrix Execution Setup
                 </h2>
-                <!-- Mode Toggle -->
-                <div class="inline-flex rounded-xl border border-gray-200 p-1 bg-gray-50 text-xs">
-                    <button type="button" id="btnMatrixModeSingle" onclick="setMatrixInputMode('single')" class="px-3 py-1.5 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs">
-                        Single Input Text
-                    </button>
-                    <button type="button" id="btnMatrixModeDataset" onclick="setMatrixInputMode('dataset')" class="px-3 py-1.5 font-bold rounded-lg transition text-gray-600 hover:text-gray-900">
-                        Dataset Iteration (Report Rows)
-                    </button>
-                </div>
+                <span class="text-xs text-gray-500 font-medium">Dataset-driven comparative evaluation across models &amp; prompts</span>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -103,6 +107,7 @@
                         </label>
                         <div id="matrixModelsList" class="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 bg-gray-50 border border-gray-200 rounded-xl">
                             {% for m in llm_models %}
+                            {% if not (m.lower().startswith('d1') or m.lower().startswith('tev1') or 'decision' in m.lower() or 'systemone' in m.lower()) %}
                             {% set info = models_info.get(m, {}) if models_info else {} %}
                             {% set ctx_val = info.context_length if info.context_length else 16384 %}
                             {% set ctx_k = (ctx_val // 1024) if ctx_val >= 1024 else ctx_val %}
@@ -113,6 +118,7 @@
                                     {{ ctx_k }}k{% if info.loaded %} • VRAM{% endif %}
                                 </span>
                             </label>
+                            {% endif %}
                             {% endfor %}
                         </div>
                     </div>
@@ -200,91 +206,76 @@
                     </div>
                 </div>
 
-                <!-- Right: Single Input or Dataset Template -->
+                <!-- Right: Dataset Iteration & Jinja Template -->
                 <div class="space-y-4">
-                    <!-- SINGLE INPUT VIEW -->
-                    <div id="matrixSingleInputView" class="space-y-4">
-                        <div class="flex items-center justify-between">
-                            <label for="matrixInputText" class="text-xs font-bold uppercase tracking-wider text-gray-600">
-                                Test Input Text / Article Content
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div class="sm:col-span-2">
+                            <label for="matrixDatasetSelect" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
+                                Select Eval Dataset <span class="text-rose-500">*</span>
                             </label>
-                            <div class="flex items-center gap-2">
-                                <select id="sampleArticleSelect" onchange="loadSampleArticleContent(this.value)" class="text-[11px] p-1.5 border border-gray-200 rounded-lg bg-gray-50 max-w-[200px] truncate">
-                                    <option value="">Load from saved article...</option>
-                                    {% for a in sample_articles %}
-                                    <option value="{{ a.url }}">{{ a.title }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
+                            <select id="matrixDatasetSelect" onchange="onMatrixDatasetChange(this.value)" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white font-medium">
+                                <option value="">-- Choose Evaluation Dataset --</option>
+                                {% for d in saved_datasets %}
+                                <option value="{{ d.id }}" data-count="{{ d.row_count }}">{{ d.name }} ({{ d.row_count }} rows)</option>
+                                {% endfor %}
+                            </select>
                         </div>
-
-                        <textarea
-                            id="matrixInputText"
-                            rows="12"
-                            placeholder="Paste article markdown, unstructured text, or notes here for the models to process..."
-                            class="w-full text-xs p-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition font-mono text-gray-800 shadow-inner"
-                        ></textarea>
-
-                        <div class="flex items-center justify-between text-xs text-gray-400">
-                            <span id="matrixInputCharCount">0 characters</span>
-                            <button type="button" onclick="document.getElementById('matrixInputText').value = ''; updateInputCharCount();" class="text-gray-400 hover:text-red-500">
-                                Clear Input
-                            </button>
+                        <div>
+                            <label for="matrixSampleLimit" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
+                                Rows to Evaluate
+                            </label>
+                            <select id="matrixSampleLimit" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white">
+                                <option value="3">3 rows (Fast sample)</option>
+                                <option value="5" selected>5 rows (Standard)</option>
+                                <option value="10">10 rows (Deep benchmark)</option>
+                                <option value="20">20 rows (Comprehensive)</option>
+                            </select>
                         </div>
                     </div>
 
-                    <!-- DATASET ITERATION VIEW -->
-                    <div id="matrixDatasetInputView" class="hidden space-y-4">
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label for="matrixDatasetSelect" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
-                                    Select Eval Dataset
-                                </label>
-                                <select id="matrixDatasetSelect" onchange="onMatrixDatasetChange(this.value)" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white font-medium">
-                                    <option value="">-- Choose Evaluation Dataset --</option>
-                                    {% for d in saved_datasets %}
-                                    <option value="{{ d.id }}" data-count="{{ d.row_count }}">{{ d.name }} ({{ d.row_count }} rows)</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div>
-                                <label for="matrixSampleLimit" class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">
-                                    Rows to Evaluate
-                                </label>
-                                <select id="matrixSampleLimit" class="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white">
-                                    <option value="3">3 rows (Fast sample)</option>
-                                    <option value="5" selected>5 rows (Standard)</option>
-                                    <option value="10">10 rows (Deep benchmark)</option>
-                                    <option value="20">20 rows (Comprehensive)</option>
-                                </select>
-                            </div>
+                    <!-- Dataset Randomization & Run Title -->
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-2.5 bg-gray-50 border border-gray-200 rounded-xl">
+                        <label class="inline-flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer select-none" title="Randomly sample rows from the dataset instead of sequential top rows">
+                            <input type="checkbox" id="matrixRandomize" class="rounded text-indigo-600 focus:ring-indigo-500" checked>
+                            <span>🎲 Randomize / Shuffle Rows</span>
+                        </label>
+                        <div class="flex items-center gap-2 w-full sm:w-auto">
+                            <label for="matrixRunTitle" class="text-[11px] font-bold text-gray-500 whitespace-nowrap">Run Title:</label>
+                            <input type="text" id="matrixRunTitle" placeholder="Optional label for run history..." class="text-xs p-1.5 border border-gray-300 rounded-lg bg-white w-full sm:w-48">
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label for="matrixJinjaTemplate" class="text-xs font-bold uppercase tracking-wider text-gray-600">
+                                User Prompt Jinja2 Template
+                            </label>
+                            <span class="text-[10px] text-gray-400 font-mono">Variables: &#123;&#123; data.&lt;field&gt; &#125;&#125;</span>
                         </div>
 
-                        <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <label for="matrixJinjaTemplate" class="text-xs font-bold uppercase tracking-wider text-gray-600">
-                                    User Prompt Jinja2 Template
-                                </label>
-                                <span class="text-[10px] text-gray-400 font-mono">Use &#123;&#123; data.title &#125;&#125;, &#123;&#123; data.wiki &#125;&#125;, &#123;&#123; data.url &#125;&#125;</span>
-                            </div>
-                            <textarea
-                                id="matrixJinjaTemplate"
-                                rows="7"
-                                class="w-full text-xs p-3 border border-gray-300 rounded-xl font-mono text-gray-800 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner"
-                            >{% raw %}--- url: {{ data.url }} tags: {{ data.tags }} ---
+                        <!-- Available Fields Explorer Bar -->
+                        <div id="matrixAvailableFieldsBar" class="mb-2"></div>
+
+                        <textarea
+                            id="matrixJinjaTemplate"
+                            rows="7"
+                            class="w-full text-xs p-3 border border-gray-300 rounded-xl font-mono text-gray-800 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner"
+                        >{% raw %}--- url: {{ data.url }} tags: {{ data.tags }} ---
 # {{ data.title }}
 
 {{ data.wiki }}{% endraw %}</textarea>
-                        </div>
 
-                        <!-- Live Row 0 Preview Card -->
-                        <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-1.5">
-                            <div class="flex items-center justify-between">
-                                <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500">Live Preview (Row 1 of Dataset)</span>
-                                <button type="button" onclick="refreshDatasetPreview('matrix')" class="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800">🔄 Refresh</button>
-                            </div>
-                            <pre id="matrixRowPreviewBox" class="text-[11px] font-mono p-2.5 bg-white border border-gray-200 rounded-lg text-gray-700 max-h-36 overflow-y-auto whitespace-pre-wrap">Select a dataset above to preview rendered prompt...</pre>
+                        <!-- Parameter Status Bar (Valid / Invalid Chips) -->
+                        <div id="matrixParamStatusBar" class="mt-1.5"></div>
+                    </div>
+
+                    <!-- Live Row 1 Preview Card -->
+                    <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500">Live Preview (Rendered Sample Row)</span>
+                            <button type="button" onclick="refreshDatasetPreview('matrix')" class="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800">🔄 Refresh</button>
                         </div>
+                        <pre id="matrixRowPreviewBox" class="text-[11px] font-mono p-2.5 bg-white border border-gray-200 rounded-lg text-gray-700 max-h-36 overflow-y-auto whitespace-pre-wrap">Select a dataset above to preview rendered prompt...</pre>
                     </div>
                 </div>
             </div>
@@ -790,6 +781,119 @@
             </div>
         </div>
     </div>
+
+    <!-- =======================================================================
+         TAB 5: Run History & Saved Configurations
+         ======================================================================= -->
+    <div id="tabContentHistory" class="hidden space-y-6">
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 border-b border-gray-100 gap-3">
+                <div>
+                    <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
+                        <span>📜</span> Evaluation Run History &amp; Saved Experiments
+                    </h2>
+                    <p class="text-xs text-gray-500 mt-0.5">
+                        Inspect past matrix and decision gating runs, load their prompt templates and model setups, or re-run evaluations.
+                    </p>
+                </div>
+                <button type="button" onclick="refreshRunHistory()" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700 transition">
+                    <span>🔄</span> Refresh History
+                </button>
+            </div>
+
+            <!-- Runs Table Container -->
+            <div id="historyTableContainer" class="overflow-x-auto border border-gray-200 rounded-xl">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr class="bg-gray-50/80 border-b border-gray-200 text-gray-600 font-bold uppercase tracking-wider text-[11px]">
+                            <th class="py-3 px-4">Run Title / ID</th>
+                            <th class="py-3 px-4">Type</th>
+                            <th class="py-3 px-4">Status</th>
+                            <th class="py-3 px-4">Models &amp; Details</th>
+                            <th class="py-3 px-4">Executed At</th>
+                            <th class="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody" class="divide-y divide-gray-100">
+                        {% if saved_runs %}
+                        {% for r in saved_runs %}
+                        <tr id="run-row-{{ r.id }}" class="hover:bg-gray-50/60 transition">
+                            <td class="py-3 px-4 font-bold text-gray-900">
+                                <div>{{ r.title }}</div>
+                                <span class="font-mono text-[10px] text-gray-400 font-normal">#{{ r.id }}</span>
+                            </td>
+                            <td class="py-3 px-4">
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold {% if r.eval_type == 'matrix' %}bg-indigo-100 text-indigo-800{% else %}bg-purple-100 text-purple-800{% endif %}">
+                                    {{ r.eval_type }}
+                                </span>
+                            </td>
+                            <td class="py-3 px-4">
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold {% if r.status == 'completed' %}bg-emerald-100 text-emerald-800{% elif r.status == 'running' %}bg-amber-100 text-amber-800 animate-pulse{% else %}bg-rose-100 text-rose-800{% endif %}">
+                                    {{ r.status }}
+                                </span>
+                            </td>
+                            <td class="py-3 px-4 text-gray-600">
+                                <div class="truncate max-w-xs text-[11px]">
+                                    {% if r.config_json and r.config_json.models %}
+                                    <span class="font-semibold text-gray-800">Models:</span> {{ r.config_json.models | join(', ') }}
+                                    {% endif %}
+                                    {% if r.config_json and r.config_json.dataset_id %}
+                                    <span class="text-gray-400">• Dataset #{{ r.config_json.dataset_id }}</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td class="py-3 px-4 font-mono text-gray-500 text-[11px]">
+                                {{ r.created_at[:16] if r.created_at else '-' }}
+                            </td>
+                            <td class="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                                <button type="button" onclick="viewRunResults({{ r.id }})" class="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition">
+                                    View
+                                </button>
+                                <button type="button" onclick="loadRunConfig({{ r.id }})" class="px-2.5 py-1 text-[11px] font-bold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition" title="Load models, dataset, and template into matrix setup">
+                                    Load Setup
+                                </button>
+                                <button type="button" onclick="deleteRunHistory({{ r.id }})" class="px-2.5 py-1 text-[11px] font-bold text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition" title="Delete run">
+                                    &times;
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="py-8 text-center text-gray-400 italic">
+                                No evaluations executed yet. Run a prompt matrix or decision gating evaluation to record history.
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Run Results Modal -->
+    <div id="runResultsModal" class="hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-4xl w-full max-h-[85vh] flex flex-col shadow-2xl border border-gray-200 overflow-hidden">
+            <div class="p-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                <div>
+                    <h3 id="modalRunTitle" class="font-bold text-sm text-gray-900">Run Details</h3>
+                    <p id="modalRunMeta" class="text-xs text-gray-500 font-mono"></p>
+                </div>
+                <button type="button" onclick="document.getElementById('runResultsModal').classList.add('hidden')" class="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 text-lg">&times;</button>
+            </div>
+            <div id="modalRunBody" class="p-6 overflow-y-auto space-y-4 flex-1 text-xs">
+                <!-- Injected via JS -->
+            </div>
+            <div class="p-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+                <button type="button" id="modalBtnLoadSetup" class="px-3 py-1.5 text-xs font-bold rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition">
+                    Load Setup into Matrix
+                </button>
+                <button type="button" onclick="document.getElementById('runResultsModal').classList.add('hidden')" class="px-4 py-1.5 text-xs font-bold rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 transition">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- ===========================================================================
@@ -854,7 +958,7 @@ let activePrompts = [
     }
 ];
 
-let matrixMode = 'single';      // 'single' | 'dataset'
+let matrixMode = 'dataset';      // 'dataset'
 let decisionMode = 'single';    // 'single' | 'dataset'
 let embeddingMode = 'manual';   // 'manual' | 'dataset'
 
@@ -935,11 +1039,18 @@ document.addEventListener("DOMContentLoaded", () => {
     renderActivePrompts();
     renderPerModelConfigDrawer();
     loadDecisionPreset("link_crawler");
-    updateInputCharCount();
 
-    const matrixInput = document.getElementById("matrixInputText");
-    if (matrixInput) {
-        matrixInput.addEventListener("input", updateInputCharCount);
+    // Initialize Jinja Highlighter for Matrix Prompt Template
+    if (typeof initJinjaHighlighter === 'function') {
+        window.matrixHighlighter = initJinjaHighlighter("matrixJinjaTemplate", {
+            fieldsBarContainerId: "matrixAvailableFieldsBar",
+            statusBarContainerId: "matrixParamStatusBar"
+        });
+    }
+
+    const dsSel = document.getElementById("matrixDatasetSelect");
+    if (dsSel && dsSel.value) {
+        onMatrixDatasetChange(dsSel.value);
     }
 
     // Populate dataset query builder table columns
@@ -948,7 +1059,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // --- Tab Navigation ---
 function switchEvalTab(tabName) {
-    const tabs = ["matrix", "decision", "embedding", "datasets"];
+    const tabs = ["matrix", "decision", "embedding", "datasets", "history"];
     tabs.forEach(t => {
         const content = document.getElementById("tabContent" + capitalize(t));
         const btn = document.getElementById("tabBtn" + capitalize(t));
@@ -956,6 +1067,7 @@ function switchEvalTab(tabName) {
         if (t === tabName) {
             content.classList.remove("hidden");
             btn.className = "border-indigo-600 text-indigo-600 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2 transition";
+            if (t === 'history') refreshRunHistory();
         } else {
             content.classList.add("hidden");
             btn.className = "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-3 px-1 border-b-2 font-bold text-sm flex items-center gap-2 transition";
@@ -984,25 +1096,8 @@ function escapeAttr(str) {
 
 // --- TAB 1: Matrix Functions ---
 function setMatrixInputMode(mode) {
-    matrixMode = mode;
-    const btnSingle = document.getElementById("btnMatrixModeSingle");
-    const btnDataset = document.getElementById("btnMatrixModeDataset");
-    const viewSingle = document.getElementById("matrixSingleInputView");
-    const viewDataset = document.getElementById("matrixDatasetInputView");
-
-    if (mode === 'single') {
-        btnSingle.className = "px-3 py-1.5 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs";
-        btnDataset.className = "px-3 py-1.5 font-bold rounded-lg transition text-gray-600 hover:text-gray-900";
-        viewSingle.classList.remove("hidden");
-        viewDataset.classList.add("hidden");
-    } else {
-        btnDataset.className = "px-3 py-1.5 font-bold rounded-lg transition bg-white text-indigo-600 shadow-xs";
-        btnSingle.className = "px-3 py-1.5 font-bold rounded-lg transition text-gray-600 hover:text-gray-900";
-        viewDataset.classList.remove("hidden");
-        viewSingle.classList.add("hidden");
-        const select = document.getElementById("matrixDatasetSelect");
-        if (select.value) refreshDatasetPreview('matrix');
-    }
+    matrixMode = 'dataset';
+    // Single input mode removed; matrix evaluation always runs against datasets
 }
 
 function updateInputCharCount() {
@@ -1205,11 +1300,25 @@ async function loadSampleArticleContent(url) {
     }
 }
 
-function onMatrixDatasetChange(datasetId) {
+async function onMatrixDatasetChange(datasetId) {
     if (!datasetId) {
         document.getElementById("matrixRowPreviewBox").innerText = "Select a dataset above to preview rendered prompt...";
+        if (window.matrixHighlighter) window.matrixHighlighter.setAvailableFields([]);
         return;
     }
+
+    try {
+        const fieldsResp = await fetch(`/api/evals/datasets/${datasetId}/fields`);
+        if (fieldsResp.ok) {
+            const data = await fieldsResp.json();
+            if (window.matrixHighlighter && data.fields) {
+                window.matrixHighlighter.setAvailableFields(data.fields);
+            }
+        }
+    } catch (err) {
+        console.warn("Failed to load dataset fields:", err);
+    }
+
     refreshDatasetPreview('matrix');
 }
 
@@ -1278,27 +1387,19 @@ async function executeMatrixEval() {
         model_options: perModelOptions
     };
 
-    if (matrixMode === 'dataset') {
-        const datasetId = parseInt(document.getElementById("matrixDatasetSelect").value, 10);
-        if (!datasetId) {
-            alert("Please select an evaluation dataset.");
-            btn.disabled = false;
-            spinner.classList.add("hidden");
-            return;
-        }
-        payload.dataset_id = datasetId;
-        payload.template = document.getElementById("matrixJinjaTemplate").value;
-        payload.sample_limit = parseInt(document.getElementById("matrixSampleLimit").value, 10);
-    } else {
-        const inputText = document.getElementById("matrixInputText").value.trim();
-        if (!inputText) {
-            alert("Please provide input text to evaluate.");
-            btn.disabled = false;
-            spinner.classList.add("hidden");
-            return;
-        }
-        payload.input_text = inputText;
+    const datasetId = parseInt(document.getElementById("matrixDatasetSelect").value, 10);
+    if (!datasetId) {
+        alert("Please select an evaluation dataset.");
+        btn.disabled = false;
+        spinner.classList.add("hidden");
+        return;
     }
+    payload.dataset_id = datasetId;
+    payload.template = document.getElementById("matrixJinjaTemplate").value;
+    payload.sample_limit = parseInt(document.getElementById("matrixSampleLimit").value, 10);
+    payload.randomize = document.getElementById("matrixRandomize") ? document.getElementById("matrixRandomize").checked : true;
+    const runTitle = document.getElementById("matrixRunTitle") ? document.getElementById("matrixRunTitle").value.trim() : "";
+    if (runTitle) payload.title = runTitle;
 
     // Prepare Results Section and Progress Bar
     const section = document.getElementById("matrixResultsSection");
@@ -2231,5 +2332,192 @@ function copyToClipboard(text) {
 document.addEventListener("DOMContentLoaded", () => {
     updateMaxTokensHint();
 });
+
+// --- Run History & Saved Configurations Handlers ---
+let currentLoadedRun = null;
+
+async function refreshRunHistory() {
+    try {
+        const resp = await fetch("/api/evals/runs");
+        if (!resp.ok) throw new Error("Failed to load run history");
+        const runs = await resp.json();
+        const tbody = document.getElementById("historyTableBody");
+        if (!tbody) return;
+        if (!runs || runs.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-gray-400 italic">No evaluations executed yet.</td></tr>`;
+            return;
+        }
+        tbody.innerHTML = runs.map(r => `
+            <tr id="run-row-${r.id}" class="hover:bg-gray-50/60 transition">
+                <td class="py-3 px-4 font-bold text-gray-900">
+                    <div>${escapeHtml(r.title)}</div>
+                    <span class="font-mono text-[10px] text-gray-400 font-normal">#${r.id}</span>
+                </td>
+                <td class="py-3 px-4">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${r.eval_type === 'matrix' ? 'bg-indigo-100 text-indigo-800' : 'bg-purple-100 text-purple-800'}">
+                        ${escapeHtml(r.eval_type)}
+                    </span>
+                </td>
+                <td class="py-3 px-4">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${r.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : r.status === 'running' ? 'bg-amber-100 text-amber-800 animate-pulse' : 'bg-rose-100 text-rose-800'}">
+                        ${escapeHtml(r.status)}
+                    </span>
+                </td>
+                <td class="py-3 px-4 text-gray-600">
+                    <div class="truncate max-w-xs text-[11px]">
+                        ${r.config_json && r.config_json.models ? `<span class="font-semibold text-gray-800">Models:</span> ${escapeHtml(r.config_json.models.join(', '))}` : ''}
+                        ${r.config_json && r.config_json.dataset_id ? `<span class="text-gray-400">• Dataset #${r.config_json.dataset_id}</span>` : ''}
+                    </div>
+                </td>
+                <td class="py-3 px-4 font-mono text-gray-500 text-[11px]">
+                    ${r.created_at ? escapeHtml(r.created_at.slice(0, 16)) : '-'}
+                </td>
+                <td class="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                    <button type="button" onclick="viewRunResults(${r.id})" class="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition">
+                        View
+                    </button>
+                    <button type="button" onclick="loadRunConfig(${r.id})" class="px-2.5 py-1 text-[11px] font-bold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition" title="Load models, dataset, and template into matrix setup">
+                        Load Setup
+                    </button>
+                    <button type="button" onclick="deleteRunHistory(${r.id})" class="px-2.5 py-1 text-[11px] font-bold text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition" title="Delete run">
+                        &times;
+                    </button>
+                </td>
+            </tr>
+        `).join("");
+    } catch (e) {
+        console.error("Refresh history error:", e);
+    }
+}
+
+async function viewRunResults(runId) {
+    try {
+        const resp = await fetch(`/api/evals/runs/${runId}`);
+        if (!resp.ok) throw new Error("Run not found");
+        const run = await resp.json();
+        currentLoadedRun = run;
+
+        document.getElementById("modalRunTitle").innerText = run.title || `Evaluation Run #${run.id}`;
+        document.getElementById("modalRunMeta").innerText = `Type: ${run.eval_type} • Status: ${run.status} • Executed: ${run.created_at}`;
+
+        const modalBody = document.getElementById("modalRunBody");
+        const results = run.results_json || [];
+
+        let html = `
+            <div class="p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                <div class="font-bold text-gray-800 text-xs">Run Configuration</div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-gray-600 font-mono">
+                    <div><span class="text-gray-400">Models:</span> ${escapeHtml(run.config_json?.models?.join(', ') || '-')}</div>
+                    <div><span class="text-gray-400">Dataset ID:</span> ${escapeHtml(run.config_json?.dataset_id || '-')}</div>
+                    <div><span class="text-gray-400">Sample Limit:</span> ${escapeHtml(run.config_json?.sample_limit || '-')}</div>
+                    <div><span class="text-gray-400">Randomized:</span> ${run.config_json?.randomize ? 'Yes' : 'No'}</div>
+                </div>
+                ${run.config_json?.template ? `
+                <div class="mt-2">
+                    <span class="text-[10px] uppercase font-bold text-gray-400">Prompt Template:</span>
+                    <pre class="p-2 bg-white border border-gray-200 rounded text-[11px] font-mono whitespace-pre-wrap">${escapeHtml(run.config_json.template)}</pre>
+                </div>` : ''}
+            </div>
+            <div class="space-y-3">
+                <div class="font-bold text-gray-800 text-xs">Outputs &amp; Benchmark Results (${results.length} cell results)</div>
+        `;
+
+        if (results.length === 0) {
+            html += `<p class="text-gray-400 italic">No output cells recorded for this run.</p>`;
+        } else {
+            results.forEach((res) => {
+                html += `
+                    <div class="p-3.5 bg-white border border-gray-200 rounded-xl space-y-2 shadow-xs">
+                        <div class="flex items-center justify-between">
+                            <span class="font-bold text-indigo-700">${escapeHtml(res.model || '-')}</span>
+                            <span class="text-[10px] text-gray-400 font-mono">${res.latency_ms ? res.latency_ms + ' ms' : ''} ${res.tokens ? '• ' + res.tokens + ' tok' : ''}</span>
+                        </div>
+                        ${res.prompt_name ? `<div class="text-[11px] text-gray-500 font-semibold">${escapeHtml(res.prompt_name)}</div>` : ''}
+                        ${res.row_summary ? `<div class="text-[10px] text-gray-400">${escapeHtml(res.row_summary)}</div>` : ''}
+                        <div class="p-2.5 bg-gray-50 rounded-lg text-gray-800 font-mono text-[11px] whitespace-pre-wrap max-h-48 overflow-y-auto border border-gray-100">${escapeHtml(res.output || '(No output)')}</div>
+                    </div>
+                `;
+            });
+        }
+        html += `</div>`;
+        modalBody.innerHTML = html;
+
+        document.getElementById("modalBtnLoadSetup").onclick = () => {
+            loadRunConfig(run.id);
+            document.getElementById("runResultsModal").classList.add("hidden");
+        };
+
+        document.getElementById("runResultsModal").classList.remove("hidden");
+    } catch (e) {
+        alert("Error loading run results: " + e.message);
+    }
+}
+
+async function loadRunConfig(runId) {
+    try {
+        const resp = await fetch(`/api/evals/runs/${runId}`);
+        if (!resp.ok) throw new Error("Run not found");
+        const run = await resp.json();
+        const cfg = run.config_json || {};
+
+        switchEvalTab("matrix");
+
+        if (cfg.dataset_id) {
+            const dsSel = document.getElementById("matrixDatasetSelect");
+            if (dsSel) {
+                dsSel.value = cfg.dataset_id;
+                onMatrixDatasetChange(cfg.dataset_id);
+            }
+        }
+
+        if (cfg.sample_limit) {
+            const limitSel = document.getElementById("matrixSampleLimit");
+            if (limitSel) limitSel.value = cfg.sample_limit;
+        }
+
+        if (cfg.randomize !== undefined) {
+            const randCb = document.getElementById("matrixRandomize");
+            if (randCb) randCb.checked = !!cfg.randomize;
+        }
+
+        if (cfg.template) {
+            const tplArea = document.getElementById("matrixJinjaTemplate");
+            if (tplArea) {
+                tplArea.value = cfg.template;
+                if (window.matrixHighlighter) {
+                    window.matrixHighlighter.update();
+                }
+            }
+        }
+
+        if (cfg.models && Array.isArray(cfg.models)) {
+            document.querySelectorAll("input[name='matrixModel']").forEach(cb => {
+                cb.checked = cfg.models.includes(cb.value);
+            });
+            renderPerModelConfigDrawer();
+        }
+
+        if (cfg.prompts && Array.isArray(cfg.prompts) && cfg.prompts.length > 0) {
+            activePrompts = cfg.prompts;
+            renderActivePrompts();
+        }
+
+        alert(`Loaded configuration from run #${run.id} into Matrix Setup.`);
+    } catch (e) {
+        alert("Error loading configuration: " + e.message);
+    }
+}
+
+async function deleteRunHistory(runId) {
+    if (!confirm(`Delete evaluation run #${runId}?`)) return;
+    try {
+        const resp = await fetch(`/api/evals/runs/${runId}`, { method: "DELETE" });
+        if (!resp.ok) throw new Error("Failed to delete run");
+        const row = document.getElementById(`run-row-${runId}`);
+        if (row) row.remove();
+    } catch (e) {
+        alert("Delete run error: " + e.message);
+    }
+}
 </script>
 {% endblock %}

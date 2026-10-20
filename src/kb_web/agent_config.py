@@ -13,11 +13,13 @@ Exposes every single aspect of every Ollama model call:
 from datetime import datetime, timezone
 import json
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
+import jinja2
 from sqlalchemy.orm import Session
 
-from .base import db_session, config
+from .base import db_session, config, _get_ollama_client
 from .models_orm import AgentConfiguration
 from .config import (
     DEFAULT_WIKI_PROMPT,
@@ -353,6 +355,10 @@ def get_agent_config(agent_id: str, session: Optional[Session] = None) -> Option
             "tools": json.loads(row.tools or "[]"),
             "enabled": bool(row.enabled),
             "extra_options": json.loads(row.extra_options or "{}"),
+            "version": getattr(row, "version", 1) or 1,
+            "is_published": bool(getattr(row, "is_published", 0)),
+            "published_at": getattr(row, "published_at", None),
+            "frozen_snapshot_json": getattr(row, "frozen_snapshot_json", None),
             "updated_at": row.updated_at,
         }
     finally:
@@ -398,6 +404,10 @@ def list_agent_configs(session: Optional[Session] = None) -> List[Dict[str, Any]
                 "tools": tools_list,
                 "enabled": bool(r.enabled),
                 "extra_options": extra_dict,
+                "version": getattr(r, "version", 1) or 1,
+                "is_published": bool(getattr(r, "is_published", 0)),
+                "published_at": getattr(r, "published_at", None),
+                "frozen_snapshot_json": getattr(r, "frozen_snapshot_json", None),
                 "updated_at": r.updated_at,
             })
         return result
@@ -416,8 +426,12 @@ def save_agent_config(agent_id: str, data: Dict[str, Any], session: Optional[Ses
         row = session.query(AgentConfiguration).filter_by(id=agent_id).first()
         now_iso = datetime.now(timezone.utc).isoformat()
         if not row:
-            row = AgentConfiguration(id=agent_id)
+            row = AgentConfiguration(id=agent_id, version=1, is_published=0)
             session.add(row)
+        else:
+            # If changing configuration on an already published agent, revert is_published to 0 (draft)
+            if getattr(row, "is_published", 0) and not data.get("is_published"):
+                row.is_published = 0
 
         if "name" in data:
             row.name = data["name"]
@@ -449,6 +463,10 @@ def save_agent_config(agent_id: str, data: Dict[str, Any], session: Optional[Ses
             row.enabled = 1 if data["enabled"] else 0
         if "extra_options" in data:
             row.extra_options = json.dumps(data["extra_options"]) if isinstance(data["extra_options"], dict) else str(data["extra_options"])
+        if "is_published" in data:
+            row.is_published = 1 if data["is_published"] else 0
+        if "version" in data and data["version"] is not None:
+            row.version = int(data["version"])
         row.updated_at = now_iso
 
         session.commit()
@@ -459,3 +477,201 @@ def save_agent_config(agent_id: str, data: Dict[str, Any], session: Optional[Ses
     finally:
         if owns_session:
             session_ctx.__exit__(None, None, None)
+
+
+def publish_agent_config(agent_id: str, session: Optional[Session] = None) -> Dict[str, Any]:
+    """Publishes the current agent configuration as a frozen snapshot commit, incrementing its version."""
+    owns_session = session is None
+    if owns_session:
+        session_ctx = db_session()
+        session = session_ctx.__enter__()
+    try:
+        row = session.query(AgentConfiguration).filter_by(id=agent_id).first()
+        if not row:
+            raise ValueError(f"Agent '{agent_id}' not found")
+        now_iso = datetime.now(timezone.utc).isoformat()
+        current_version = getattr(row, "version", 1) or 1
+        new_version = current_version + 1
+        snapshot = {
+            "id": row.id,
+            "name": row.name,
+            "category": row.category,
+            "call_type": row.call_type,
+            "model": row.model,
+            "system_prompt": row.system_prompt,
+            "user_prompt_template": row.user_prompt_template,
+            "thinking": bool(row.thinking),
+            "temperature": row.temperature,
+            "num_predict": row.num_predict,
+            "num_ctx": row.num_ctx,
+            "top_p": row.top_p,
+            "top_k": row.top_k,
+            "tools": json.loads(row.tools or "[]"),
+            "enabled": bool(row.enabled),
+            "extra_options": json.loads(row.extra_options or "{}"),
+            "version": new_version,
+            "published_at": now_iso,
+        }
+        row.version = new_version
+        row.is_published = 1
+        row.published_at = now_iso
+        row.frozen_snapshot_json = json.dumps(snapshot)
+        row.updated_at = now_iso
+        session.commit()
+        return get_agent_config(agent_id, session=session)
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        if owns_session:
+            session_ctx.__exit__(None, None, None)
+
+
+def delete_agent_config(agent_id: str, session: Optional[Session] = None) -> bool:
+    """Deletes an agent configuration from the registry."""
+    owns_session = session is None
+    if owns_session:
+        session_ctx = db_session()
+        session = session_ctx.__enter__()
+    try:
+        row = session.query(AgentConfiguration).filter_by(id=agent_id).first()
+        if not row:
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        if owns_session:
+            session_ctx.__exit__(None, None, None)
+
+
+def test_run_agent_config(agent_id: str, sample_data: Dict[str, Any], session: Optional[Session] = None) -> Dict[str, Any]:
+    """Runs a draft or published agent on sample input data to vet outputs before publishing."""
+    cfg = get_agent_config(agent_id, session=session)
+    if not cfg:
+        raise ValueError(f"Agent '{agent_id}' not found")
+
+    call_type = cfg.get("call_type", "llm")
+    model_name = cfg.get("model") or "gemma4:e4b"
+    user_template = cfg.get("user_prompt_template") or ""
+    client = _get_ollama_client(timeout=60.0)
+
+    # Render Jinja template with sample_data
+    rendered_input = user_template
+    if user_template:
+        try:
+            t = jinja2.Template(user_template)
+            rendered_input = t.render(data=sample_data)
+        except Exception as e:
+            logger.warning(f"Failed to render user_prompt_template: {e}")
+
+    start_time = time.time()
+
+    if call_type == "decision":
+        # SystemOne decision execution
+        state = sample_data
+        if rendered_input and rendered_input.strip().startswith("{") and rendered_input.strip().endswith("}"):
+            try:
+                state = json.loads(rendered_input)
+            except Exception:
+                state = {"rendered_context": rendered_input, **sample_data}
+        else:
+            state = {"rendered_context": rendered_input, **sample_data}
+
+        extra_opts = cfg.get("extra_options") or {}
+        raw_questions = extra_opts.get("questions") or {
+            "relevance": {
+                "type": "score",
+                "instructions": "Rate relevance and suitability for this agent's task domain from 0 to 1.",
+            }
+        }
+        num_ctx = cfg.get("num_ctx") or 16384
+        try:
+            resp = client.systemone(
+                model=model_name,
+                state=state,
+                questions=raw_questions,
+                context_window=num_ctx,
+            )
+            duration_ms = round((time.time() - start_time) * 1000, 1)
+            raw_answers = getattr(resp, "answers", None) or (resp.get("answers") if isinstance(resp, dict) else resp)
+            return {
+                "status": "success",
+                "agent_id": agent_id,
+                "call_type": "decision",
+                "model": model_name,
+                "latency_ms": duration_ms,
+                "output": raw_answers,
+                "rendered_prompt": str(state),
+            }
+        except Exception as e:
+            duration_ms = round((time.time() - start_time) * 1000, 1)
+            return {
+                "status": "error",
+                "agent_id": agent_id,
+                "call_type": "decision",
+                "model": model_name,
+                "latency_ms": duration_ms,
+                "error": str(e),
+                "rendered_prompt": str(state),
+            }
+    else:
+        # LLM completion
+        system_prompt = cfg.get("system_prompt") or ""
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": rendered_input})
+
+        options = {
+            "temperature": float(cfg.get("temperature", 0.2) or 0.2),
+            "num_predict": int(cfg.get("num_predict", 2048) or 2048),
+            "num_ctx": max(2048, int(cfg.get("num_ctx", 8192) or 8192)),
+        }
+        if cfg.get("top_p") is not None:
+            options["top_p"] = float(cfg["top_p"])
+        if cfg.get("top_k") is not None:
+            options["top_k"] = int(cfg["top_k"])
+
+        try:
+            resp = client.chat(
+                model=model_name,
+                messages=messages,
+                options=options,
+            )
+            duration_ms = round((time.time() - start_time) * 1000, 1)
+            msg = getattr(resp, "message", None) if not isinstance(resp, dict) else resp.get("message")
+            if isinstance(msg, dict):
+                content = msg.get("content", "")
+                thinking = msg.get("thinking", "")
+            elif msg:
+                content = getattr(msg, "content", "")
+                thinking = getattr(msg, "thinking", "")
+            else:
+                content = ""
+                thinking = ""
+            return {
+                "status": "success",
+                "agent_id": agent_id,
+                "call_type": "llm",
+                "model": model_name,
+                "latency_ms": duration_ms,
+                "output": content,
+                "thinking": thinking,
+                "rendered_prompt": rendered_input,
+            }
+        except Exception as e:
+            duration_ms = round((time.time() - start_time) * 1000, 1)
+            return {
+                "status": "error",
+                "agent_id": agent_id,
+                "call_type": "llm",
+                "model": model_name,
+                "latency_ms": duration_ms,
+                "error": str(e),
+                "rendered_prompt": rendered_input,
+            }
+

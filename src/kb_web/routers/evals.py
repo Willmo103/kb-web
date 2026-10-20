@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 import json
 import logging
 import math
+import random
 import time
 from typing import Any, Dict, List, Optional
 
@@ -37,7 +38,7 @@ from ..base import (
     verify_session_token,
     _get_ollama_client,
 )
-from ..models_orm import EvalDataset, FetchedPage, Note
+from ..models_orm import EvalDataset, FetchedPage, Note, EvaluationRun
 from .reports import (
     TABLE_METADATA,
     FilterCondition,
@@ -82,6 +83,7 @@ class CreateDatasetRequest(BaseModel):
 
 
 class MatrixRunRequest(BaseModel):
+    title: Optional[str] = Field(None, description="Optional custom title for the evaluation run")
     models: List[str] = Field(..., min_length=1, description="List of model names to test")
     prompts: List[Dict[str, str]] = Field(
         ..., min_length=1, description="List of prompt definitions [{'id': str, 'name': str, 'text': str}]"
@@ -90,6 +92,7 @@ class MatrixRunRequest(BaseModel):
     template: Optional[str] = Field(None, description="Jinja2 template using {{ data.<field> }}")
     input_text: Optional[str] = Field(None, description="Input text or article markdown for single run")
     sample_limit: Optional[int] = Field(5, ge=1, le=50, description="Max rows to process when using dataset")
+    randomize: Optional[bool] = Field(False, description="Randomly sample rows from the dataset instead of sequential")
     temperature: Optional[float] = Field(0.2, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(2048, ge=16, le=262144, description="Max predict tokens / context window limit")
     model_options: Optional[Dict[str, Dict[str, Any]]] = Field(
@@ -236,7 +239,7 @@ def get_model_context_info(model_name: str, client: Any = None) -> Dict[str, Any
     return result
 
 
-def _fetch_dataset_rows(session: Any, dataset: EvalDataset, limit: int = 50) -> List[Dict[str, Any]]:
+def _fetch_dataset_rows(session: Any, dataset: EvalDataset, limit: int = 50, randomize: bool = False) -> List[Dict[str, Any]]:
     """Fetches full uncompressed database rows matching an EvalDataset definition."""
     config_data = dataset.query_config or {}
     if isinstance(config_data, str):
@@ -276,18 +279,24 @@ def _fetch_dataset_rows(session: Any, dataset: EvalDataset, limit: int = 50) -> 
         if "notes.title" not in cols:
             cols.append("notes.title")
 
+    # If randomizing, fetch a broader candidate pool (up to 100 rows) before sampling
+    query_limit = 100 if randomize else min(limit, 100)
     req = ReportQueryRequest(
         base_table=dataset.base_table,
         columns=cols,
         joins=joins,
         filters=filters,
-        limit=min(limit, 100),
+        limit=query_limit,
         offset=0,
         fetch_heavy=True,
     )
     query_sql, query_params = _build_sql_query(req, fetch_heavy=True, is_count=False)
     result = session.execute(text(query_sql), query_params)
     rows = [dict(r._mapping) for r in result.fetchall()]
+    if randomize and len(rows) > limit:
+        rows = random.sample(rows, limit)
+    elif not randomize:
+        rows = rows[:limit]
     return [_format_row_context(r) for r in rows]
 
 
@@ -321,8 +330,8 @@ def classify_model_type(model_name: str, model_obj: Any = None) -> str:
     m_lower = (model_name or "").lower()
     clean_name = m_lower.split(":")[0]
 
-    # Check decision
-    if clean_name in ("d1", "tev1") or "decision" in clean_name or "systemone" in clean_name:
+    # Check decision: d1 and tev1 are strictly decision models, NEVER LLMs
+    if clean_name in ("d1", "tev1") or clean_name.startswith("d1") or clean_name.startswith("tev1") or "decision" in clean_name or "systemone" in clean_name:
         return "decision"
 
     # Check embedding
@@ -398,14 +407,23 @@ def view_evals_studio(request: Request):
             if m not in llm_models:
                 llm_models.append(m)
 
-    # Ensure baselines exist in their respective categorized lists
-    if config.ollama_model and config.ollama_model not in llm_models:
-        llm_models.insert(0, config.ollama_model)
+    # Ensure baselines exist in their respective categorized lists (checking type)
+    if config.ollama_model and classify_model_type(config.ollama_model) == "llm":
+        clean_base = config.ollama_model.lower().split(":")[0]
+        if not (clean_base in ("d1", "tev1") or clean_base.startswith("d1") or clean_base.startswith("tev1")):
+            if config.ollama_model not in llm_models:
+                llm_models.insert(0, config.ollama_model)
     for dm in ("d1", "tev1", getattr(config, "decision_model", "d1")):
         if dm and dm not in decision_models:
             decision_models.append(dm)
     if config.ollama_embedding_model and config.ollama_embedding_model not in embedding_models:
         embedding_models.insert(0, config.ollama_embedding_model)
+
+    # STRICT HARD FILTER: Guarantee d1 and tev1 NEVER appear in llm_models
+    llm_models = [
+        m for m in llm_models
+        if classify_model_type(m) == "llm" and not any(k in m.lower().split(":")[0] for k in ("d1", "tev1", "decision", "systemone"))
+    ]
 
     # 2. Get registered system prompts
     prompts = config.get_all_prompts()
@@ -475,6 +493,39 @@ def view_evals_studio(request: Request):
         except Exception as e:
             logger.warning(f"Error loading eval datasets: {e}")
 
+        # 4. Retrieve saved evaluation runs for run history tab
+        saved_runs = []
+        try:
+            runs = (
+                session.query(EvaluationRun)
+                .order_by(EvaluationRun.id.desc())
+                .limit(30)
+                .all()
+            )
+            for r in runs:
+                cfg_obj = {}
+                metrics_obj = {}
+                try:
+                    cfg_obj = json.loads(r.config_json or "{}")
+                except Exception:
+                    pass
+                try:
+                    metrics_obj = json.loads(r.metrics_json or "{}")
+                except Exception:
+                    pass
+                saved_runs.append({
+                    "id": r.id,
+                    "title": r.title,
+                    "eval_type": r.eval_type,
+                    "status": r.status,
+                    "config": cfg_obj,
+                    "metrics": metrics_obj,
+                    "created_at": r.created_at,
+                    "completed_at": r.completed_at,
+                })
+        except Exception as e:
+            logger.warning(f"Error loading saved evaluation runs: {e}")
+
     models_info = {}
     try:
         cli = _get_ollama_client(timeout=3.0)
@@ -495,8 +546,9 @@ def view_evals_studio(request: Request):
         sample_articles=sample_articles,
         sample_notes=sample_notes,
         saved_datasets=saved_datasets,
+        saved_runs=saved_runs,
         tables_metadata=TABLE_METADATA,
-        default_model=config.ollama_model,
+        default_model=config.ollama_model if config.ollama_model in llm_models else (llm_models[0] if llm_models else "gemma4:e4b"),
         default_decision_model=getattr(config, "decision_model", "d1"),
         default_embedding_model=config.ollama_embedding_model,
         current_user="Admin",
@@ -709,7 +761,7 @@ def delete_eval_dataset(dataset_id: int, request: Request):
 
 
 @router.get("/api/evals/datasets/{dataset_id}/rows")
-def get_dataset_sample_rows(dataset_id: int, request: Request, limit: int = 10):
+def get_dataset_sample_rows(dataset_id: int, request: Request, limit: int = 10, randomize: bool = False):
     """Returns uncompressed sample rows for a dataset with flattened aliases for Jinja preview."""
     token = request.cookies.get(COOKIE_NAME)
     if not (token and verify_session_token(token)):
@@ -719,8 +771,144 @@ def get_dataset_sample_rows(dataset_id: int, request: Request, limit: int = 10):
         ds = session.query(EvalDataset).filter_by(id=dataset_id).first()
         if not ds:
             raise HTTPException(status_code=404, detail="Dataset not found")
-        rows = _fetch_dataset_rows(session, ds, limit=limit)
-        return {"dataset_id": ds.id, "name": ds.name, "rows": rows}
+        rows = _fetch_dataset_rows(session, ds, limit=limit, randomize=randomize)
+        fields = set()
+        for r in rows:
+            fields.update(r.keys())
+        if not fields:
+            if ds.base_table == "fetched_pages":
+                fields.update(["title", "url", "md_content", "wiki", "content", "tags", "fetched_at"])
+            elif ds.base_table == "notes":
+                fields.update(["title", "content", "tags", "created_at"])
+        return {"dataset_id": ds.id, "name": ds.name, "rows": rows, "fields": sorted(list(fields))}
+
+
+@router.get("/api/evals/datasets/{dataset_id}/fields")
+def get_dataset_available_fields(dataset_id: int, request: Request):
+    """Returns all accessible field names for a dataset for Jinja template explorer and syntax highlighting."""
+    token = request.cookies.get(COOKIE_NAME)
+    if not (token and verify_session_token(token)):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    with db_session() as session:
+        ds = session.query(EvalDataset).filter_by(id=dataset_id).first()
+        if not ds:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        rows = _fetch_dataset_rows(session, ds, limit=2)
+        fields = set()
+        raw_cols = ds.selected_columns or []
+        if isinstance(raw_cols, str):
+            try:
+                raw_cols = json.loads(raw_cols)
+            except Exception:
+                raw_cols = []
+        for col in raw_cols:
+            clean_col = col.split(".")[-1]
+            fields.add(clean_col)
+            fields.add(col)
+
+        for r in rows:
+            fields.update(r.keys())
+        if not fields:
+            if ds.base_table == "fetched_pages":
+                fields.update(["title", "url", "md_content", "wiki", "content", "tags", "fetched_at"])
+            elif ds.base_table == "notes":
+                fields.update(["title", "content", "tags", "created_at"])
+        return {"status": "success", "dataset_id": ds.id, "name": ds.name, "fields": sorted(list(fields))}
+
+
+@router.get("/api/evals/runs")
+def api_list_evaluation_runs(request: Request, limit: int = 50):
+    """Returns list of past evaluation runs."""
+    token = request.cookies.get(COOKIE_NAME)
+    if not (token and verify_session_token(token)):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    with db_session() as session:
+        runs = session.query(EvaluationRun).order_by(EvaluationRun.id.desc()).limit(limit).all()
+        result = []
+        for r in runs:
+            cfg = {}
+            metrics = {}
+            try:
+                cfg = json.loads(r.config_json or "{}")
+            except Exception:
+                pass
+            try:
+                metrics = json.loads(r.metrics_json or "{}")
+            except Exception:
+                pass
+            result.append({
+                "id": r.id,
+                "eval_type": r.eval_type,
+                "title": r.title,
+                "status": r.status,
+                "config_json": cfg,
+                "config": cfg,
+                "metrics_json": metrics,
+                "metrics": metrics,
+                "created_at": r.created_at,
+                "completed_at": r.completed_at,
+            })
+        return result
+
+
+@router.get("/api/evals/runs/{run_id}")
+def api_get_evaluation_run(run_id: int, request: Request):
+    """Returns full details, results, and configuration of an evaluation run."""
+    token = request.cookies.get(COOKIE_NAME)
+    if not (token and verify_session_token(token)):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    with db_session() as session:
+        r = session.query(EvaluationRun).filter_by(id=run_id).first()
+        if not r:
+            raise HTTPException(status_code=404, detail=f"Evaluation run #{run_id} not found")
+        cfg = {}
+        res = []
+        metrics = {}
+        try:
+            cfg = json.loads(r.config_json or "{}")
+        except Exception:
+            pass
+        try:
+            res = json.loads(r.results_json or "[]")
+        except Exception:
+            pass
+        try:
+            metrics = json.loads(r.metrics_json or "{}")
+        except Exception:
+            pass
+        return {
+            "id": r.id,
+            "eval_type": r.eval_type,
+            "title": r.title,
+            "status": r.status,
+            "config_json": cfg,
+            "config": cfg,
+            "results_json": res,
+            "results": res,
+            "metrics_json": metrics,
+            "metrics": metrics,
+            "created_at": r.created_at,
+            "completed_at": r.completed_at,
+        }
+
+
+@router.delete("/api/evals/runs/{run_id}")
+def api_delete_evaluation_run(run_id: int, request: Request):
+    """Deletes an evaluation run from history."""
+    token = request.cookies.get(COOKIE_NAME)
+    if not (token and verify_session_token(token)):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    with db_session() as session:
+        r = session.query(EvaluationRun).filter_by(id=run_id).first()
+        if not r:
+            raise HTTPException(status_code=404, detail=f"Evaluation run #{run_id} not found")
+        session.delete(r)
+        session.commit()
+        return {"status": "success", "success": True, "message": f"Run #{run_id} deleted"}
 
 
 @router.get("/api/evals/models/info")
@@ -760,17 +948,18 @@ async def run_matrix_eval_stream(payload: MatrixRunRequest, request: Request):
     if not payload.prompts:
         raise HTTPException(status_code=400, detail="At least one prompt must be specified")
 
-    # Fetch rows if dataset mode
+    # Fetch rows from dataset
     rows_to_process = []
-    is_dataset = False
+    is_dataset = True
+    dataset_name = "Eval Dataset"
     if payload.dataset_id is not None:
-        is_dataset = True
         with db_session() as session:
             dataset = session.query(EvalDataset).filter_by(id=payload.dataset_id).first()
             if not dataset:
                 raise HTTPException(status_code=404, detail="Specified dataset not found")
+            dataset_name = dataset.name
             limit = payload.sample_limit or 5
-            raw_rows = _fetch_dataset_rows(session, dataset, limit=limit)
+            raw_rows = _fetch_dataset_rows(session, dataset, limit=limit, randomize=bool(payload.randomize))
 
         if not raw_rows:
             raise HTTPException(status_code=400, detail="Dataset returned zero rows")
@@ -782,20 +971,55 @@ async def run_matrix_eval_stream(payload: MatrixRunRequest, request: Request):
             summary = row_data.get("title") or row_data.get("url") or f"Row #{idx + 1}"
             rows_to_process.append({"row_idx": idx + 1, "input": rendered_input, "summary": summary})
     else:
-        input_text = (payload.input_text or "").strip()
-        if not input_text:
-            raise HTTPException(status_code=400, detail="Input text or dataset_id must be provided")
-        rows_to_process.append({"row_idx": None, "input": input_text, "summary": None})
+        # Fallback to first available dataset if none specified
+        with db_session() as session:
+            dataset = session.query(EvalDataset).order_by(EvalDataset.id.asc()).first()
+            if dataset:
+                dataset_name = dataset.name
+                limit = payload.sample_limit or 5
+                raw_rows = _fetch_dataset_rows(session, dataset, limit=limit, randomize=bool(payload.randomize))
+                for idx, row_data in enumerate(raw_rows):
+                    rendered_input = _render_jinja_safely(payload.template or payload.input_text, row_data, fallback="")
+                    if not rendered_input.strip():
+                        continue
+                    summary = row_data.get("title") or row_data.get("url") or f"Row #{idx + 1}"
+                    rows_to_process.append({"row_idx": idx + 1, "input": rendered_input, "summary": summary})
+
+        if not rows_to_process:
+            input_text = (payload.input_text or "").strip()
+            if not input_text:
+                raise HTTPException(status_code=400, detail="Evaluation requires an active dataset or input template")
+            is_dataset = False
+            rows_to_process.append({"row_idx": 1, "input": input_text, "summary": "Manual Sample"})
 
     total_runs = len(rows_to_process) * len(payload.models) * len(payload.prompts)
+
+    # Initialize and persist EvaluationRun record
+    run_title = payload.title or f"Matrix Eval: {len(payload.models)} models × {len(payload.prompts)} prompts ({dataset_name})"
+    eval_run_id = None
+    with db_session() as session:
+        new_run = EvaluationRun(
+            eval_type="matrix",
+            title=run_title,
+            status="running",
+            config_json=json.dumps(payload.model_dump()),
+            results_json="[]",
+            metrics_json=json.dumps({"total_runs": total_runs, "completed": 0, "errors": 0}),
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        session.add(new_run)
+        session.commit()
+        eval_run_id = new_run.id
 
     async def event_generator():
         client = _get_ollama_client(timeout=1200.0)
         # 1. Immediately emit handshake so Cloudflare sees HTTP 200 and initial bytes < 100ms
-        yield f"event: start\ndata: {json.dumps({'total_runs': total_runs, 'is_dataset': is_dataset})}\n\n"
+        yield f"event: start\ndata: {json.dumps({'eval_run_id': eval_run_id, 'total_runs': total_runs, 'is_dataset': is_dataset})}\n\n"
 
         completed_count = 0
+        error_count = 0
         run_counter = 0
+        accumulated_results = []
 
         for row_info in rows_to_process:
             row_idx = row_info["row_idx"]
@@ -886,12 +1110,14 @@ async def run_matrix_eval_stream(payload: MatrixRunRequest, request: Request):
                             "tokens_per_sec": tokens_per_sec,
                             "status": "success",
                         }
+                        accumulated_results.append(result_item)
                         yield f"event: item\ndata: {json.dumps(result_item)}\n\n"
 
                     except Exception as e:
                         duration = time.time() - start_t
                         logger.error(f"Matrix stream error for {model_name}: {e}")
                         completed_count += 1
+                        error_count += 1
                         result_item = {
                             "run_id": run_id,
                             "run_idx": run_counter,
@@ -907,9 +1133,33 @@ async def run_matrix_eval_stream(payload: MatrixRunRequest, request: Request):
                             "tokens_per_sec": None,
                             "status": "error",
                         }
+                        accumulated_results.append(result_item)
                         yield f"event: item\ndata: {json.dumps(result_item)}\n\n"
 
-        yield f"event: done\ndata: {json.dumps({'total_runs': total_runs, 'completed': completed_count, 'status': 'completed'})}\n\n"
+                    # Progressively update EvaluationRun in DB
+                    def _update_run_progress(r_id, r_list, comp, errs):
+                        with db_session() as s:
+                            r = s.query(EvaluationRun).filter_by(id=r_id).first()
+                            if r:
+                                r.results_json = json.dumps(r_list)
+                                r.metrics_json = json.dumps({"total_runs": total_runs, "completed": comp, "errors": errs})
+                                s.commit()
+
+                    await run_in_threadpool(_update_run_progress, eval_run_id, accumulated_results, completed_count, error_count)
+
+        # Finalize run in DB
+        def _finalize_run(r_id, r_list, comp, errs):
+            with db_session() as s:
+                r = s.query(EvaluationRun).filter_by(id=r_id).first()
+                if r:
+                    r.status = "completed" if errs == 0 else ("failed" if comp == errs else "completed_with_errors")
+                    r.results_json = json.dumps(r_list)
+                    r.metrics_json = json.dumps({"total_runs": total_runs, "completed": comp, "errors": errs})
+                    r.completed_at = datetime.now(timezone.utc).isoformat()
+                    s.commit()
+
+        await run_in_threadpool(_finalize_run, eval_run_id, accumulated_results, completed_count, error_count)
+        yield f"event: done\ndata: {json.dumps({'eval_run_id': eval_run_id, 'total_runs': total_runs, 'completed': completed_count, 'errors': error_count, 'status': 'completed'})}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -950,7 +1200,7 @@ def run_matrix_eval(payload: MatrixRunRequest, request: Request):
             if not dataset:
                 raise HTTPException(status_code=404, detail="Specified dataset not found")
             limit = payload.sample_limit or 5
-            rows = _fetch_dataset_rows(session, dataset, limit=limit)
+            rows = _fetch_dataset_rows(session, dataset, limit=limit, randomize=bool(payload.randomize))
 
         if not rows:
             raise HTTPException(status_code=400, detail="Dataset returned zero rows")
@@ -1119,7 +1369,26 @@ def run_matrix_eval(payload: MatrixRunRequest, request: Request):
                     "status": "error",
                 })
 
-    return {"results": results, "is_dataset": False, "total_runs": len(results)}
+    # Save to EvaluationRun history
+    try:
+        run_title = payload.title or f"Matrix Eval: {len(payload.models)} models × {len(payload.prompts)} prompts"
+        with db_session() as session:
+            new_run = EvaluationRun(
+                eval_type="matrix",
+                title=run_title,
+                status="completed",
+                config_json=json.dumps(payload.model_dump()),
+                results_json=json.dumps(results),
+                metrics_json=json.dumps({"total_runs": len(results), "completed": len(results), "errors": sum(1 for r in results if r.get("status") == "error")}),
+                created_at=datetime.now(timezone.utc).isoformat(),
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
+            session.add(new_run)
+            session.commit()
+    except Exception as e:
+        logger.warning(f"Failed to persist evaluation run: {e}")
+
+    return {"results": results, "is_dataset": bool(payload.dataset_id), "total_runs": len(results)}
 
 
 # ==============================================================================
