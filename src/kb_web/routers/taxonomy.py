@@ -173,15 +173,13 @@ def trigger_classify_notes(
         effective_limit = payload.limit or getattr(config, "taxonomy_batch_limit", 500)
         if not payload.force_reclassify:
             classified_item_ids = {r[0] for r in session.query(TaxonomyItem.item_id).filter_by(item_type="note").all()}
-            all_matching = query.all()
-            target_notes = [
-                n for n in all_matching
-                if f"note_{n.id}" not in classified_item_ids and str(n.id) not in classified_item_ids and (n.url or "") not in classified_item_ids
-            ]
+            all_matching = query.with_entities(Note.id, Note.url).all()
+            target_ids = [
+                nid for (nid, nurl) in all_matching
+                if f"note_{nid}" not in classified_item_ids and str(nid) not in classified_item_ids and (nurl or "") not in classified_item_ids
+            ][:effective_limit]
         else:
-            target_notes = query.limit(effective_limit).all()
-
-        target_ids = [n.id for n in target_notes[:effective_limit]]
+            target_ids = [r[0] for r in query.with_entities(Note.id).limit(effective_limit).all()]
 
     if not target_ids:
         return {

@@ -17,12 +17,12 @@ import os
 from typing import Any, Callable, Dict, List, Optional
 import uuid
 
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 from starlette.concurrency import run_in_threadpool
 
 from .base import _get_ollama_client, config, db_session
 from .models import HTMLPage
-from .models_orm import FetchedPage
+from .models_orm import FetchedPage, ChunkEmbedding
 from .pipeline import record_notification
 from .utils import (
     extract_tags_content,
@@ -264,6 +264,16 @@ class AutonomousWorker:
             runner=self._run_link_crawler,
         )
 
+        self.jobs["fact_extraction"] = ServerJob(
+            job_id="fact_extraction",
+            name="Context Fact Extraction Agent",
+            description="Extracts atomic context statements, preferences, and declarative intent into the context mesh.",
+            category="llm",
+            default_interval_minutes=15,
+            default_model=getattr(config, "ollama_model", "llama3.2"),
+            runner=self._run_fact_extraction,
+        )
+
     # -------------------------------------------------------------
     # Job Runners
     # -------------------------------------------------------------
@@ -440,9 +450,13 @@ class AutonomousWorker:
         target_url = None
         target_title = None
         with db_session() as session:
-            # Pick the oldest page lacking description or chunk embeddings
+            # Pick the oldest page lacking chunk embeddings
+            subq = select(ChunkEmbedding.source_id).filter(
+                ChunkEmbedding.source_type == "pages"
+            )
             row = (
                 session.query(FetchedPage)
+                .filter(FetchedPage.url.not_in(subq))
                 .order_by(FetchedPage.fetched_at.asc())
                 .first()
             )
@@ -483,6 +497,88 @@ class AutonomousWorker:
         """Foundation runner for autonomous outbound link discovery."""
         job.last_activity = "Completed link discovery pass"
         return {"status": "noop", "message": "Autonomous link crawler hook active"}
+
+    async def _run_fact_extraction(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
+        """Extracts atomic context statements from 1 library item lacking extracted statements."""
+        from .models_orm import ContextStatementORM
+        from .context_mesh.pipeline import FactExtractionPipeline
+
+        target_page = None
+        with db_session() as session:
+            subq = select(ContextStatementORM.source_uri)
+            row = (
+                session.query(FetchedPage)
+                .filter(
+                    FetchedPage.url.not_in(subq),
+                    or_(
+                        FetchedPage.description.isnot(None),
+                        FetchedPage.md_content.isnot(None),
+                    ),
+                )
+                .order_by(FetchedPage.fetched_at.desc())
+                .first()
+            )
+            if row:
+                target_page = self._row_to_page_dict(row)
+
+        if not target_page:
+            job.last_activity = "Idle (all pages extracted into context mesh)"
+            return {"status": "noop", "message": "All pages processed for context statements"}
+
+        url = target_page["url"]
+        title = target_page.get("title") or url
+        job.last_activity = f"Extracting facts for {title[:40]}"
+        logger.info(f"[JOB fact_extraction] Extracting context statements for: {url}")
+
+        try:
+            client = _get_ollama_client()
+            job_cfg = JobConfigProxy(config, model=job.model, is_embedding=False)
+            pipeline = FactExtractionPipeline(config=job_cfg, client=client)
+
+            tags: List[str] = []
+            if target_page.get("tags"):
+                try:
+                    parsed_tags = json.loads(target_page["tags"])
+                    if isinstance(parsed_tags, list):
+                        tags = parsed_tags
+                except Exception:
+                    pass
+
+            md_content = target_page.get("md_content") or target_page.get("description") or ""
+
+            statements = await run_in_threadpool(
+                pipeline.extract_from_page,
+                url,
+                title,
+                md_content,
+                tags,
+            )
+
+            job.items_processed_total += len(statements)
+            job.last_activity = f"Extracted {len(statements)} statements for: {title[:40]}"
+            record_notification(
+                stage="worker",
+                status="success",
+                message=f"Context Fact Extraction agent extracted {len(statements)} statements for: {title}",
+                url=url,
+                title=title,
+                task_id=cycle_id,
+            )
+            logger.info(f"[JOB fact_extraction] Extracted {len(statements)} statements for: {url}")
+            return {"status": "success", "url": url, "count": len(statements)}
+        except Exception as e:
+            err_msg = f"Fact extraction failed for {url}: {e}"
+            logger.warning(err_msg)
+            job.last_error = str(e)
+            record_notification(
+                stage="worker",
+                status="warning",
+                message=f"Fact extraction warning for {title}: {e}. Retrying next cycle.",
+                url=url,
+                title=title,
+                task_id=cycle_id,
+            )
+            return {"status": "warning", "error": err_msg}
 
     # -------------------------------------------------------------
     # Management & Inspection APIs

@@ -1,8 +1,10 @@
 """
-Autonomous Category Taxonomy State Machine for kb-web.
+[DEPRECATED] Autonomous Category Taxonomy State Machine for kb-web.
 
-Orchestrates an agentic, self-organizing category taxonomy using the tev1
-decision gate (ollama.systemone) and LLM-driven ontology synthesis.
+NOTICE: This module and the dynamic 10-item partitioning ontology (TaxonomyCategory / TaxonomyItem)
+are slated for phased deprecation in favor of the structured 7-tier Biological Taxonomy
+(Kingdom -> Phylum -> Class -> Order -> Family -> Genus -> Species) and Context Mesh
+implemented in `src/kb_web/taxonomy/` and `src/kb_web/context_mesh/`.
 
 Key Behaviors:
 1. Cold Start: 0 initial categories; inaugural item prompts LLM to generate Category #1.
