@@ -444,6 +444,35 @@ async def run_ingest_pipeline_background(
         )
 
     # -------------------------------------------------------------------------
+    # STAGE 4b: Context Mesh Atomic Fact Extraction
+    # -------------------------------------------------------------------------
+    try:
+        from .context_mesh.pipeline import FactExtractionPipeline
+
+        fact_pipeline = FactExtractionPipeline(config=config, client=client)
+        tags_list = tags if tags else []
+        md_text = (page_data.md_content if page_data else None) or (page_data.description if page_data else "")
+        stmts = await run_in_threadpool(
+            fact_pipeline.extract_from_page,
+            cleaned_url,
+            title,
+            md_text,
+            tags_list,
+        )
+        if stmts:
+            record_notification(
+                stage="context_mesh",
+                status="success",
+                message=f"Extracted {len(stmts)} atomic context statements for: {title}",
+                url=cleaned_url,
+                title=title,
+                task_id=task_id,
+            )
+            logger.info(f"[ASYNC PIPELINE] Context statements extracted ({len(stmts)}) for: {cleaned_url}")
+    except Exception as e:
+        logger.warning(f"Context mesh extraction warning for {cleaned_url}: {e}")
+
+    # -------------------------------------------------------------------------
     # STAGE 5: Offline Video Download (Isolated, if requested)
     # -------------------------------------------------------------------------
     if download_video == "yes" and video_id:

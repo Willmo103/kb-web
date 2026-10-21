@@ -596,7 +596,7 @@
                         </label>
                         <div class="flex items-center gap-2 mt-0.5 font-mono text-[11px] text-gray-400 truncate">
                             <span class="truncate">${escapeHtml(item.url)}</span>
-                            <a href="${item.url}" target="_blank" class="text-indigo-500 hover:text-indigo-700 flex-shrink-0" title="Open in new tab">↗️</a>
+                            <a href="${escapeHtml(item.url)}" target="_blank" class="text-indigo-500 hover:text-indigo-700 flex-shrink-0" title="Open in new tab">↗️</a>
                         </div>
                     </div>
                 </div>

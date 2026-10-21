@@ -419,7 +419,7 @@
                     </span>
                     <h2 class="text-xl font-bold text-gray-900 mt-2">${escapeHtml(orig.title || orig.url)}</h2>
                     <p class="text-xs text-gray-400 mt-1">
-                        Original Link: <a href="${orig.url}" target="_blank" class="text-indigo-600 hover:underline font-mono">${orig.url}</a>
+                        Original Link: <a href="${escapeHtml(orig.url)}" target="_blank" class="text-indigo-600 hover:underline font-mono">${escapeHtml(orig.url)}</a>
                     </p>
                 </div>
                 <div>
