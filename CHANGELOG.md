@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.11] - 2026-10-22
 ### Added
+- **Autonomous Worker Target Execution Tracking & Loop Prevention (`src/kb_web/models_orm.py`, `src/kb_web/worker.py`, `src/kb_web/routers/worker.py`)**:
+  - Implemented persistent target-level execution tracking model `WorkerJobExecution` (`id`, `job_id`, `target_id`, `status`, `items_count`, `error_message`, `executed_at`) with composite index `(job_id, target_id)`.
+  - Added in-memory deduplication tracking `self._recent_targets[job_id]` in `AutonomousWorker` preventing immediate duplicate execution within the same scheduler loop or runtime session.
+  - Hardened candidate selection subqueries in `_run_fact_extraction`, `_run_wiki_curation`, `_run_tag_curation`, and `_run_embedding_refresh`:
+    - Excludes targets already logged with `status IN ('success', 'skipped')` in `WorkerJobExecution`.
+    - Excludes targets present in the runtime `_recent_targets` memory cache.
+    - Added `.nullslast()` to all `order_by` clauses (`FetchedPage.fetched_at.desc().nullslast()` and `asc().nullslast()`) preventing PostgreSQL `NULLS FIRST` sorting quirks on unpopulated timestamps.
+    - Filters out `NULL` and empty values from downstream artifact subqueries.
+  - Automatically logs `status="skipped"` with `items_count=0` whenever an extraction or curation pass produces zero items, permanently preventing infinite loops on un-extractable targets.
+  - Added REST and Admin management endpoints: `GET /api/jobs/{job_id}/executions` to inspect target history, `POST /api/jobs/{job_id}/executions/clear` to reset execution logs, and `POST /admin/jobs/{job_id}/executions/clear` for admin portal resets.
+  - Added unit test suite `tests/test_worker_job_execution_tracking.py` verifying model persistence, helper functions, sequential deduplication, zero-statement skip handling, and API endpoints (5 tests passed).
 - **AI Wiki Versioning, Model Attribution & Historical Restorations (`src/kb_web/models_orm.py`, `routers/admin.py`, `routers/pages.py`, `templates/view_page.j2.html`)**:
   - Added `WikiVersion` ORM model (`url`, `title`, `wiki_content`, `model_name`, `steering_instructions`, `created_at`) with native foreign key `ON DELETE CASCADE` linked to `fetched_pages.url`.
   - Added `wiki_model` column to `FetchedPage` and pre-aggregated database view `vw_page_cards` with SQLite PRAGMA and PostgreSQL migrations.

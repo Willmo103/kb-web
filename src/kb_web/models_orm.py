@@ -1,5 +1,5 @@
 import json
-from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Table
+from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Table, Index
 from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.types import TypeDecorator
 
@@ -437,6 +437,23 @@ class TaxonomyEntityORM(Base):
     physical_location = Column(Text, nullable=False)
     attributes_json = Column(Text, default="{}")
     updated_at = Column(String, nullable=False)
+
+
+class WorkerJobExecution(Base):
+    """Persistent execution and target audit log for autonomous background worker jobs."""
+    __tablename__ = "worker_job_executions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String, nullable=False, index=True)
+    target_id = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, index=True)  # 'success', 'skipped', 'failed'
+    items_count = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+    executed_at = Column(String, nullable=False, index=True)
+
+    __table_args__ = (
+        Index("ix_worker_job_target", "job_id", "target_id"),
+    )
 
 
 class AgentMessage(Base):
@@ -1129,6 +1146,18 @@ def ensure_views_and_indexes(engine):
                         );
                         CREATE INDEX IF NOT EXISTS idx_tax_entity_path ON taxonomy_entities(taxonomy_path);
                         CREATE INDEX IF NOT EXISTS idx_tax_entity_order ON taxonomy_entities(order_name);
+
+                        CREATE TABLE IF NOT EXISTS worker_job_executions (
+                            id SERIAL PRIMARY KEY,
+                            job_id VARCHAR NOT NULL,
+                            target_id VARCHAR NOT NULL,
+                            status VARCHAR NOT NULL,
+                            items_count INTEGER DEFAULT 0,
+                            error_message TEXT,
+                            executed_at VARCHAR NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_worker_job_target ON worker_job_executions(job_id, target_id);
+                        CREATE INDEX IF NOT EXISTS idx_worker_job_status ON worker_job_executions(status);
                     """))
                 else:
                     conn.execute(text("""
@@ -1182,9 +1211,21 @@ def ensure_views_and_indexes(engine):
                         );
                         CREATE INDEX IF NOT EXISTS idx_tax_entity_path ON taxonomy_entities(taxonomy_path);
                         CREATE INDEX IF NOT EXISTS idx_tax_entity_order ON taxonomy_entities(order_name);
+
+                        CREATE TABLE IF NOT EXISTS worker_job_executions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            job_id TEXT NOT NULL,
+                            target_id TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            items_count INTEGER DEFAULT 0,
+                            error_message TEXT,
+                            executed_at TEXT NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_worker_job_target ON worker_job_executions(job_id, target_id);
+                        CREATE INDEX IF NOT EXISTS idx_worker_job_status ON worker_job_executions(status);
                     """))
             except Exception as e:
-                print(f"Warning creating context_statements or taxonomy_entities tables: {e}")
+                print(f"Warning creating context_statements, taxonomy_entities, or worker_job_executions tables: {e}")
 
 
 
