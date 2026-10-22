@@ -444,8 +444,25 @@ async def run_ingest_pipeline_background(
         )
 
     # -------------------------------------------------------------------------
-    # STAGE 4b: Context Mesh Atomic Fact Extraction
+    # STAGE 4b: Context Mesh Atomic Fact Extraction & 7-Tier Taxonomy Registration
     # -------------------------------------------------------------------------
+    try:
+        from .taxonomy.engine import TaxonomyClassifier, TaxonomyEngine
+
+        tax_path = TaxonomyClassifier.classify_article(
+            url=cleaned_url,
+            title=title,
+            tags=tags or [],
+            description=(page_data.description if page_data else None),
+        )
+        TaxonomyEngine().register_entity(
+            taxonomy=tax_path,
+            physical_location=cleaned_url,
+            attributes={"title": title, "tags": tags or [], "source_type": "article"},
+        )
+    except Exception as e:
+        logger.warning(f"7-tier taxonomy registration warning for {cleaned_url}: {e}")
+
     try:
         from .context_mesh.pipeline import FactExtractionPipeline
 

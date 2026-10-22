@@ -472,6 +472,48 @@ def view_saved_page(
         except Exception:
             pass
 
+        # Fetch extracted context statements (facts) and 7-tier taxonomy entity
+        context_statements = []
+        taxonomy_entity = None
+        try:
+            from ..models_orm import ContextStatementORM, TaxonomyEntityORM
+            stmt_rows = (
+                session.query(ContextStatementORM)
+                .filter_by(source_uri=decoded_url)
+                .order_by(ContextStatementORM.score_rank.desc(), ContextStatementORM.created_at.desc())
+                .all()
+            )
+            context_statements = [
+                {
+                    "id": s.id,
+                    "statement": s.statement,
+                    "statement_type": s.statement_type,
+                    "canonical_path": s.canonical_path,
+                    "layer_level": s.layer_level,
+                    "score_rank": s.score_rank if s.score_rank is not None else 3.0,
+                    "eval_status": s.eval_status or "unreviewed",
+                    "eval_feedback": s.eval_feedback or "",
+                    "confidence": s.confidence or 1.0,
+                    "created_at": s.created_at,
+                }
+                for s in stmt_rows
+            ]
+            tax_row = session.query(TaxonomyEntityORM).filter_by(physical_location=decoded_url).first()
+            if tax_row:
+                taxonomy_entity = {
+                    "canonical_id": tax_row.canonical_id,
+                    "taxonomy_path": tax_row.taxonomy_path,
+                    "kingdom": tax_row.kingdom,
+                    "phylum": tax_row.phylum,
+                    "class_name": tax_row.class_name,
+                    "order_name": tax_row.order_name,
+                    "family": tax_row.family,
+                    "genus": tax_row.genus,
+                    "species": tax_row.species,
+                }
+        except Exception as e:
+            logger.warning(f"Failed to query context statements or taxonomy entity for {decoded_url}: {e}")
+
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))
 
@@ -539,6 +581,8 @@ def view_saved_page(
             assigned_collections=assigned_collections,
             assigned_collection_ids=assigned_collection_ids,
             chunks=chunks,
+            context_statements=context_statements,
+            taxonomy_entity=taxonomy_entity,
         )
     )
 

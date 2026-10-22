@@ -212,9 +212,12 @@ class ContextStore:
         canonical_prefix: Optional[str] = None,
         eval_status: Optional[EvalStatus] = None,
         min_score: Optional[float] = None,
+        source_uri: Optional[str] = None,
+        query: Optional[str] = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> List[ContextStatement]:
-        """Query statements filtered by layer, type, status, or path prefix."""
+        """Query statements filtered by layer, type, status, source URI, or path prefix."""
         with db_session() as session:
             q = session.query(ContextStatementORM)
             if layer:
@@ -227,10 +230,52 @@ class ContextStore:
                 q = q.filter(ContextStatementORM.eval_status == eval_status.value)
             if min_score is not None:
                 q = q.filter(ContextStatementORM.score_rank >= min_score)
+            if source_uri:
+                q = q.filter(ContextStatementORM.source_uri == source_uri)
+            if query:
+                pattern = f"%{query}%"
+                q = q.filter(
+                    (ContextStatementORM.statement.ilike(pattern))
+                    | (ContextStatementORM.source_title.ilike(pattern))
+                    | (ContextStatementORM.canonical_path.ilike(pattern))
+                )
 
             q = q.order_by(ContextStatementORM.score_rank.desc(), ContextStatementORM.created_at.desc())
+            if offset > 0:
+                q = q.offset(offset)
             results = q.limit(limit).all()
             return [self._orm_to_model(r) for r in results]
+
+    def count_statements(
+        self,
+        layer: Optional[TaxonomicLayer] = None,
+        statement_type: Optional[StatementType] = None,
+        canonical_prefix: Optional[str] = None,
+        eval_status: Optional[EvalStatus] = None,
+        source_uri: Optional[str] = None,
+        query: Optional[str] = None,
+    ) -> int:
+        """Count statements matching the given criteria."""
+        with db_session() as session:
+            q = session.query(ContextStatementORM)
+            if layer:
+                q = q.filter(ContextStatementORM.layer_level == layer.value)
+            if statement_type:
+                q = q.filter(ContextStatementORM.statement_type == statement_type.value)
+            if canonical_prefix:
+                q = q.filter(ContextStatementORM.canonical_path.like(f"{canonical_prefix}%"))
+            if eval_status:
+                q = q.filter(ContextStatementORM.eval_status == eval_status.value)
+            if source_uri:
+                q = q.filter(ContextStatementORM.source_uri == source_uri)
+            if query:
+                pattern = f"%{query}%"
+                q = q.filter(
+                    (ContextStatementORM.statement.ilike(pattern))
+                    | (ContextStatementORM.source_title.ilike(pattern))
+                    | (ContextStatementORM.canonical_path.ilike(pattern))
+                )
+            return q.count()
 
     def get_exemplars(
         self,

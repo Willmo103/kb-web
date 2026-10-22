@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..base import config as default_config, _get_ollama_client, LoggedOllamaClient
-from ..taxonomy.engine import TaxonomyClassifier
+from ..taxonomy.engine import TaxonomyClassifier, TaxonomyEngine
 from ..utils import get_active_embedding_model, ensure_model_available
 from .models import ContextStatement, EvalStatus, StatementType, TaxonomicLayer
 from .store import ContextStore
@@ -209,6 +209,15 @@ class FactExtractionPipeline:
             title=title,
             tags=tags,
         )
+        try:
+            TaxonomyEngine().register_entity(
+                taxonomy=tax_path,
+                physical_location=url,
+                attributes={"title": title or url, "tags": tags or [], "source_type": "article"},
+            )
+        except Exception as e:
+            print(f"Taxonomy entity registration warning for {url}: {e}")
+
         canonical_path = tax_path.to_path_string("/")
         content_text = md_content or title or url
         return self.extract_from_text(
