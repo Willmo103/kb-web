@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.11] - 2026-10-22
 ### Added
+- **Extracted Facts & Context Mesh UI Display (`routers/pages.py`, `templates/view_page.j2.html`)**:
+  - Exposed extracted atomic facts and context statements (`ContextStatementORM`) on the Article Profile view.
+  - Added dedicated "Extracted Facts & Intent Mesh" card featuring color-coded statement type badges (`Fact` [blue], `Intent` [purple], `Invariant` [rose], `Affordance` [emerald], `Habit` [amber], `Preference` [cyan]), taxonomic layer level badges (`SPECIES`, `GENUS`, etc.), canonical taxonomy coordinates path, review status indicators (`approved`, `flagged`, `rejected`, `unreviewed`), and confidence score ranks.
+  - Added interactive one-click evaluation controls (`👍 Approve`, `⚠️ Flag`, `👎 Reject`) with dynamic asynchronous feedback updates via `POST /api/context-mesh/statements/{id}/evaluate`.
+  - Added on-demand `⚡ Extract Facts Now` action button calling `POST /api/context-mesh/extract-now`.
+- **7-Tier Biological Taxonomy Auto-Population & Library Sync (`taxonomy/engine.py`, `context_mesh/pipeline.py`, `pipeline.py`, `routers/taxonomy.py`)**:
+  - Automated taxonomy coordinate registration during page ingestion and fact extraction via `TaxonomyEngine().register_entity(...)`.
+  - Implemented `TaxonomyEngine.sync_entities_from_library(limit)` and endpoint `POST /api/taxonomy/sync-entities` to scan existing articles and notes and infer 7-tier coordinates.
+  - Implemented `TaxonomyEngine.get_7tier_tree()` and endpoint `GET /api/taxonomy/7tier/tree` compiling a hierarchical 7-tier biological tree of Kingdoms, Phyla, Classes, Orders, and Families with real-time entity and statement counts.
+- **Upgraded Interactive Taxonomy & Living Facts Mesh Explorer (`routers/taxonomy.py`, `templates/taxonomy.j2.html`)**:
+  - Modernized `/taxonomy` into a dual-view portal featuring:
+    * **Tab 1: 7-Tier Biological Ontology & Living Facts Explorer**: Interactive hierarchical tree navigator from Kingdom down to Family, breadcrumb coordinate display, live atomic context facts mesh explorer with statement type filters and search, and mapped physical entity cards with direct article profile links.
+    * **Tab 2: Autonomous Category Clusters (Legacy)**: Preserved category tree state machine, clustering crawler, and living category wiki doc reader for full backward compatibility.
+    * Added prominent "Sync Taxonomy from Library" button to populate the 7-tier hierarchy with one click.
+- **REST & Query API Additions (`routers/taxonomy.py`, `context_mesh/store.py`)**:
+  - Added `GET /api/context-mesh/statements` supporting filtering by `url`, `statement_type`, `layer_level`, `eval_status`, `prefix`, and keyword search `query`.
+  - Added `POST /api/context-mesh/statements/{id}/evaluate` to update evaluation status and score ranking.
+  - Added `POST /api/context-mesh/extract-now` for on-demand fact extraction.
+  - Added unit and integration test suite `tests/test_taxonomy_and_facts_display.py` (5 tests passed).
 - **Autonomous Worker Target Execution Tracking & Loop Prevention (`src/kb_web/models_orm.py`, `src/kb_web/worker.py`, `src/kb_web/routers/worker.py`)**:
   - Implemented persistent target-level execution tracking model `WorkerJobExecution` (`id`, `job_id`, `target_id`, `status`, `items_count`, `error_message`, `executed_at`) with composite index `(job_id, target_id)`.
   - Added in-memory deduplication tracking `self._recent_targets[job_id]` in `AutonomousWorker` preventing immediate duplicate execution within the same scheduler loop or runtime session.

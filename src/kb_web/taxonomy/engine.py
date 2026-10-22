@@ -219,6 +219,166 @@ class TaxonomyEngine:
             q = q.order_by(TaxonomyEntityORM.updated_at.desc()).limit(limit)
             return [self._orm_to_record(r) for r in q.all()]
 
+    def sync_entities_from_library(self, limit: int = 1000) -> Dict[str, Any]:
+        """Backfill and register 7-tier biological taxonomy coordinates for all library items and notes."""
+        from ..models_orm import FetchedPage, Note
+
+        synced_pages = 0
+        synced_notes = 0
+
+        with db_session() as session:
+            # Sync fetched pages
+            pages = session.query(FetchedPage).limit(limit).all()
+            for page in pages:
+                url = page.url or ""
+                title = page.title or url
+                tags = []
+                if page.tags:
+                    try:
+                        parsed = json.loads(page.tags)
+                        if isinstance(parsed, list):
+                            tags = parsed
+                    except Exception:
+                        tags = [t.strip() for t in str(page.tags).split(",") if t.strip()]
+
+                if "youtube.com" in url or "youtu.be" in url:
+                    tax = TaxonomyClassifier.classify_youtube_video(url=url, title=title)
+                elif url.startswith("repo://") or "git" in tags or "repo" in tags:
+                    tax = TaxonomyClassifier.classify_git_repo(repo_name=title, remote_url=url)
+                elif url.startswith("note://"):
+                    tax = TaxonomyClassifier.classify_note(title=title, tags=tags)
+                else:
+                    tax = TaxonomyClassifier.classify_article(url=url, title=title, tags=tags, description=page.description)
+
+                self.register_entity(
+                    taxonomy=tax,
+                    physical_location=url,
+                    attributes={"title": title, "tags": tags, "source_type": "page"},
+                )
+                synced_pages += 1
+
+            # Sync notes
+            notes = session.query(Note).limit(limit).all()
+            for note in notes:
+                note_title = note.title or f"note_{note.id}"
+                note_url = note.url or f"note://{note.vault_name or 'PersonalVault'}/{note_title}"
+                note_tags = []
+                if note.tags:
+                    try:
+                        parsed = json.loads(note.tags)
+                        if isinstance(parsed, list):
+                            note_tags = parsed
+                    except Exception:
+                        note_tags = [t.strip() for t in str(note.tags).split(",") if t.strip()]
+
+                tax = TaxonomyClassifier.classify_note(title=note_title, tags=note_tags)
+                self.register_entity(
+                    taxonomy=tax,
+                    physical_location=note_url,
+                    attributes={"title": note_title, "tags": note_tags, "source_type": "note"},
+                )
+                synced_notes += 1
+
+        return {
+            "status": "success",
+            "synced_pages": synced_pages,
+            "synced_notes": synced_notes,
+            "total_synced": synced_pages + synced_notes,
+        }
+
+    def get_7tier_tree(self) -> Dict[str, Any]:
+        """Builds hierarchical 7-tier biological taxonomy tree populated from taxonomy_entities and context_statements."""
+        from ..models_orm import ContextStatementORM, TaxonomyEntityORM
+
+        tree: Dict[str, Any] = {}
+        total_entities = 0
+        total_statements = 0
+
+        with db_session() as session:
+            entities = session.query(TaxonomyEntityORM).all()
+            total_entities = len(entities)
+
+            # Pre-aggregate statements by kingdom / phylum / order
+            stmt_rows = session.query(
+                ContextStatementORM.canonical_path,
+                ContextStatementORM.kingdom,
+                ContextStatementORM.phylum,
+                ContextStatementORM.order_name,
+                ContextStatementORM.family,
+            ).all()
+            total_statements = len(stmt_rows)
+
+            stmt_counts: Dict[str, int] = {}
+            for r in stmt_rows:
+                k = r[1] or "general"
+                p = r[2] or "general"
+                o = r[3] or "general"
+                stmt_counts[f"{k}"] = stmt_counts.get(f"{k}", 0) + 1
+                stmt_counts[f"{k}/{p}"] = stmt_counts.get(f"{k}/{p}", 0) + 1
+                stmt_counts[f"{k}/{p}/{o}"] = stmt_counts.get(f"{k}/{p}/{o}", 0) + 1
+
+            for e in entities:
+                k = e.kingdom or "knowledge"
+                p = e.phylum or "general"
+                c = e.class_name or "general"
+                o = e.order_name or "general"
+                f = e.family or "general"
+
+                if k not in tree:
+                    tree[k] = {
+                        "name": k,
+                        "level": "kingdom",
+                        "path": k,
+                        "entity_count": 0,
+                        "statement_count": stmt_counts.get(k, 0),
+                        "phyla": {},
+                    }
+                tree[k]["entity_count"] += 1
+
+                phyla = tree[k]["phyla"]
+                if p not in phyla:
+                    phyla[p] = {
+                        "name": p,
+                        "level": "phylum",
+                        "path": f"{k}/{p}",
+                        "entity_count": 0,
+                        "statement_count": stmt_counts.get(f"{k}/{p}", 0),
+                        "orders": {},
+                    }
+                phyla[p]["entity_count"] += 1
+
+                orders = phyla[p]["orders"]
+                if o not in orders:
+                    orders[o] = {
+                        "name": o,
+                        "level": "order",
+                        "path": f"{k}/{p}/{o}",
+                        "entity_count": 0,
+                        "statement_count": stmt_counts.get(f"{k}/{p}/{o}", 0),
+                        "families": {},
+                    }
+                orders[o]["entity_count"] += 1
+
+                families = orders[o]["families"]
+                if f not in families:
+                    families[f] = {
+                        "name": f,
+                        "level": "family",
+                        "path": f"{k}/{p}/{o}/{f}",
+                        "entity_count": 0,
+                        "statement_count": 0,
+                        "entities": [],
+                    }
+                families[f]["entity_count"] += 1
+                if len(families[f]["entities"]) < 50:
+                    families[f]["entities"].append(self._orm_to_record(e).model_dump())
+
+        return {
+            "total_entities": total_entities,
+            "total_statements": total_statements,
+            "tree": tree,
+        }
+
     def to_yaml_frontmatter(self, taxonomy: TaxonomyPath) -> str:
         """Render markdown YAML frontmatter string."""
         return (
@@ -234,4 +394,5 @@ class TaxonomyEngine:
             f"  species: \"{taxonomy.species}\"\n"
             "---\n"
         )
+
 
