@@ -615,7 +615,11 @@ def ensure_model_available(client: ollama.Client, model_name: str) -> None:
 
 
 def extract_wiki_content(
-    html_page: HTMLPage, config=None, client: Optional[ollama.Client] = None
+    html_page: HTMLPage,
+    config=None,
+    client: Optional[ollama.Client] = None,
+    model: Optional[str] = None,
+    steering_instructions: Optional[str] = None,
 ) -> str:
     """Queries Ollama to clean, restructure, and digest raw markdown into wiki formats."""
     if config is None:
@@ -630,12 +634,21 @@ def extract_wiki_content(
             system_prompt = getattr(config, "youtube_wiki_prompt", config.wiki_prompt)
         else:
             system_prompt = config.wiki_prompt
+
+        if steering_instructions and steering_instructions.strip():
+            system_prompt = (
+                system_prompt.rstrip()
+                + "\n\n### ADDITIONAL USER STEERING DIRECTIVES:\n"
+                + steering_instructions.strip()
+            )
+
+        active_model = model or getattr(config, "ollama_model", "gemma4:latest")
         raw_content = html_page.md_content or ""
         max_len = getattr(config, "max_input_length", 20000)
 
         if len(raw_content) <= max_len:
             chat_kwargs = {
-                "model": config.ollama_model,
+                "model": active_model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {
@@ -666,8 +679,11 @@ def extract_wiki_content(
                         "Do not omit important details."
                     )
 
+                if steering_instructions and steering_instructions.strip():
+                    system_message += f"\n\n### ADDITIONAL USER STEERING DIRECTIVES:\n{steering_instructions.strip()}"
+
                 chat_kwargs = {
-                    "model": config.ollama_model,
+                    "model": active_model,
                     "messages": [
                         {"role": "system", "content": system_message},
                         {"role": "user", "content": chunk},
@@ -696,7 +712,7 @@ def extract_wiki_content(
                 )
 
             chat_kwargs = {
-                "model": config.ollama_model,
+                "model": active_model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {

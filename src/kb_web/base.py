@@ -11,7 +11,7 @@ import ollama
 import sqlite_utils
 import logging
 from contextlib import contextmanager
-from typing import Optional
+from typing import Optional, Dict, Any
 from urllib.parse import quote_plus, urlparse
 from fastapi import Request, HTTPException
 from sqlalchemy import create_engine
@@ -35,12 +35,114 @@ def extract_url_path(url: str) -> str:
         return url
 
 
+def resolve_entity_url(url: Optional[str]) -> Dict[str, Any]:
+    """Resolves an entity URL (including synthetic schemes like note:// or workspace://)
+
+    into an internal routing target, display label, and clickable status.
+    """
+    if not url or not isinstance(url, str):
+        return {
+            "url": "",
+            "target_url": "#",
+            "is_internal": True,
+            "clickable": False,
+            "label": "Invalid Link",
+            "icon": "🔗",
+            "target": "_self",
+            "scheme": "",
+        }
+
+    url_str = url.strip()
+
+    # note:// scheme -> Obsidian / Notes Monaco Editor
+    if url_str.startswith("note://"):
+        return {
+            "url": url_str,
+            "target_url": f"/notes/edit?url={quote_plus(url_str)}",
+            "is_internal": True,
+            "clickable": True,
+            "label": "Open in Notes",
+            "icon": "📝",
+            "target": "_self",
+            "scheme": "note",
+        }
+
+    # workspace:// scheme -> In-browser Workspace IDE
+    if url_str.startswith("workspace://"):
+        parts = url_str[len("workspace://") :].split("/")
+        ws_id = parts[0] if parts else ""
+        target = f"/workspaces/{ws_id}" if ws_id else "/workspaces"
+        return {
+            "url": url_str,
+            "target_url": target,
+            "is_internal": True,
+            "clickable": bool(ws_id),
+            "label": "Open Workspace",
+            "icon": "💻",
+            "target": "_self",
+            "scheme": "workspace",
+        }
+
+    # http:// or https:// -> External or direct web URL
+    if url_str.startswith("http://") or url_str.startswith("https://"):
+        return {
+            "url": url_str,
+            "target_url": url_str,
+            "is_internal": False,
+            "clickable": True,
+            "label": "Open External Link",
+            "icon": "🌐",
+            "target": "_blank",
+            "scheme": "http" if url_str.startswith("http://") else "https",
+        }
+
+    # Any other pseudo-scheme (e.g. invalid scheme:// without a handler)
+    if "://" in url_str:
+        scheme = url_str.split("://")[0]
+        return {
+            "url": url_str,
+            "target_url": "#",
+            "is_internal": True,
+            "clickable": False,
+            "label": f"Internal URI ({scheme})",
+            "icon": "🔗",
+            "target": "_self",
+            "scheme": scheme,
+        }
+
+    # Relative paths or local routes
+    if url_str.startswith("/"):
+        return {
+            "url": url_str,
+            "target_url": url_str,
+            "is_internal": True,
+            "clickable": True,
+            "label": "Open Page",
+            "icon": "📄",
+            "target": "_self",
+            "scheme": "relative",
+        }
+
+    return {
+        "url": url_str,
+        "target_url": "#",
+        "is_internal": False,
+        "clickable": False,
+        "label": url_str,
+        "icon": "🔗",
+        "target": "_self",
+        "scheme": "unknown",
+    }
+
+
 # Set up Jinja2 environment utilizing PackageLoader for clean packaging with autoescape enabled
 _jinja_env = jinja2.Environment(
     loader=jinja2.PackageLoader("kb_web", "templates"),
     autoescape=jinja2.select_autoescape(["html", "xml", "j2.html", "html5"]),
 )
 _jinja_env.filters["urlpath"] = extract_url_path
+_jinja_env.filters["resolve_entity_url"] = resolve_entity_url
+_jinja_env.globals["resolve_entity_url"] = resolve_entity_url
 _jinja_env.globals["config"] = config
 
 COOKIE_NAME = "kb_session"
@@ -175,6 +277,14 @@ def get_engine():
                         f"sqlite:///{config.db_path}",
                         connect_args={"timeout": 30.0, "check_same_thread": False},
                     )
+
+                    from sqlalchemy import event
+
+                    @event.listens_for(_engine, "connect")
+                    def set_sqlite_pragma(dbapi_connection, connection_record):
+                        cursor = dbapi_connection.cursor()
+                        cursor.execute("PRAGMA foreign_keys=ON")
+                        cursor.close()
 
                 # Import models and create all tables if missing
                 from .models_orm import Base, ensure_views_and_indexes

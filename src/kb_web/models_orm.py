@@ -91,6 +91,14 @@ class FetchedPage(Base):
     collection_id = Column(Integer)
     exclude_from_general = Column(Integer, default=0)
     is_frozen = Column(Integer, default=0, index=True)
+    wiki_model = Column(String, nullable=True)
+
+    wiki_versions = relationship(
+        "WikiVersion",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        backref="fetched_page",
+    )
 
 
 class PageVersion(Base):
@@ -108,6 +116,19 @@ class PageVersion(Base):
     description = Column(Text)
     keywords = Column(Text)
     tags = Column(Text)
+
+
+class WikiVersion(Base):
+    """Stores historical versions of AI-generated or edited wikis for an ingested page."""
+    __tablename__ = "wiki_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    url = Column(String, ForeignKey("fetched_pages.url", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String)
+    wiki_content = Column(Text)
+    model_name = Column(String, nullable=True)
+    steering_instructions = Column(Text, nullable=True)
+    created_at = Column(String)
 
 
 class ArticleEmbedding(Base):
@@ -777,6 +798,7 @@ class PageCardView(Base):
     duration = Column(Integer)
     view_count = Column(Integer)
     thumbnail_url = Column(String)
+    wiki_model = Column(String)
     collection_title = Column(String)
     collection_first_id = Column(Integer)
 
@@ -804,6 +826,10 @@ def ensure_views_and_indexes(engine):
                     pass
                 try:
                     conn.execute(text("ALTER TABLE notes ADD COLUMN IF NOT EXISTS links TEXT DEFAULT '[]';"))
+                except Exception:
+                    pass
+                try:
+                    conn.execute(text("ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS wiki_model VARCHAR;"))
                 except Exception:
                     pass
             else:
@@ -881,6 +907,7 @@ def ensure_views_and_indexes(engine):
                         ("collection_items", "source_id"),
                         ("collection_actions", "source_id"),
                         ("page_versions", "url"),
+                        ("wiki_versions", "url"),
                         ("links", "url"),
                         ("fetched_pages", "url"),
                     ]:
@@ -896,6 +923,7 @@ def ensure_views_and_indexes(engine):
                             f.fetched_at,
                             f.collection_id,
                             f.exclude_from_general,
+                            f.wiki_model,
                             y.creator,
                             y.video_id,
                             y.duration,
@@ -908,7 +936,7 @@ def ensure_views_and_indexes(engine):
                         LEFT JOIN collection_items ci ON f.url = ci.source_id
                         LEFT JOIN collections c ON ci.collection_id = c.id AND c.title != 'General Collection'
                         WHERE (f.title NOT LIKE 'Archived Item (%%' OR (f.html_content IS NOT NULL AND f.html_content != '') OR (f.md_content IS NOT NULL AND f.md_content != '') OR (y.video_id IS NOT NULL))
-                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general,
+                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general, f.wiki_model,
                                  y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
                     """))
                 except Exception as e:
@@ -928,6 +956,9 @@ def ensure_views_and_indexes(engine):
                         tbl_cols = [row[1] for row in conn.execute(text(f"PRAGMA table_info({tbl});")).fetchall()]
                         if tbl_cols and "is_frozen" not in tbl_cols:
                             conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN is_frozen INTEGER DEFAULT 0;"))
+                    fp_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(fetched_pages);")).fetchall()]
+                    if fp_cols and "wiki_model" not in fp_cols:
+                        conn.execute(text("ALTER TABLE fetched_pages ADD COLUMN wiki_model TEXT;"))
                 except Exception:
                     pass
                 try:
@@ -943,6 +974,7 @@ def ensure_views_and_indexes(engine):
                             f.fetched_at,
                             f.collection_id,
                             f.exclude_from_general,
+                            f.wiki_model,
                             y.creator,
                             y.video_id,
                             y.duration,
@@ -955,7 +987,7 @@ def ensure_views_and_indexes(engine):
                         LEFT JOIN collection_items ci ON f.url = ci.source_id AND ci.collection_id != 1
                         LEFT JOIN collections c ON ci.collection_id = c.id
                         WHERE (f.title NOT LIKE 'Archived Item (%%' OR (f.html_content IS NOT NULL AND f.html_content != '') OR (f.md_content IS NOT NULL AND f.md_content != '') OR (y.video_id IS NOT NULL))
-                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general,
+                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general, f.wiki_model,
                                  y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
                     """))
                 except Exception:

@@ -6,9 +6,9 @@ import json
 import time
 import os
 from typing import Optional
-from urllib.parse import unquote_plus, urlparse, urljoin
+from urllib.parse import unquote_plus, quote_plus, urlparse, urljoin
 from fastapi import APIRouter, Query, Request, BackgroundTasks, Form, Depends
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import or_, func
 
 from ..base import (
@@ -18,17 +18,28 @@ from ..base import (
     verify_session_token,
     verify_auth,
     db_session,
+    resolve_entity_url,
 )
 import math
 from collections import deque
 from ..models import HTMLPage, extract_youtube_video_id
-from ..models_orm import FetchedPage, YouTubeVideo, Collection, CollectionItem, PageVersion, PageCardView, ChunkEmbedding
+from ..models_orm import (
+    FetchedPage,
+    YouTubeVideo,
+    Collection,
+    CollectionItem,
+    PageVersion,
+    PageCardView,
+    ChunkEmbedding,
+    WikiVersion,
+)
 from ..utils import (
     get_url_basename,
     preprocess_markdown,
     get_similar_articles,
     download_youtube_video,
     sanitize_html,
+    _get_ollama_client,
 )
 
 import markdown
@@ -220,11 +231,24 @@ def view_all_pages(
     )
 
 
+@router.get("/open")
+def open_entity_url(
+    url: str = Query(...),
+) -> RedirectResponse:
+    """Dispatches internal synthetic schemes (note://, workspace://) or external URLs to their correct destination."""
+    decoded_url = unquote_plus(url)
+    resolved = resolve_entity_url(decoded_url)
+    if resolved.get("clickable") and resolved.get("target_url") and resolved.get("target_url") != "#":
+        return RedirectResponse(url=resolved["target_url"], status_code=303)
+    return RedirectResponse(url=f"/view/page?url={quote_plus(decoded_url)}", status_code=303)
+
+
 @router.get("/view/page", response_class=HTMLResponse)
 def view_saved_page(
     request: Request,
     url: str = Query(...),
     version_id: Optional[int] = Query(None),
+    wiki_version_id: Optional[int] = Query(None),
     msg: Optional[str] = Query(None),
     error: Optional[str] = Query(None),
 ) -> HTMLResponse:
@@ -369,10 +393,12 @@ def view_saved_page(
                 local_video_url = f"/media/videos/{filename}"
 
         current_fetched_at = None
+        current_wiki_model = None
         try:
             current_row = session.query(FetchedPage).filter_by(url=decoded_url).first()
             if current_row:
                 current_fetched_at = current_row.fetched_at
+                current_wiki_model = getattr(current_row, "wiki_model", None)
         except Exception:
             pass
 
@@ -382,6 +408,26 @@ def view_saved_page(
             versions = [{col.name: getattr(r, col.name) for col in r.__table__.columns} for r in version_rows]
         except Exception:
             pass
+
+        wiki_versions = []
+        try:
+            wv_rows = session.query(WikiVersion).filter_by(url=decoded_url).order_by(WikiVersion.id.asc()).all()
+            wiki_versions = [{col.name: getattr(r, col.name) for col in r.__table__.columns} for r in wv_rows]
+        except Exception:
+            pass
+
+        active_wiki_version = None
+        if wiki_version_id:
+            try:
+                wv_active = session.query(WikiVersion).filter_by(id=int(wiki_version_id), url=decoded_url).first()
+                if wv_active:
+                    active_wiki_version = {col.name: getattr(wv_active, col.name) for col in wv_active.__table__.columns}
+                    page_obj.description = wv_active.wiki_content
+                    if wv_active.title:
+                        page_obj.title = wv_active.title
+                    current_wiki_model = wv_active.model_name or current_wiki_model
+            except Exception:
+                pass
 
         similar_pages = get_similar_articles(None, decoded_url, config)
 
@@ -429,6 +475,30 @@ def view_saved_page(
     token = request.cookies.get(COOKIE_NAME)
     is_admin = bool(token and verify_session_token(token))
 
+    installed_models = []
+    try:
+        ollama_client = _get_ollama_client()
+        resp = ollama_client.list()
+        raw = getattr(resp, "models", None)
+        if raw is None and isinstance(resp, dict):
+            raw = resp.get("models", [])
+        raw = raw or []
+        for m in raw:
+            mname = None
+            if hasattr(m, "model") and m.model:
+                mname = m.model
+            elif hasattr(m, "name") and m.name:
+                mname = m.name
+            elif isinstance(m, dict):
+                mname = m.get("model") or m.get("name")
+            if mname and mname not in installed_models:
+                installed_models.append(mname)
+    except Exception:
+        pass
+    if not installed_models:
+        default_model = getattr(config, "ollama_model", "gemma4:latest")
+        installed_models = [default_model]
+
     rendered_wiki_html = sanitize_html(
         markdown.markdown(
             preprocess_markdown(page_obj.description or ""),
@@ -451,6 +521,11 @@ def view_saved_page(
             is_admin=is_admin,
             versions=versions,
             active_version_id=version_id,
+            wiki_versions=wiki_versions,
+            active_wiki_version=active_wiki_version,
+            active_wiki_version_id=wiki_version_id,
+            installed_models=installed_models,
+            current_wiki_model=current_wiki_model,
             current_fetched_at=current_fetched_at,
             msg=msg,
             error=error,

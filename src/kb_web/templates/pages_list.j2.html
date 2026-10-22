@@ -176,8 +176,13 @@
                                         {% endif %}
                                     </div>
                                     {% if page.title and page.title != page.url %}
+                                    {% set res_url = resolve_entity_url(page.url) %}
                                     <p class="text-[11px] text-gray-400 truncate mt-1">
-                                        <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600 relative z-10">{{ page.url }}</a>
+                                        {% if res_url.clickable %}
+                                        <a href="{{ res_url.target_url }}" {% if res_url.target == '_blank' %}target="_blank" rel="noopener noreferrer"{% endif %} class="hover:underline font-mono text-indigo-600 relative z-10">{{ res_url.icon }} {{ page.url }}</a>
+                                        {% else %}
+                                        <span class="font-mono text-gray-400 relative z-10">{{ res_url.icon }} {{ page.url }}</span>
+                                        {% endif %}
                                     </p>
                                     {% endif %}
                                 </div>
@@ -442,8 +447,13 @@
                                 {% endif %}
                             </div>
                             {% if page.title and page.title != page.url %}
+                            {% set res_url = resolve_entity_url(page.url) %}
                             <p class="text-[11px] text-gray-400 truncate mt-1">
-                                <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600 relative z-10">{{ page.url }}</a>
+                                {% if res_url.clickable %}
+                                <a href="{{ res_url.target_url }}" {% if res_url.target == '_blank' %}target="_blank" rel="noopener noreferrer"{% endif %} class="hover:underline font-mono text-indigo-600 relative z-10">{{ res_url.icon }} {{ page.url }}</a>
+                                {% else %}
+                                <span class="font-mono text-gray-400 relative z-10">{{ res_url.icon }} {{ page.url }}</span>
+                                {% endif %}
                             </p>
                             {% endif %}
                         </div>
@@ -779,6 +789,22 @@ document.addEventListener("DOMContentLoaded", function() {
         `).join('');
     }
 
+    function resolveClientUrl(url) {
+        if (!url) return { href: '#', clickable: false, icon: '🔗', target: '_self' };
+        if (url.startsWith('note://')) {
+            return { href: '/notes/edit?url=' + encodeURIComponent(url), clickable: true, icon: '📝', target: '_self' };
+        }
+        if (url.startsWith('workspace://')) {
+            var parts = url.substring('workspace://'.length).split('/');
+            var wsId = parts[0] || '';
+            return { href: wsId ? '/workspaces/' + wsId : '/workspaces', clickable: !!wsId, icon: '💻', target: '_self' };
+        }
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            return { href: url, clickable: true, icon: '🌐', target: '_blank' };
+        }
+        return { href: '#', clickable: false, icon: '🔗', target: '_self' };
+    }
+
     function renderArticles(data) {
         if (!data.items || data.items.length === 0) {
             container.innerHTML = `
@@ -815,11 +841,18 @@ document.addEventListener("DOMContentLoaded", function() {
                             </span>
                         `}
                     </div>
-                    ${page.title && page.title !== page.url ? `
-                        <p class="text-[11px] text-gray-400 truncate mt-1">
-                            <a href="${escapeHtml(page.url)}" target="_blank" class="hover:underline font-mono text-indigo-600 relative z-10">${escapeHtml(page.url)}</a>
-                        </p>
-                    ` : ''}
+                    ${page.title && page.title !== page.url ? (() => {
+                        const res = resolveClientUrl(page.url);
+                        return `
+                            <p class="text-[11px] text-gray-400 truncate mt-1">
+                                ${res.clickable ? `
+                                    <a href="${escapeHtml(res.href)}" ${res.target === '_blank' ? 'target="_blank" rel="noopener noreferrer"' : ''} class="hover:underline font-mono text-indigo-600 relative z-10">${res.icon} ${escapeHtml(page.url)}</a>
+                                ` : `
+                                    <span class="font-mono text-gray-400 relative z-10">${res.icon} ${escapeHtml(page.url)}</span>
+                                `}
+                            </p>
+                        `;
+                    })() : ''}
                 </div>
                 ${page.tags && page.tags.length ? `
                     <div class="flex flex-wrap gap-1 mt-3 pt-2.5 border-t border-gray-100">
