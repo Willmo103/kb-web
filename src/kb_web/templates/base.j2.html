@@ -806,6 +806,17 @@
         fetchNotifications();
         setInterval(fetchNotifications, 5000);
         {% endif %}
+
+        // Intercept internal pseudo-schemes (note://, workspace://, etc.) so clicking them opens cleanly without browser handler errors
+        document.addEventListener('click', function(e) {
+            var target = e.target.closest('a');
+            if (!target) return;
+            var href = target.getAttribute('href');
+            if (href && (href.startsWith('note://') || href.startsWith('workspace://'))) {
+                e.preventDefault();
+                window.location.href = '/open?url=' + encodeURIComponent(href);
+            }
+        });
     </script>
 </body>
 </html>

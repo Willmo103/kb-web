@@ -32,6 +32,7 @@ from ..models_orm import (
     TitleEmbedding,
     VideoEmbedding,
     PageVersion,
+    WikiVersion,
     Link,
 )
 from ..models import NoteCreateRequest, NoteUpdateRequest, HTMLPage
@@ -615,6 +616,7 @@ def _cascade_delete_notes(
         session.query(TitleEmbedding).filter_by(url=u).delete(synchronize_session=False)
         session.query(VideoEmbedding).filter_by(url=u).delete(synchronize_session=False)
         session.query(PageVersion).filter_by(url=u).delete(synchronize_session=False)
+        session.query(WikiVersion).filter_by(url=u).delete(synchronize_session=False)
         session.query(Link).filter_by(url=u).delete(synchronize_session=False)
         session.query(FetchedPage).filter_by(url=u).delete(synchronize_session=False)
 

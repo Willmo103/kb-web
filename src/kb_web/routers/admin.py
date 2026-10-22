@@ -6,7 +6,7 @@ import os
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 from pydantic import BaseModel, Field
 from urllib.parse import unquote_plus, quote_plus, urlparse
@@ -39,6 +39,8 @@ from ..models_orm import (
     Base,
     FetchedPage,
     PageVersion,
+    WikiVersion,
+    Note,
     YouTubeVideo,
     ArticleEmbedding,
     TitleEmbedding,
@@ -782,9 +784,17 @@ def test_ollama() -> dict:
 @router.post(
     "/admin/regenerate/wiki", dependencies=[Depends(verify_auth)], response_model=None
 )
-def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
-    """Triggers the Ollama wiki page re-generation process for a page."""
-    decoded_url = unquote_plus(url)
+def handle_regenerate_wiki(
+    url: Optional[str] = Query(None),
+    form_url: Optional[str] = Form(None, alias="url"),
+    model: Optional[str] = Form(None),
+    steering_instructions: Optional[str] = Form(None),
+) -> RedirectResponse:
+    """Triggers the Ollama wiki page re-generation process for a page with optional model and steering."""
+    target_url = form_url or url
+    if not target_url:
+        raise HTTPException(status_code=400, detail="Target URL required.")
+    decoded_url = unquote_plus(target_url)
     with db_session() as session:
         page = session.query(FetchedPage).filter_by(url=decoded_url).first()
         if not page:
@@ -793,6 +803,20 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
             return RedirectResponse(
                 url=f"/view/page?url={quote_plus(decoded_url)}&error=Item+is+frozen+and+immutable+to+modifications.",
                 status_code=303,
+            )
+
+        # Archive the existing wiki before overwriting, if wiki_content existed
+        existing_wiki = page.description or ""
+        if existing_wiki.strip():
+            session.add(
+                WikiVersion(
+                    url=page.url,
+                    title=page.title,
+                    wiki_content=existing_wiki,
+                    model_name=getattr(page, "wiki_model", None),
+                    steering_instructions=None,
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                )
             )
 
         p_dict = {col.name: getattr(page, col.name) for col in page.__table__.columns}
@@ -807,7 +831,16 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
         page_obj = HTMLPage(**p_dict)
 
         client = _get_ollama_client()
-        wiki_entry = extract_wiki_content(page_obj, config, client)
+        chosen_model = (model or "").strip() or getattr(config, "ollama_model", "gemma4:latest")
+        clean_steering = (steering_instructions or "").strip() or None
+
+        wiki_entry = extract_wiki_content(
+            page_obj,
+            config,
+            client,
+            model=chosen_model,
+            steering_instructions=clean_steering,
+        )
 
         title = page_obj.title or page_obj.url
         if wiki_entry.strip().startswith("#"):
@@ -816,10 +849,61 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
 
         page.description = wiki_entry
         page.title = title
+        page.wiki_model = chosen_model
 
     update_article_embedding(None, decoded_url, config, client)
     return RedirectResponse(
-        url=f"/view/page?url={quote_plus(decoded_url)}", status_code=303
+        url=f"/view/page?url={quote_plus(decoded_url)}&msg=Wiki+successfully+regenerated+with+{quote_plus(chosen_model)}.",
+        status_code=303,
+    )
+
+
+@router.post(
+    "/admin/wiki/restore", dependencies=[Depends(verify_auth)], response_model=None
+)
+def handle_restore_wiki(
+    url: str = Form(...),
+    version_id: int = Form(...),
+) -> RedirectResponse:
+    """Restores a historical wiki version, archiving the current one first."""
+    decoded_url = unquote_plus(url)
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=decoded_url).first()
+        if not page:
+            raise HTTPException(status_code=404, detail="Ingested page profile missing.")
+        if getattr(page, "is_frozen", 0):
+            return RedirectResponse(
+                url=f"/view/page?url={quote_plus(decoded_url)}&error=Item+is+frozen+and+immutable+to+modifications.",
+                status_code=303,
+            )
+
+        wiki_version = session.query(WikiVersion).filter_by(id=version_id, url=decoded_url).first()
+        if not wiki_version:
+            raise HTTPException(status_code=404, detail="Wiki version not found.")
+
+        # Archive current description if present
+        if page.description and page.description.strip():
+            session.add(
+                WikiVersion(
+                    url=page.url,
+                    title=page.title,
+                    wiki_content=page.description,
+                    model_name=getattr(page, "wiki_model", None),
+                    steering_instructions=None,
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                )
+            )
+
+        page.description = wiki_version.wiki_content
+        if wiki_version.title:
+            page.title = wiki_version.title
+        page.wiki_model = wiki_version.model_name
+
+    client = _get_ollama_client()
+    update_article_embedding(None, decoded_url, config, client)
+    return RedirectResponse(
+        url=f"/view/page?url={quote_plus(decoded_url)}&msg=Wiki+version+restored+successfully.",
+        status_code=303,
     )
 
 
@@ -964,6 +1048,17 @@ def handle_refetch_page(
                         tags=current_row.tags,
                     )
                 )
+                if current_row.description and current_row.description.strip():
+                    session.add(
+                        WikiVersion(
+                            url=current_row.url,
+                            title=current_row.title,
+                            wiki_content=current_row.description,
+                            model_name=getattr(current_row, "wiki_model", None),
+                            steering_instructions=None,
+                            created_at=datetime.now(timezone.utc).isoformat(),
+                        )
+                    )
     except Exception as exc:
         print(f"Failed to archive version: {exc}")
 
@@ -996,6 +1091,8 @@ def handle_refetch_page(
         pass
 
     serialized, creator = serialize_page_for_db(page_data)
+    refetch_model = getattr(config, "ollama_model", "gemma4:latest")
+    serialized["wiki_model"] = refetch_model
     with db_session() as session:
         page = session.query(FetchedPage).filter_by(url=decoded_url).first()
         if page:
@@ -1110,6 +1207,7 @@ def handle_delete_page(url: str = Form(...)) -> RedirectResponse:
 
                 # 4. Archived versions and links
                 session.query(PageVersion).filter_by(url=u).delete()
+                session.query(WikiVersion).filter_by(url=u).delete()
                 session.query(Link).filter_by(url=u).delete()
 
                 # 5. Finally delete the parent page record

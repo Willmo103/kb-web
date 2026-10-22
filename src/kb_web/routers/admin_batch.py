@@ -22,6 +22,7 @@ from ..models_orm import (
     CollectionItem,
     CollectionAction,
     PageVersion,
+    WikiVersion,
     ArticleEmbedding,
     TitleEmbedding,
     VideoEmbedding,
@@ -84,6 +85,7 @@ def _cascade_delete_page_urls(session, urls: List[str]) -> int:
             session.query(YouTubeVideo).filter_by(url=u).delete()
 
         session.query(PageVersion).filter_by(url=u).delete()
+        session.query(WikiVersion).filter_by(url=u).delete()
         session.query(Link).filter_by(url=u).delete()
         c = session.query(FetchedPage).filter_by(url=u).delete()
         deleted_count += c

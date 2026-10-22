@@ -5,8 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.11] - 2026-10-19
+## [0.5.11] - 2026-10-22
 ### Added
+- **AI Wiki Versioning, Model Attribution & Historical Restorations (`src/kb_web/models_orm.py`, `routers/admin.py`, `routers/pages.py`, `templates/view_page.j2.html`)**:
+  - Added `WikiVersion` ORM model (`url`, `title`, `wiki_content`, `model_name`, `steering_instructions`, `created_at`) with native foreign key `ON DELETE CASCADE` linked to `fetched_pages.url`.
+  - Added `wiki_model` column to `FetchedPage` and pre-aggregated database view `vw_page_cards` with SQLite PRAGMA and PostgreSQL migrations.
+  - Automatically archive previous AI wiki markdown into `WikiVersion` whenever a page is regenerated (`POST /admin/regenerate/wiki`) or re-fetched (`POST /admin/refetch/page`).
+  - Added `POST /admin/wiki/restore` endpoint allowing instantaneous restoration of historical wiki versions with reciprocal archival of active content.
+  - Display generating model badge (`🤖 Model: <model_name>`) and historical version selector pills (`v1`, `v2`, `Latest`) directly in the article wiki header.
+  - Added historical version preview banner with one-click version restoration button.
+  - Wired cascade deletion across all controllers (`handle_delete_page`, `delete_single_article`, `delete_note_api`, and `_cascade_delete_page_urls`) and enabled `PRAGMA foreign_keys=ON` on SQLite database connections.
+- **On-the-Fly Model Selection & Custom Steering Directives (`src/kb_web/utils.py`, `routers/admin.py`, `templates/view_page.j2.html`)**:
+  - Replaced immediate wiki regeneration with an interactive modal form allowing on-the-fly selection of any locally installed Ollama completion model.
+  - Added optional steering instructions textarea allowing custom prompts (e.g., technical architecture focus, bulleted executive summaries, mathematical proof retention) to be dynamically appended to system curation prompts.
+  - Updated `extract_wiki_content` to accept custom `model` and `steering_instructions` across both short and chunked long-document generation pipelines.
+- **Pseudo-Scheme URL Resolution & Universal Navigation Dispatcher (`src/kb_web/base.py`, `routers/pages.py`, `templates/base.j2.html`, `templates/pages_list.j2.html`)**:
+  - Implemented `resolve_entity_url(url)` resolving synthetic internal schemes into clean internal routes: `note://` to Monaco Notes editor (`/notes/edit?url=...`), `workspace://` to workspace IDE (`/workspaces/{id}`), external `http/https` to original targets, and unrecognized schemes to non-clickable badges.
+  - Registered `resolve_entity_url` as both a Jinja filter and global helper across all templates.
+  - Added universal `GET /open?url=...` redirect dispatcher routing synthetic and external schemes server-side.
+  - Added global client-side link click interceptor in `base.j2.html` seamlessly rerouting internal markdown and page links to `/open?url=...` without browser handler errors.
+  - Updated article profile (`view_page.j2.html`) and article index list (`pages_list.j2.html` across grid, compact, and client-side search) to resolve internal URLs safely.
+  - Added test suite `tests/test_wiki_versions_and_url_routing.py` covering model creation, cascade deletion, URL resolution, dispatcher redirection, modal parameter execution, version restoration, and template rendering (7 tests passed).
 - **7-Tier Biological Taxonomy & Context Fact Extraction Mesh (`src/kb_web/taxonomy/`, `src/kb_web/context_mesh/`, `src/kb_web/models_orm.py`)**:
   - Implemented 7-tier biological taxonomy architecture (`Kingdom -> Phylum -> Class -> Order -> Family -> Genus -> Species`) inspired by Orcastrator, moving beyond flat folder-like tags to strict personal knowledge classification.
   - Added `TaxonomyPath` coordinate model supporting canonical delimiter serialization (`to_path_string`), parsing (`from_string`), and Markdown YAML frontmatter generation (`to_yaml_frontmatter`).
