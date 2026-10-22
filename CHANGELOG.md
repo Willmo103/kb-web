@@ -5,6 +5,325 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.11] - 2026-10-22
+### Added
+- **Extracted Facts & Context Mesh UI Display (`routers/pages.py`, `templates/view_page.j2.html`)**:
+  - Exposed extracted atomic facts and context statements (`ContextStatementORM`) on the Article Profile view.
+  - Added dedicated "Extracted Facts & Intent Mesh" card featuring color-coded statement type badges (`Fact` [blue], `Intent` [purple], `Invariant` [rose], `Affordance` [emerald], `Habit` [amber], `Preference` [cyan]), taxonomic layer level badges (`SPECIES`, `GENUS`, etc.), canonical taxonomy coordinates path, review status indicators (`approved`, `flagged`, `rejected`, `unreviewed`), and confidence score ranks.
+  - Added interactive one-click evaluation controls (`👍 Approve`, `⚠️ Flag`, `👎 Reject`) with dynamic asynchronous feedback updates via `POST /api/context-mesh/statements/{id}/evaluate`.
+  - Added on-demand `⚡ Extract Facts Now` action button calling `POST /api/context-mesh/extract-now`.
+- **7-Tier Biological Taxonomy Auto-Population & Library Sync (`taxonomy/engine.py`, `context_mesh/pipeline.py`, `pipeline.py`, `routers/taxonomy.py`)**:
+  - Automated taxonomy coordinate registration during page ingestion and fact extraction via `TaxonomyEngine().register_entity(...)`.
+  - Implemented `TaxonomyEngine.sync_entities_from_library(limit)` and endpoint `POST /api/taxonomy/sync-entities` to scan existing articles and notes and infer 7-tier coordinates.
+  - Implemented `TaxonomyEngine.get_7tier_tree()` and endpoint `GET /api/taxonomy/7tier/tree` compiling a hierarchical 7-tier biological tree of Kingdoms, Phyla, Classes, Orders, and Families with real-time entity and statement counts.
+- **Upgraded Interactive Taxonomy & Living Facts Mesh Explorer (`routers/taxonomy.py`, `templates/taxonomy.j2.html`)**:
+  - Modernized `/taxonomy` into a dual-view portal featuring:
+    * **Tab 1: 7-Tier Biological Ontology & Living Facts Explorer**: Interactive hierarchical tree navigator from Kingdom down to Family, breadcrumb coordinate display, live atomic context facts mesh explorer with statement type filters and search, and mapped physical entity cards with direct article profile links.
+    * **Tab 2: Autonomous Category Clusters (Legacy)**: Preserved category tree state machine, clustering crawler, and living category wiki doc reader for full backward compatibility.
+    * Added prominent "Sync Taxonomy from Library" button to populate the 7-tier hierarchy with one click.
+- **REST & Query API Additions (`routers/taxonomy.py`, `context_mesh/store.py`)**:
+  - Added `GET /api/context-mesh/statements` supporting filtering by `url`, `statement_type`, `layer_level`, `eval_status`, `prefix`, and keyword search `query`.
+  - Added `POST /api/context-mesh/statements/{id}/evaluate` to update evaluation status and score ranking.
+  - Added `POST /api/context-mesh/extract-now` for on-demand fact extraction.
+  - Added unit and integration test suite `tests/test_taxonomy_and_facts_display.py` (5 tests passed).
+- **Autonomous Worker Target Execution Tracking & Loop Prevention (`src/kb_web/models_orm.py`, `src/kb_web/worker.py`, `src/kb_web/routers/worker.py`)**:
+  - Implemented persistent target-level execution tracking model `WorkerJobExecution` (`id`, `job_id`, `target_id`, `status`, `items_count`, `error_message`, `executed_at`) with composite index `(job_id, target_id)`.
+  - Added in-memory deduplication tracking `self._recent_targets[job_id]` in `AutonomousWorker` preventing immediate duplicate execution within the same scheduler loop or runtime session.
+  - Hardened candidate selection subqueries in `_run_fact_extraction`, `_run_wiki_curation`, `_run_tag_curation`, and `_run_embedding_refresh`:
+    - Excludes targets already logged with `status IN ('success', 'skipped')` in `WorkerJobExecution`.
+    - Excludes targets present in the runtime `_recent_targets` memory cache.
+    - Added `.nullslast()` to all `order_by` clauses (`FetchedPage.fetched_at.desc().nullslast()` and `asc().nullslast()`) preventing PostgreSQL `NULLS FIRST` sorting quirks on unpopulated timestamps.
+    - Filters out `NULL` and empty values from downstream artifact subqueries.
+  - Automatically logs `status="skipped"` with `items_count=0` whenever an extraction or curation pass produces zero items, permanently preventing infinite loops on un-extractable targets.
+  - Added REST and Admin management endpoints: `GET /api/jobs/{job_id}/executions` to inspect target history, `POST /api/jobs/{job_id}/executions/clear` to reset execution logs, and `POST /admin/jobs/{job_id}/executions/clear` for admin portal resets.
+  - Added unit test suite `tests/test_worker_job_execution_tracking.py` verifying model persistence, helper functions, sequential deduplication, zero-statement skip handling, and API endpoints (5 tests passed).
+- **AI Wiki Versioning, Model Attribution & Historical Restorations (`src/kb_web/models_orm.py`, `routers/admin.py`, `routers/pages.py`, `templates/view_page.j2.html`)**:
+  - Added `WikiVersion` ORM model (`url`, `title`, `wiki_content`, `model_name`, `steering_instructions`, `created_at`) with native foreign key `ON DELETE CASCADE` linked to `fetched_pages.url`.
+  - Added `wiki_model` column to `FetchedPage` and pre-aggregated database view `vw_page_cards` with SQLite PRAGMA and PostgreSQL migrations.
+  - Automatically archive previous AI wiki markdown into `WikiVersion` whenever a page is regenerated (`POST /admin/regenerate/wiki`) or re-fetched (`POST /admin/refetch/page`).
+  - Added `POST /admin/wiki/restore` endpoint allowing instantaneous restoration of historical wiki versions with reciprocal archival of active content.
+  - Display generating model badge (`🤖 Model: <model_name>`) and historical version selector pills (`v1`, `v2`, `Latest`) directly in the article wiki header.
+  - Added historical version preview banner with one-click version restoration button.
+  - Wired cascade deletion across all controllers (`handle_delete_page`, `delete_single_article`, `delete_note_api`, and `_cascade_delete_page_urls`) and enabled `PRAGMA foreign_keys=ON` on SQLite database connections.
+- **On-the-Fly Model Selection & Custom Steering Directives (`src/kb_web/utils.py`, `routers/admin.py`, `templates/view_page.j2.html`)**:
+  - Replaced immediate wiki regeneration with an interactive modal form allowing on-the-fly selection of any locally installed Ollama completion model.
+  - Added optional steering instructions textarea allowing custom prompts (e.g., technical architecture focus, bulleted executive summaries, mathematical proof retention) to be dynamically appended to system curation prompts.
+  - Updated `extract_wiki_content` to accept custom `model` and `steering_instructions` across both short and chunked long-document generation pipelines.
+- **Pseudo-Scheme URL Resolution & Universal Navigation Dispatcher (`src/kb_web/base.py`, `routers/pages.py`, `templates/base.j2.html`, `templates/pages_list.j2.html`)**:
+  - Implemented `resolve_entity_url(url)` resolving synthetic internal schemes into clean internal routes: `note://` to Monaco Notes editor (`/notes/edit?url=...`), `workspace://` to workspace IDE (`/workspaces/{id}`), external `http/https` to original targets, and unrecognized schemes to non-clickable badges.
+  - Registered `resolve_entity_url` as both a Jinja filter and global helper across all templates.
+  - Added universal `GET /open?url=...` redirect dispatcher routing synthetic and external schemes server-side.
+  - Added global client-side link click interceptor in `base.j2.html` seamlessly rerouting internal markdown and page links to `/open?url=...` without browser handler errors.
+  - Updated article profile (`view_page.j2.html`) and article index list (`pages_list.j2.html` across grid, compact, and client-side search) to resolve internal URLs safely.
+  - Added test suite `tests/test_wiki_versions_and_url_routing.py` covering model creation, cascade deletion, URL resolution, dispatcher redirection, modal parameter execution, version restoration, and template rendering (7 tests passed).
+- **7-Tier Biological Taxonomy & Context Fact Extraction Mesh (`src/kb_web/taxonomy/`, `src/kb_web/context_mesh/`, `src/kb_web/models_orm.py`)**:
+  - Implemented 7-tier biological taxonomy architecture (`Kingdom -> Phylum -> Class -> Order -> Family -> Genus -> Species`) inspired by Orcastrator, moving beyond flat folder-like tags to strict personal knowledge classification.
+  - Added `TaxonomyPath` coordinate model supporting canonical delimiter serialization (`to_path_string`), parsing (`from_string`), and Markdown YAML frontmatter generation (`to_yaml_frontmatter`).
+  - Added `TaxonomyClassifier` providing heuristic coordinate inferences for ingested web articles, Git repositories, YouTube videos, and notes.
+  - Added `TaxonomyEntityORM` and `TaxonomyEntityRecord` for persistent indexing of physical assets and view querying (`TaxonomyEngine.list_entities`).
+  - Implemented `ContextMesh` atomic knowledge representation with `ContextStatementORM` supporting both PostgreSQL `SafeVector` and SQLite embeddings.
+  - Added `ContextStatement` schema tracking declarative types (`intent_mapping`, `negative_invariant`, `affordance`, `habit`, `preference`, `fact`), taxonomic layers, clickable source citations (`to_citation_markdown`), and score ranks (0.0 to 5.0).
+  - Created `ContextStore` with composite vector similarity search (`0.65 * sim + 0.35 * norm_rank`), feedback back-propagation (`update_evaluation`), and dynamic exemplar retrieval (`get_exemplars`).
+  - Implemented `FactExtractionPipeline` with live positive/negative exemplar injection in system instructions, unified embedding generation (`get_active_embedding_model`), offline heuristic fallback, and pairwise DPO dataset export (`export_preference_dataset`).
+  - Implemented `BubbleDownRetriever` (`src/kb_web/context_mesh/retriever.py`) providing hierarchical context traversal: routes query domain via `d1` decision model (with regex word-boundary fallback) into target Kingdom & Phylum, conducts layer-by-layer vector search (Principles -> Conventions -> Instances), and renders formatted Markdown context blocks with score badges and clickable citations.
+  - Implemented `SubconsciousContextInjector` (`src/kb_web/context_mesh/injector.py`) automatically wrapping context in `<subconscious_context>` tags and injecting it directly into agent background instructions without manual search queries.
+  - Integrated Stage 4b atomic fact extraction into asynchronous web ingestion pipeline (`src/kb_web/pipeline.py`).
+  - Registered `fact_extraction` ServerJob in `AutonomousWorker` (`src/kb_web/worker.py`) for continuous discovery and context mesh extraction of unextracted library pages.
+  - Added test suite `tests/test_taxonomic_fact_extraction.py` covering path serialization, classifier heuristics, store CRUD, evaluation transitions, composite vector search, dynamic prompts, d1 decision routing, multi-layer hierarchical traversal, prompt injection, and worker job execution (13 tests passed).
+- **Persistent Evaluation Run History & Re-Run Portal (`src/kb_web/models_orm.py`, `routers/evals.py`, `templates/evals.j2.html`)**:
+  - Persisted all streaming and batch evaluation executions into new `evaluation_runs` database table (`eval_type`, `title`, `status`, `config_json`, `results_json`, `metrics_json`, `created_at`, `completed_at`).
+  - Added dedicated Tab 5 (**Run History**) in the Model Evaluation Studio allowing users to review completed, running, or failed evaluations with latency and token metrics, inspect full model outputs in a modal viewer, delete run records, and restore prompts/model options directly back into the active Studio form.
+  - Added REST endpoints: `GET /api/evals/runs`, `GET /api/evals/runs/{id}`, and `DELETE /api/evals/runs/{id}`.
+- **Dataset-Only Matrix Evaluations & Randomized Row Sampling (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`)**:
+  - Completely removed single article/text input mode from Matrix evaluations, enforcing evaluation discipline strictly against curated datasets.
+  - Added randomized/shuffled sampling option (`randomize: bool`) with UI toggle checkbox to pull varied test batches across iterations instead of sequential rows.
+  - Added `GET /api/evals/datasets/{id}/fields` extracting active column projections and fetched row keys for client-side template completions.
+- **Real-Time Jinja Parameter Syntax Highlighter (`src/kb_web/static/js/jinja_highlighter.js`, `server.py`, `templates/evals.j2.html`, `templates/admin.j2.html`)**:
+  - Created reusable client-side module providing real-time Jinja parameter validation across template editors.
+  - Renders live visual status pills: green badges for recognized dataset fields (e.g. `{{ data.title }}`) and red animated alert badges for non-matching or misspelled keys.
+  - Added click-to-insert available fields explorer bar above editors with field name insertion and count pills.
+  - Mounted `/static` directory via FastAPI `StaticFiles` with CSP and security middleware whitelisting.
+- **Configurable Worker Agents & Frozen Snapshot Commit Workflow (`src/kb_web/agent_config.py`, `models_orm.py`, `routers/admin.py`, `templates/admin.j2.html`)**:
+  - Transformed background worker agents from fixed presets into fully configurable entities with "+ Create Worker Agent" dialog (`POST /api/admin/agents/create`) and custom deletion (`DELETE /api/admin/agents/{id}`).
+  - Implemented test execution engine (`POST /api/admin/agents/{id}/test-run`) enabling administrators to test agent prompts and question schemas against sample KB articles prior to deployment.
+  - Implemented versioned frozen snapshot commits (`POST /api/admin/agents/{id}/publish`), recording immutable snapshots (`frozen_snapshot_json`) with automatic version number increments and timestamp tracking.
+
+### Changed
+- **Direct Database Field Adherence & Elimination of Confusing Aliases (`src/kb_web/agent_config.py`, `templates/admin.j2.html`, `templates/evals.j2.html`)**:
+  - Replaced legacy parameter aliases in preconfigured agent templates with canonical database columns from `fetched_pages`:
+    * `Link Discovery Gating Agent (d1)`: migrated `page_title` and `base_url` to direct database fields `title` and `url`.
+    * `Article Reading Assistant`: migrated `article_content` to database field `md_content or data.content`.
+  - Added auto-migration in `ensure_default_agent_configs()` updating any existing rows in the database to standard column names.
+  - Registered `available_fields` on all agent configurations combining core database fields (`title`, `url`, `description`, `md_content`, `content`, `tags`, `reading_time_minutes`, `fetched_at`) with specific agent runtime parameters (`candidate_url`, `query`, `question`, etc.), eliminating false-positive "invalid field" alerts.
+- **In-Textentry Field Syntax Highlighting & Visual Contrast (`src/kb_web/static/js/jinja_highlighter.js`)**:
+  - Injected dedicated `.jinja-editor-wrapper` and `.jinja-backdrop` styling rules into the DOM, enforcing `background-color: transparent !important` on active textareas so underlying highlight pill layers remain visible across both dark and light modes.
+  - Configured `<mark>` highlights with `color: transparent !important` and glowing pill box-shadows (`rgba(34, 197, 94, 0.32)` for valid database/runtime fields and `rgba(239, 68, 68, 0.35)` with wavy red underlines for invalid keys), allowing the textarea's crisp native text to render cleanly on top with zero character displacement.
+  - Added `ResizeObserver` and scroll synchronization to ensure backdrop and textarea metrics remain in sync upon resizing or dynamic content insertion.
+- **Strict Isolation of SystemOne Decision Gating Models (`src/kb_web/agent_config.py`, `routers/evals.py`, `templates/admin.j2.html`, `templates/evals.j2.html`)**:
+  - Completely excluded SystemOne decision models (`d1`, `tev1`) from generative completion and wiki creation model selectors across the entire application.
+  - Structurally separated the Admin Agent tab into two distinct sections: **Section 1: SystemOne Decision Gating Models** and **Section 2: Generative LLM & Coding Worker Agents**.
+  - Respects SystemOne architecture by completely removing invalid configuration controls (tools, system prompts, thinking mode, temperature, top_p, top_k, num_predict) from SystemOne agents, exposing strictly the `state` template and `questions` criteria.
+
+### Fixed
+- **Embedding Model Unification & Cross-Space Query Collision Fix (`src/kb_web/utils.py`, `rag_agent.py`, `worker.py`, `cli.py`, `models_orm.py`, `routers/cli_api.py`, `routers/admin.py`, `routers/embeddings.py`, `routers/rag_reports.py`)**:
+  - **Root Cause**: Document vectors were indexed using one model (hardcoded `"embeddinggemma"` in `generate_gemma_embeddings_for_page`), while search/RAG queries and article-level embeddings were using another (e.g. `nomic-embed-text` via `config.ollama_embedding_model`). In addition, `find_nearest_chunks` calculated cosine similarity without filtering by `ChunkEmbedding.model_name`, causing distance computations across incompatible vector spaces (e.g. querying with Nomic against Gemma embeddings resulting in degraded or zero matches).
+  - **Resolution**:
+    * Created centralized `get_active_embedding_model(session=None, config=None)` ensuring a single source of truth across all vector creation, query embedding, and similarity search routines.
+    * Refactored `generate_gemma_embeddings_for_page` (aliased as `generate_embeddings_for_page`) to use the active embedding model, explicitly record `ChunkEmbedding.model_name`, and apply prompt prefixes (`search_document: `) dynamically.
+    * Updated `find_nearest_chunks` to strictly filter by `ChunkEmbedding.model_name == emb_model`, preventing cross-model vector distance calculations.
+    * Synchronized `SettingOllama(key="ollama_embedding_model")` and `SettingExternal(key="active_embedding_model")` across Admin Portal updates, REST API endpoints, and worker jobs.
+    * Added `kb-web-cli reindex-embeddings [--model MODEL]` command allowing on-demand reindexing of all document chunks with the active embedding model.
+    * Added comprehensive unit test suite `tests/test_embedding_unification.py`.
+- **Codebase-Wide Security & Vulnerability Hardening**:
+  - `SEC-01`: Converted raw f-string SQL queries in `AgentPrompt` version tracking (`src/kb_web/config.py`) to parameterized queries with bound arguments to prevent SQL injection.
+  - `SEC-02`: Fixed Stored XSS vulnerability in global notifications drawer and toast popups (`src/kb_web/templates/base.j2.html`) by introducing `escapeHtml(str)` utility and sanitizing messages, stages, and timestamps before innerHTML assignment.
+  - `SEC-03`: Fixed Stored XSS in autonomous topic agent wikis and dynamic canvas pages (`src/kb_web/routers/agent_pages.py`) by wrapping markdown conversion output with `sanitize_html()`.
+  - `SEC-04`: Fixed DOM attribute breakout and event injection vulnerabilities in collection viewer, collection editor, and URL import templates (`src/kb_web/templates/view_collection.j2.html`, `collection_editor.j2.html`, `url_import.j2.html`) using HTML entity escaping and `data-url` attributes.
+- **Background Worker & Frontend IDE Bug Fixes**:
+  - `BUG-01`: Fixed infinite re-indexing loop in background worker vector embedding refresh job (`src/kb_web/worker.py`) by filtering for pages lacking `ChunkEmbedding` records.
+  - `BUG-02`: Replaced N-sequential HTTP `DELETE` loop when deleting folders in Workspace IDE (`src/kb_web/templates/workspace_ide.j2.html`) with atomic backend folder prefix deletion request.
+  - `BUG-03`: Added `destroy()` lifecycle teardown to `JinjaHighlighter` (`src/kb_web/static/js/jinja_highlighter.js`) to disconnect `ResizeObserver` and remove window resize listener; updated parameter matching regex to handle Jinja pipe filters (`| default(...)`).
+  - `BUG-04`: Fixed script race condition in Admin Portal (`src/kb_web/templates/admin.j2.html`) by moving `jinja_highlighter.js` into `extra_head`.
+- **Performance Optimizations & Deprecation Notices**:
+  - `CONF-01`: Replaced deprecated `sqlalchemy.ext.declarative.declarative_base()` import in `src/kb_web/models_orm.py` with `sqlalchemy.orm.declarative_base()` to eliminate SQLAlchemy 2.0 `MovedIn20Warning`.
+  - `PERF-01`: Optimized server boot ghost URL cleanup in `src/kb_web/models_orm.py` to use set-based SQL `DELETE FROM ... WHERE ... IN (subquery)` instead of sequential per-row iteration.
+  - `PERF-02`: Batched note vault zip import into single database transaction and throttled concurrent background tasks in `src/kb_web/routers/notes.py`.
+  - `PERF-03`: Optimized taxonomy classification note scanning in `src/kb_web/routers/taxonomy.py` with `with_entities(Note.id, Note.url)` to avoid loading full bodies into memory.
+  - `ARCH-01`: Removed hardcoded magic `ci.collection_id != 1` assumption in `vw_page_cards` view definition in `src/kb_web/models_orm.py`.
+  - `DEPR-01`, `DEPR-02`, `DEPR-03`: Documented formal deprecation paths for legacy 10-item partitioning `taxonomy_state_machine.py`, legacy single-vector tables (`article_embeddings`, `title_embeddings`, `video_embeddings`), and `sqlite_utils` in `src/kb_web/db.py`.
+
+## [0.5.10] - 2026-10-18
+### Added
+- **Autonomous Topic-Expert Custom Agent System & Dynamic Canvas Pages (`src/kb_web/models_orm.py`, `routers/agent_pages.py`, `custom_agent_engine.py`, `templates/topic_wiki_page.j2.html`, `templates/agent_page_themed.j2.html`)**:
+  - **Topic Wiki Domain Pages (`TopicWikiPage`)**: Dedicated entity representing living, curated topic knowledge organized by logical paths (e.g. `/wiki/{agent_id}/architecture`), providing hierarchical navigation trees, markdown rendering, internal wiki linking, and citations back to imported library articles.
+  - **Dynamic Agent Canvas Pages (`AgentPage`)**: Distinct canvas entity identified by unique hash IDs (`/pages/agent/{hash_id}`) featuring two rendering modes:
+    * `raw`: Emits pure unstyled HTML directly without inherited base template or site chrome.
+    * `themed`: Renders rich interactive agent dashboards within base application layout, supporting JSON form schemas, user input capture, and approval decision dialogs.
+  - **Topic-Steered Grounding Discovery**: Restricts agent discovery strictly to already-imported library items (`FetchedPage`) in the database, continuously logging findings into `agent_observations` working memory.
+  - **Goal-Directed Deliberation Engine**: Background loop reviewing pending self-tasks (`agent_self_tasks`), synthesizing grounding observations, and compiling/updating topic wiki entries.
+- **Strict Human-In-The-Loop (HITL) Local Python Execution Kernel (`src/kb_web/python_kernel.py`)**:
+  - Gated execution kernel allowing autonomous agents to propose local Python code execution in the `.venv` environment (`propose_python_execution`).
+  - Gated behind human review: proposals automatically dispatch high-priority notifications linking to interactive review forms (`AgentPage` with HITL approval action).
+  - Enforces fail-safe execution: code runs locally only upon explicit human approval (`execute_approved_code`), capturing isolated stdout/stderr and timestamps in `agent_python_approvals`.
+- **Perpetual Notification History Portal & Management API (`src/kb_web/routers/api.py`, `routers/pages.py`, `templates/notifications_history.j2.html`, `templates/base.j2.html`)**:
+  - Preserves ingestion notifications indefinitely until explicitly cleared by the user.
+  - Added dedicated `/notifications` management portal with server-side pagination, filters by stage (`fetch`, `wiki`, `tags`, `vector`, `video`, `agent`, `error`), status (`success`, `warning`, `failed`, `info`), read/unread state, and keyword search.
+  - Added per-notification deletion (`DELETE /api/notifications/{id}`), read state toggle (`PATCH /api/notifications/{id}/read`), and batch deletion (`DELETE /api/notifications`).
+- **Evals Studio Model Categorization, Per-Model Generation Overrides, & Prompt Promotion (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`)**:
+  - Filtered models strictly by capability across tabs: Tab 1 displays only completion/chat LLMs; Tab 2 displays only Decision/SystemOne gating models (`d1`, `tev1`); Tab 3 displays only vector embedding models (`embeddinggemma`, `nomic-embed-text`, `bge-m3`).
+  - Added per-model generation options drawer (`temperature`, `top_p`, `top_k`, `num_predict`, `num_ctx`) with hover tooltips and dynamic parameter overrides in streaming and batch evaluation requests.
+  - Added free-form prompt testing via a "+ Add Empty Prompt" scratchpad card.
+  - Added "Set As... ▾" prompt promotion select allowing tested prompts to be applied directly to system instructions (`wiki_prompt`, `youtube_wiki_prompt`, `tags_prompt`, `rag_system_prompt`) or custom agents (`POST /api/evals/prompts/promote`).
+- **Live SSE Streaming & Thinking Token Buffering for Model Evaluations (`src/kb_web/base.py`, `routers/evals.py`, `templates/evals.j2.html`)**:
+  - **Root Cause**: Running multi-model matrix evaluations across multiple prompts and dataset rows caused Cloudflare 524 gateway timeouts (100s idle timeout) on synchronous HTTP POST endpoints. Thinking tokens produced by reasoning models were also uncaptured.
+  - **Fix**: Added `stream=True` support to `LoggedOllamaClient.chat()`, dynamically buffering `chunk.message.content` and `chunk.message.thinking` while logging the complete thought trace and output into `ollama_logs`. Implemented Server-Sent Events (SSE) streaming endpoint `POST /api/evals/matrix/stream` that immediately returns `event: start` (<10ms) to reset proxy idle timers, streams tokens live into the UI, updates progress, and renders live collapsible reasoning trace accordions.
+- **Dynamic Model Context Discovery & Limit Uncapping (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`)**:
+  - **Root Cause**: FastAPI strictly capped `max_tokens` at 16,384, causing 422 validation errors when users tested larger context windows (e.g. 32k or 128k).
+  - **Fix**: Raised maximum token validation ceiling to 262,144 tokens. Added `get_model_context_info()` querying Ollama `/api/ps` (for active runtime `context_length`) and `/api/show` (for architecture parameter limits), exposing `GET /api/evals/models/info` and dynamically labeling model context capabilities in UI pills.
+- **Cloudflare Beacon CSP Whitelist & Humanized Error Alerts (`src/kb_web/server.py`, `templates/evals.j2.html`)**:
+  - Added `https://static.cloudflareinsights.com` and `https://cloudflareinsights.com` to Content-Security-Policy directives (`script-src` and `connect-src`).
+  - Added `formatApiError()` in `evals.j2.html` parsing FastAPI 422 validation errors into readable strings instead of `[object Object]` and translating HTML gateway timeouts.
+- **Multi-Row Evaluation Datasets & Query Builder (`src/kb_web/routers/evals.py`, `templates/evals.j2.html`, & `models_orm.py`)**:
+  - Added dedicated Tab 4 (**Eval Datasets & Query Builder**) in the Model Evaluation Studio allowing users to construct datasets using report filters and table projections.
+  - Enforces strict minimum $\ge 20$ matching rows requirement before saving to guarantee evaluation statistical validity.
+  - Integrated Jinja2 row templating (`{{ data.<key> }}`) with live Row 0 client previews for Prompt Matrix, Decision Gating, and Embedding Retrieval.
+- **Granular Agent Configuration Engine & Admin Exposure (`src/kb_web/agent_config.py`, `models_orm.py`, `routers/admin.py`, & `templates/admin.j2.html`)**:
+  - Implemented persistent `agent_configurations` ORM table exposing all parameters for all 11 background and interactive agents (`model`, `call_type`, `system_prompt`, `user_prompt_template`, `thinking`, `temperature`, `num_predict`, `num_ctx`, `top_p`, `top_k`, `tools`, `enabled`).
+  - Added dedicated **Agent Configurations** tab in the Admin Portal with category filter pills and live save indicators.
+  - Spotlighted the **Maintenance & Error Diagnostics Agent** (`maintenance_agent`), giving administrators full visibility and control over automated log diagnosis.
+- **Ollama `d1` / `/v1/systemone` Decision Model Calling Overhaul (`src/kb_web/base.py` & `routers/evals.py`)**:
+  - **Root Cause**: `client.systemone()` previously threw `TypeError: Client.systemone() got an unexpected keyword argument 'options'` when chat generation options were passed to decision models.
+  - **Fix**: Sanitized `LoggedOllamaClient.systemone()` to strip `options` prior to calling Ollama, normalized question keys (`question` -> `instructions`, `choices` -> `criteria`, `probability` -> `noul`), and added structured deserialization for `noul`, `choice`, `score`, `confidence`, and `probabilities`.
+- **Frontend Safe Error Response Parsing (`templates/evals.j2.html`)**:
+  - **Root Cause**: Fetch calls in `executeMatrixEval()` and `executeDecisionEval()` ran `await resp.json()` unconditionally on error responses, raising unhandled SyntaxErrors (`Unexpected token '<', "<!DOCTYPE ... is not valid JSON"`) when HTML error pages were returned.
+  - **Fix**: Wrapped error extraction with `await resp.text()` and guarded `JSON.parse()`, displaying human-readable server error details.
+
+### Fixed
+- **Recursive Taxonomy Category Pruning on Note Deletion (`src/kb_web/routers/notes.py` & `src/kb_web/routers/admin_batch.py`)**:
+  - **Root Cause**: Deleting notes (`DELETE /api/notes/{id}` or `DELETE /api/notes/batch`) left behind empty parent taxonomy categories as orphaned stubs in the knowledge base navigation hierarchy.
+  - **Fix**: Implemented `_prune_empty_taxonomy_categories()` to recursively prune empty taxonomy categories bottom-up after note deletion or category reassignment, ensuring no empty categories linger in the taxonomy hierarchy.
+- **Raw Un-Truncated Report Data Downloads (`src/kb_web/routers/reports.py`)**:
+  - **Root Cause**: `export_report_data()` reused UI grid placeholder formatting, causing CSV, XLSX, and JSON downloads to output string literals like `[Content: 77,805 chars]` instead of actual content.
+  - **Fix**: Updated `export_report_data()` to set `fetch_heavy=True` and bypass placeholder truncation, streaming complete raw text content into exported files.
+
+### Changed
+- **Server Jobs Framework Registration (`src/kb_web/worker.py`)**:
+  - Ensured `tag_curation` is registered alongside `wiki_curation`, `embedding_refresh`, `synthetic_qa`, `rag_eval`, and `link_crawler` in the default server jobs registry.
+
+### Security & Hardening
+- **Rate-Limit Spoofing Defense & Trusted Reverse Proxies (`routers/auth.py`, `config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Fixes #93, SEC-01)**:
+  - **Root Cause**: `_get_client_ip()` previously trusted the first IP in `X-Forwarded-For` without validating whether the connecting peer was a recognized reverse proxy, allowing brute-force attackers to bypass the 5-attempt login lockout by sending randomized header values.
+  - **Fix**: Added `trusted_proxies` property to `config.py` (default: `127.0.0.1, ::1`, configurable via `KB_TRUSTED_PROXIES` and Admin Portal General settings per Rule 7). `_get_client_ip()` verifies `request.client.host` against trusted IPs and CIDR ranges via `ipaddress`, only evaluating `X-Forwarded-For` when forwarded by a trusted proxy and picking the rightmost untrusted hop. Added `_global_failed_attempts` tracking with a 50-attempt global lockout ceiling.
+- **Git Repo Import URL Validation & Subprocess Shell Elimination (`src/kb_web/repo_importer.py`) (Fixes #95, SEC-03)**:
+  - **Root Cause**: `clone_repo()` passed user-supplied URLs directly to `git clone` with `shell=True` on Windows. A URL beginning with dashes allowed option injection (e.g. `--upload-pack=...`), while `file://` or local paths allowed filesystem exfiltration.
+  - **Fix**: Implemented `validate_repo_url()` to reject empty URLs, leading dashes, local filesystem paths, and unsupported protocols. Invoked `git` via `shutil.which("git")` with `shell=False` across all platforms, passing `-c protocol.file.allow=never`, bounded clone depth (`1 <= depth <= 100`), and a `--` argument separator.
+- **Stored Markdown/HTML XSS Sanitization & Content-Security-Policy (`src/kb_web/utils.py`, `routers/pages.py`, & `server.py`) (Fixes #94 & #97, SEC-02)**:
+  - **Root Cause**: Rendered wiki and article markdown was passed directly into Jinja2 templates via `| safe` without sanitization. Ingested malicious web pages or AI wiki summaries could execute arbitrary script payloads. CSP was absent from response headers.
+  - **Fix**: Integrated Rust-backed `nh3` HTML sanitizer (`sanitize_html()`) stripping `<script>`, `<iframe>`, inline event handlers (`onerror`, `onload`), and `javascript:` URIs while preserving standard formatting, syntax highlighting code blocks, and tables. Injected strict `Content-Security-Policy` header in `_inject_security_headers()`.
+- **Fail-Closed Default Credentials (`src/kb_web/base.py`, `config.py`, & `routers/admin.py`) (Fixes #96, SEC-04)**:
+  - **Root Cause**: Well-known default credentials (`admin123` / `kb-secret-key`) were accepted out-of-the-box by authentication guards.
+  - **Fix**: `verify_api_key()` and `is_request_authenticated()` now fail closed, rejecting the default API key `kb-secret-key` with HTTP `401 Unauthorized` unless explicit development flag `KB_ALLOW_INSECURE_DEFAULTS=1` is set. Persistent alert banners notify administrators in the UI if default factory credentials remain active.
+- **Cryptographically Random Session Secret (`src/kb_web/base.py` & `config.py`) (Fixes #111, SEC-05)**:
+  - **Root Cause**: `_get_session_secret()` derived HMAC session signatures directly from `hashlib.sha256(config.admin_password)`. Knowing the password allowed offline forgery, and password rotation unexpectedly invalidated all active sessions.
+  - **Fix**: Generated and persisted an independent 32-byte cryptographically secure session signing secret (`KB_SESSION_SECRET` or persisted in `settings_external`), fully decoupling HMAC cookie verification from administrative passwords.
+- **Scrypt Salted Password Hashing & Secret Redaction (`src/kb_web/config.py` & `routers/auth.py`) (Fixes #110, SEC-06)**:
+  - **Root Cause**: Passwords were stored in plaintext and written out to `kb-web.json` backup exports.
+  - **Fix**: Added `hash_password()` and `verify_password()` using standard library `hashlib.scrypt` with random 16-byte salts (`scrypt$<salt>$<hash>`). Login transparently verifies existing plaintext passwords and automatically migrates them to scrypt hashes. Redacted sensitive secrets (`admin_password`, `api_key`) from `kb-web.json` exports.
+- **SSRF Prevention & Internal IP Guard (`src/kb_web/utils.py`) (Fixes #109, SEC-07)**:
+  - **Root Cause**: Ingestion targets were fetched without IP resolution checks, permitting requests to loopback addresses (`127.0.0.1`), RFC1918 private subnets, and cloud metadata endpoints (`169.254.169.254`).
+  - **Fix**: Added `validate_target_url()` resolving hostnames via `socket.getaddrinfo()` and verifying IP addresses against `is_internal_ip()` (blocking loopback, private, link-local, multicast, and cloud metadata).
+- **HTTP Header Hardening (`src/kb_web/server.py`) (Fixes #97, SEC-08)**:
+  - Injected `Strict-Transport-Security: max-age=31536000; includeSubDomains` and `Permissions-Policy: geolocation=(), camera=(), microphone=()`. Removed deprecated `X-XSS-Protection` header.
+
+### Fixed
+- **Admin Portal Quick Diagnostics Dark Mode Panel (`src/kb_web/templates/admin.j2.html`)**:
+  - **Root Cause**: The Quick Diagnostics mini-card in `#tab-general` used unsupported Tailwind 3 arbitrary gradient classes (`bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-slate-800 dark:to-indigo-950`). Under the Tailwind 2.2.19 CDN, the dark-mode classes were unrecognized and the active linear gradient to `#eff6ff` persisted in dark mode, rendering light status text over a stark white box.
+  - **Fix**: Replaced gradient classes with standard theme-consistent admin card classes (`bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700`) and added a dedicated `.quick-diagnostics-panel` rule (`background-color: #111827 !important; border-color: #1e293b !important;`).
+- **Prompt Studio Monaco Editor Half-Screen Collapsed Sliver (`src/kb_web/templates/admin.j2.html`)**:
+  - **Root Cause**: Monaco editor container and preview column relied on arbitrary Tailwind JIT height classes (`min-h-[520px]`, `h-[500px]`), which were ignored by the Tailwind 2.2.19 CDN. Inside unconstrained flex parents, `#monacoPromptContainer` defaulted to `height: auto` and collapsed into a ~15px horizontal sliver when viewed in half-screen/responsive or editor-only mode.
+  - **Fix**: Added explicit CSS dimensions and inline fallback styles (`min-height: 480px; height: 500px;`) across `#studioSplitContainer`, `#promptEditorCol`, `#monacoPromptContainer`, and `#promptMarkdownPreview`. Added debounced `window.resize` listener and follow-up layout triggers in `initPromptMonaco()` and `setViewMode()` to guarantee responsive Monaco re-layout.
+- **Non-ASCII Credential Crash (`src/kb_web/base.py` & `config.py`) (Fixes #98, BUG-01)**:
+  - **Root Cause**: `hmac.compare_digest` raises `TypeError` when comparing non-ASCII `str` instances, turning non-ASCII passwords or API keys into unhandled HTTP 500 errors.
+  - **Fix**: Implemented `safe_compare_digest()` using UTF-8 byte encoding (`a.encode("utf-8")`) and safe None checks.
+- **Article View Extra Closing Div (`src/kb_web/templates/view_page.j2.html`) (Fixes #100, HTML-01)**:
+  - **Root Cause**: Unmatched extra `</div>` at line 443 prematurely closed the container layout before modal and details elements.
+  - **Fix**: Removed the redundant closing tag and verified template balance across all 25 Jinja2 files.
+- **Modernized MCP Server Database Connectivity (`src/kb_web/mcp_server.py`) (Fixes #99, BUG-03)**:
+  - **Root Cause**: MCP server read the legacy `db.sqlite` database using `sqlite_utils`, presenting empty or stale results on PostgreSQL deployments.
+  - **Fix**: Refactored `mcp_server.py` to use `db_session()` and `FetchedPage` SQLAlchemy ORM models, providing transparent support for PostgreSQL and SQLite.
+
+### Performance & Tooling
+- **Batched Bulk Maintenance Routines (`src/kb_web/routers/admin.py`) (Fixes #102, PERF-01 & #105, QUAL-01)**:
+  - Refactored `run_bulk_description_maintenance()` and `run_bulk_embedding_maintenance()` to stream candidate URLs and commit updates per item, avoiding full-table memory loading and unbounded open database transactions. Replaced bare `print()` calls with structured logging.
+- **Optimized Agent Board Summary Distinct Queries (`src/kb_web/agent_memory.py`) (Fixes #103, PERF-02)**:
+  - Replaced full-table `session.query(AgentMessage).all()` and in-memory set comprehensions with `session.query(...).distinct()` queries.
+- **Crawler Queue Optimization with Deque (`src/kb_web/routers/pages.py`) (Fixes #104, PERF-03)**:
+  - Replaced $O(N)$ `queue.pop(0)` list popping with $O(1)$ `collections.deque.popleft()` and added `enqueued` set tracking.
+- **Timezone-Aware UTC Timestamps (`src/kb_web/utils.py`) (Fixes #106, QUAL-02)**:
+  - Implemented `utc_now_iso()` using `datetime.now(timezone.utc).isoformat()` to eliminate ambiguous naive local timestamps.
+- **Automated Div Balance & Structural Template Checking (`.agents/skills/ui-component-uat-check/scripts/verify_ui_templates.py`) (Fixes #101, TOOL-01)**:
+  - Enhanced pre-commit template checker to automatically verify `<div>` tag balance and syntax across all templates.
+- **Package Configuration & Lint Baseline (`pyproject.toml`) (Fixes #107, CFG-01 & #108, CFG-02)**:
+  - Synchronized package version to `0.5.10`, updated package description, and established `[tool.ruff]` linting baseline.
+- **Code Review & Issue Generator Skill (`.agents/skills/code-review-issue-generator/`)**:
+  - Created reusable agent skill with `SKILL.md`, `audit_report_template.html`, `generate_audit_report.py`, and `sweep_codebase.py` for generating interactive review reports with ready-to-post GitHub issues.
+
+## [0.5.9] - 2026-10-13
+
+### Fixed
+- **YouTube Offline Downloads Audio Missing (`src/kb_web/utils.py`, `config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Issue #112)**:
+  - **Root cause**: `download_youtube_video()` requested `"format": "mp4/best"` without merging streams. When YouTube omits pre-muxed 720p/1080p MP4 formats, yt-dlp defaulted to video-only streams without sound.
+  - **Fix**: Configured yt-dlp with `bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b` and `merge_output_format: "mp4"`, muxing video and audio tracks with ffmpeg.
+  - **Rule 7 Exposure**: Exposed `youtube_download_format` property in `Config`, DB (`settings_external`), JSON (`kb-web.json`), and the Admin Portal under **Server Configurations**.
+  - Added regression test `test_youtube_download_format_config_and_admin_update` and verified audio stream selector in `test_descriptive_video_download_and_resolution`.
+- **Admin Portal blank tabs & `escapeHtml` ReferenceError (`templates/admin.j2.html`)** — regression from Issue #92 Prompt Studio merge:
+  - **Root cause 1**: The `tab-prompts` refactor dropped 4 closing `</div>` tags after the *Quick Diagnostics* card, nesting `#tab-prompts`, `#tab-backups`, `#tab-media`, and `#tab-diagnostics` inside `#tab-general`. `switchAdminTab()` hid `#tab-general` and therefore every pane, rendering all non-General tabs blank. Restored the missing closing tags.
+  - **Root cause 2**: Prompt Studio's `updateActivePromptUI()` (revision history) and the status banner called `escapeHtml()`, which was never defined in the admin template, throwing `Uncaught ReferenceError: escapeHtml is not defined` inside the Monaco init callback. Added a null-safe local `escapeHtml()` helper.
+  - Added regression tests `test_admin_portal_tab_panes_are_siblings` and `test_admin_portal_defines_escape_html` in `tests/test_system_prompts_admin.py`.
+
+### Added
+- **Durable Agent Working Memory & Guarded GitHub CLI Operations Skill (`.agents/memory/`, `.agents/skills/gh-cli-operations/`, & `rules/documentation_rules.md`)**:
+  - Established `.agents/memory/` directory with `package_caveats.md` and `github_cli_guardrails.md` for capturing durable package quirks, platform gotchas, and safe operational patterns across development turns.
+  - Added Section 6 to `.agents/rules/documentation_rules.md` requiring AI agents to record package-specific traps and actively maintain working memory.
+  - Implemented `gh-cli-operations` skill and Python script `scripts/gh_safe.py` providing safe, structured execution of `gh` operations with path quoting guardrails, draft PR enforcement, and structured JSON action logging to `.artifacts/gh-actions.log`.
+  - Delivered interactive single-page repository code audit report in `.artifacts/feature-agent-skills-memory-and-code-audit/code_audit_report.html`.
+- **AI Agent Personas & System Prompt Studio (`config.py`, `routers/admin.py`, & `templates/admin.j2.html`) (Issue #92)**:
+  - Exposed all 10 non-numerical hardcoded prompt templates and system directives across the application in `config.py` backed by `AgentPrompt` versioning and `kb-web.json` serialization:
+    - `wiki_prompt` (Wiki Extraction System Prompt)
+    - `youtube_wiki_prompt` (YouTube Wiki System Prompt)
+    - `tags_prompt` (AI Tag Curation System Prompt)
+    - `ontology_synthesis_prompt` (Domain Ontology Synthesis Prompt)
+    - `rag_system_prompt` (Agentic RAG System Instructions)
+    - `rag_report_prompt` (Research Report Compilation Prompt)
+    - `taxonomy_system_prompt` (Taxonomy Structuring Instructions)
+    - `maintenance_agent_prompt` (Maintenance & Error Diagnostic Prompt)
+    - `workspace_agent_prompt` (Workspace Coding Assistant Prompt)
+    - `article_chat_prompt` (Article Q&A System Prompt)
+  - Updated all consuming modules (`utils.py`, `maintenance_agent.py`, `rag_agent.py`, `workspace_agent.py`, `routers/conversations.py`, `taxonomy_state_machine.py`) to read instructions dynamically from `config`.
+  - Added REST API endpoints `GET /api/config/prompts` and `POST /api/config/prompts` supporting live prompt updates and reset-to-default operations.
+  - Refactored Admin Portal tab `tab-prompts` into a modern Prompt Studio:
+    - Categorized sidebar list for quick selection with search filtering and custom modification status indicators.
+    - Embedded Monaco Editor with Markdown syntax, dark mode support, and keyboard shortcuts (Ctrl+S / Cmd+S).
+    - Live Obsidian-style Markdown preview powered by `marked.js` updating in real time as the user types.
+    - Dynamic view mode controls (Split View, Editor Only, Preview Only).
+    - Revision history drawer with full rollback capabilities (`/admin/prompts/set-head`).
+- **Modular Server Jobs & Agents Framework (`src/kb_web/worker.py` & `routers/worker.py`)**:
+  - Replaced monolithic single-agent worker with decoupled, modular server jobs (`ServerJob` registry managed by `AutonomousWorker`).
+  - Independent job scheduling: Each job supports its own timespan interval (`interval_minutes`), enabled/disabled toggle state, and isolated execution lock (`asyncio.Lock`).
+  - Dedicated Ollama Model Assignment: Each job can be assigned its own LLM, embedding, or decision model (persisted in DB settings `SettingOllama`/`SettingExternal`).
+  - Built-in job suite: `wiki_curation` (AI wiki synthesis), `tag_curation` (topic taxonomy tags), `embedding_refresh` (Qdrant & SafeVector indexing), and extensible foundation stubs for `synthetic_qa`, `rag_eval`, and `link_crawler`.
+  - Added REST APIs: `GET /api/jobs`, `GET /api/jobs/{id}`, `POST /api/jobs/{id}/run`, `POST /api/jobs/{id}/config`, and admin routes `POST /admin/jobs/{id}/run` and `POST /admin/jobs/{id}/config`.
+  - Added comprehensive "Autonomous Server Worker & Jobs" UI grid in `admin.j2.html` featuring status badges, telemetry counters (processed items, total runs, cycle time), inline interval and model inputs, and interactive "Run Now" triggers.
+- **Git Repository Web Importer (`src/kb_web/repo_importer.py` & `templates/url_import.j2.html`)**:
+  - Ported shallow Git clone and repository analysis engine (`rpr` devtul) from PR #82 commit `98cc195`.
+  - Added `POST /api/import/repo` REST endpoint accepting repository URL, branch, max depth, file size limits, and target collection.
+  - Generates comprehensive markdown repository directory tree, ingests source files, and indexes into knowledge base under canonical `repo://` URI scheme.
+  - Added 3rd tab **"📦 Pull & Import Git Repo"** to the `/import` UI (`url_import.j2.html`) with interactive options for branch selection, collection assignment, file size caps, and tree depth.
+- **Strict Configuration Transparency & Admin Exposure (Rule 7 Compliance)**:
+  - Added Rule 7 to `GEMINI.md` and Rule 6 to `.agents/rules/development_rules.md` strictly prohibiting arbitrary hidden hardcoded limits.
+  - Lifted and exposed note taxonomy limit (previously capped at 100 notes in `taxonomy.py`) through configurable dynamic setting `taxonomy_batch_limit` (default: 500, configurable up to 5000).
+  - Exposed operational engine thresholds in `config.py` with DB backing: `rag_search_top_k`, `similarity_threshold`, `ollama_timeout`, `notifications_poll_interval_seconds`, `page_cards_per_page`, `crawler_default_max_pages`, and `repo_import_default_depth`.
+  - Added **"Engine Thresholds & Operational Limits"** configuration card to the General tab in the Admin portal (`admin.j2.html` and `routers/admin.py`).
+- **Workspace IDE Live Reactivity & Multi-Language Syntax Highlighting**:
+  - Added `GET /api/workspaces/{workspace_id}/files` endpoint returning the complete current workspace virtual filesystem.
+  - Implemented `refreshWorkspaceFilesFromServer()` and automatic background polling in `workspace_ide.j2.html` to reflect agent file creation/modification live without requiring page refreshes or re-entering the workspace.
+  - Added syntax highlighting and language inference in `workspaces.py` and `workspace_ide.j2.html` for PowerShell (`.ps1`, `.ps`, `.psm1`, `.psd1`) and Windows Batch (`.cmd`, `.bat`).
+
+### Fixed
+- **Notification Dropdown Display & Toast URLs (`base.j2.html` & `routers/api.py`)**:
+  - Fixed client-side parsing mismatch where `/api/notifications` returns `{ unread_count, notifications }` envelope but the UI expected a bare list, resolving the empty "No notifications yet" bug.
+  - Added URL-matching and parameter extraction in `get_notifications` to resolve target page URLs and ids.
+  - Updated notification links in the header dropdown and floating toast alerts to direct to `/view/page?url=...` for instant article viewing.
+  - Added full dark mode support (`bg-slate-800`, `border-slate-700`, `text-slate-200`) to the notification dropdown panel.
+- **Admin Model Selector & Dark Mode Polishing (`admin.j2.html`)**:
+  - Eliminated duplicate input and select boxes for Ollama models on the Prompts tab; replaced with unified text input backed by native `<datalist id="admin_model_options">` displaying loaded VRAM models.
+  - Fixed dark mode classes in Quick Diagnostics mini-card and prompt generation sections.
+- **Import Page Configuration Context (`base.py`, `routers/admin.py`, & `url_import.j2.html`)**:
+  - Bound `_jinja_env.globals["config"] = config` globally in `base.py` to prevent any template from failing with `UndefinedError` when accessing application configurations.
+  - Passed `config=config` explicitly in `get_import_url_page()` and `handle_incoming_mobile_share()` in `admin.py`.
+  - Added safe default fallback in `url_import.j2.html` line 277: `{{ (config.repo_import_default_depth if (config is defined and config) else 1) or 1 }}`.
+  - Added regression test `test_import_page_renders_with_config_context` in `tests/test_server.py`.
+
 ## [0.5.8] - 2026-10-12
 ### Added
 - **Dedicated Articles Directory (`/articles`)**:

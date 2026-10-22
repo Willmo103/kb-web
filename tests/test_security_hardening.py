@@ -165,8 +165,33 @@ def test_http_security_headers_present(unauth_client: TestClient, auth_client: T
         resp = client.get(route)
         assert resp.headers.get("X-Content-Type-Options") == "nosniff"
         assert resp.headers.get("X-Frame-Options") == "SAMEORIGIN"
-        assert resp.headers.get("X-XSS-Protection") == "1; mode=block"
         assert resp.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+        assert resp.headers.get("Permissions-Policy") == "geolocation=(), camera=(), microphone=()"
+        assert resp.headers.get("Strict-Transport-Security") == "max-age=31536000; includeSubDomains"
+        assert "X-XSS-Protection" not in resp.headers
+
+
+def test_ssrf_url_validation():
+    """Verifies that SSRF protection blocks loopback, private, and cloud metadata addresses (SEC-07)."""
+    import pytest
+    from kb_web.utils import validate_target_url
+
+    # Blocked hosts / IPs
+    for bad_url in [
+        "http://localhost:8080/secret",
+        "http://127.0.0.1/admin",
+        "http://[::1]/private",
+        "http://169.254.169.254/latest/meta-data",
+        "http://0.0.0.0/",
+        "http://metadata.google.internal/computeMetadata/v1",
+        "ftp://example.com/file.txt",
+    ]:
+        with pytest.raises(ValueError):
+            validate_target_url(bad_url, allow_internal=False)
+
+    # Allowed public URL
+    validate_target_url("https://example.com/article", allow_internal=False)
+
 
 
 def test_login_rate_limiting(unauth_client: TestClient):
@@ -190,6 +215,8 @@ def test_login_rate_limiting(unauth_client: TestClient):
     # Successful login resets the counter once window resets or lockout expires
     with _login_lock:
         _login_failed_attempts.pop(test_ip, None)
+        from kb_web.routers.auth import _global_failed_attempts
+        _global_failed_attempts.clear()
 
     login_resp = unauth_client.post(
         "/login",
@@ -198,6 +225,12 @@ def test_login_rate_limiting(unauth_client: TestClient):
     )
     assert login_resp.status_code == 303
     assert COOKIE_NAME in login_resp.cookies
+
+    # Clean up after test
+    with _login_lock:
+        _login_failed_attempts.pop(test_ip, None)
+        _global_failed_attempts.clear()
+
 
 
 def test_workspace_path_traversal_blocked(auth_client: TestClient):
@@ -239,3 +272,211 @@ def test_change_password_length_validation(auth_client: TestClient):
     )
     assert resp.status_code == 303
     assert "at+least+8+characters" in resp.headers["location"]
+
+
+def test_login_rate_limiting_trusted_proxy_and_spoofing_defense(unauth_client: TestClient, monkeypatch):
+    """Verifies that untrusted clients cannot bypass lockout by rotating X-Forwarded-For (SEC-01)."""
+    from kb_web.routers.auth import _login_lock, _login_failed_attempts, _get_client_ip
+    from starlette.requests import Request
+
+    # 1. Direct untrusted client cannot spoof IP via X-Forwarded-For
+    monkeypatch.setattr(server_config, "trusted_proxies", "10.0.0.1")
+
+    # Mock request where client host is NOT in trusted proxies
+    scope = {
+        "type": "http",
+        "client": ("198.51.100.25", 54321),
+        "headers": [(b"x-forwarded-for", b"203.0.113.199")],
+    }
+    req = Request(scope)
+    assert _get_client_ip(req) == "198.51.100.25"
+
+    # 2. When client IS trusted proxy, extract right-most untrusted hop
+    scope_trusted = {
+        "type": "http",
+        "client": ("10.0.0.1", 54321),
+        "headers": [(b"x-forwarded-for", b"203.0.113.50, 10.0.0.2")],
+    }
+    req_trusted = Request(scope_trusted)
+    # 10.0.0.2 is not in trusted_proxies (only 10.0.0.1 is), so it returns 10.0.0.2
+    assert _get_client_ip(req_trusted) == "10.0.0.2"
+
+
+def test_repo_import_url_validation():
+    """Verifies that dangerous repo URLs, argument injection, and local file paths are blocked (SEC-03)."""
+    import pytest
+    from kb_web.repo_importer import validate_repo_url
+
+    # Argument injection
+    with pytest.raises(ValueError, match="cannot begin with a dash"):
+        validate_repo_url("--upload-pack=touch /tmp/pwned")
+
+    # Local file protocol
+    with pytest.raises(ValueError, match="Local filesystem or file://"):
+        validate_repo_url("file:///etc/passwd")
+
+    with pytest.raises(ValueError, match="Local filesystem path"):
+        validate_repo_url("/home/user/repo")
+
+    # Dangerous protocols
+    with pytest.raises(ValueError, match="Unsupported repository URL protocol"):
+        validate_repo_url("ftp://example.com/repo.git")
+
+    # Valid URLs
+    assert validate_repo_url("https://github.com/Willmo103/kb-web.git") == "https://github.com/Willmo103/kb-web.git"
+    assert validate_repo_url("http://gitlab.com/group/project") == "http://gitlab.com/group/project"
+    assert validate_repo_url("git@github.com:Willmo103/kb-web.git") == "git@github.com:Willmo103/kb-web.git"
+
+
+def test_html_sanitizer_and_stored_xss_protection():
+    """Verifies that nh3 sanitizes malicious markdown/HTML outputs (SEC-02)."""
+    from kb_web.utils import sanitize_html
+
+    malicious_input = (
+        "<h1>Safe Heading</h1>"
+        "<script>alert('xss')</script>"
+        "<img src='x' onerror='alert(document.cookie)'>"
+        "<a href='javascript:alert(1)'>Click me</a>"
+        "<p>Safe paragraph with <a href='https://example.com'>link</a>.</p>"
+    )
+
+    clean_output = sanitize_html(malicious_input)
+
+    assert "<script>" not in clean_output
+    assert "alert(" not in clean_output
+    assert "onerror" not in clean_output
+    assert "javascript:" not in clean_output
+    assert "<h1>Safe Heading</h1>" in clean_output
+    assert "https://example.com" in clean_output
+
+
+def test_content_security_policy_header_present(unauth_client: TestClient):
+    """Verifies that Content-Security-Policy is injected onto responses (SEC-02)."""
+    resp = unauth_client.get("/login")
+    csp = resp.headers.get("Content-Security-Policy")
+    assert csp is not None
+    assert "default-src 'self'" in csp
+    assert "frame-ancestors 'self'" in csp
+
+
+def test_fail_closed_default_api_key(unauth_client: TestClient, monkeypatch):
+    """Verifies that kb-secret-key is rejected unless allow_insecure_defaults is set (SEC-04)."""
+    from kb_web.base import verify_api_key
+    from starlette.requests import Request
+    from fastapi import HTTPException
+    import pytest
+
+    monkeypatch.setattr(type(server_config), "api_key", property(lambda self: "kb-secret-key"))
+    monkeypatch.setattr(type(server_config), "allow_insecure_defaults", property(lambda self: False))
+
+    scope = {
+        "type": "http",
+        "headers": [(b"x-api-key", b"kb-secret-key")],
+    }
+    req = Request(scope)
+
+    with pytest.raises(HTTPException) as exc_info:
+        verify_api_key(req)
+    assert exc_info.value.status_code == 401
+    assert "disabled for security" in exc_info.value.detail
+
+
+def test_scrypt_password_hashing_and_verification():
+    """Verifies that scrypt password hashing and transparent verification work correctly (SEC-06)."""
+    from kb_web.config import hash_password, verify_password
+
+    pw = "SuperSecurePassword987!"
+    hashed = hash_password(pw)
+
+    assert hashed.startswith("scrypt$")
+    assert pw not in hashed
+
+    # Valid password against hash
+    is_valid, needs_mig = verify_password(pw, hashed)
+    assert is_valid is True
+    assert needs_mig is False
+
+    # Invalid password against hash
+    is_valid_wrong, _ = verify_password("WrongPassword!", hashed)
+    assert is_valid_wrong is False
+
+    # Plaintext backward compatibility
+    plain_stored = "legacy-plaintext-pass"
+    is_valid_plain, needs_mig_plain = verify_password(plain_stored, plain_stored)
+    assert is_valid_plain is True
+    assert needs_mig_plain is True
+
+
+def test_session_secret_independence(monkeypatch):
+    """Verifies that session secret is decoupled from admin password changes (SEC-05)."""
+    from kb_web.base import _get_session_secret, generate_session_token, verify_session_token
+    import time
+
+    # Initialize secret
+    secret_1 = _get_session_secret()
+    token = generate_session_token(time.time() + 3600)
+    assert verify_session_token(token) is True
+
+    # Change admin password
+    orig_pass = server_config.admin_password
+    try:
+        server_config.admin_password = "a-brand-new-different-password"
+        secret_2 = _get_session_secret()
+        # Session secret is stable and independent of password
+        assert secret_1 == secret_2
+        assert verify_session_token(token) is True
+    finally:
+        server_config.admin_password = orig_pass
+
+
+def test_config_save_redacts_credentials(tmp_path, monkeypatch):
+    """Verifies that saving config does not dump plaintext secrets (SEC-06)."""
+    monkeypatch.setattr(server_config, "configs_dir", tmp_path)
+    monkeypatch.setattr(server_config, "_admin_password", "super-secret-cleartext")
+    monkeypatch.setattr(server_config, "_admin_password_hash", None)
+    monkeypatch.setattr(server_config, "_api_key", "secret-api-key-12345")
+
+    server_config.save()
+
+    import json
+    saved_file = tmp_path / "kb-web.json"
+    assert saved_file.exists()
+    with open(saved_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    assert data.get("admin_password") == "[REDACTED]"
+    assert data.get("api_key") == "[REDACTED]"
+    assert "trusted_proxies" in data
+
+
+def test_non_ascii_credentials_handling(unauth_client: TestClient):
+    """Verifies that non-ASCII unicode passwords or API keys do not trigger HTTP 500 (BUG-01 / #98)."""
+    from kb_web.config import hash_password, verify_password
+    from kb_web.base import verify_session_token, safe_compare_digest
+
+    # 1. safe_compare_digest handles non-ASCII and None safely
+    assert safe_compare_digest("pásswørd🔑", "pásswørd🔑") is True
+    assert safe_compare_digest("pásswørd🔑", "other") is False
+    assert safe_compare_digest(None, "foo") is False
+    assert safe_compare_digest("foo", None) is False
+
+    # 2. verify_password handles non-ASCII
+    pw = "pásswørd_漢字_🔑"
+    h = hash_password(pw)
+    is_valid, _ = verify_password(pw, h)
+    assert is_valid is True
+
+    is_wrong, _ = verify_password("wroñg_🔑", h)
+    assert is_wrong is False
+
+    # 3. verify_session_token does not crash on non-ASCII token
+    assert verify_session_token("123456.sig_ñ_漢字") is False
+
+    # 4. Login with non-ASCII password returns 401, not 500
+    resp_login = unauth_client.post("/login", data={"password": "wroñg_pásswørd_漢字_🔑"})
+    assert resp_login.status_code == 401
+
+    # 5. API request with non-ASCII bytes in X-API-Key header returns 401, not 500
+    resp_api = unauth_client.get("/api/articles", headers={"X-API-Key": "këy_漢字_🔑".encode("utf-8")})
+    assert resp_api.status_code == 401
+

@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Code Audit — Findings & Proposed Issues</title>
+<meta name="description" content="Code audit findings and proposed GitHub issues for Willmo103/kb-web" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: hsl(232 32% 7%);
+    --bg2: hsl(232 28% 11%);
+    --glass: hsla(232, 40%, 18%, 0.45);
+    --glass-border: hsla(232, 60%, 80%, 0.10);
+    --text: hsl(228 30% 92%);
+    --muted: hsl(228 14% 64%);
+    --accent: hsl(258 90% 70%);
+    --accent2: hsl(190 90% 60%);
+    --crit: hsl(350 90% 62%);
+    --high: hsl(18 95% 60%);
+    --med: hsl(42 95% 58%);
+    --low: hsl(160 60% 52%);
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg);
+    min-height: 100vh; overflow-x: hidden;
+  }
+  body::before, body::after {
+    content: ""; position: fixed; z-index: -1; width: 60vmax; height: 60vmax; border-radius: 50%;
+    filter: blur(90px); opacity: .35; animation: drift 24s ease-in-out infinite alternate;
+  }
+  body::before { background: radial-gradient(circle, var(--accent), transparent 60%); top: -20vmax; left: -15vmax; }
+  body::after { background: radial-gradient(circle, var(--accent2), transparent 60%); bottom: -25vmax; right: -20vmax; animation-delay: -12s; }
+  @keyframes drift { to { transform: translate(8vmax, 6vmax) scale(1.15); } }
+
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 48px 24px 160px; }
+  header.hero { display: grid; grid-template-columns: 1.4fr 1fr; gap: 32px; align-items: center; margin-bottom: 36px; }
+  .eyebrow { font: 600 12px/1 "JetBrains Mono", monospace; letter-spacing: .18em; text-transform: uppercase; color: var(--accent2); }
+  h1 { font: 800 clamp(32px, 5vw, 54px)/1.05 Outfit, sans-serif; margin: 14px 0 16px;
+       background: linear-gradient(110deg, #fff 20%, var(--accent) 55%, var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { color: var(--muted); font-size: 15px; line-height: 1.65; max-width: 62ch; }
+  .glass { background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius);
+           backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); }
+  .stats { padding: 26px; display: grid; grid-template-columns: 150px 1fr; gap: 22px; align-items: center; }
+  .donut { width: 150px; height: 150px; border-radius: 50%; position: relative; transition: background .6s; }
+  .donut::after { content: ""; position: absolute; inset: 20px; border-radius: 50%; background: var(--bg2); }
+  .donut span { position: absolute; inset: 0; display: grid; place-items: center; z-index: 1; font: 800 34px Outfit; }
+  .donut small { display: block; font: 500 11px Inter; color: var(--muted); text-align: center; margin-top: -4px; }
+  .legend { display: grid; gap: 10px; }
+  .legend div { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .legend b { margin-left: auto; font-family: "JetBrains Mono"; }
+
+  .toolbar { position: sticky; top: 12px; z-index: 20; padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 26px; }
+  .chip { border: 1px solid var(--glass-border); background: hsla(232,40%,30%,.25); color: var(--text); padding: 8px 14px; border-radius: 999px;
+          font: 600 12px Inter; cursor: pointer; transition: all .2s; user-select: none; }
+  .chip:hover { transform: translateY(-1px); border-color: var(--accent); }
+  .chip.on { background: linear-gradient(120deg, var(--accent), hsl(258 70% 55%)); border-color: transparent; box-shadow: 0 6px 18px hsla(258,90%,60%,.35); }
+  .search { flex: 1; min-width: 200px; background: hsla(232,40%,10%,.6); border: 1px solid var(--glass-border); color: var(--text);
+            padding: 10px 14px; border-radius: 12px; font: 500 13px Inter; outline: none; }
+  .search:focus { border-color: var(--accent2); box-shadow: 0 0 0 3px hsla(190,90%,60%,.15); }
+  .sep { width: 1px; height: 24px; background: var(--glass-border); }
+
+  .grid { display: grid; gap: 16px; }
+  .card { padding: 20px 22px; transition: transform .25s, border-color .25s, opacity .25s; animation: rise .5s both; }
+  .card:hover { transform: translateY(-2px); border-color: hsla(258,90%,70%,.35); }
+  .card.off { opacity: .45; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+  .row { display: flex; gap: 16px; align-items: flex-start; }
+  .check { appearance: none; width: 24px; height: 24px; border-radius: 8px; border: 2px solid var(--glass-border); background: hsla(232,40%,10%,.6);
+           cursor: pointer; flex: none; margin-top: 2px; display: grid; place-items: center; transition: all .2s; }
+  .check:checked { background: linear-gradient(135deg, var(--accent), var(--accent2)); border-color: transparent; }
+  .check:checked::after { content: "✓"; color: #0b0b18; font-weight: 800; font-size: 14px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .id { font: 600 12px "JetBrains Mono"; color: var(--muted); }
+  .sev { font: 700 10px Inter; letter-spacing: .1em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; color: #10101c; }
+  .sev.Critical { background: var(--crit); } .sev.High { background: var(--high); } .sev.Medium { background: var(--med); } .sev.Low { background: var(--low); }
+  .cat, .lbl { font: 600 11px Inter; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--glass-border); color: var(--muted); }
+  .lbl { color: var(--accent2); }
+  .status { font: 600 11px Inter; padding: 3px 9px; border-radius: 999px; background: hsla(160,60%,50%,.15); color: var(--low); }
+  h3 { margin: 2px 0 8px; font: 600 18px/1.35 Outfit; }
+  .sum { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0 0 10px; }
+  .loc { font: 500 12px "JetBrains Mono"; color: hsl(258 80% 82%); }
+  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .btn { border: 1px solid var(--glass-border); background: hsla(232,40%,30%,.3); color: var(--text); padding: 8px 14px; border-radius: 10px;
+         font: 600 12px Inter; cursor: pointer; transition: all .2s; text-decoration: none; display: inline-flex; gap: 6px; align-items: center; }
+  .btn:hover { border-color: var(--accent2); transform: translateY(-1px); }
+  .btn.primary { background: linear-gradient(120deg, var(--accent), hsl(258 70% 55%)); border-color: transparent; box-shadow: 0 8px 22px hsla(258,90%,60%,.35); }
+  .btn.cyan { background: linear-gradient(120deg, hsl(190 90% 45%), hsl(210 90% 55%)); border-color: transparent; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--accent2); font: 600 12px Inter; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; display: inline-block; transition: transform .2s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  .body { margin-top: 10px; background: hsla(232,40%,6%,.75); border: 1px solid var(--glass-border); border-radius: 12px; padding: 16px;
+          font: 400 12.5px/1.65 "JetBrains Mono", monospace; white-space: pre-wrap; color: hsl(228 30% 86%); max-height: 460px; overflow: auto; }
+  textarea.note { width: 100%; margin-top: 10px; background: hsla(232,40%,8%,.6); border: 1px dashed var(--glass-border); border-radius: 10px;
+                  color: var(--text); font: 13px Inter; padding: 10px; resize: vertical; min-height: 40px; outline: none; }
+  textarea.note:focus { border-color: var(--accent); }
+
+  section.recs { margin-top: 44px; padding: 26px; }
+  section.recs h2 { font: 800 24px Outfit; margin: 0 0 14px; }
+  section.recs ol { color: var(--muted); line-height: 1.8; padding-left: 20px; }
+  section.recs b { color: var(--text); }
+
+  .dock { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30; padding: 14px 18px; display: flex; gap: 12px;
+          align-items: center; flex-wrap: wrap; justify-content: center; width: min(1100px, calc(100% - 24px)); box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .count { font: 800 22px Outfit; background: linear-gradient(120deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .toast { position: fixed; top: 22px; right: 22px; z-index: 50; padding: 14px 18px; border-radius: 12px; background: hsl(160 60% 30%); color: #fff;
+           font: 600 13px Inter; transform: translateY(-120%); transition: transform .35s cubic-bezier(.2,.9,.3,1.3); }
+  .toast.show { transform: none; }
+  dialog { border: none; padding: 0; background: transparent; color: var(--text); width: min(900px, 94vw); }
+  dialog::backdrop { background: rgba(5,5,15,.7); backdrop-filter: blur(4px); }
+  dialog .glass { padding: 22px; }
+  dialog pre { max-height: 60vh; overflow: auto; background: hsla(232,40%,5%,.9); padding: 16px; border-radius: 12px; font: 12px/1.6 "JetBrains Mono"; white-space: pre-wrap; }
+  @media (max-width: 860px) { header.hero { grid-template-columns: 1fr; } .stats { grid-template-columns: 1fr; justify-items: center; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div>
+      <div class="eyebrow">Willmo103/kb-web · Code Audit · 2026-10-18</div>
+      <h1>Code Audit — Findings & Proposed Issues</h1>
+      <p class="lede">A comprehensive review of Willmo103/kb-web. Each card contains the exact GitHub issue text ready to be posted. Select issues, add reviewer notes, and use the action dock to export or generate issues.</p>
+    </div>
+    <div class="glass stats" aria-label="Severity summary">
+      <div class="donut" id="donut"><span><div id="totalCount">0<small>findings</small></div></span></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </header>
+
+  <nav class="glass toolbar" aria-label="Filters">
+    <span class="chip on" data-sev="all" id="chip-sev-all">All</span>
+    <span class="chip" data-sev="Critical" id="chip-sev-crit">Critical</span>
+    <span class="chip" data-sev="High" id="chip-sev-high">High</span>
+    <span class="chip" data-sev="Medium" id="chip-sev-medium">Medium</span>
+    <span class="chip" data-sev="Low" id="chip-sev-low">Low</span>
+    <span class="sep"></span>
+    <span id="catChips"></span>
+    <input class="search" id="search" type="search" placeholder="Search titles, files, bodies…" aria-label="Search findings" />
+  </nav>
+
+  <main class="grid" id="list"></main>
+
+  <section class="glass recs" aria-labelledby="recs-title">
+    <h2 id="recs-title">Recommended Order of Work</h2>
+    <div id="recs-content">
+      <ol><li><b>High Priority / Security:</b> Address critical and high-severity items first.</li><li><b>Bugs & Correctness:</b> Fix functional defects and broken error flows.</li><li><b>Tooling & Guardrails:</b> Establish checks and tests to prevent regressions.</li><li><b>Hygiene & Performance:</b> Optimize resource usage, clean logs, and synchronize configuration.</li></ol>
+    </div>
+  </section>
+</div>
+
+<div class="glass dock" role="region" aria-label="Selection actions">
+  <span><span class="count" id="selCount">0</span> <span style="color:var(--muted);font-size:13px">selected</span></span>
+  <button class="btn" id="btn-select-all">Select all visible</button>
+  <button class="btn" id="btn-select-none">Clear</button>
+  <span class="sep"></span>
+  <button class="btn primary" id="btn-copy-agent" title="Copy a compact JSON payload to paste back into the agent chat">📋 Copy selection for agent</button>
+  <button class="btn cyan" id="btn-script" title="Preview and download a guarded PowerShell script that creates the selected issues with gh">⚡ gh script</button>
+  <button class="btn" id="btn-download-json">⬇ JSON</button>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<dialog id="scriptDialog">
+  <div class="glass">
+    <h3 style="margin-top:0">Guarded <code>gh</code> issue-creation script (PowerShell)</h3>
+    <p class="sum">Shows a dry-run listing first and asks for confirmation before any issue is created. Each body is passed with <code>--body-file</code> (avoiding shell-escaping problems), and each result is logged to <code>.artifacts/gh-actions.log</code>.</p>
+    <pre id="scriptPreview"></pre>
+    <div class="actions">
+      <button class="btn primary" id="btn-download-script">⬇ Download create_audit_issues.ps1</button>
+      <button class="btn" id="btn-copy-script">Copy</button>
+      <button class="btn" id="btn-close-dialog">Close</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ===================== ISSUE DATA ===================== -->
+<script>
+const REPO = "Willmo103/kb-web";
+const AUDIT_NAME = "Willmo103-kb-web-audit-2026-10-18";
+const ISSUES = [
+  {
+    "id": "RELIABILITY_BARE_EXCEPT",
+    "sev": "Low",
+    "cat": "Code Quality",
+    "labels": [
+      "enhancement"
+    ],
+    "loc": "src\\kb_web\\agent_memory.py:87, src\\kb_web\\base.py:558, src\\kb_web\\base.py:606, src\\kb_web\\config.py:56, src\\kb_web\\config.py:246 (+73 more)",
+    "title": "Reliability: Silent exception swallowing (except: pass) (78 occurrences)",
+    "sum": "Swallowing exceptions without logging obscures underlying errors and operational failures."
+  },
+  {
+    "id": "RELIABILITY_NAIVE_DATETIME",
+    "sev": "Low",
+    "cat": "Code Quality",
+    "labels": [
+      "enhancement"
+    ],
+    "loc": "src\\kb_web\\agent_memory.py:30, src\\kb_web\\agent_tools.py:32, src\\kb_web\\agent_tools.py:139, src\\kb_web\\base.py:79, src\\kb_web\\base.py:462 (+97 more)",
+    "title": "Code Quality: Naive local datetime instead of timezone-aware UTC (102 occurrences)",
+    "sum": "Use datetime.now(timezone.utc) to prevent timezone drift across client and server environments."
+  },
+  {
+    "id": "CODE_PRINT_STMT",
+    "sev": "Low",
+    "cat": "Code Quality",
+    "labels": [
+      "enhancement"
+    ],
+    "loc": "src\\kb_web\\base.py:167, src\\kb_web\\base.py:171, src\\kb_web\\base.py:474, src\\kb_web\\config.py:67, src\\kb_web\\config.py:70 (+154 more)",
+    "title": "Code Quality: Unstructured print() calls in server code (159 occurrences)",
+    "sum": "Replace standard print statements with structured logging for observability."
+  },
+  {
+    "id": "SEC_SQL_INJECTION",
+    "sev": "High",
+    "cat": "Security",
+    "labels": [
+      "security",
+      "bug"
+    ],
+    "loc": "src\\kb_web\\config.py:713, src\\kb_web\\models_orm.py:703, src\\kb_web\\models_orm.py:705, src\\kb_web\\routers\\admin.py:1315, src\\kb_web\\routers\\admin.py:1362 (+10 more)",
+    "title": "Security: Potential SQL injection via formatted f-string query (15 occurrences)",
+    "sum": "Raw queries should use parameterized binding rather than Python string formatting."
+  }
+];
+</script>
+
+<!-- Exact issue bodies (raw Markdown, posted verbatim) -->
+<script type="text/markdown" data-id="RELIABILITY_BARE_EXCEPT">
+## Summary
+Swallowing exceptions without logging obscures underlying errors and operational failures.
+
+**Occurrences (78 total):**
+
+- `src\kb_web\agent_memory.py:87`: `except Exception:`
+- `src\kb_web\base.py:558`: `except Exception:`
+- `src\kb_web\base.py:606`: `except Exception:`
+- `src\kb_web\config.py:56`: `except Exception:`
+- `src\kb_web\config.py:246`: `except Exception:`
+- `src\kb_web\config.py:264`: `except Exception:`
+- `src\kb_web\config.py:371`: `except Exception:`
+- `src\kb_web\config.py:623`: `except Exception:`
+- `src\kb_web\config.py:637`: `except Exception:`
+- `src\kb_web\db.py:24`: `except Exception:`
+- ... and 68 additional occurrences.
+</script>
+
+<script type="text/markdown" data-id="RELIABILITY_NAIVE_DATETIME">
+## Summary
+Use datetime.now(timezone.utc) to prevent timezone drift across client and server environments.
+
+**Occurrences (102 total):**
+
+- `src\kb_web\agent_memory.py:30`: `now_str = datetime.now().isoformat()`
+- `src\kb_web\agent_tools.py:32`: `now_str = datetime.now().isoformat()`
+- `src\kb_web\agent_tools.py:139`: `now_str = datetime.now().isoformat()`
+- `src\kb_web\base.py:79`: `timestamp=datetime.now().isoformat(),`
+- `src\kb_web\base.py:462`: `"timestamp": datetime.now().isoformat(),`
+- `src\kb_web\config.py:680`: `created_at=datetime.now().isoformat(),`
+- `src\kb_web\config.py:722`: `"created_at": datetime.now().isoformat(),`
+- `src\kb_web\crawler.py:376`: `created_at=datetime.now().isoformat(),`
+- `src\kb_web\crawler.py:431`: `added_at=datetime.now().isoformat(),`
+- `src\kb_web\db.py:54`: `created_at=datetime.now().isoformat(),`
+- ... and 92 additional occurrences.
+</script>
+
+<script type="text/markdown" data-id="CODE_PRINT_STMT">
+## Summary
+Replace standard print statements with structured logging for observability.
+
+**Occurrences (159 total):**
+
+- `src\kb_web\base.py:167`: `print(`
+- `src\kb_web\base.py:171`: `print(f"Warning: Initial database connection during engine startup deferred: {e}")`
+- `src\kb_web\base.py:474`: `print(f"Failed to log Ollama call to database: {err}")`
+- `src\kb_web\config.py:67`: `print(f"✅ Environment variables loaded from {ENV_FILE}")`
+- `src\kb_web\config.py:70`: `print(f"⚠️ Environment variables not loaded from {ENV_FILE}")`
+- `src\kb_web\config.py:294`: `print(f"Error reading DB setting from PostgreSQL: {e}")`
+- `src\kb_web\config.py:360`: `print(f"Error writing DB setting to PostgreSQL: {e}")`
+- `src\kb_web\config.py:686`: `print(f"Error setting {prompt_type} on PostgreSQL: {e}")`
+- `src\kb_web\config.py:727`: `print(f"Error setting {prompt_type}: {e}")`
+- `src\kb_web\config.py:1036`: `print(f"Saved configurations to {config_file}")`
+- ... and 149 additional occurrences.
+</script>
+
+<script type="text/markdown" data-id="SEC_SQL_INJECTION">
+## Summary
+Raw queries should use parameterized binding rather than Python string formatting.
+
+**Occurrences (15 total):**
+
+- `src\kb_web\config.py:713`: `db.execute(`
+- `src\kb_web\models_orm.py:703`: `tbl_cols = [row[1] for row in conn.execute(text(f"PRAGMA table_info({tbl});")).fetchall()]`
+- `src\kb_web\models_orm.py:705`: `conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN is_frozen INTEGER DEFAULT 0;"))`
+- `src\kb_web\routers\admin.py:1315`: `text(`
+- `src\kb_web\routers\admin.py:1362`: `await websocket.send_text(f"ERROR: {str(e)}")`
+- `src\kb_web\scripts\db_migrate_sqlite.py:211`: `target_session.execute(text(f"TRUNCATE TABLE {table_name} CASCADE;"))`
+- `src\kb_web\scripts\db_migrate_sqlite.py:279`: `seq_sql = text(`
+- `src\kb_web\scripts\db_migrate_sqlite.py:305`: `t_conn.execute(text(f"TRUNCATE TABLE {tbl_name} CASCADE;"))`
+- `src\kb_web\scripts\db_replication.py:49`: `text(f"CREATE PUBLICATION {publication_name} FOR ALL TABLES;")`
+- `src\kb_web\scripts\db_replication.py:110`: `text(f"SELECT 1 FROM pg_subscription WHERE subname = '{subscription_name}';")`
+- ... and 5 additional occurrences.
+</script>
+
+<script>
+(() => {
+  const $ = sel => document.querySelector(sel);
+  const bodies = {};
+  document.querySelectorAll('script[type="text/markdown"][data-id]').forEach(s => {
+    bodies[s.dataset.id] = s.textContent.trim();
+  });
+
+  const state = {
+    sev: "all",
+    cat: "all",
+    q: "",
+    sel: JSON.parse(localStorage.getItem(`audit_sel_${AUDIT_NAME}`) || "{}"),
+    notes: JSON.parse(localStorage.getItem(`audit_notes_${AUDIT_NAME}`) || "{}"),
+  };
+  // Default to selecting all issues if none stored
+  if (Object.keys(state.sel).length === 0) {
+    ISSUES.forEach(i => state.sel[i.id] = true);
+  }
+
+  const persist = () => {
+    localStorage.setItem(`audit_sel_${AUDIT_NAME}`, JSON.stringify(state.sel));
+    localStorage.setItem(`audit_notes_${AUDIT_NAME}`, JSON.stringify(state.notes));
+  };
+
+  // Build Categories
+  const cats = [...new Set(ISSUES.map(i => i.cat))];
+  const catChips = $("#catChips");
+  cats.forEach(c => {
+    const span = document.createElement("span");
+    span.className = "chip";
+    span.dataset.cat = c;
+    span.textContent = c;
+    catChips.appendChild(span);
+  });
+
+  // Severity Stats & Donut
+  const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+  ISSUES.forEach(i => { if (counts[i.sev] !== undefined) counts[i.sev]++; });
+  const total = ISSUES.length;
+  $("#totalCount").innerHTML = `${total}<small>findings</small>`;
+
+  const cCrit = "var(--crit)", cHigh = "var(--high)", cMed = "var(--med)", cLow = "var(--low)";
+  let deg = 0;
+  const pCrit = (counts.Critical / (total || 1)) * 360;
+  const pHigh = (counts.High / (total || 1)) * 360;
+  const pMed = (counts.Medium / (total || 1)) * 360;
+  const pLow = (counts.Low / (total || 1)) * 360;
+  $("#donut").style.background = `conic-gradient(
+    ${cCrit} 0deg ${pCrit}deg,
+    ${cHigh} ${pCrit}deg ${pCrit + pHigh}deg,
+    ${cMed} ${pCrit + pHigh}deg ${pCrit + pHigh + pMed}deg,
+    ${cLow} ${pCrit + pHigh + pMed}deg 360deg
+  )`;
+
+  const legend = $("#legend");
+  legend.innerHTML = `
+    ${counts.Critical ? `<div><span class="dot" style="background:${cCrit}"></span><span>Critical</span><b>${counts.Critical}</b></div>` : ''}
+    <div><span class="dot" style="background:${cHigh}"></span><span>High</span><b>${counts.High}</b></div>
+    <div><span class="dot" style="background:${cMed}"></span><span>Medium</span><b>${counts.Medium}</b></div>
+    <div><span class="dot" style="background:${cLow}"></span><span>Low</span><b>${counts.Low}</b></div>
+  `;
+
+  // Render cards
+  const list = $("#list");
+  function visible(i) {
+    if (state.sev !== "all" && i.sev !== state.sev) return false;
+    if (state.cat !== "all" && i.cat !== state.cat) return false;
+    if (state.q) {
+      const hay = (i.id + " " + i.title + " " + i.sum + " " + (i.loc || "") + " " + (bodies[i.id] || "")).toLowerCase();
+      if (!hay.includes(state.q)) return false;
+    }
+    return true;
+  }
+
+  function render() {
+    list.innerHTML = "";
+    const items = ISSUES.filter(visible);
+    if (!items.length) {
+      list.innerHTML = '<div class="glass card" style="text-align:center;color:var(--muted);padding:36px">No findings match this filter.</div>';
+      updateCount();
+      return;
+    }
+    items.forEach(i => {
+      const isChecked = state.sel[i.id] !== false;
+      const card = document.createElement("article");
+      card.className = "glass card" + (isChecked ? "" : " off");
+      card.dataset.id = i.id;
+      card.innerHTML = `
+        <div class="row">
+          <input type="checkbox" class="check" data-id="${i.id}" ${isChecked ? "checked" : ""} aria-label="Select ${i.id}" />
+          <div style="flex:1;min-width:0">
+            <div class="meta">
+              <span class="id">${i.id}</span>
+              <span class="sev ${i.sev}">${i.sev}</span>
+              <span class="cat">${i.cat}</span>
+              ${(i.labels || []).map(l => `<span class="lbl">#${l}</span>`).join("")}
+              ${i.status ? `<span class="status">⚡ ${i.status}</span>` : ""}
+            </div>
+            <h3>${escapeHtml(i.title)}</h3>
+            <p class="sum">${escapeHtml(i.sum)}</p>
+            ${i.loc ? `<div class="loc">📍 ${escapeHtml(i.loc)}</div>` : ""}
+            <details>
+              <summary>View issue Markdown</summary>
+              <div class="body">${escapeHtml(bodies[i.id] || "")}</div>
+            </details>
+            <textarea class="note" data-id="${i.id}" placeholder="Reviewer note (stored locally, included when copying for agent)…">${escapeHtml(state.notes[i.id] || "")}</textarea>
+            <div class="actions">
+              <button class="btn" data-copy="${i.id}">📋 Copy issue markdown</button>
+            </div>
+          </div>
+        </div>
+      `;
+      list.appendChild(card);
+    });
+    updateCount();
+  }
+
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function selected() { return ISSUES.filter(i => state.sel[i.id] !== false); }
+  function updateCount() { $("#selCount").textContent = selected().length; }
+
+  function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2200); }
+  async function copy(text, msg) { await navigator.clipboard.writeText(text); toast(msg); }
+
+  function payload() {
+    return {
+      audit: AUDIT_NAME, repo: REPO,
+      approved: selected().map(i => ({ id: i.id, title: i.title, severity: i.sev, labels: i.labels, note: state.notes[i.id] || undefined })),
+      rejected: ISSUES.filter(i => !state.sel[i.id]).map(i => ({ id: i.id, note: state.notes[i.id] || undefined })),
+    };
+  }
+
+  function script() {
+    const sel = selected();
+    const lines = [
+      `# create_audit_issues.ps1 - generated by ${AUDIT_NAME}`,
+      "# Guarded: dry-run listing + explicit confirmation; bodies passed via --body-file; actions logged.",
+      "param([switch]$Yes)",
+      "$ErrorActionPreference = 'Stop'",
+      `$Repo = '${REPO}'`,
+      "$Log = Join-Path (Get-Location) '.artifacts/gh-actions.log'",
+      "New-Item -ItemType Directory -Force -Path (Split-Path $Log) | Out-Null",
+      "gh auth status 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'gh is not authenticated' }",
+      "$existing = gh issue list --repo $Repo --state all --limit 300 --json title --jq '.[].title'",
+      "$Issues = @(",
+    ];
+    sel.forEach(i => {
+      const rawBody = (bodies[i.id] || "") + `\n\n---\n_Audit ref: ${i.id} · severity ${i.sev} · ${AUDIT_NAME}_`;
+      const b64 = btoa(unescape(encodeURIComponent(rawBody)));
+      lines.push(`  @{ Id='${i.id}'; Title='${i.title.replace(/'/g, "''")}'; Labels='${(i.labels || []).filter(l => l !== "security").join(",")}'; Body='${b64}' }`);
+    });
+    lines.push(")",
+      "Write-Host \"Planned: $($Issues.Count) issue(s) -> $Repo\" -ForegroundColor Cyan",
+      "foreach ($i in $Issues) { $dup = $existing -contains $i.Title; Write-Host (\"  [{0}] {1}{2}\" -f $i.Id, $i.Title, $(if ($dup) { '  (SKIP: title exists)' } else { '' })) }",
+      "if (-not $Yes) { $ans = Read-Host 'Create these issues? Type YES to continue'; if ($ans -ne 'YES') { Write-Host 'Aborted.'; exit 1 } }",
+      "foreach ($i in $Issues) {",
+      "  if ($existing -contains $i.Title) { continue }",
+      "  $tmp = New-TemporaryFile",
+      "  [IO.File]::WriteAllText($tmp, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($i.Body)))",
+      "  $url = gh issue create --repo $Repo --title $i.Title --label $i.Labels --body-file $tmp",
+      "  $ok = $LASTEXITCODE -eq 0; Remove-Item $tmp",
+      "  $entry = [ordered]@{ ts=(Get-Date).ToString('o'); action='gh issue create'; repo=$Repo; ref=$i.Id; title=$i.Title; result=$(if ($ok) { 'ok' } else { 'error' }); url=\"$url\" }",
+      "  ($entry | ConvertTo-Json -Compress) | Add-Content -Path $Log -Encoding utf8",
+      "  Write-Host (\"{0} {1} -> {2}\" -f $(if ($ok) { 'OK ' } else { 'ERR' }), $i.Id, $url)",
+      "}");
+    return lines.join("\n");
+  }
+
+  const download = (name, text, type) => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); URL.revokeObjectURL(a.href); };
+
+  // Events
+  document.addEventListener("click", e => {
+    const t = e.target.closest("[data-sev],[data-cat],[data-copy]");
+    if (!t) return;
+    if (t.dataset.sev) { state.sev = t.dataset.sev; document.querySelectorAll("[data-sev]").forEach(c => c.classList.toggle("on", c === t)); render(); }
+    if (t.dataset.cat) { state.cat = t.dataset.cat; document.querySelectorAll("[data-cat]").forEach(c => c.classList.toggle("on", c === t)); render(); }
+    if (t.dataset.copy) { const i = ISSUES.find(x => x.id === t.dataset.copy); copy(`# ${i.title}\n\n${bodies[i.id]}`, `Copied ${i.id}`); }
+  });
+  document.addEventListener("change", e => {
+    if (e.target.matches(".check")) { state.sel[e.target.dataset.id] = e.target.checked; e.target.closest(".card").classList.toggle("off", !e.target.checked); persist(); updateCount(); }
+  });
+  document.addEventListener("input", e => {
+    if (e.target.matches("textarea.note")) { state.notes[e.target.dataset.id] = e.target.value; persist(); }
+    if (e.target.id === "search") { state.q = e.target.value.trim().toLowerCase(); render(); }
+  });
+  $("#btn-select-all").onclick = () => { ISSUES.filter(visible).forEach(i => state.sel[i.id] = true); persist(); render(); };
+  $("#btn-select-none").onclick = () => { ISSUES.filter(visible).forEach(i => state.sel[i.id] = false); persist(); render(); };
+  $("#btn-copy-agent").onclick = () => copy("AUDIT_SELECTION " + JSON.stringify(payload(), null, 1), `Copied ${selected().length} selections — paste into the agent chat`);
+  $("#btn-download-json").onclick = () => download("audit_selection.json", JSON.stringify(payload(), null, 2), "application/json");
+  $("#btn-script").onclick = () => { $("#scriptPreview").textContent = script(); $("#scriptDialog").showModal(); };
+  $("#btn-download-script").onclick = () => download("create_audit_issues.ps1", script(), "text/plain");
+  $("#btn-copy-script").onclick = () => copy(script(), "Script copied");
+  $("#btn-close-dialog").onclick = () => $("#scriptDialog").close();
+
+  render();
+})();
+</script>
+</body>
+</html>

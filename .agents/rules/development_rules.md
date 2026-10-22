@@ -23,3 +23,7 @@ All code written within `kb-web` MUST embody the overarching principles of the K
 ## 5. Design & Aesthetic Palette
 - All UI layouts (Jinja2 templates, PWA views, HTML forms) must adhere to the Solarized Light (`#fdf6e3`) and Retro Dark (`#002b36` / `#073642`) palettes.
 - Interface components must feature responsive flex/grid styling, crisp fonts, and retro orange (`#cb4b16`) and turquoise (`#2aa198`) accents.
+
+## 6. Strict Configuration Transparency & Admin Exposure
+- **RULE**: *"When a configuration value is needed it is added to the admin portal and docs for the agent and the user."*
+- Arbitrary hardcoded constants (such as batch limits, search top-k cutoffs, crawl limits, pagination counts, timeouts, or thresholds) are strictly forbidden. All operational limits must be exposed to the Admin Portal (`/admin`), loaded into `config.py` or persisted in `SettingOllama`/`SettingExternal`, and documented in repository docs.

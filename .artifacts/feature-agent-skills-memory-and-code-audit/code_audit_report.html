@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>kb-web Code Audit — Findings &amp; Proposed Issues</title>
+<meta name="description" content="Interactive code audit for kb-web: security, bugs, HTML defects, outdated features and performance findings, with ready-to-post GitHub issues." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: hsl(232 32% 7%);
+    --bg2: hsl(232 28% 11%);
+    --glass: hsla(232, 40%, 18%, 0.45);
+    --glass-border: hsla(232, 60%, 80%, 0.10);
+    --text: hsl(228 30% 92%);
+    --muted: hsl(228 14% 64%);
+    --accent: hsl(258 90% 70%);
+    --accent2: hsl(190 90% 60%);
+    --crit: hsl(350 90% 62%);
+    --high: hsl(18 95% 60%);
+    --med: hsl(42 95% 58%);
+    --low: hsl(160 60% 52%);
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg);
+    min-height: 100vh; overflow-x: hidden;
+  }
+  body::before, body::after {
+    content: ""; position: fixed; z-index: -1; width: 60vmax; height: 60vmax; border-radius: 50%;
+    filter: blur(90px); opacity: .35; animation: drift 24s ease-in-out infinite alternate;
+  }
+  body::before { background: radial-gradient(circle, var(--accent), transparent 60%); top: -20vmax; left: -15vmax; }
+  body::after { background: radial-gradient(circle, var(--accent2), transparent 60%); bottom: -25vmax; right: -20vmax; animation-delay: -12s; }
+  @keyframes drift { to { transform: translate(8vmax, 6vmax) scale(1.15); } }
+
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 48px 24px 160px; }
+  header.hero { display: grid; grid-template-columns: 1.4fr 1fr; gap: 32px; align-items: center; margin-bottom: 36px; }
+  .eyebrow { font: 600 12px/1 "JetBrains Mono", monospace; letter-spacing: .18em; text-transform: uppercase; color: var(--accent2); }
+  h1 { font: 800 clamp(34px, 5vw, 58px)/1.05 Outfit, sans-serif; margin: 14px 0 16px;
+       background: linear-gradient(110deg, #fff 20%, var(--accent) 55%, var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { color: var(--muted); font-size: 16px; line-height: 1.65; max-width: 62ch; }
+  .glass { background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius);
+           backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); }
+  .stats { padding: 26px; display: grid; grid-template-columns: 150px 1fr; gap: 22px; align-items: center; }
+  .donut { width: 150px; height: 150px; border-radius: 50%; position: relative; transition: background .6s; }
+  .donut::after { content: ""; position: absolute; inset: 20px; border-radius: 50%; background: var(--bg2); }
+  .donut span { position: absolute; inset: 0; display: grid; place-items: center; z-index: 1; font: 800 34px Outfit; }
+  .donut small { display: block; font: 500 11px Inter; color: var(--muted); text-align: center; margin-top: -4px; }
+  .legend { display: grid; gap: 10px; }
+  .legend div { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .legend b { margin-left: auto; font-family: "JetBrains Mono"; }
+
+  .toolbar { position: sticky; top: 12px; z-index: 20; padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 26px; }
+  .chip { border: 1px solid var(--glass-border); background: hsla(232,40%,30%,.25); color: var(--text); padding: 8px 14px; border-radius: 999px;
+          font: 600 12px Inter; cursor: pointer; transition: all .2s; user-select: none; }
+  .chip:hover { transform: translateY(-1px); border-color: var(--accent); }
+  .chip.on { background: linear-gradient(120deg, var(--accent), hsl(258 70% 55%)); border-color: transparent; box-shadow: 0 6px 18px hsla(258,90%,60%,.35); }
+  .search { flex: 1; min-width: 200px; background: hsla(232,40%,10%,.6); border: 1px solid var(--glass-border); color: var(--text);
+            padding: 10px 14px; border-radius: 12px; font: 500 13px Inter; outline: none; }
+  .search:focus { border-color: var(--accent2); box-shadow: 0 0 0 3px hsla(190,90%,60%,.15); }
+  .sep { width: 1px; height: 24px; background: var(--glass-border); }
+
+  .grid { display: grid; gap: 16px; }
+  .card { padding: 20px 22px; transition: transform .25s, border-color .25s, opacity .25s; animation: rise .5s both; }
+  .card:hover { transform: translateY(-2px); border-color: hsla(258,90%,70%,.35); }
+  .card.off { opacity: .45; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+  .row { display: flex; gap: 16px; align-items: flex-start; }
+  .check { appearance: none; width: 24px; height: 24px; border-radius: 8px; border: 2px solid var(--glass-border); background: hsla(232,40%,10%,.6);
+           cursor: pointer; flex: none; margin-top: 2px; display: grid; place-items: center; transition: all .2s; }
+  .check:checked { background: linear-gradient(135deg, var(--accent), var(--accent2)); border-color: transparent; }
+  .check:checked::after { content: "✓"; color: #0b0b18; font-weight: 800; font-size: 14px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .id { font: 600 12px "JetBrains Mono"; color: var(--muted); }
+  .sev { font: 700 10px Inter; letter-spacing: .1em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; color: #10101c; }
+  .sev.Critical { background: var(--crit); } .sev.High { background: var(--high); } .sev.Medium { background: var(--med); } .sev.Low { background: var(--low); }
+  .cat, .lbl { font: 600 11px Inter; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--glass-border); color: var(--muted); }
+  .lbl { color: var(--accent2); }
+  .status { font: 600 11px Inter; padding: 3px 9px; border-radius: 999px; background: hsla(160,60%,50%,.15); color: var(--low); }
+  h3 { margin: 2px 0 8px; font: 600 18px/1.35 Outfit; }
+  .sum { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0 0 10px; }
+  .loc { font: 500 12px "JetBrains Mono"; color: hsl(258 80% 82%); }
+  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .btn { border: 1px solid var(--glass-border); background: hsla(232,40%,30%,.3); color: var(--text); padding: 8px 14px; border-radius: 10px;
+         font: 600 12px Inter; cursor: pointer; transition: all .2s; text-decoration: none; display: inline-flex; gap: 6px; align-items: center; }
+  .btn:hover { border-color: var(--accent2); transform: translateY(-1px); }
+  .btn.primary { background: linear-gradient(120deg, var(--accent), hsl(258 70% 55%)); border-color: transparent; box-shadow: 0 8px 22px hsla(258,90%,60%,.35); }
+  .btn.cyan { background: linear-gradient(120deg, hsl(190 90% 45%), hsl(210 90% 55%)); border-color: transparent; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--accent2); font: 600 12px Inter; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; display: inline-block; transition: transform .2s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  .body { margin-top: 10px; background: hsla(232,40%,6%,.75); border: 1px solid var(--glass-border); border-radius: 12px; padding: 16px;
+          font: 400 12.5px/1.65 "JetBrains Mono", monospace; white-space: pre-wrap; color: hsl(228 30% 86%); max-height: 460px; overflow: auto; }
+  textarea.note { width: 100%; margin-top: 10px; background: hsla(232,40%,8%,.6); border: 1px dashed var(--glass-border); border-radius: 10px;
+                  color: var(--text); font: 13px Inter; padding: 10px; resize: vertical; min-height: 40px; outline: none; }
+  textarea.note:focus { border-color: var(--accent); }
+
+  section.recs { margin-top: 44px; padding: 26px; }
+  section.recs h2 { font: 800 26px Outfit; margin: 0 0 14px; }
+  section.recs ol { color: var(--muted); line-height: 1.8; padding-left: 20px; }
+  section.recs b { color: var(--text); }
+
+  .dock { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 30; padding: 14px 18px; display: flex; gap: 12px;
+          align-items: center; flex-wrap: wrap; justify-content: center; width: min(1100px, calc(100% - 24px)); box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .count { font: 800 22px Outfit; background: linear-gradient(120deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .toast { position: fixed; top: 22px; right: 22px; z-index: 50; padding: 14px 18px; border-radius: 12px; background: hsl(160 60% 30%); color: #fff;
+           font: 600 13px Inter; transform: translateY(-120%); transition: transform .35s cubic-bezier(.2,.9,.3,1.3); }
+  .toast.show { transform: none; }
+  dialog { border: none; padding: 0; background: transparent; color: var(--text); width: min(900px, 94vw); }
+  dialog::backdrop { background: rgba(5,5,15,.7); backdrop-filter: blur(4px); }
+  dialog .glass { padding: 22px; }
+  dialog pre { max-height: 60vh; overflow: auto; background: hsla(232,40%,5%,.9); padding: 16px; border-radius: 12px; font: 12px/1.6 "JetBrains Mono"; white-space: pre-wrap; }
+  @media (max-width: 860px) { header.hero { grid-template-columns: 1fr; } .stats { grid-template-columns: 1fr; justify-items: center; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div>
+      <div class="eyebrow">kb-web · Code Audit · 2026-10-17 · branch development@a382ec8</div>
+      <h1>Audit Findings &amp; Proposed Issues</h1>
+      <p class="lede">
+        A static and manual review of <code>src/kb_web</code> (routers, config, auth, ingestion, templates) and the agent tooling.
+        Each card contains the <b>exact GitHub issue text</b> that would be posted to <code>Willmo103/kb-web</code>.
+        Check or uncheck issues, add reviewer notes, then use the dock at the bottom to hand your selection back to the agent
+        or to create the issues yourself.
+      </p>
+    </div>
+    <div class="glass stats" aria-label="Severity summary">
+      <div class="donut" id="donut"><span><div id="totalCount">0<small>findings</small></div></span></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </header>
+
+  <nav class="glass toolbar" aria-label="Filters">
+    <span class="chip on" data-sev="all" id="chip-sev-all">All</span>
+    <span class="chip" data-sev="High" id="chip-sev-high">High</span>
+    <span class="chip" data-sev="Medium" id="chip-sev-medium">Medium</span>
+    <span class="chip" data-sev="Low" id="chip-sev-low">Low</span>
+    <span class="sep"></span>
+    <span id="catChips"></span>
+    <input class="search" id="search" type="search" placeholder="Search titles, files, bodies…" aria-label="Search findings" />
+  </nav>
+
+  <main class="grid" id="list"></main>
+
+  <section class="glass recs" aria-labelledby="recs-title">
+    <h2 id="recs-title">Recommended Order of Work</h2>
+    <ol>
+      <li><b>Security quick wins (1 sprint):</b> SEC-01 rate-limit spoofing, SEC-03 repo-import argument injection, SEC-02 HTML sanitization + CSP, SEC-04 fail-closed default credentials.</li>
+      <li><b>Credential hygiene:</b> SEC-05 random session secret + SEC-06 hashed password / no secrets in <code>kb-web.json</code>. Both change auth storage, so ship them together with a migration.</li>
+      <li><b>Correctness:</b> BUG-01 non-ASCII credential crash, BUG-03 MCP server on legacy SQLite, HTML-01 extra closing div on the article page.</li>
+      <li><b>Guardrails for future regressions:</b> TOOL-01 div-balance and pane-nesting checks in <code>verify_ui_templates.py</code>; this would have caught the admin-tab regression from #92.</li>
+      <li><b>Performance and hygiene:</b> PERF-01…03, QUAL-01…02, CFG-01…02, at your pace.</li>
+    </ol>
+  </section>
+</div>
+
+<div class="glass dock" role="region" aria-label="Selection actions">
+  <span><span class="count" id="selCount">0</span> <span style="color:var(--muted);font-size:13px">selected</span></span>
+  <button class="btn" id="btn-select-all">Select all visible</button>
+  <button class="btn" id="btn-select-none">Clear</button>
+  <span class="sep"></span>
+  <button class="btn primary" id="btn-copy-agent" title="Copy a compact JSON payload to paste back into the agent chat">📋 Copy selection for agent</button>
+  <button class="btn cyan" id="btn-script" title="Preview and download a guarded PowerShell script that creates the selected issues with gh">⚡ gh script</button>
+  <button class="btn" id="btn-download-json">⬇ JSON</button>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<dialog id="scriptDialog">
+  <div class="glass">
+    <h3 style="margin-top:0">Guarded <code>gh</code> issue-creation script (PowerShell)</h3>
+    <p class="sum">Shows a dry-run listing first and asks for confirmation before any issue is created. Each body is passed with <code>--body-file</code> (no shell-escaping problems), and each result is logged to <code>.artifacts/gh-actions.log</code>.</p>
+    <pre id="scriptPreview"></pre>
+    <div class="actions">
+      <button class="btn primary" id="btn-download-script">⬇ Download create_audit_issues.ps1</button>
+      <button class="btn" id="btn-copy-script">Copy</button>
+      <button class="btn" id="btn-close-dialog">Close</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ===================== ISSUE DATA ===================== -->
+<script>
+const REPO = "Willmo103/kb-web";
+const ISSUES = [
+  { id: "SEC-01", sev: "High", cat: "Security", labels: ["bug","security"], loc: "src/kb_web/routers/auth.py:31-36, 53-69",
+    title: "Security: Login brute-force lockout can be bypassed by spoofing X-Forwarded-For",
+    sum: "The rate limiter keys failed logins on the first X-Forwarded-For value, which the client controls. Rotating that header gives unlimited password guesses." },
+  { id: "SEC-02", sev: "High", cat: "Security", labels: ["bug","security"], loc: "src/kb_web/routers/pages.py:430-434 · templates/view_page.j2.html:271,318",
+    title: "Security: Stored XSS — ingested page/wiki Markdown rendered with |safe and no HTML sanitization",
+    sum: "Python-Markdown passes raw HTML through. Scraped web content and LLM output are rendered with |safe, and there is no Content-Security-Policy." },
+  { id: "SEC-03", sev: "High", cat: "Security", labels: ["bug","security"], loc: "src/kb_web/repo_importer.py:101-129, 431-441",
+    title: "Security: Git repository import passes an unvalidated URL to `git clone` (argument injection / local clone, shell=True on Windows)",
+    sum: "repo_url goes to git without a scheme allowlist or `--` separator. A value like `--upload-pack=…` or `file:///srv/...` is accepted, and on Windows the list is run with shell=True." },
+  { id: "SEC-04", sev: "High", cat: "Security", labels: ["security","enhancement"], loc: "src/kb_web/config.py:143-144 · base.py:543,586",
+    title: "Security: Publicly known default credentials (`admin123` / `kb-secret-key`) are accepted as valid authentication",
+    sum: "If KB_PASSWORD / KB_API_KEY are unset, the app accepts defaults that are published in this public repo. Today it only shows a warning banner." },
+  { id: "SEC-05", sev: "Medium", cat: "Security", labels: ["security"], loc: "src/kb_web/base.py:484-496",
+    title: "Security: Session-signing key derived from the admin password via unsalted SHA-256",
+    sum: "Anyone who knows (or guesses) the password can forge cookies, and a captured cookie allows offline password brute-forcing. Use a random, persisted server secret." },
+  { id: "SEC-06", sev: "Medium", cat: "Security", labels: ["security"], loc: "src/kb_web/config.py:417-436, 860-899",
+    title: "Security: Admin password and API key stored in plaintext (DB + kb-web.json export)",
+    sum: "settings_external stores the password as clear text and config.save() writes both secrets into kb-web.json." },
+  { id: "SEC-07", sev: "Medium", cat: "Security", labels: ["security"], loc: "src/kb_web/utils.py (fetch) · routers/pages.py:470-530 (crawler)",
+    title: "Security: SSRF — URL ingestion and crawler can fetch internal/private network addresses",
+    sum: "No guard against loopback, link-local (169.254.169.254) or RFC1918 targets. The server will fetch and store internal pages." },
+  { id: "SEC-08", sev: "Low", cat: "Security", labels: ["security","enhancement"], loc: "src/kb_web/server.py:124-129 · templates/*.html",
+    title: "Hardening: Add CSP/HSTS, drop deprecated X-XSS-Protection, add SRI to CDN scripts, replace Tailwind Play CDN",
+    sum: "Security headers are minimal. 14 CDN script tags have no integrity attribute, and workspace_ide loads the Tailwind Play CDN, which is not meant for production." },
+  { id: "BUG-01", sev: "Medium", cat: "Bug", labels: ["bug"], loc: "routers/auth.py:72,140 · base.py:543,586",
+    title: "Bug: Non-ASCII password or API key causes HTTP 500 (hmac.compare_digest TypeError)",
+    sum: "hmac.compare_digest only accepts ASCII-only str. A non-ASCII login password or header value raises TypeError instead of returning 401." },
+  { id: "BUG-02", sev: "High", cat: "Bug", labels: ["bug"], loc: "src/kb_web/utils.py:1324-1347", status: "Fix in progress (fix/youtube-download-audio)",
+    title: "Bug: YouTube offline downloads are saved without audio",
+    sum: "The format selector `mp4/best` falls back to a video-only stream when YouTube serves no muxed MP4, and there is no merge step with ffmpeg." },
+  { id: "BUG-03", sev: "Medium", cat: "Outdated", labels: ["bug"], loc: "src/kb_web/mcp_server.py:7-19 · config.py:172-176",
+    title: "Outdated: MCP server still reads the legacy SQLite database instead of PostgreSQL",
+    sum: "kb-web-mcp tools use sqlite_utils via config.get_db(), so MCP clients see stale or empty data on PostgreSQL deployments." },
+  { id: "HTML-01", sev: "Medium", cat: "HTML", labels: ["bug"], loc: "src/kb_web/templates/view_page.j2.html:439-443",
+    title: "HTML: Extra closing </div> on the article view page closes the base layout wrapper early",
+    sum: "Outside of script blocks the template has 61 opening and 62 closing div tags. The extra close at line 443 pushes the modals outside the layout container." },
+  { id: "TOOL-01", sev: "Medium", cat: "Tooling", labels: ["enhancement"], loc: ".agents/skills/ui-component-uat-check/scripts/verify_ui_templates.py",
+    title: "Tooling: verify_ui_templates.py should detect div imbalance and nested tab panes",
+    sum: "The #92 admin regression (all tabs blank) passed with \"0 warnings\". Add structural checks so this class of bug fails pre-commit." },
+  { id: "PERF-01", sev: "Medium", cat: "Performance", labels: ["enhancement"], loc: "src/kb_web/routers/admin.py:80-140",
+    title: "Performance: Bulk maintenance jobs load the full fetched_pages table and hold one transaction across all LLM calls",
+    sum: "`session.query(FetchedPage).all()` loads every heavy row, then makes 2 N+1 embedding lookups per row. Nothing is committed until the end, so a crash loses all progress." },
+  { id: "PERF-02", sev: "Low", cat: "Performance", labels: ["enhancement"], loc: "src/kb_web/agent_memory.py:104-112",
+    title: "Performance: Agent board stats scan every AgentMessage row to compute distinct values",
+    sum: "Use SELECT DISTINCT for channels, agents and types instead of loading the whole table." },
+  { id: "PERF-03", sev: "Low", cat: "Performance", labels: ["enhancement"], loc: "src/kb_web/routers/pages.py:495-517",
+    title: "Performance: Crawler BFS uses list.pop(0) and opens a DB session per URL",
+    sum: "Use collections.deque and a batched existence check. Minor, but it grows with crawl size." },
+  { id: "QUAL-01", sev: "Low", cat: "Code Quality", labels: ["enhancement"], loc: "159 print() calls · 76 silent except blocks",
+    title: "Code quality: Replace print() with logging and remove silent `except Exception: pass` blocks",
+    sum: "Silent excepts hide real failures. For example, a DB outage during CLI-key lookup looks like a plain 401. Prints bypass log levels and show garbled emoji in Windows consoles." },
+  { id: "QUAL-02", sev: "Low", cat: "Code Quality", labels: ["enhancement"], loc: "102 × datetime.now().isoformat()",
+    title: "Code quality: Store timezone-aware UTC timestamps instead of naive local time",
+    sum: "Naive local timestamps are ambiguous across server, CLI clients and DST changes, and job scheduling compares them directly." },
+  { id: "CFG-01", sev: "Low", cat: "Config", labels: ["documentation"], loc: "pyproject.toml",
+    title: "Config: pyproject version (0.2.0) and description are out of sync with CHANGELOG (0.5.9)",
+    sum: "Package metadata still uses the template description, and the version does not match release history." },
+  { id: "CFG-02", sev: "Low", cat: "Config", labels: ["enhancement"], loc: "repo-wide (ruff)",
+    title: "Config: Establish a ruff baseline — 1,471 existing lint errors make the pre-commit lint step meaningless",
+    sum: "836 errors can be fixed automatically. Add a [tool.ruff] config and fix in stages, so new violations are actually caught." },
+];
+</script>
+
+<!-- Exact issue bodies (raw Markdown, posted verbatim) -->
+<script type="text/markdown" data-id="SEC-01">## Summary
+The login brute-force limiter can be bypassed. `_get_client_ip()` trusts the **first** value of the `X-Forwarded-For` header, which the client sets freely, and uses it as the rate-limit key.
+
+## Location
+- `src/kb_web/routers/auth.py:31-36` (`_get_client_ip`)
+- `src/kb_web/routers/auth.py:53-69` (lockout check)
+
+## Impact
+An attacker who sends a random `X-Forwarded-For: <random-ip>` with each attempt never hits `MAX_FAILED_ATTEMPTS`, so they get unlimited password guesses against `/login`. This matters more because of the default password (see related default-credentials issue).
+
+The reverse also happens: without XFF (direct hits), every user behind the same proxy shares one bucket.
+
+## Evidence
+```python
+forwarded = request.headers.get("X-Forwarded-For")
+if forwarded:
+    return forwarded.split(",")[0].strip()
+```
+
+## Recommendation
+- Trust forwarding headers only when the direct peer (`request.client.host`) is a configured trusted proxy (`trusted_proxies` setting, exposed in Admin per Rule 7).
+- When trusted, take the **right-most** untrusted hop, not the left-most.
+- Alternatively, run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy>` and use `request.client.host` only.
+- Add a global failed-login ceiling as defense in depth.
+
+## Acceptance Criteria
+- [ ] Rotating `X-Forwarded-For` does not reset the lockout counter.
+- [ ] Trusted proxy list is configurable from `/admin`.
+- [ ] Unit test covering spoofed-header bypass.
+</script>
+
+<script type="text/markdown" data-id="SEC-02">## Summary
+Article wiki and Markdown content is turned into HTML with `markdown.markdown()` and rendered with `{{ ... | safe }}`. Python-Markdown passes raw inline HTML through **unchanged**. The content comes from scraped third-party web pages and from LLM output, so a malicious page can store script that runs on the authenticated admin's origin.
+
+## Location
+- `src/kb_web/routers/pages.py:430-434` (`markdown.markdown(...)`)
+- `src/kb_web/templates/view_page.j2.html:271` (`rendered_wiki_html | safe`)
+- `src/kb_web/templates/view_page.j2.html:318` (`rendered_md_html | safe`)
+- `src/kb_web/server.py:124-129`: no `Content-Security-Policy` header
+
+## Impact
+Stored XSS on the main origin. The session cookie is `HttpOnly`, but injected script can still call any authenticated endpoint (delete content, change settings, create API keys, trigger repo imports) as the logged-in admin.
+
+## Reproduction
+1. Ingest a page whose body contains `<img src=x onerror="fetch('/api/...')">`, or have the LLM wiki echo it.
+2. Open `/view/page?url=...`; the handler runs.
+
+## Recommendation
+- Sanitize rendered HTML with an allowlist sanitizer (`nh3` is fast and Rust-backed) before marking it safe.
+- Add a CSP (start with `default-src 'self'` plus the CDN hosts in use; move inline handlers over time).
+- Apply the same sanitizer anywhere else Markdown or HTML from external sources is rendered (notes, collections, RAG reports).
+
+## Acceptance Criteria
+- [ ] `<script>`, `on*=` attributes and `javascript:` URLs are stripped from rendered article HTML.
+- [ ] CSP header present on HTML responses.
+- [ ] Regression test with a malicious fixture page.
+</script>
+
+<script type="text/markdown" data-id="SEC-03">## Summary
+`import_git_repository()` passes the user-supplied `repo_url` straight to `git clone`. There is no scheme allowlist and no `--` end-of-options separator. `normalize_repo_url()` only derives a title and accepts any string.
+
+## Location
+- `src/kb_web/repo_importer.py:101-129` (`normalize_repo_url`: no validation)
+- `src/kb_web/repo_importer.py:432-439`:
+```python
+shell = os.name == "nt"
+clone_cmd = ["git", "clone", "--depth", str(depth), repo_url, str(clone_path)]
+res = subprocess.run(clone_cmd, capture_output=True, text=True, shell=shell)
+```
+
+## Impact
+- **Argument injection:** a URL beginning with `-` (e.g. `--upload-pack=<cmd>`) is parsed by git as an option. This is a known path to command execution.
+- **Local file disclosure:** `file:///srv/...` or a plain local path clones repositories on the server's own disk into the knowledge base.
+- **Windows:** `shell=True` with a list puts the URL on a `cmd.exe` command line, so `&` / `|` metacharacters are interpreted.
+
+The endpoint requires authentication, but combined with the XSS and default-credential findings this is a realistic escalation path.
+
+## Recommendation
+- Accept only `https://` (and optionally `ssh://` / `git@host:`) URLs matching a strict regex; reject leading `-`.
+- Build the command as `["git", "-c", "protocol.file.allow=never", "clone", "--depth", N, "--", repo_url, dest]`.
+- Remove `shell=True` (on Windows, resolve `git.exe` with `shutil.which`).
+- Add a configurable host allowlist (default: github.com, gitlab.com), exposed in `/admin` per Rule 7.
+
+## Acceptance Criteria
+- [ ] `--upload-pack=...`, `file://`, local paths and `ext::` URLs are rejected with HTTP 400.
+- [ ] No `shell=True` in `repo_importer.py`.
+- [ ] Unit tests for each rejected pattern.
+</script>
+
+<script type="text/markdown" data-id="SEC-04">## Summary
+`Config.__init__` falls back to `KB_PASSWORD=admin123` and `KB_API_KEY=kb-secret-key`. Both values are published in this public repository and in the admin template, and both are **accepted as valid credentials**. The admin dashboard shows a warning banner, but authentication still succeeds.
+
+## Location
+- `src/kb_web/config.py:143-144`
+- `src/kb_web/base.py:543, 586` (API key acceptance)
+
+## Impact
+Any internet-exposed instance that skipped env setup is fully open: the API key alone grants write access to the REST API and extension endpoints.
+
+## Recommendation
+- **Fail closed:** if the API key equals the known default, treat API-key auth as disabled (only session login works) until it is changed.
+- On first boot with no password configured, generate a random password, print it once to the service log, and require changing it on first login.
+- Optional: a `KB_ALLOW_INSECURE_DEFAULTS=1` escape hatch for local dev and test environments.
+
+## Acceptance Criteria
+- [ ] `X-API-Key: kb-secret-key` is rejected unless the insecure-defaults flag is set.
+- [ ] Fresh install never runs with a guessable password.
+- [ ] README documents the first-boot flow.
+</script>
+
+<script type="text/markdown" data-id="SEC-05">## Summary
+`_get_session_secret()` returns `sha256(admin_password)`, and that value is the HMAC key for session cookies.
+
+## Location
+- `src/kb_web/base.py:484-496`
+
+## Impact
+- Anyone who knows the password (including the default) can mint cookies with any expiry, even after logging out. There is no server-side revocation.
+- A single captured cookie (`<expiry>.<hmac>`) lets an attacker brute-force the admin password offline at GPU speed, because the key is just an unsalted SHA-256 of the password.
+
+## Recommendation
+- Generate a 32-byte random `session_secret` on first boot, persist it in `settings_external` (never in `kb-web.json`), and use it as the HMAC key.
+- Rotate the secret on password change (keeps the current "change password logs everyone out" behavior).
+- Optionally include a session id in the payload for server-side revocation.
+
+## Acceptance Criteria
+- [ ] Session secret is random and independent of the password.
+- [ ] Password change still invalidates existing sessions.
+- [ ] Tests updated (`generate_session_token` fixtures).
+</script>
+
+<script type="text/markdown" data-id="SEC-06">## Summary
+The admin password is stored and compared as plaintext in `settings_external`. `Config.save()` also writes `admin_password` and `api_key` into `kb-web.json`, where they can end up in backups, snapshots or support bundles.
+
+## Location
+- `src/kb_web/config.py:417-436` (getter/setter)
+- `src/kb_web/config.py:860-899` (`save()` serializes `admin_password`, `api_key`)
+
+## Recommendation
+- Store a password hash (`hashlib.scrypt` from the stdlib, or argon2) and verify against it. Migrate existing plaintext on first successful login.
+- Exclude secrets from `kb-web.json`, or write `"***"` placeholders.
+- Check that DB snapshot exports (`/admin` backups) skip or redact `settings_external` secret keys.
+
+## Acceptance Criteria
+- [ ] No plaintext password in DB or JSON after migration.
+- [ ] Backups and snapshots redact secrets.
+- [ ] Login and change-password tests pass.
+</script>
+
+<script type="text/markdown" data-id="SEC-07">## Summary
+URL ingestion (`/import/url`, browser extension, PWA share target) and the recursive crawler fetch any URL. A repo-wide search for `ipaddress`, `is_private`, `169.254` found no guard against internal targets.
+
+## Location
+- `src/kb_web/utils.py` (page fetch / `ingest_url_sync`)
+- `src/kb_web/routers/pages.py:470-530` (crawler loop)
+
+## Impact
+An authenticated user, or injected script (see the XSS issue), can make the server fetch `http://169.254.169.254/` (cloud metadata), `http://localhost:11434` (Ollama), the Qdrant admin API, or router admin pages, then **store the response** in the knowledge base where it can be read back.
+
+## Recommendation
+- Resolve the hostname and reject loopback, link-local, private, multicast and reserved ranges (`ipaddress.ip_address(...).is_global`).
+- Re-validate after redirects, or disable redirects and follow them manually.
+- Add an admin setting `allow_private_network_fetch` (default off) for intentional homelab use (Rule 7).
+
+## Acceptance Criteria
+- [ ] Fetching `http://127.0.0.1`, `http://169.254.169.254`, `http://10.0.0.1` fails with a clear error unless allowed.
+- [ ] Redirect to a private IP is blocked.
+- [ ] Unit tests with mocked DNS.
+</script>
+
+<script type="text/markdown" data-id="SEC-08">## Summary
+Hardening gaps in HTTP headers and third-party scripts.
+
+## Findings
+- `server.py:124-129` sets `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and the **deprecated** `X-XSS-Protection: 1; mode=block`. There is no `Content-Security-Policy` and no `Strict-Transport-Security`.
+- 14 `<script src="https://...">` tags across `admin`, `collection_editor`, `note_editor`, `rag_report`, `similarity_graph`, `taxonomy`, `view_page` and `workspace_ide` have no `integrity=` / `crossorigin=` (unpinned `marked` from jsDelivr, Monaco from cdnjs, unpkg).
+- `workspace_ide.j2.html` loads `cdn.tailwindcss.com` (Play CDN), which Tailwind documents as not for production.
+- 15 `target="_blank"` links have no `rel="noopener noreferrer"`.
+
+## Recommendation
+- Remove `X-XSS-Protection` (or set it to `0`); add CSP and HSTS (HSTS only when served over HTTPS).
+- Pin CDN versions (e.g. `marked@12.0.2`) and add SRI hashes, or vendor the files into `/static`.
+- Replace the Tailwind Play CDN with the prebuilt CSS used elsewhere.
+- Add `rel="noopener noreferrer"` to external links.
+
+## Acceptance Criteria
+- [ ] All CDN scripts are pinned and use SRI, or are self-hosted.
+- [ ] Security headers verified by a test.
+</script>
+
+<script type="text/markdown" data-id="BUG-01">## Summary
+`hmac.compare_digest(a, b)` raises `TypeError` when given `str` arguments with non-ASCII characters. The login handler, change-password handler and API-key guards pass raw `str` values, so a non-ASCII password or `X-API-Key` header returns **HTTP 500** instead of a failed login or 401.
+
+## Location
+- `src/kb_web/routers/auth.py:72` (login)
+- `src/kb_web/routers/auth.py:140` (change password)
+- `src/kb_web/base.py:543, 586` (API key)
+
+## Reproduction
+```bash
+curl -X POST https://<host>/login -d 'password=pässwörd'
+# -> 500 Internal Server Error (TypeError: comparing strings with non-ASCII characters is not supported)
+```
+
+## Recommendation
+Compare bytes: `hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))`, via a small helper `_safe_equals(a, b)` in `base.py`. This also lets users set non-ASCII passwords safely.
+
+## Acceptance Criteria
+- [ ] Non-ASCII password and API key inputs return 401 or the login error, never 500.
+- [ ] Unit tests for both paths.
+</script>
+
+<script type="text/markdown" data-id="BUG-02">## Summary
+Videos downloaded with **Download Video Offline** play without sound. Older downloads have audio.
+
+## Root Cause
+`download_youtube_video()` uses `"format": "mp4/best"`:
+- `mp4` selects the best **pre-muxed** MP4 (historically format 18, 360p with audio).
+- YouTube increasingly serves no pre-muxed MP4. In that case `best` hits yt-dlp's fallback and picks the best *video-only* stream.
+- No `merge_output_format` / ffmpeg merge is configured, so the audio stream is never downloaded.
+- The function also renames non-`.mp4` files to `.mp4` without remuxing, so a `.webm` file can be served with the wrong container.
+
+## Location
+- `src/kb_web/utils.py:1324-1347`
+
+## Fix
+- Format: `bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b`, `merge_output_format: "mp4"` (ffmpeg is already a dependency).
+- Use the final file path from yt-dlp (`requested_downloads[0]["filepath"]`) instead of scanning the folder and renaming.
+- Expose the format string as an admin setting (`youtube_download_format`) per Rule 7.
+- Unit test asserting the yt-dlp options request audio and merge to MP4.
+</script>
+
+<script type="text/markdown" data-id="BUG-03">## Summary
+`kb-web-mcp.service` (`src/kb_web/mcp_server.py`) still uses `sqlite_utils` through `config.get_db()`. The application has moved to PostgreSQL via SQLAlchemy (`vw_page_cards`, `db_session()`), and SQLite is being phased out.
+
+## Location
+- `src/kb_web/mcp_server.py:7, 17-19, 82` (`sqlite_utils`, `NotFoundError`)
+- `src/kb_web/config.py:172-176` (`get_db` returns a SQLite handle)
+- `src/kb_web/base.py:100-110` (`_get_db` SQLite connection)
+
+## Impact
+On PostgreSQL deployments, MCP tools (`list_articles`, search, etc.) read a stale or empty local SQLite file, so external agents get wrong answers with no error.
+
+## Recommendation
+- Port MCP tools to `db_session()` and the ORM models, reusing the REST API query helpers (`/api/articles`, `/api/videos`, ...).
+- Remove the `sqlite_utils` paths once nothing else imports them, and drop the dependency.
+- Add an MCP smoke test against the test DB.
+
+## Acceptance Criteria
+- [ ] `mcp_server.py` has no `sqlite_utils` import.
+- [ ] MCP `list_articles` returns the same set as `GET /api/articles`.
+</script>
+
+<script type="text/markdown" data-id="HTML-01">## Summary
+Outside of `<script>` blocks, `view_page.j2.html` contains 61 opening and 62 closing `<div>` tags. Walking the depth shows it going negative at **line 443**: the stray `</div>` after `</aside></div>` closes a wrapper owned by `base.j2.html`. The ingest and crawl modals and the footer content are then parsed outside the intended layout container.
+
+## Location
+- `src/kb_web/templates/view_page.j2.html:439-443`
+```html
+            </div>
+        </aside>
+    </div>
+</div>   <!-- extra -->
+```
+
+## Recommendation
+- Confirm in DevTools (Elements panel: find where the main container closes), then remove the extra close or add the missing opening tag.
+- Covered by tooling issue TOOL-01 so this cannot regress.
+
+## Acceptance Criteria
+- [ ] Balanced div count in `view_page.j2.html`.
+- [ ] Article page layout and modals unchanged visually in UAT.
+</script>
+
+<script type="text/markdown" data-id="TOOL-01">## Summary
+Issue #92 (Prompt Studio) dropped four closing `</div>` tags in `admin.j2.html`. That nested every admin tab inside `#tab-general`, so all tabs except General rendered blank. `verify_ui_templates.py` still reported **0 warnings**, because it only checks Jinja block structure.
+
+## Proposal
+Add structural checks to `.agents/skills/ui-component-uat-check/scripts/verify_ui_templates.py`:
+1. **Div balance** per template (ignoring `<script>`/`<style>` and comments). Treat a `{% if %}…{% else %}` pair as alternatives, e.g. by rendering both branches with a stub context or counting only the larger branch.
+2. **Pane nesting**: elements with classes like `admin-tab-pane` / `tab-pane` must not contain one another.
+3. **Undefined JS helpers**: warn when a template calls `escapeHtml(` (or other known local helpers) without defining it and the base layout does not provide it.
+4. Exit non-zero on errors so `build.py` fails.
+
+## Acceptance Criteria
+- [ ] Running against commit `311f01c` (the #92 regression) reports the nesting error.
+- [ ] Current templates pass (after HTML-01 is fixed).
+- [ ] Documented in the skill's `SKILL.md`.
+</script>
+
+<script type="text/markdown" data-id="PERF-01">## Summary
+`run_bulk_description_maintenance()` and `run_bulk_embedding_maintenance()` each run `session.query(FetchedPage).all()`. That loads **every** page row, including the large `html` / `markdown` / `description` columns, into memory. They then iterate inside a single session:
+- The description job calls Ollama per row inside one open transaction and commits only at the end. A crash or timeout halfway through loses all completed work, and the transaction holds row locks for the whole run.
+- The embedding job runs two extra queries per row (`ArticleEmbedding`, `TitleEmbedding`), an N+1 pattern.
+
+## Location
+- `src/kb_web/routers/admin.py:80-140`
+
+## Recommendation
+- Select only candidate rows: `WHERE description IS NULL OR description LIKE '%AI Processing skipped%'`, and use an outer join or `NOT EXISTS` against the embedding tables.
+- Stream with `.yield_per(50)` and `load_only(...)`; commit per batch (batch size as an admin setting per Rule 7).
+- Long term: move both into the jobs framework (`worker.py`) so they get status, intervals and logs.
+
+## Acceptance Criteria
+- [ ] Memory use stays flat with 10k+ pages.
+- [ ] Progress is persisted per batch.
+</script>
+
+<script type="text/markdown" data-id="PERF-02">## Summary
+`get_board_stats()` runs `session.query(AgentMessage).all()` just to build sorted sets of `channel`, `agent_name` and `memory_type`.
+
+## Location
+- `src/kb_web/agent_memory.py:104-112`
+
+## Recommendation
+```python
+channels = [r[0] for r in session.query(AgentMessage.channel).filter(AgentMessage.channel.isnot(None)).distinct().order_by(AgentMessage.channel)]
+```
+(same for `agent_name` and `memory_type`).
+
+## Acceptance Criteria
+- [ ] Board stats no longer load full message rows.
+</script>
+
+<script type="text/markdown" data-id="PERF-03">## Summary
+The recursive crawler uses a Python list as a FIFO queue (`queue.pop(0)` is O(n)) and opens a new DB session for each URL to check whether it was already ingested.
+
+## Location
+- `src/kb_web/routers/pages.py:495-517`
+
+## Recommendation
+- `collections.deque` with `popleft()`.
+- Pre-load already-ingested URLs for the seed domain once (or check in batches), and cache them in the `visited` set.
+
+## Acceptance Criteria
+- [ ] Crawler behavior unchanged; fewer DB round trips per crawl.
+</script>
+
+<script type="text/markdown" data-id="QUAL-01">## Summary
+- **159** `print()` calls in `src/kb_web`, including error paths in `config.py`, `db.py`, `base.py` and the admin maintenance jobs. These bypass log levels, the `/logs` viewer and journald formatting. The emoji in `config.py:20-23` show up garbled on Windows consoles.
+- **76** `except Exception: pass` / silent-continue blocks. Example: `base.py:553` swallows DB errors during CLI API-key lookup, so a database outage looks like an ordinary 401.
+
+## Recommendation
+- Replace `print` with module loggers (`logger = logging.getLogger(__name__)`), at warning or error level as appropriate.
+- Every broad `except` should at least `logger.debug(..., exc_info=True)`. Auth paths should log at warning level.
+- Enable ruff rules `T20` (print) and `S110` (try-except-pass) to prevent regressions.
+
+## Acceptance Criteria
+- [ ] No `print()` in library modules (CLI output exempt).
+- [ ] No silent excepts in auth and config paths.
+</script>
+
+<script type="text/markdown" data-id="QUAL-02">## Summary
+102 call sites store `datetime.now().isoformat()`, a naive local-time string. The server, CLI clients and the browser can be in different time zones, and the jobs framework (`worker.py:107-180`) compares these values directly, so DST transitions can make jobs fire twice or skip.
+
+## Recommendation
+- Add a helper `utcnow_iso()` that returns `datetime.now(timezone.utc).isoformat()` and use it everywhere.
+- Convert to local time only in templates and JS.
+- Existing naive values: treat them as server-local when parsing, for backwards compatibility.
+
+## Acceptance Criteria
+- [ ] New records carry `+00:00` offsets.
+- [ ] Job scheduling unaffected across a simulated DST change (unit test).
+</script>
+
+<script type="text/markdown" data-id="CFG-01">## Summary
+`pyproject.toml` has `version = "0.2.0"` and `description = "Add your description here"`, while `CHANGELOG.md` is at **0.5.9**. `kb-web --version`, wheel metadata and the CLI auto-update checks report the wrong version.
+
+## Recommendation
+- Set the version to `0.5.9` and give it a real description.
+- Optionally use a single source of truth (e.g. `hatch-vcs` or reading the version from one module) and add a test that the CHANGELOG head matches the package version.
+
+## Acceptance Criteria
+- [ ] Package version matches the latest CHANGELOG release header.
+</script>
+
+<script type="text/markdown" data-id="CFG-02">## Summary
+`uv run ruff check .` reports **1,471** existing errors (836 auto-fixable), mostly `F401` unused imports and `I001` import order. The `pre-commit-checks` skill runs ruff, but with that much noise new violations go unnoticed, and agents have been told to ignore the output.
+
+## Recommendation
+1. Add a `[tool.ruff]` section (target `py313`, `extend-exclude` for generated or vendored dirs such as `packages/`).
+2. Run `ruff check --fix` in a dedicated, behavior-neutral PR.
+3. Make lint failures blocking in `build.py` for changed files (`ruff check $(git diff --name-only development -- '*.py')`).
+
+## Acceptance Criteria
+- [ ] `ruff check src tests` passes, or has a documented per-rule baseline.
+- [ ] `build.py` fails on new lint errors.
+</script>
+
+<!-- ===================== APP ===================== -->
+<script>
+(() => {
+  const bodies = {};
+  document.querySelectorAll('script[type="text/markdown"]').forEach(s => bodies[s.dataset.id] = s.textContent.trim());
+  const KEY = "kbweb-audit-2026-10-17";
+  const saved = JSON.parse(localStorage.getItem(KEY) || "{}");
+  const state = { sel: saved.sel || Object.fromEntries(ISSUES.map(i => [i.id, !i.status])), notes: saved.notes || {}, sev: "all", cat: "all", q: "" };
+  const persist = () => localStorage.setItem(KEY, JSON.stringify({ sel: state.sel, notes: state.notes }));
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const sevColor = { High: "var(--high)", Medium: "var(--med)", Low: "var(--low)", Critical: "var(--crit)" };
+
+  // Stats donut
+  const counts = ISSUES.reduce((a, i) => (a[i.sev] = (a[i.sev] || 0) + 1, a), {});
+  const order = ["Critical", "High", "Medium", "Low"].filter(s => counts[s]);
+  let acc = 0; const stops = order.map(s => { const a = acc; acc += counts[s] / ISSUES.length * 360; return `${sevColor[s]} ${a}deg ${acc}deg`; });
+  $("#donut").style.background = `conic-gradient(${stops.join(",")})`;
+  $("#totalCount").firstChild.textContent = ISSUES.length;
+  $("#legend").innerHTML = order.map(s => `<div><span class="dot" style="background:${sevColor[s]}"></span>${s}<b>${counts[s]}</b></div>`).join("") +
+    `<div style="color:var(--muted);font-size:12px;margin-top:6px">${[...new Set(ISSUES.map(i => i.cat))].length} categories · ${ISSUES.filter(i=>i.status).length} already in progress</div>`;
+
+  // Category chips
+  const cats = [...new Set(ISSUES.map(i => i.cat))];
+  $("#catChips").innerHTML = `<span class="chip on" data-cat="all" id="chip-cat-all">All areas</span> ` +
+    cats.map(c => `<span class="chip" data-cat="${esc(c)}" id="chip-cat-${esc(c.toLowerCase().replace(/\s+/g, '-'))}">${esc(c)}</span>`).join(" ");
+
+  function visible(i) {
+    if (state.sev !== "all" && i.sev !== state.sev) return false;
+    if (state.cat !== "all" && i.cat !== state.cat) return false;
+    if (state.q) { const hay = (i.id + i.title + i.loc + i.sum + bodies[i.id]).toLowerCase(); if (!hay.includes(state.q)) return false; }
+    return true;
+  }
+
+  function render() {
+    const list = ISSUES.filter(visible);
+    $("#list").innerHTML = list.map((i, n) => `
+      <article class="glass card ${state.sel[i.id] ? "" : "off"}" style="animation-delay:${n * 35}ms" id="card-${i.id}">
+        <div class="row">
+          <input type="checkbox" class="check" id="chk-${i.id}" data-id="${i.id}" ${state.sel[i.id] ? "checked" : ""} aria-label="Include ${i.id}">
+          <div style="flex:1;min-width:0">
+            <div class="meta">
+              <span class="id">${i.id}</span><span class="sev ${i.sev}">${i.sev}</span><span class="cat">${esc(i.cat)}</span>
+              ${i.labels.map(l => `<span class="lbl">${esc(l)}</span>`).join("")}
+              ${i.status ? `<span class="status">● ${esc(i.status)}</span>` : ""}
+            </div>
+            <h3>${esc(i.title)}</h3>
+            <p class="sum">${esc(i.sum)}</p>
+            <div class="loc">📍 ${esc(i.loc)}</div>
+            <details><summary>Exact issue text</summary><div class="body">${esc(bodies[i.id])}</div></details>
+            <textarea class="note" data-id="${i.id}" id="note-${i.id}" placeholder="Reviewer note for the agent (optional): priority, scope changes, 'combine with…'">${esc(state.notes[i.id] || "")}</textarea>
+            <div class="actions">
+              <button class="btn" data-copy="${i.id}">Copy issue markdown</button>
+              <a class="btn" target="_blank" rel="noopener noreferrer" href="${ghUrl(i)}">Open prefilled on GitHub ↗</a>
+            </div>
+          </div>
+        </div>
+      </article>`).join("") || `<p class="sum" style="text-align:center">No findings match the current filters.</p>`;
+    updateCount();
+  }
+
+  function ghUrl(i) {
+    const u = new URL(`https://github.com/${REPO}/issues/new`);
+    u.searchParams.set("title", i.title);
+    u.searchParams.set("labels", i.labels.filter(l => l !== "security").join(","));
+    const body = bodies[i.id] + `\n\n---\n_Audit ref: ${i.id} · severity ${i.sev} · kb-web code audit 2026-10-17_`;
+    u.searchParams.set("body", body.length > 6000 ? body.slice(0, 6000) + "\n…(truncated, see audit report)" : body);
+    return u.toString();
+  }
+
+  const selected = () => ISSUES.filter(i => state.sel[i.id]);
+  function updateCount() { $("#selCount").textContent = selected().length; }
+  function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2200); }
+  async function copy(text, msg) { await navigator.clipboard.writeText(text); toast(msg); }
+
+  function payload() {
+    return {
+      audit: "kb-web code audit 2026-10-17", repo: REPO,
+      approved: selected().map(i => ({ id: i.id, title: i.title, severity: i.sev, labels: i.labels, note: state.notes[i.id] || undefined })),
+      rejected: ISSUES.filter(i => !state.sel[i.id]).map(i => ({ id: i.id, note: state.notes[i.id] || undefined })),
+    };
+  }
+
+  function script() {
+    const sel = selected();
+    const lines = [
+      "# create_audit_issues.ps1 - generated by kb-web audit report (2026-10-17)",
+      "# Guarded: dry-run listing + explicit confirmation; bodies passed via --body-file; actions logged.",
+      "param([switch]$Yes)",
+      "$ErrorActionPreference = 'Stop'",
+      `$Repo = '${REPO}'`,
+      "$Log = Join-Path (Get-Location) '.artifacts/gh-actions.log'",
+      "New-Item -ItemType Directory -Force -Path (Split-Path $Log) | Out-Null",
+      "gh auth status 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'gh is not authenticated' }",
+      "$existing = gh issue list --repo $Repo --state all --limit 300 --json title --jq '.[].title'",
+      "$Issues = @(",
+    ];
+    sel.forEach(i => {
+      const b64 = btoa(unescape(encodeURIComponent(bodies[i.id] + `\n\n---\n_Audit ref: ${i.id} · severity ${i.sev} · kb-web code audit 2026-10-17_`)));
+      lines.push(`  @{ Id='${i.id}'; Title='${i.title.replace(/'/g, "''")}'; Labels='${i.labels.filter(l => l !== "security").join(",")}'; Body='${b64}' }`);
+    });
+    lines.push(")",
+      "Write-Host \"Planned: $($Issues.Count) issue(s) -> $Repo\" -ForegroundColor Cyan",
+      "foreach ($i in $Issues) { $dup = $existing -contains $i.Title; Write-Host (\"  [{0}] {1}{2}\" -f $i.Id, $i.Title, $(if ($dup) { '  (SKIP: title exists)' } else { '' })) }",
+      "if (-not $Yes) { $ans = Read-Host 'Create these issues? Type YES to continue'; if ($ans -ne 'YES') { Write-Host 'Aborted.'; exit 1 } }",
+      "foreach ($i in $Issues) {",
+      "  if ($existing -contains $i.Title) { continue }",
+      "  $tmp = New-TemporaryFile",
+      "  [IO.File]::WriteAllText($tmp, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($i.Body)))",
+      "  $url = gh issue create --repo $Repo --title $i.Title --label $i.Labels --body-file $tmp",
+      "  $ok = $LASTEXITCODE -eq 0; Remove-Item $tmp",
+      "  $entry = [ordered]@{ ts=(Get-Date).ToString('o'); action='gh issue create'; repo=$Repo; ref=$i.Id; title=$i.Title; result=$(if ($ok) { 'ok' } else { 'error' }); url=\"$url\" }",
+      "  ($entry | ConvertTo-Json -Compress) | Add-Content -Path $Log -Encoding utf8",
+      "  Write-Host (\"{0} {1} -> {2}\" -f $(if ($ok) { 'OK ' } else { 'ERR' }), $i.Id, $url)",
+      "}");
+    return lines.join("\n");
+  }
+
+  const download = (name, text, type) => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); URL.revokeObjectURL(a.href); };
+
+  // Events
+  document.addEventListener("click", e => {
+    const t = e.target.closest("[data-sev],[data-cat],[data-copy]");
+    if (!t) return;
+    if (t.dataset.sev) { state.sev = t.dataset.sev; document.querySelectorAll("[data-sev]").forEach(c => c.classList.toggle("on", c === t)); render(); }
+    if (t.dataset.cat) { state.cat = t.dataset.cat; document.querySelectorAll("[data-cat]").forEach(c => c.classList.toggle("on", c === t)); render(); }
+    if (t.dataset.copy) { const i = ISSUES.find(x => x.id === t.dataset.copy); copy(`# ${i.title}\n\n${bodies[i.id]}`, `Copied ${i.id}`); }
+  });
+  document.addEventListener("change", e => {
+    if (e.target.matches(".check")) { state.sel[e.target.dataset.id] = e.target.checked; e.target.closest(".card").classList.toggle("off", !e.target.checked); persist(); updateCount(); }
+  });
+  document.addEventListener("input", e => {
+    if (e.target.matches("textarea.note")) { state.notes[e.target.dataset.id] = e.target.value; persist(); }
+    if (e.target.id === "search") { state.q = e.target.value.trim().toLowerCase(); render(); }
+  });
+  $("#btn-select-all").onclick = () => { ISSUES.filter(visible).forEach(i => state.sel[i.id] = true); persist(); render(); };
+  $("#btn-select-none").onclick = () => { ISSUES.filter(visible).forEach(i => state.sel[i.id] = false); persist(); render(); };
+  $("#btn-copy-agent").onclick = () => copy("AUDIT_SELECTION " + JSON.stringify(payload(), null, 1), `Copied ${selected().length} selections — paste into the agent chat`);
+  $("#btn-download-json").onclick = () => download("audit_selection.json", JSON.stringify(payload(), null, 2), "application/json");
+  $("#btn-script").onclick = () => { $("#scriptPreview").textContent = script(); $("#scriptDialog").showModal(); };
+  $("#btn-download-script").onclick = () => download("create_audit_issues.ps1", script(), "text/plain");
+  $("#btn-copy-script").onclick = () => copy(script(), "Script copied");
+  $("#btn-close-dialog").onclick = () => $("#scriptDialog").close();
+
+  render();
+})();
+</script>
+</body>
+</html>

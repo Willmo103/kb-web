@@ -22,7 +22,9 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 > - Keep `README.md` updated with any CLI, service, configuration, or environment changes.
 > - Update this `GEMINI.md` file if architecture, routes, or workflows evolve.
 > - Log root causes and fixes using the `document-code-issue-and-fix` skill.
->
+> - update local agent memories as needed;
+>   - when encountering new information e.g. package caveats; deprication warnings, linter warnings, etc. by updating relevant documentation files. e.g. `avoid bare excepts or use ruff ignore comments '# noqa: E999'`,  `datetime.now()` is not timezone aware use `datetime.now(timezone.utc)` to avoid timezone warnings or linting errors. `os.urandom` should be used instead of `os.randint` for cryptographically secure random numbers.. etc.
+>   - update
 > **5. Strict Pre-Commit UI UAT & Artifact Verification**
 > All UI modifications MUST undergo local User Acceptance Testing (UAT) before committing. You MUST:
 > - Run template & theme verification (`ui-component-uat-check`).
@@ -32,6 +34,9 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 >
 > **6. Production UI Naming & Terminology Standard**
 > Never specify or copy verbatim conversational phrasing, internal developer jargon, or installed package branding (e.g. `tev1`, specific library feature tags, or casual chat phrasing like "ERP Grid") onto user-facing buttons, links, navigation, or headings in production code. Always normalize UI text into standard, professional, descriptive user labels (e.g., use "Reporting" instead of "ERP Grid", "Decision Gated" instead of "tev1 Decision Gated", "Article Profile" instead of "Engine Wiki Storage File", "Coding Assistant" instead of "Ollama Coding Agent"). Informal or verbatim conversational terms are strictly prohibited in production UI; if and only if helpful for locating elements during testing, such terms may be used in test descriptions, but production UI must always remain clean, intuitive, and normal.
+>
+> **7. Strict Configuration Transparency & Admin Exposure Rule**
+> When a configuration value is needed or used in the application (such as batch sizes, classification limits, search top-k cutoffs, crawl depths, pagination counts, timeouts, or thresholds), it MUST NOT be hardcoded as an arbitrary hidden constant. It MUST be exposed to the Admin Portal (`/admin`), loaded into `config.py` or persisted in `SettingOllama`/`SettingExternal`, and documented for both the user and agents.
 
 ---
 
@@ -49,6 +54,12 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 9. **Full-Site Authentication & Hardening**: Protect all UI and REST endpoints behind session cookies or API keys, brute-force rate limiter on login, security headers, ZipSlip prevention, and default credential alerts.
 10. **Agentic RAG & Tev1 Decision Scoring**: Multi-sub-agent retrieval engine (tag taxonomy search, vector chunk search, full-text lexical search) coupled with native `ollama.systemone` `tev1` multi-question decision gating (up to 64 questions per turn) to vet candidates and compile publication-grade research reports (`/reports/rag`, `kb-web-cli rag report`).
 11. **Autonomous Server Worker & Auto-Curation**: Periodic async worker engine (`src/kb_web/worker.py`) that monitors the database for newly imported pages, curates missing AI wikis and tags one-by-one with graceful error handling, and provides extensible hook foundations for synthetic QA generation, RAG evaluation, and autonomous link crawling.
+12. **Modular Server Jobs & Dedicated Agents**: Decoupled background job registry (`src/kb_web/worker.py` and `/api/jobs`, `/admin/jobs`) allowing independent scheduling intervals (`interval_minutes`), individual model bindings (LLM, embedding, decision models), toggle states, and on-demand trigger runs.
+13. **Git Repository Web Ingestion**: Pull remote Git repositories directly from the web interface (`/import` tab 3), perform shallow clone analysis (`src/kb_web/repo_importer.py`), generate markdown directory trees, and index source code into the knowledge base (`POST /api/import/repo`).
+14. **Model Evaluation Studio & Decision Calibration**: Top-level interactive evaluation portal (`/evals`) allowing comparative side-by-side model and prompt matrix testing, `d1`/`tev1` multi-question decision gating with 16k context window, per-model generation options, and prompt promotion to server instructions or custom agents.
+15. **Autonomous Topic-Expert Custom Agents & Living Topic Wikis**: Autonomous topic agents with self-directed task queues, working memory observations (`agent_observations`), living markdown topic wikis with logical paths and citations (`/wiki/{agent_id}/{path}`), and dynamic canvas pages (`/pages/agent/{hash_id}`) supporting themed and raw rendering modes.
+16. **Human-In-The-Loop (HITL) Python Kernel**: Strictly gated execution environment (`src/kb_web/python_kernel.py`) for agents executing Python in the project `.venv`, requiring explicit human review and interactive approval dialogs before execution.
+17. **Perpetual Notification Center & History Portal**: Permanent record of ingestion notifications, agent alerts, and background tasks (`/notifications`), with server-side pagination, stage/status filters, and batch management.
 
 ---
 
@@ -62,6 +73,7 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 - [ui_component_uat_rules.md](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/rules/ui_component_uat_rules.md): Strict UAT rules for Jinja2 templates, CSS, PWA & Extension UI.
 - [vcs_testing_artifact_rules.md](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/rules/vcs_testing_artifact_rules.md): VCS testing artifact generation and commit requirements (`uat/`).
 - [custom_html_feedback_rules.md](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/rules/custom_html_feedback_rules.md): Interactive HTML form feedback collection & issue parser workflow.
+- [user_intent_rules.md](file:///c:/src/kb-web/.agents/rules/user_intent_rules.md): User intent primacy and mandatory multiple-choice disambiguation.
 
 ---
 
@@ -74,7 +86,13 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 - [document-code-issue-and-fix](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/document-code-issue-and-fix/SKILL.md): Formats changelog logs and bug fix records.
 - [kb-web-browser-extension](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/kb-web-browser-extension/SKILL.md): Extension testing & configuration.
 - [kb-web-service-management](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/skills/kb-web-service-management/SKILL.md): Systemd service configuration.
+- [gh-cli-operations](file:///c:/src/kb-web/.agents/skills/gh-cli-operations/SKILL.md): Guarded execution wrapper for GitHub CLI (`gh`) operations with observability, structured JSON logging, and safety dry-runs.
 - [live-server-test](file:///c:/src/kb-web/.agents/skills/live-server-test/SKILL.md): Uses curl to test and audit site routes against a live running test/production server without executing admin operations.
+- [code-review-issue-generator](file:///c:/src/kb-web/.agents/skills/code-review-issue-generator/SKILL.md): Generates interactive single-page HTML audit reports with dynamic charts, search, filters, and guarded GitHub issue creation scripts.
+
+## Local Agent Memories
+- [package_caveats.md](file:///c:/src/kb-web/.agents/memories/package_caveats.md) — Known quirks and gotchas for core dependencies (`yt-dlp`, `jinja2`, `sqlite3`/PostgreSQL, `monaco`, `hmac`).
+- [github_cli_guardrails.md](file:///c:/src/kb-web/.agents/memories/github_cli_guardrails.md) — Safe patterns and guardrails for `gh` CLI invocations.
 
 ## Git Branching Strategy & Tiered Release Lifecycle
 

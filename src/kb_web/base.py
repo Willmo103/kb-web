@@ -4,13 +4,14 @@ Base shared dependencies, configuration, and route guards for kb-web.
 
 import time
 import hashlib
+import hmac
 import threading
 import jinja2
 import ollama
 import sqlite_utils
 import logging
 from contextlib import contextmanager
-from typing import Optional
+from typing import Optional, Dict, Any
 from urllib.parse import quote_plus, urlparse
 from fastapi import Request, HTTPException
 from sqlalchemy import create_engine
@@ -34,12 +35,115 @@ def extract_url_path(url: str) -> str:
         return url
 
 
+def resolve_entity_url(url: Optional[str]) -> Dict[str, Any]:
+    """Resolves an entity URL (including synthetic schemes like note:// or workspace://)
+
+    into an internal routing target, display label, and clickable status.
+    """
+    if not url or not isinstance(url, str):
+        return {
+            "url": "",
+            "target_url": "#",
+            "is_internal": True,
+            "clickable": False,
+            "label": "Invalid Link",
+            "icon": "🔗",
+            "target": "_self",
+            "scheme": "",
+        }
+
+    url_str = url.strip()
+
+    # note:// scheme -> Obsidian / Notes Monaco Editor
+    if url_str.startswith("note://"):
+        return {
+            "url": url_str,
+            "target_url": f"/notes/edit?url={quote_plus(url_str)}",
+            "is_internal": True,
+            "clickable": True,
+            "label": "Open in Notes",
+            "icon": "📝",
+            "target": "_self",
+            "scheme": "note",
+        }
+
+    # workspace:// scheme -> In-browser Workspace IDE
+    if url_str.startswith("workspace://"):
+        parts = url_str[len("workspace://") :].split("/")
+        ws_id = parts[0] if parts else ""
+        target = f"/workspaces/{ws_id}" if ws_id else "/workspaces"
+        return {
+            "url": url_str,
+            "target_url": target,
+            "is_internal": True,
+            "clickable": bool(ws_id),
+            "label": "Open Workspace",
+            "icon": "💻",
+            "target": "_self",
+            "scheme": "workspace",
+        }
+
+    # http:// or https:// -> External or direct web URL
+    if url_str.startswith("http://") or url_str.startswith("https://"):
+        return {
+            "url": url_str,
+            "target_url": url_str,
+            "is_internal": False,
+            "clickable": True,
+            "label": "Open External Link",
+            "icon": "🌐",
+            "target": "_blank",
+            "scheme": "http" if url_str.startswith("http://") else "https",
+        }
+
+    # Any other pseudo-scheme (e.g. invalid scheme:// without a handler)
+    if "://" in url_str:
+        scheme = url_str.split("://")[0]
+        return {
+            "url": url_str,
+            "target_url": "#",
+            "is_internal": True,
+            "clickable": False,
+            "label": f"Internal URI ({scheme})",
+            "icon": "🔗",
+            "target": "_self",
+            "scheme": scheme,
+        }
+
+    # Relative paths or local routes
+    if url_str.startswith("/"):
+        return {
+            "url": url_str,
+            "target_url": url_str,
+            "is_internal": True,
+            "clickable": True,
+            "label": "Open Page",
+            "icon": "📄",
+            "target": "_self",
+            "scheme": "relative",
+        }
+
+    return {
+        "url": url_str,
+        "target_url": "#",
+        "is_internal": False,
+        "clickable": False,
+        "label": url_str,
+        "icon": "🔗",
+        "target": "_self",
+        "scheme": "unknown",
+    }
+
+
 # Set up Jinja2 environment utilizing PackageLoader for clean packaging with autoescape enabled
 _jinja_env = jinja2.Environment(
     loader=jinja2.PackageLoader("kb_web", "templates"),
     autoescape=jinja2.select_autoescape(["html", "xml", "j2.html", "html5"]),
 )
 _jinja_env.filters["urlpath"] = extract_url_path
+_jinja_env.filters["resolve_entity_url"] = resolve_entity_url
+_jinja_env.globals["resolve_entity_url"] = resolve_entity_url
+_jinja_env.globals["config"] = config
 
 COOKIE_NAME = "kb_session"
 SESSION_EXPIRATION_SECONDS = 3600 * 24  # 24 hours
@@ -174,12 +278,25 @@ def get_engine():
                         connect_args={"timeout": 30.0, "check_same_thread": False},
                     )
 
+                    from sqlalchemy import event
+
+                    @event.listens_for(_engine, "connect")
+                    def set_sqlite_pragma(dbapi_connection, connection_record):
+                        cursor = dbapi_connection.cursor()
+                        cursor.execute("PRAGMA foreign_keys=ON")
+                        cursor.close()
+
                 # Import models and create all tables if missing
                 from .models_orm import Base, ensure_views_and_indexes
 
                 Base.metadata.create_all(_engine)
                 ensure_views_and_indexes(_engine)
                 _SessionFactory = sessionmaker(bind=_engine)
+                try:
+                    from .agent_config import ensure_default_agent_configs
+                    ensure_default_agent_configs()
+                except Exception as _cfg_err:
+                    print(f"Warning: Default agent configurations check deferred: {_cfg_err}")
     return _engine
 
 
@@ -240,9 +357,58 @@ class LoggedOllamaClient:
         model = kwargs.get("model", "")
         options = {k: v for k, v in kwargs.items() if k not in ("model", "messages")}
 
+        is_stream = bool(kwargs.get("stream"))
+
         start_time = time.time()
         try:
             resp = self._client.chat(*args, **kwargs)
+
+            if is_stream:
+                def _stream_generator():
+                    accumulated_content = []
+                    accumulated_thinking = []
+                    try:
+                        for chunk in resp:
+                            msg = getattr(chunk, "message", None) or (chunk.get("message") if isinstance(chunk, dict) else None)
+                            if msg:
+                                c = getattr(msg, "content", None) or (msg.get("content") if isinstance(msg, dict) else "")
+                                if c:
+                                    accumulated_content.append(c)
+                                th = getattr(msg, "thinking", None) or (msg.get("thinking") if isinstance(msg, dict) else "")
+                                if th:
+                                    accumulated_thinking.append(th)
+                            yield chunk
+
+                        duration = time.time() - start_time
+                        full_resp = "".join(accumulated_content)
+                        full_thinking = "".join(accumulated_thinking)
+                        log_text = full_resp
+                        if full_thinking:
+                            log_text = f"<think>\n{full_thinking}\n</think>\n\n{full_resp}"
+                        self._log_call(
+                            prompt_type=prompt_type,
+                            model=model,
+                            messages=messages,
+                            options=options,
+                            response=log_text,
+                            duration=duration,
+                            status="success",
+                        )
+                    except Exception as stream_err:
+                        duration = time.time() - start_time
+                        self._log_call(
+                            prompt_type=prompt_type,
+                            model=model,
+                            messages=messages,
+                            options=options,
+                            response=f"Stream Error: {stream_err}\n{traceback.format_exc()}",
+                            duration=duration,
+                            status="failed",
+                        )
+                        raise stream_err
+
+                return _stream_generator()
+
             duration = time.time() - start_time
 
             # Retrieve content response safely
@@ -393,22 +559,61 @@ class LoggedOllamaClient:
             raise e
 
     def systemone(self, *args, **kwargs):
-        """Native systemone decision routing method for tev1/nimble models."""
+        """Native systemone decision routing method for d1, tev1, and nimble models."""
         import traceback
 
         prompt_type = "systemone"
-        model = kwargs.get("model", "tev1")
+        model = kwargs.get("model", "d1")
         state = kwargs.get("state", "")
-        questions = kwargs.get("questions", {})
+        raw_questions = kwargs.get("questions", {})
+        
+        # Normalize questions mapping to Ollama /v1/systemone specification (instructions, type, criteria)
+        normalized_questions = {}
+        if isinstance(raw_questions, dict):
+            for q_name, q_val in raw_questions.items():
+                if isinstance(q_val, dict):
+                    q_copy = dict(q_val)
+                    if "question" in q_copy and "instructions" not in q_copy:
+                        q_copy["instructions"] = q_copy.pop("question")
+                    if "choices" in q_copy and "criteria" not in q_copy:
+                        q_copy["criteria"] = q_copy.pop("choices")
+                    if q_copy.get("type") in ("probability", "bool", "boolean"):
+                        q_copy["type"] = "noul"
+                    normalized_questions[q_name] = q_copy
+                else:
+                    normalized_questions[q_name] = q_val
+        else:
+            normalized_questions = raw_questions
+
+        # Strip any LLM chat options before calling systemone
+        clean_kwargs = {
+            "model": model,
+            "state": state,
+            "questions": normalized_questions,
+        }
+        if "keep_alive" in kwargs and kwargs["keep_alive"] is not None:
+            clean_kwargs["keep_alive"] = kwargs["keep_alive"]
+
         options = {
             k: v
             for k, v in kwargs.items()
-            if k not in ("model", "state", "questions")
+            if k not in ("model", "state", "questions", "keep_alive")
         }
 
         start_time = time.time()
         try:
-            resp = self._client.systemone(*args, **kwargs)
+            if hasattr(self._client, "systemone"):
+                resp = self._client.systemone(**clean_kwargs)
+            else:
+                import httpx
+                http_resp = httpx.post(
+                    f"{self.host.rstrip('/')}/v1/systemone",
+                    json=clean_kwargs,
+                    timeout=self.timeout or 120.0,
+                )
+                http_resp.raise_for_status()
+                resp = http_resp.json()
+
             duration = time.time() - start_time
             response_content = str(getattr(resp, "answers", resp))
 
@@ -418,7 +623,7 @@ class LoggedOllamaClient:
                 messages=[
                     {
                         "role": "system",
-                        "content": f"State: {str(state)[:300]}... Questions: {list(questions.keys()) if isinstance(questions, dict) else str(questions)[:100]}",
+                        "content": f"State: {str(state)[:300]}... Questions: {list(normalized_questions.keys()) if isinstance(normalized_questions, dict) else str(normalized_questions)[:100]}",
                     }
                 ],
                 options=options,
@@ -481,7 +686,10 @@ def _get_ollama_client(timeout: Optional[float] = None) -> LoggedOllamaClient:
 
 
 def _get_session_secret() -> bytes:
-    """Derives a cryptographically secure key for session signatures from the admin password."""
+    """Derives a cryptographically secure key for session signatures from dedicated session secret."""
+    secret_str = getattr(config, "session_secret", None)
+    if secret_str:
+        return hashlib.sha256(secret_str.encode("utf-8")).digest()
     return hashlib.sha256(config.admin_password.encode("utf-8")).digest()
 
 
@@ -495,13 +703,21 @@ def generate_session_token(expiry_time: float) -> str:
     return f"{payload}.{signature}"
 
 
+def safe_compare_digest(a: Optional[str], b: Optional[str]) -> bool:
+    """Constant-time string comparison safe against non-ASCII input and None types."""
+    if a is None or b is None:
+        return False
+    try:
+        return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+    except Exception:
+        return False
+
+
 def verify_session_token(token: str) -> bool:
     """Verifies a signed token's cryptographic signature and expiration."""
     if not token or "." not in token:
         return False
     try:
-        import hmac
-
         payload, signature = token.split(".", 1)
         expiry_time = int(payload)
         if expiry_time < time.time():
@@ -511,15 +727,13 @@ def verify_session_token(token: str) -> bool:
         expected_signature = hmac.new(
             secret, payload.encode("utf-8"), hashlib.sha256
         ).hexdigest()
-        return hmac.compare_digest(signature, expected_signature)
+        return safe_compare_digest(signature, expected_signature)
     except Exception:
         return False
 
 
 def is_request_authenticated(request: Request) -> bool:
     """Checks whether the request is authenticated via session cookie, master API key, or registered CLI API key."""
-    import hmac
-
     # 1. Check session cookie
     token = request.cookies.get(COOKIE_NAME)
     if token and verify_session_token(token):
@@ -539,7 +753,9 @@ def is_request_authenticated(request: Request) -> bool:
     if not api_key_header:
         return False
 
-    if config.api_key and hmac.compare_digest(api_key_header, config.api_key):
+    if config.api_key and safe_compare_digest(api_key_header, config.api_key):
+        if config.is_default_api_key and not config.allow_insecure_defaults:
+            return False
         return True
 
     # Check registered CLI API keys in database
@@ -565,8 +781,6 @@ def verify_auth(request: Request) -> None:
 
 def verify_api_key(request: Request) -> str:
     """Security guard verifying API Key header matching KB_API_KEY or registered CLI API key."""
-    import hmac
-
     api_key_header = request.headers.get("X-API-Key")
     if not api_key_header:
         auth_header = request.headers.get("Authorization", "")
@@ -582,8 +796,14 @@ def verify_api_key(request: Request) -> str:
             status_code=401, detail="Unauthorized: API key required."
         )
 
-    if config.api_key and hmac.compare_digest(api_key_header, config.api_key):
+    if config.api_key and safe_compare_digest(api_key_header, config.api_key):
+        if config.is_default_api_key and not config.allow_insecure_defaults:
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized: Default API key 'kb-secret-key' is disabled for security. Please configure KB_API_KEY.",
+            )
         return api_key_header
+
 
     try:
         from .models_orm import CliApiKey

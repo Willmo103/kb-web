@@ -1,8 +1,10 @@
 """
-Autonomous Category Taxonomy State Machine for kb-web.
+[DEPRECATED] Autonomous Category Taxonomy State Machine for kb-web.
 
-Orchestrates an agentic, self-organizing category taxonomy using the tev1
-decision gate (ollama.systemone) and LLM-driven ontology synthesis.
+NOTICE: This module and the dynamic 10-item partitioning ontology (TaxonomyCategory / TaxonomyItem)
+are slated for phased deprecation in favor of the structured 7-tier Biological Taxonomy
+(Kingdom -> Phylum -> Class -> Order -> Family -> Genus -> Species) and Context Mesh
+implemented in `src/kb_web/taxonomy/` and `src/kb_web/context_mesh/`.
 
 Key Behaviors:
 1. Cold Start: 0 initial categories; inaugural item prompts LLM to generate Category #1.
@@ -25,6 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from .base import config as default_config, db_session, _get_ollama_client
+from .config import DEFAULT_ONTOLOGY_SYNTHESIS_PROMPT
 from .models_orm import (
     TaxonomyCategory,
     TaxonomyItem,
@@ -234,9 +237,10 @@ def _create_cold_start_category(
     """Cold Start: Prompts the LLM to invent the inaugural top-level category when 0 categories exist."""
     meta_summary = _format_metadata_summary(item_metadata)
     meta_block = f"\nItem Provenance & Context:\n{meta_summary}\n" if meta_summary else ""
+    ontology_prompt = getattr(config, "ontology_synthesis_prompt", DEFAULT_ONTOLOGY_SYNTHESIS_PROMPT)
 
     prompt = (
-        "You are an expert ontology and taxonomy architect. The knowledge base is currently empty with 0 categories.\n"
+        f"{ontology_prompt}\n"
         "Analyze the following incoming item and create the inaugural top-level knowledge domain for it.\n\n"
         f"Item Class: {item_class or 'Notes'}\n"
         f"Item Title: {item_title}\n"
@@ -321,9 +325,10 @@ def _synthesize_new_category(
     tree_text = format_category_tree_for_prompt(existing_categories)
     meta_summary = _format_metadata_summary(item_metadata)
     meta_block = f"\nItem Provenance & Context:\n{meta_summary}\n" if meta_summary else ""
+    ontology_prompt = getattr(config, "ontology_synthesis_prompt", DEFAULT_ONTOLOGY_SYNTHESIS_PROMPT)
 
     prompt = (
-        "You are an expert ontology architect. An incoming item does not fit into any of our existing categories.\n"
+        f"{ontology_prompt}\n"
         "Review the existing category tree and create a NEW, distinct knowledge domain for this item.\n\n"
         f"Existing Category Tree:\n{tree_text}\n\n"
         f"Item Class: {item_class or 'Notes'}\n"

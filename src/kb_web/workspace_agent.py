@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from .agent_tools import tool_create_file, tool_read_file, tool_edit_file
 from .models_orm import Workspace
+from .base import config
+from .config import DEFAULT_WORKSPACE_AGENT_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +174,9 @@ def execute_agent_step(
     )
 
     context_str = "\n\n".join(context_sections)
+    base_prompt = getattr(config, "workspace_agent_prompt", DEFAULT_WORKSPACE_AGENT_PROMPT)
     system_prompt = (
-        f"You are an expert autonomous coding agent for workspace '{ws.name}'.\n"
+        f"{base_prompt} (Workspace: '{ws.name}').\n"
         f"Workspace files: {workspace_files}\n"
         f"Decision triage intent: {decision.get('intent')} (target: {decision.get('target_file')})\n\n"
         f"{context_str}\n\n"

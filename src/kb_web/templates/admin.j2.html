@@ -2,6 +2,68 @@
 
 {% block title %}Server Maintenance Admin{% endblock %}
 
+{% block extra_head %}
+<!-- Monaco Editor & Markdown Live Preview dependencies -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="/static/js/jinja_highlighter.js"></script>
+<style>
+    .markdown-preview-obsidian h1 { font-size: 1.35rem; font-weight: 800; border-bottom: 1px solid rgba(156,163,175,0.3); padding-bottom: 0.3rem; margin-top: 0.8rem; margin-bottom: 0.6rem; color: #4338ca; }
+    html.dark .markdown-preview-obsidian h1 { color: #818cf8; }
+    .markdown-preview-obsidian h2 { font-size: 1.15rem; font-weight: 700; border-bottom: 1px dashed rgba(156,163,175,0.2); padding-bottom: 0.2rem; margin-top: 0.7rem; margin-bottom: 0.5rem; color: #3730a3; }
+    html.dark .markdown-preview-obsidian h2 { color: #a5b4fc; }
+    .markdown-preview-obsidian h3 { font-size: 1.0rem; font-weight: 600; margin-top: 0.6rem; margin-bottom: 0.4rem; color: #1f2937; }
+    html.dark .markdown-preview-obsidian h3 { color: #e2e8f0; }
+    .markdown-preview-obsidian p { margin-bottom: 0.75rem; line-height: 1.6; }
+    .markdown-preview-obsidian code { background: rgba(99, 102, 241, 0.1); color: #4f46e5; padding: 0.15rem 0.35rem; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85em; }
+    html.dark .markdown-preview-obsidian code { background: rgba(99, 102, 241, 0.2); color: #a5b4fc; }
+    .markdown-preview-obsidian pre { background: #1e1e1e !important; color: #d4d4d4 !important; padding: 0.75rem 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.8rem; margin-bottom: 0.75rem; }
+    .markdown-preview-obsidian pre code { background: transparent !important; color: inherit !important; padding: 0; }
+    .markdown-preview-obsidian ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+    .markdown-preview-obsidian ol { list-style-type: decimal; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+    .markdown-preview-obsidian blockquote { border-left: 3px solid #6366f1; padding-left: 0.75rem; color: #6b7280; margin: 0.75rem 0; font-style: italic; }
+    html.dark .markdown-preview-obsidian blockquote { border-left-color: #818cf8; color: #94a3b8; }
+    .markdown-preview-obsidian table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.8rem; }
+    .markdown-preview-obsidian th, .markdown-preview-obsidian td { border: 1px solid #e5e7eb; padding: 0.4rem 0.6rem; text-align: left; }
+    html.dark .markdown-preview-obsidian th, html.dark .markdown-preview-obsidian td { border-color: #334155; }
+    .markdown-preview-obsidian th { background: rgba(243, 244, 246, 0.8); font-weight: 700; }
+    html.dark .markdown-preview-obsidian th { background: rgba(30, 41, 59, 0.8); }
+    .prompt-card.active { border-color: #6366f1 !important; background-color: rgba(99, 102, 241, 0.08) !important; }
+    html.dark .prompt-card.active { border-color: #818cf8 !important; background-color: rgba(99, 102, 241, 0.2) !important; }
+
+    /* Quick Diagnostics Panel Theme Consistency */
+    .quick-diagnostics-panel {
+        background-color: #ffffff;
+        border-color: #e5e7eb;
+    }
+    html.dark .quick-diagnostics-panel {
+        background-color: #111827 !important;
+        background-image: none !important;
+        border-color: #1e293b !important;
+    }
+
+    /* Prompt Studio Monaco & Preview Dimensions */
+    #studioSplitContainer {
+        min-height: 520px;
+    }
+    #promptEditorCol {
+        min-height: 480px;
+    }
+    #monacoPromptContainer {
+        width: 100%;
+        min-height: 480px;
+        height: 500px;
+    }
+    #promptMarkdownPreview {
+        min-height: 480px;
+        height: 500px;
+    }
+    #promptsListContainer {
+        max-height: 600px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container mx-auto px-4 max-w-[95%] w-full pb-28">
 
@@ -60,6 +122,12 @@
                 <span class="bg-gray-200 text-gray-700 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">{{ cli_keys | length }}</span>
                 {% endif %}
             </button>
+            <button type="button" onclick="switchAdminTab('tab-agents')" id="btn-tab-agents" class="admin-tab-btn px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-gray-200 sm:border-transparent">
+                <span>🧠</span> <span>Agent Configurations</span>
+                {% if agent_configs %}
+                <span class="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full" id="agentConfigsCountBadge">{{ agent_configs | length }}</span>
+                {% endif %}
+            </button>
         </nav>
     </div>
 
@@ -107,38 +175,39 @@
                 <form action="/admin/config" method="post" class="space-y-4">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label for="ollama_host" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Ollama Host URL</label>
-                            <input type="text" name="ollama_host" id="ollama_host" value="{{ config.ollama_host }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                            <label for="ollama_host" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Ollama Host URL</label>
+                            <input type="text" name="ollama_host" id="ollama_host" value="{{ config.ollama_host }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
                         </div>
                         <div>
                             <div class="flex items-center justify-between mb-1">
-                                <label for="ollama_model" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider">Ollama Inference Model</label>
-                                <button type="button" onclick="loadAdminOllamaModels()" class="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1">
+                                <label for="ollama_model" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Ollama Inference Model</label>
+                                <button type="button" onclick="loadAdminOllamaModels()" class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 font-semibold flex items-center gap-1">
                                     <span>⚡</span> Check Loaded Models
                                 </button>
                             </div>
-                            <div class="flex gap-2">
-                                <input type="text" name="ollama_model" id="ollama_model" value="{{ config.ollama_model }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
-                                <select id="admin_model_quick_select" onchange="if(this.value){document.getElementById('ollama_model').value=this.value;}" class="text-xs font-mono border border-gray-300 rounded-lg px-2 bg-gray-50 text-gray-700 max-w-[180px]" title="Pick from running or installed models">
-                                    <option value="">Select model...</option>
-                                </select>
+                            <div class="relative">
+                                <input type="text" list="admin_model_options" name="ollama_model" id="ollama_model" value="{{ config.ollama_model }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required placeholder="e.g. llama3.2:latest" />
+                                <datalist id="admin_model_options"></datalist>
                             </div>
-                            <p id="admin_loaded_models_info" class="text-[10px] text-gray-500 mt-1 font-mono"></p>
+                            <p id="admin_loaded_models_info" class="text-[10px] text-gray-500 dark:text-gray-400 mt-1 font-mono"></p>
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label for="ollama_embedding_model" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Ollama Embedding Model</label>
-                            <input type="text" name="ollama_embedding_model" id="ollama_embedding_model" value="{{ config.ollama_embedding_model }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                            <label for="ollama_embedding_model" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Ollama Embedding Model</label>
+                            <div class="relative">
+                                <input type="text" list="admin_embedding_model_options" name="ollama_embedding_model" id="ollama_embedding_model" value="{{ config.ollama_embedding_model }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required placeholder="e.g. embeddinggemma" />
+                                <datalist id="admin_embedding_model_options"></datalist>
+                            </div>
                         </div>
                         <div class="flex flex-col justify-center pt-2">
                             <div class="flex items-center space-x-2">
                                 <input type="checkbox" name="ollama_think" id="ollama_think" value="true" {% if config.ollama_think %}checked{% endif %} class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500" />
-                                <label for="ollama_think" class="text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer">Ollama thinking (Reasoning Latency)</label>
+                                <label for="ollama_think" class="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer">Ollama thinking (Reasoning Latency)</label>
                             </div>
                             <div class="pt-2 flex items-center">
-                                <button type="button" onclick="testOllamaConnection()" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                                <button type="button" onclick="testOllamaConnection()" class="bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-200 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
                                     ⚡ Test Ollama Connection
                                 </button>
                                 <span id="ollamaTestStatus" class="text-xs font-semibold ml-2"></span>
@@ -146,37 +215,103 @@
                         </div>
                     </div>
 
-                    <div class="border-t border-gray-100 pt-4">
-                        <label for="api_key" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Browser Extension & Client API Key</label>
-                        <input type="text" name="api_key" id="api_key" value="{{ config.api_key or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Shared API key (leave blank to disable client authentication)" />
+                    <div class="border-t border-gray-100 dark:border-slate-700 pt-4">
+                        <label for="api_key" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Browser Extension & Client API Key</label>
+                        <input type="text" name="api_key" id="api_key" value="{{ config.api_key or '' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Shared API key (leave blank to disable client authentication)" />
                         <p class="text-[11px] text-gray-400 mt-1">Used by the Chrome/Firefox browser extension and external scripts when authenticating against API endpoints.</p>
                     </div>
 
-                    <div class="border-t border-gray-100 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="border-t border-gray-100 dark:border-slate-700 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label for="gotify_url" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Gotify Server URL</label>
-                            <input type="text" name="gotify_url" id="gotify_url" value="{{ config.gotify_url or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. http://gotify.local" />
+                            <label for="gotify_url" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Gotify Server URL</label>
+                            <input type="text" name="gotify_url" id="gotify_url" value="{{ config.gotify_url or '' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. http://gotify.local" />
                         </div>
                         <div>
-                            <label for="gotify_token" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Gotify App Token</label>
-                            <input type="text" name="gotify_token" id="gotify_token" value="{{ config.gotify_token or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. A1B2C3D4" />
+                            <label for="gotify_token" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Gotify App Token</label>
+                            <input type="text" name="gotify_token" id="gotify_token" value="{{ config.gotify_token or '' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. A1B2C3D4" />
                         </div>
                     </div>
                     <div class="flex items-center">
-                        <button type="button" onclick="testGotifyConnection()" class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                        <button type="button" onclick="testGotifyConnection()" class="bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-200 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
                             🔔 Test Gotify Alert
                         </button>
                         <span id="gotifyTestStatus" class="text-xs font-semibold ml-2"></span>
                     </div>
 
-                    <div class="border-t border-gray-100 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="border-t border-gray-100 dark:border-slate-700 pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label for="qdrant_host_url" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Qdrant Host URL</label>
-                            <input type="text" name="qdrant_host_url" id="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. http://localhost:6333" />
+                            <label for="qdrant_host_url" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Qdrant Host URL</label>
+                            <input type="text" name="qdrant_host_url" id="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g. http://localhost:6333" />
                         </div>
                         <div>
-                            <label for="qdrant_api_key" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Qdrant API Key</label>
-                            <input type="text" name="qdrant_api_key" id="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Qdrant API Key (leave blank if none)" />
+                            <label for="qdrant_api_key" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Qdrant API Key</label>
+                            <input type="text" name="qdrant_api_key" id="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Qdrant API Key (leave blank if none)" />
+                        </div>
+                    </div>
+
+                    <div class="border-t border-gray-100 dark:border-slate-700 pt-4">
+                        <label for="trusted_proxies" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Trusted Reverse Proxies (IPs / CIDRs)</label>
+                        <input type="text" name="trusted_proxies" id="trusted_proxies" value="{{ config.trusted_proxies or '' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="127.0.0.1, ::1, 10.0.0.0/8" />
+                        <p class="text-[11px] text-gray-400 mt-1">Comma-separated list of trusted reverse proxy IP addresses or CIDR blocks. Forwarded headers (X-Forwarded-For) are only accepted when requests originate from these addresses.</p>
+                    </div>
+
+                    <!-- Operational Limits & Engine Thresholds (Rule 7 Exposure) -->
+                    <div class="border-t border-gray-100 dark:border-slate-700 pt-5 mt-5">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-sm">⚖️</span>
+                            <h4 class="text-xs font-bold text-gray-900 dark:text-gray-100 uppercase tracking-wider">Engine Thresholds & Operational Limits</h4>
+                        </div>
+                        <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-4">
+                            Operational limits, taxonomy batch limits, RAG top-k cutoffs, timeouts, and pagination bounds (Rule 7 Configuration Transparency).
+                        </p>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                            <div>
+                                <label for="taxonomy_batch_limit" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Taxonomy Batch Limit</label>
+                                <input type="number" name="taxonomy_batch_limit" id="taxonomy_batch_limit" value="{{ config.taxonomy_batch_limit or 500 }}" min="10" max="50000" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Notes classified per pass (500)</span>
+                            </div>
+                            <div>
+                                <label for="rag_search_top_k" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">RAG Candidate Top-K</label>
+                                <input type="number" name="rag_search_top_k" id="rag_search_top_k" value="{{ config.rag_search_top_k or 10 }}" min="1" max="100" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Search chunks per turn (10)</span>
+                            </div>
+                            <div>
+                                <label for="similarity_threshold" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Similarity Cutoff</label>
+                                <input type="number" step="0.01" name="similarity_threshold" id="similarity_threshold" value="{{ config.similarity_threshold or 0.65 }}" min="0.1" max="1.0" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Cosine cutoff threshold (0.65)</span>
+                            </div>
+                            <div>
+                                <label for="ollama_timeout" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Ollama Timeout (Sec)</label>
+                                <input type="number" name="ollama_timeout" id="ollama_timeout" value="{{ config.ollama_timeout or 120 }}" min="10" max="600" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">HTTP client timeout (120s)</span>
+                            </div>
+                            <div>
+                                <label for="notifications_poll_interval_seconds" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Notification Poll (Sec)</label>
+                                <input type="number" name="notifications_poll_interval_seconds" id="notifications_poll_interval_seconds" value="{{ config.notifications_poll_interval_seconds or 30 }}" min="5" max="300" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">UI badge refresh rate (30s)</span>
+                            </div>
+                            <div>
+                                <label for="page_cards_per_page" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Cards Per Page</label>
+                                <input type="number" name="page_cards_per_page" id="page_cards_per_page" value="{{ config.page_cards_per_page or 20 }}" min="5" max="100" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Pagination on /pages (20)</span>
+                            </div>
+                            <div>
+                                <label for="crawler_default_max_pages" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Crawler Max Pages</label>
+                                <input type="number" name="crawler_default_max_pages" id="crawler_default_max_pages" value="{{ config.crawler_default_max_pages or 50 }}" min="5" max="500" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Link exploration ceiling (50)</span>
+                            </div>
+                            <div>
+                                <label for="repo_import_default_depth" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Git Clone Depth</label>
+                                <input type="number" name="repo_import_default_depth" id="repo_import_default_depth" value="{{ config.repo_import_default_depth or 1 }}" min="1" max="50" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                                <span class="text-[10px] text-gray-400">Shallow clone depth (1)</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <label for="youtube_download_format" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">YouTube Media Download Format (yt-dlp)</label>
+                            <input type="text" name="youtube_download_format" id="youtube_download_format" value="{{ config.youtube_download_format or 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b' }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                            <span class="text-[10px] text-gray-400">Audio/video stream selector merged to MP4 via ffmpeg (default: <code>bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b</code>)</span>
                         </div>
                     </div>
 
@@ -185,7 +320,7 @@
                     <input type="hidden" name="youtube_wiki_prompt" value="{{ config.youtube_wiki_prompt }}" />
                     <input type="hidden" name="max_input_length" value="{{ config.max_input_length }}" />
 
-                    <div class="pt-2">
+                    <div class="pt-4">
                         <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-3 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
                             <span>💾</span> Save System Configurations
                         </button>
@@ -195,20 +330,20 @@
 
             <!-- Right 1 Col: Security & Admin Password -->
             <div class="space-y-6">
-                <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                    <h3 class="text-base font-bold text-gray-900 border-b border-gray-100 pb-3 mb-4 flex items-center gap-2">
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm">
+                    <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-slate-700 pb-3 mb-4 flex items-center gap-2">
                         <span>🔒</span> Admin Password
                     </h3>
-                    <p class="text-xs text-gray-500 mb-4">Update the administrative password required to access this dashboard and execute privileged maintenance tasks.</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">Update the administrative password required to access this dashboard and execute privileged maintenance tasks.</p>
                     
                     <form action="/admin/change-password" method="post" class="space-y-4">
                         <div>
-                            <label for="current_password" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Current Password</label>
-                            <input type="password" name="current_password" id="current_password" class="block w-full text-xs border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                            <label for="current_password" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Current Password</label>
+                            <input type="password" name="current_password" id="current_password" class="block w-full text-xs border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
                         </div>
                         <div>
-                            <label for="new_password" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">New Password</label>
-                            <input type="password" name="new_password" id="new_password" class="block w-full text-xs border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
+                            <label for="new_password" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">New Password</label>
+                            <input type="password" name="new_password" id="new_password" class="block w-full text-xs border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required />
                         </div>
                         <button type="submit" class="w-full bg-gray-900 hover:bg-black text-white text-xs font-bold py-2.5 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
                             <span>🔑</span> Update Password
@@ -216,23 +351,23 @@
                     </form>
                 </div>
 
-                <!-- Environment & Status Mini-Card -->
-                <div class="bg-gradient-to-br from-indigo-50 to-blue-50 p-6 rounded-2xl border border-indigo-100 shadow-sm">
-                    <h4 class="text-xs font-extrabold uppercase tracking-wider text-indigo-900 mb-3 flex items-center gap-1.5">
+                <!-- Environment & Status Mini-Card with dark mode -->
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm quick-diagnostics-panel">
+                    <h4 class="text-xs font-extrabold uppercase tracking-wider text-indigo-900 dark:text-indigo-400 mb-3 flex items-center gap-1.5">
                         <span>ℹ️</span> Quick Diagnostics
                     </h4>
                     <dl class="space-y-2 text-xs">
                         <div class="flex justify-between">
-                            <dt class="text-gray-500">Database Engine:</dt>
-                            <dd class="font-bold text-gray-800 font-mono">PostgreSQL / SQLite</dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Database Engine:</dt>
+                            <dd class="font-bold text-gray-800 dark:text-gray-200 font-mono">PostgreSQL / SQLite</dd>
                         </div>
                         <div class="flex justify-between">
-                            <dt class="text-gray-500">Active Model:</dt>
-                            <dd class="font-bold text-gray-800 font-mono">{{ config.ollama_model }}</dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Active Model:</dt>
+                            <dd class="font-bold text-gray-800 dark:text-gray-200 font-mono">{{ config.ollama_model }}</dd>
                         </div>
                         <div class="flex justify-between">
-                            <dt class="text-gray-500">Embeddings Model:</dt>
-                            <dd class="font-bold text-gray-800 font-mono">{{ config.ollama_embedding_model }}</dd>
+                            <dt class="text-gray-500 dark:text-gray-400">Embeddings Model:</dt>
+                            <dd class="font-bold text-gray-800 dark:text-gray-200 font-mono">{{ config.ollama_embedding_model }}</dd>
                         </div>
                     </dl>
                 </div>
@@ -241,211 +376,323 @@
     </div>
 
     <!-- TAB 2: Prompts & Pipeline Operations -->
-    <div id="tab-prompts" class="admin-tab-pane hidden">
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Left 2 Cols: Prompt Management -->
-            <div class="lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                <div class="border-b border-gray-100 pb-3 mb-5">
-                    <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
-                        <span>🤖</span> AI Curation System Prompts
+    <div id="tab-prompts" class="admin-tab-pane hidden space-y-8">
+        
+        <!-- PROMPT STUDIO SECTION -->
+        <div class="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
+            <!-- Studio Header -->
+            <div class="p-5 md:p-6 border-b border-gray-100 dark:border-slate-700 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gray-50/50 dark:bg-slate-900/40">
+                <div>
+                    <h3 class="text-lg font-extrabold text-gray-900 dark:text-gray-100 flex items-center gap-2.5">
+                        <span class="text-xl">🤖</span> AI Agent Personas & System Prompt Studio
                     </h3>
-                    <p class="text-xs text-gray-500">Customize the system instructions provided to Ollama during wiki markdown synthesis and YouTube transcripts.</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Configure all system instructions, persona directives, and extraction guidelines. Edit with Monaco and verify formatting in real time with live Obsidian-style Markdown rendering.
+                    </p>
                 </div>
-
-                <form action="/admin/config" method="post" class="space-y-5">
-                    <!-- Carry forward non-prompt fields -->
-                    <input type="hidden" name="ollama_host" value="{{ config.ollama_host }}" />
-                    <input type="hidden" name="ollama_model" value="{{ config.ollama_model }}" />
-                    <input type="hidden" name="ollama_embedding_model" value="{{ config.ollama_embedding_model }}" />
-                    {% if config.ollama_think %}<input type="hidden" name="ollama_think" value="true" />{% endif %}
-                    <input type="hidden" name="api_key" value="{{ config.api_key or '' }}" />
-                    <input type="hidden" name="gotify_url" value="{{ config.gotify_url or '' }}" />
-                    <input type="hidden" name="gotify_token" value="{{ config.gotify_token or '' }}" />
-                    <input type="hidden" name="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" />
-                    <input type="hidden" name="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" />
-
-                    <!-- Wiki Prompt -->
-                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                        <div class="flex justify-between items-center mb-2">
-                            <label for="wiki_prompt" class="block text-xs font-bold text-gray-800 uppercase tracking-wider">Wiki Extraction System Prompt</label>
-                            <button type="button" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-white hover:bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-lg transition shadow-sm flex items-center gap-1.5">
-                                ✏️ Expand Editor Modal
-                            </button>
-                        </div>
-                        <textarea name="wiki_prompt" id="wiki_prompt" rows="4" onclick="openPromptModal('wiki_prompt', 'Wiki Extraction System Prompt')" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer bg-white transition" title="Click to edit in full modal" required>{{ config.wiki_prompt }}</textarea>
-                        
-                        {% if wiki_prompts_history %}
-                        <details class="mt-3 text-xs">
-                            <summary class="cursor-pointer text-indigo-600 hover:underline font-semibold select-none flex items-center gap-1">
-                                <span>📜</span> Version History ({{ wiki_prompts_history | length }} revisions)
-                            </summary>
-                            <div class="space-y-3 mt-2 bg-white border border-gray-200 rounded-xl p-3 max-h-48 overflow-y-auto shadow-inner">
-                                {% for p in wiki_prompts_history %}
-                                <div class="border-b border-gray-100 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
-                                    <div class="flex justify-between items-center mb-1">
-                                        <div class="flex items-center gap-2">
-                                            <span class="font-bold text-gray-800">Version {{ p.version }}</span>
-                                            <span class="text-gray-400 text-[10px] font-mono">{{ p.created_at[:16] | replace('T', ' ') }}</span>
-                                            {% if p.is_head == 1 %}
-                                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200">Active HEAD</span>
-                                            {% endif %}
-                                        </div>
-                                        {% if p.is_head != 1 %}
-                                        <button type="button" onclick="setPromptHead({{ p.id }}, 'wiki_prompt')" class="bg-white hover:bg-indigo-50 border border-gray-300 hover:border-indigo-300 text-indigo-700 font-bold px-2 py-0.5 rounded text-[10px] transition shadow-sm">
-                                            Use Version {{ p.version }}
-                                        </button>
-                                        {% endif %}
-                                    </div>
-                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 overflow-x-auto max-h-20">{{ p.prompt_text }}</pre>
-                                </div>
-                                {% endfor %}
-                            </div>
-                        </details>
-                        {% endif %}
-                    </div>
-
-                    <!-- YouTube Prompt -->
-                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                        <div class="flex justify-between items-center mb-2">
-                            <label for="youtube_wiki_prompt" class="block text-xs font-bold text-gray-800 uppercase tracking-wider">YouTube Wiki System Prompt</label>
-                            <button type="button" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-white hover:bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-lg transition shadow-sm flex items-center gap-1.5">
-                                ✏️ Expand Editor Modal
-                            </button>
-                        </div>
-                        <textarea name="youtube_wiki_prompt" id="youtube_wiki_prompt" rows="4" onclick="openPromptModal('youtube_wiki_prompt', 'YouTube Wiki System Prompt')" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer bg-white transition" title="Click to edit in full modal" required>{{ config.youtube_wiki_prompt }}</textarea>
-                        
-                        {% if youtube_prompts_history %}
-                        <details class="mt-3 text-xs">
-                            <summary class="cursor-pointer text-indigo-600 hover:underline font-semibold select-none flex items-center gap-1">
-                                <span>📜</span> Version History ({{ youtube_prompts_history | length }} revisions)
-                            </summary>
-                            <div class="space-y-3 mt-2 bg-white border border-gray-200 rounded-xl p-3 max-h-48 overflow-y-auto shadow-inner">
-                                {% for p in youtube_prompts_history %}
-                                <div class="border-b border-gray-100 pb-2 mb-2 last:border-b-0 last:pb-0 last:mb-0">
-                                    <div class="flex justify-between items-center mb-1">
-                                        <div class="flex items-center gap-2">
-                                            <span class="font-bold text-gray-800">Version {{ p.version }}</span>
-                                            <span class="text-gray-400 text-[10px] font-mono">{{ p.created_at[:16] | replace('T', ' ') }}</span>
-                                            {% if p.is_head == 1 %}
-                                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-200">Active HEAD</span>
-                                            {% endif %}
-                                        </div>
-                                        {% if p.is_head != 1 %}
-                                        <button type="button" onclick="setPromptHead({{ p.id }}, 'youtube_wiki_prompt')" class="bg-white hover:bg-indigo-50 border border-gray-300 hover:border-indigo-300 text-indigo-700 font-bold px-2 py-0.5 rounded text-[10px] transition shadow-sm">
-                                            Use Version {{ p.version }}
-                                        </button>
-                                        {% endif %}
-                                    </div>
-                                    <pre class="whitespace-pre-wrap font-mono text-[10px] text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 overflow-x-auto max-h-20">{{ p.prompt_text }}</pre>
-                                </div>
-                                {% endfor %}
-                            </div>
-                        </details>
-                        {% endif %}
-                    </div>
-
-                    <div>
-                        <label for="max_input_length" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Maximum Input Length (Characters)</label>
-                        <input type="number" name="max_input_length" id="max_input_length" value="{{ config.max_input_length }}" class="block w-full text-xs font-mono border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required min="100" />
-                    </div>
-
-                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-3 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
-                        <span>💾</span> Save Prompt Changes
-                    </button>
-                </form>
+                <!-- Global Notification Toast Banner -->
+                <div id="promptStatusBanner" class="hidden text-xs font-semibold px-3 py-1.5 rounded-lg border flex items-center gap-2 transition animate-fade-in shadow-sm"></div>
             </div>
 
-            <!-- Right 1 Col: Pipeline Maintenance Operations -->
-            <div class="space-y-6">
-                <!-- Autonomous Background Server Worker Panel -->
-                <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                    <div class="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
-                        <div class="flex items-center gap-2">
-                            <span class="text-base">🤖</span>
-                            <h3 class="text-base font-bold text-gray-900">Autonomous Server Worker</h3>
-                        </div>
-                        <span id="worker-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
-                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Active
-                        </span>
-                    </div>
-                    <p class="text-xs text-gray-500 mb-4">
-                        Autonomously polls the library every <strong class="text-indigo-600 font-mono">{{ worker_status.interval_minutes if worker_status else 5 }} min</strong> to generate missing AI wikis and extract tags one-by-one.
-                    </p>
-
-                    <div class="grid grid-cols-2 gap-3 mb-4 text-xs">
-                        <div class="bg-gray-50 border border-gray-100 rounded-xl p-3">
-                            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Wikis Curated</div>
-                            <div class="text-base font-extrabold text-gray-900 mt-0.5" id="worker-wikis-count">{{ worker_status.wikis_curated_total if worker_status else 0 }}</div>
-                        </div>
-                        <div class="bg-gray-50 border border-gray-100 rounded-xl p-3">
-                            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tags Curated</div>
-                            <div class="text-base font-extrabold text-gray-900 mt-0.5" id="worker-tags-count">{{ worker_status.tags_curated_total if worker_status else 0 }}</div>
-                        </div>
+            <!-- Studio Body: Sidebar List + Editor Workspace -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 min-h-[640px]" style="min-height: 640px;">
+                
+                <!-- Left Column: Prompt Selection List (4 Cols) -->
+                <div class="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-slate-700 p-4 bg-gray-50/30 dark:bg-slate-900/20 flex flex-col">
+                    <!-- Filter Input -->
+                    <div class="mb-3">
+                        <input type="text" id="promptSearchInput" oninput="filterPromptList()" placeholder="🔍 Filter prompt directives..." class="w-full text-xs border border-gray-300 dark:border-slate-600 rounded-xl px-3 py-2 bg-white dark:bg-slate-800 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner" />
                     </div>
 
-                    <div class="space-y-2 mb-4 text-[11px] text-gray-500 bg-gray-50/70 p-3 rounded-xl border border-gray-100">
-                        <div class="flex justify-between">
-                            <span>Status:</span>
-                            <span class="font-mono text-gray-700 font-semibold" id="worker-activity">{{ worker_status.last_activity if worker_status else 'Idle' }}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span>Last Run:</span>
-                            <span class="font-mono text-gray-700" id="worker-last-run">{{ worker_status.last_run[:19].replace('T', ' ') if worker_status and worker_status.last_run else 'Pending' }}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span>Next Run:</span>
-                            <span class="font-mono text-gray-700" id="worker-next-run">{{ worker_status.next_run[:19].replace('T', ' ') if worker_status and worker_status.next_run else 'In ~5 min' }}</span>
-                        </div>
+                    <!-- Category Groups & Prompt Items -->
+                    <div id="promptsListContainer" class="flex-grow space-y-4 overflow-y-auto max-h-[600px] pr-1" style="max-height: 600px;">
+                        <!-- Populated dynamically via renderPromptList() -->
                     </div>
-
-                    <form action="/admin/worker/trigger" method="post">
-                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
-                            <span>⚡</span> Run Maintenance Cycle Now
-                        </button>
-                    </form>
                 </div>
 
-                <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                    <h3 class="text-base font-bold text-gray-900 border-b border-gray-100 pb-3 mb-4 flex items-center gap-2">
-                        <span>⚡</span> Pipeline Execution
-                    </h3>
-
-                    <!-- Bulk Descriptions Loop -->
-                    <div class="mb-5 pb-5 border-b border-gray-100">
-                        <div class="flex items-center justify-between mb-1">
-                            <h4 class="font-bold text-xs text-gray-800 uppercase tracking-wider">Run Bulk Descriptions (Unprocessed Pages)</h4>
-                            <span class="text-xs bg-amber-50 text-amber-800 font-bold px-2 py-0.5 rounded border border-amber-200">
-                                {{ unprocessed_count }} pending
-                            </span>
+                <!-- Right Column: Monaco Editor & Live Markdown Split Preview (8 Cols) -->
+                <div class="lg:col-span-8 flex flex-col bg-white dark:bg-slate-800">
+                    
+                    <!-- Top Toolbar -->
+                    <div class="p-4 border-b border-gray-200 dark:border-slate-700 flex flex-wrap justify-between items-center gap-3 bg-white dark:bg-slate-800">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h4 id="activePromptLabel" class="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">Wiki Extraction System Prompt</h4>
+                                <span id="activePromptCategoryBadge" class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">Curation</span>
+                                <span id="activePromptHeadBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">HEAD</span>
+                            </div>
+                            <p id="activePromptDescription" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">System instructions provided to Ollama during wiki markdown synthesis.</p>
                         </div>
-                        <p class="text-xs text-gray-500 mb-3">Scans for library items lacking AI wiki summaries and processes them in batch background jobs.</p>
+
+                        <!-- Action Controls -->
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <!-- View mode toggles -->
+                            <div class="inline-flex rounded-lg border border-gray-200 dark:border-slate-700 p-0.5 bg-gray-50 dark:bg-slate-900">
+                                <button type="button" id="btnViewSplit" onclick="setViewMode('split')" title="Split View" class="px-2.5 py-1 text-xs font-semibold rounded-md transition bg-indigo-600 text-white">Split</button>
+                                <button type="button" id="btnViewEditor" onclick="setViewMode('editor')" title="Editor Only" class="px-2.5 py-1 text-xs font-semibold rounded-md transition text-gray-600 dark:text-gray-400 hover:text-gray-900">Editor</button>
+                                <button type="button" id="btnViewPreview" onclick="setViewMode('preview')" title="Preview Only" class="px-2.5 py-1 text-xs font-semibold rounded-md transition text-gray-600 dark:text-gray-400 hover:text-gray-900">Preview</button>
+                            </div>
+
+                            <button type="button" onclick="copyCurrentPrompt()" title="Copy prompt to clipboard" class="px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-700 hover:bg-gray-50 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-slate-600 rounded-lg transition shadow-sm flex items-center gap-1">
+                                <span>📋</span> Copy
+                            </button>
+
+                            <button type="button" onclick="resetCurrentPromptToDefault()" title="Reset to default prompt instructions" class="px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-700 hover:bg-amber-50 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 rounded-lg transition shadow-sm flex items-center gap-1">
+                                <span>🔄</span> Reset Default
+                            </button>
+
+                            <button type="button" id="btnSavePrompt" onclick="saveCurrentPrompt()" class="px-4 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition shadow-sm flex items-center gap-1.5">
+                                <span>💾</span> Save Prompt
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Split Container: Editor & Markdown Preview -->
+                    <div id="studioSplitContainer" class="flex-grow flex flex-col lg:flex-row divide-y lg:divide-y-0 lg:divide-x divide-gray-200 dark:border-slate-700 min-h-[520px]" style="min-height: 520px;">
+                        
+                        <!-- Left Pane: Monaco Editor Container -->
+                        <div id="promptEditorCol" class="w-full lg:w-1/2 flex flex-col" style="min-height: 480px;">
+                            <div class="px-4 py-1.5 bg-gray-50 dark:bg-slate-900/60 border-b border-gray-200 dark:border-slate-700 text-[11px] font-semibold text-gray-500 dark:text-gray-400 flex justify-between items-center">
+                                <span>Monaco Editor (Markdown)</span>
+                                <span id="promptEditorStats" class="font-mono text-[10px]">0 lines · 0 chars</span>
+                            </div>
+                            <div id="monacoPromptContainer" class="w-full flex-grow h-[500px]" style="min-height: 480px; height: 500px;"></div>
+                        </div>
+
+                        <!-- Right Pane: Obsidian Live Markdown Preview -->
+                        <div id="promptPreviewCol" class="w-full lg:w-1/2 flex flex-col bg-gray-50/40 dark:bg-slate-900/40" style="min-height: 480px;">
+                            <div class="px-4 py-1.5 bg-gray-50 dark:bg-slate-900/60 border-b border-gray-200 dark:border-slate-700 text-[11px] font-semibold text-gray-500 dark:text-gray-400 flex justify-between items-center">
+                                <span>Obsidian Live Markdown Preview</span>
+                                <span class="text-[10px] text-indigo-500 dark:text-indigo-400 font-mono">Rendered marked.js</span>
+                            </div>
+                            <div id="promptMarkdownPreview" class="p-6 flex-grow h-[500px] overflow-y-auto markdown-preview-obsidian" style="min-height: 480px; height: 500px;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Bottom Bar: Revision History Drawer -->
+                    <div class="p-4 border-t border-gray-200 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-900/40">
+                        <details id="promptHistoryDrawer" class="text-xs">
+                            <summary class="cursor-pointer font-bold text-indigo-600 dark:text-indigo-400 select-none flex items-center justify-between">
+                                <span class="flex items-center gap-1.5">
+                                    <span>📜</span> Version History & Rollback (<span id="promptHistoryCount">0</span> revisions)
+                                </span>
+                                <span class="text-[10px] text-gray-400 font-normal">Click to expand</span>
+                            </summary>
+                            <div id="promptHistoryContainer" class="mt-3 space-y-2.5 max-h-48 overflow-y-auto pr-1">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </details>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- PIPELINE EXECUTION & SYSTEM CONSTRAINTS -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left 2 Cols: Pipeline Maintenance Triggers -->
+            <div class="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm space-y-5">
+                <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-slate-700 pb-3 flex items-center gap-2">
+                    <span>⚡</span> Pipeline Execution & Maintenance
+                </h3>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <!-- Bulk Descriptions Loop -->
+                    <div class="bg-gray-50 dark:bg-slate-900/60 p-4 rounded-xl border border-gray-200 dark:border-slate-700 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider">Bulk Descriptions</h4>
+                                <span class="text-[10px] bg-amber-50 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 font-bold px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                    {{ unprocessed_count }} pending
+                                </span>
+                            </div>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-3">Scans for library items lacking AI wiki summaries and processes them in batch.</p>
+                        </div>
                         <form action="/admin/trigger-describe" method="post">
-                            <button type="submit" {% if unprocessed_count == 0 %}disabled class="w-full bg-gray-100 text-gray-400 text-xs font-bold py-2.5 px-4 rounded-xl cursor-not-allowed border border-gray-200" {% else %} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition" {% endif %}>
-                                🚀 Execute Maintenance Loop
+                            <button type="submit" {% if unprocessed_count == 0 %}disabled class="w-full bg-gray-100 dark:bg-slate-700 text-gray-400 text-xs font-bold py-2 px-3 rounded-lg cursor-not-allowed border border-gray-200 dark:border-slate-600" {% else %} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-3 rounded-lg shadow-sm transition" {% endif %}>
+                                🚀 Run Descriptions
                             </button>
                         </form>
                     </div>
 
                     <!-- Embeddings Recalculation -->
-                    <div class="mb-5 pb-5 border-b border-gray-100">
-                        <h4 class="font-bold text-xs text-gray-800 uppercase tracking-wider mb-1">Generate / Recalculate Embeddings</h4>
-                        <p class="text-xs text-gray-500 mb-3">Indexes all items using the active embedding model for similarity and nearest neighbors.</p>
+                    <div class="bg-gray-50 dark:bg-slate-900/60 p-4 rounded-xl border border-gray-200 dark:border-slate-700 flex flex-col justify-between">
+                        <div>
+                            <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider mb-1">Recalculate Embeddings</h4>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-3">Indexes all items using the active embedding model for semantic similarity.</p>
+                        </div>
                         <form action="/admin/trigger-embeddings" method="post">
-                            <button type="submit" class="w-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition">
-                                🧬 Run Embeddings Generation
+                            <button type="submit" class="w-full bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-bold py-2 px-3 rounded-lg shadow-sm transition">
+                                🧬 Run Embeddings
                             </button>
                         </form>
                     </div>
 
                     <!-- Seed General Collection -->
-                    <div>
-                        <h4 class="font-bold text-xs text-gray-800 uppercase tracking-wider mb-1">Seed General Collection</h4>
-                        <p class="text-xs text-gray-500 mb-3">Runs the streaming builder to categorize library items into the virtual taxonomy.</p>
-                        <a href="/admin/collections/populate-general" class="block text-center bg-gray-900 hover:bg-black text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition">
-                            ⚡ Launch Seeding Stream
+                    <div class="bg-gray-50 dark:bg-slate-900/60 p-4 rounded-xl border border-gray-200 dark:border-slate-700 flex flex-col justify-between">
+                        <div>
+                            <h4 class="font-bold text-xs text-gray-800 dark:text-gray-200 uppercase tracking-wider mb-1">Seed Taxonomy</h4>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-3">Runs the streaming builder to categorize library items into virtual domains.</p>
+                        </div>
+                        <a href="/admin/collections/populate-general" class="block text-center bg-gray-900 hover:bg-black text-white text-xs font-bold py-2 px-3 rounded-lg shadow-sm transition">
+                            ⚡ Launch Seeding
                         </a>
                     </div>
                 </div>
+            </div>
+
+            <!-- Right 1 Col: Global Ingestion Constraints -->
+            <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                <div>
+                    <h3 class="text-base font-bold text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-slate-700 pb-3 mb-4 flex items-center gap-2">
+                        <span>📏</span> Global Ingestion Limit
+                    </h3>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                        Maximum character cutoff applied to page scrapes, repository text, and transcripts before feeding to LLM pipelines.
+                    </p>
+                    <form action="/admin/config" method="post" class="space-y-4">
+                        <input type="hidden" name="ollama_host" value="{{ config.ollama_host }}" />
+                        <input type="hidden" name="ollama_model" value="{{ config.ollama_model }}" />
+                        <input type="hidden" name="ollama_embedding_model" value="{{ config.ollama_embedding_model }}" />
+                        {% if config.ollama_think %}<input type="hidden" name="ollama_think" value="true" />{% endif %}
+                        <input type="hidden" name="api_key" value="{{ config.api_key or '' }}" />
+                        <input type="hidden" name="gotify_url" value="{{ config.gotify_url or '' }}" />
+                        <input type="hidden" name="gotify_token" value="{{ config.gotify_token or '' }}" />
+                        <input type="hidden" name="qdrant_host_url" value="{{ config.qdrant_host_url or '' }}" />
+                        <input type="hidden" name="qdrant_api_key" value="{{ config.qdrant_api_key or '' }}" />
+                        <input type="hidden" name="taxonomy_batch_limit" value="{{ config.taxonomy_batch_limit or 500 }}" />
+                        <input type="hidden" name="rag_search_top_k" value="{{ config.rag_search_top_k or 10 }}" />
+                        <input type="hidden" name="similarity_threshold" value="{{ config.similarity_threshold or 0.65 }}" />
+                        <input type="hidden" name="ollama_timeout" value="{{ config.ollama_timeout or 120 }}" />
+                        <input type="hidden" name="notifications_poll_interval_seconds" value="{{ config.notifications_poll_interval_seconds or 30 }}" />
+                        <input type="hidden" name="page_cards_per_page" value="{{ config.page_cards_per_page or 20 }}" />
+                        <input type="hidden" name="crawler_default_max_pages" value="{{ config.crawler_default_max_pages or 50 }}" />
+                        <input type="hidden" name="repo_import_default_depth" value="{{ config.repo_import_default_depth or 1 }}" />
+                        <input type="hidden" name="youtube_download_format" value="{{ config.youtube_download_format or 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b' }}" />
+
+                        <div>
+                            <label for="max_input_length" class="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">Max Input Length (Characters)</label>
+                            <input type="number" name="max_input_length" id="max_input_length" value="{{ config.max_input_length }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required min="100" />
+                        </div>
+
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl transition shadow-sm flex items-center justify-center gap-2">
+                            <span>💾</span> Update Length Limit
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full-Width Autonomous Server Jobs & Agents Framework -->
+        <div class="mt-8 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-100 dark:border-slate-700 pb-4 mb-6">
+                <div>
+                    <div class="flex items-center gap-2.5">
+                        <span class="text-xl">🤖</span>
+                        <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">Autonomous Server Worker & Jobs</h3>
+                        <span id="worker-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Active
+                        </span>
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Independent jobs for wiki curation, vector embeddings, synthetic grounding, RAG evaluation, and autonomous link crawling. Configure timespans (minutes) and assigned Ollama models per job.
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <a href="/reports?table=ollama_logs" class="bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-800 dark:text-gray-200 text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition flex items-center gap-1.5 border border-gray-300 dark:border-slate-600" title="Inspect raw Ollama LLM requests, durations, options, and responses">
+                        <span>📊</span> Ollama Model Logs
+                    </a>
+                    <form action="/admin/worker/trigger" method="post">
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition flex items-center gap-1.5">
+                            <span>⚡</span> Run All Due Jobs Now
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Jobs Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {% if worker_status and worker_status.jobs %}
+                {% for job in worker_status.jobs %}
+                <div class="bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 rounded-xl p-4 flex flex-col justify-between shadow-sm">
+                    <div>
+                        <div class="flex items-start justify-between gap-2 mb-2">
+                            <div>
+                                <h4 class="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+                                    {% if job.category == 'llm' %}<span>📝</span>{% elif job.category == 'embedding' %}<span>🧬</span>{% elif job.category == 'decision' %}<span>⚖️</span>{% else %}<span>🕷️</span>{% endif %}
+                                    {{ job.name }}
+                                </h4>
+                                <span class="inline-block mt-0.5 px-2 py-0.5 text-[10px] font-mono font-bold rounded uppercase
+                                    {% if job.category == 'llm' %}bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300
+                                    {% elif job.category == 'embedding' %}bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300
+                                    {% elif job.category == 'decision' %}bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300
+                                    {% else %}bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300{% endif %}">
+                                    {{ job.category }}
+                                </span>
+                            </div>
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold {% if job.enabled %}bg-emerald-50 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800{% else %}bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-slate-700{% endif %}">
+                                {{ "Active" if job.enabled else "Paused" }}
+                            </span>
+                        </div>
+                        <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-3">{{ job.description }}</p>
+
+                        <!-- Config Form -->
+                        <form action="/admin/jobs/{{ job.id }}/config" method="post" class="space-y-3 mb-4">
+                            <div class="flex items-center justify-between">
+                                <label for="job_{{ job.id }}_enabled" class="text-xs font-semibold text-gray-700 dark:text-gray-300 cursor-pointer">Enable Scheduler</label>
+                                <input type="checkbox" name="enabled" id="job_{{ job.id }}_enabled" value="true" {% if job.enabled %}checked{% endif %} class="h-4 w-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500" />
+                            </div>
+
+                            <div>
+                                <label for="job_{{ job.id }}_interval" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Timespan (Minutes between runs)</label>
+                                <input type="number" name="interval_minutes" id="job_{{ job.id }}_interval" value="{{ job.interval_minutes }}" min="1" max="1440" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" required />
+                            </div>
+
+                            <div>
+                                <label for="job_{{ job.id }}_model" class="block text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1">Assigned Ollama Model</label>
+                                <input type="text" list="admin_model_options" name="model" id="job_{{ job.id }}_model" value="{{ job.model }}" placeholder="e.g. {{ config.ollama_model }}" class="block w-full text-xs font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                            </div>
+
+                            <button type="submit" class="w-full bg-gray-200 hover:bg-gray-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-800 dark:text-gray-200 text-xs font-bold py-1.5 px-3 rounded-lg transition shadow-sm">
+                                💾 Save Job Settings
+                            </button>
+                        </form>
+
+                        <!-- Telemetry Stats -->
+                        <div class="space-y-1.5 text-[10px] text-gray-500 dark:text-gray-400 bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-gray-200 dark:border-slate-700 font-mono">
+                            <div class="flex justify-between">
+                                <span>Items Processed:</span>
+                                <span class="font-bold text-gray-800 dark:text-gray-200">{{ job.items_processed_total }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Total Executions:</span>
+                                <span class="text-gray-700 dark:text-gray-300">{{ job.total_runs }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Last Run:</span>
+                                <span class="text-gray-700 dark:text-gray-300">{{ job.last_run[:16].replace('T', ' ') if job.last_run else 'Never' }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Next Run:</span>
+                                <span class="text-gray-700 dark:text-gray-300">{{ job.next_run[:16].replace('T', ' ') if job.next_run else 'Pending' }}</span>
+                            </div>
+                            {% if job.last_activity %}
+                            <div class="text-[10px] text-gray-600 dark:text-gray-300 truncate mt-1 pt-1 border-t border-gray-100 dark:border-slate-700" title="{{ job.last_activity }}">
+                                {{ job.last_activity }}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Run Now Action -->
+                    <form action="/admin/jobs/{{ job.id }}/run" method="post" class="mt-4">
+                        <button type="submit" class="w-full bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-bold py-2 px-3 rounded-lg transition flex items-center justify-center gap-1.5 shadow-sm">
+                            <span>⚡</span> Run {{ job.name }} Now
+                        </button>
+                    </form>
+                </div>
+                {% endfor %}
+                {% endif %}
             </div>
         </div>
     </div>
@@ -802,10 +1049,334 @@
         </div>
     </div>
 
+    <!-- TAB 6: Agent Configurations & Parameter Exposure -->
+    <div id="tab-agents" class="admin-tab-pane hidden space-y-8 pb-12">
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-gray-100">
+                <div>
+                    <h3 class="text-xl font-extrabold text-gray-900 flex items-center gap-2.5">
+                        <span class="text-2xl">🧠</span> Worker Agent Configurations &amp; Model Profiles
+                    </h3>
+                    <p class="text-xs text-gray-500 mt-1">
+                        Granular configuration for all autonomous background jobs, decision gating, maintenance bots, and chat agents. Configure assigned models, sampling parameters, system personas, and tool permissions.
+                    </p>
+                </div>
+                <div class="flex items-center gap-2.5 flex-wrap">
+                    <!-- Filter Pills -->
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" onclick="filterAgentCards('all')" class="agent-filter-btn active px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white">All ({{ agent_configs | length }})</button>
+                        <button type="button" onclick="filterAgentCards('System Maintenance')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">System Maintenance</button>
+                        <button type="button" onclick="filterAgentCards('Autonomous Curation')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Autonomous Curation</button>
+                        <button type="button" onclick="filterAgentCards('Decision Gating')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Decision Gating</button>
+                        <button type="button" onclick="filterAgentCards('Interactive Chat')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Interactive Chat</button>
+                        <button type="button" onclick="filterAgentCards('Code & Execution')" class="agent-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Code &amp; Execution</button>
+                    </div>
+                    <!-- Create New Agent Button -->
+                    <button type="button" onclick="openCreateAgentModal()" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition flex items-center gap-1.5">
+                        <span>➕</span> Create Worker Agent
+                    </button>
+                </div>
+            </div>
+
+            <!-- Spotlight: Maintenance Agent -->
+            <div class="mt-6 p-4 rounded-xl border border-red-200 bg-red-50/60 flex items-start gap-3">
+                <span class="text-2xl">🚨</span>
+                <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                        <h4 class="text-sm font-bold text-red-900">Maintenance &amp; Error Diagnosis Agent (Background Watchdog)</h4>
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-red-200 text-red-800">system_watchdog</span>
+                    </div>
+                    <p class="text-xs text-red-700 mt-0.5">
+                        Continuously monitors runtime unhandled errors, parses stack traces, and analyzes log exceptions using Ollama. You have full visibility and control over its model, diagnostic prompt, thinking mode, and tools below.
+                    </p>
+                </div>
+            </div>
+
+            <!-- ===============================================================
+                 SECTION 1: SYSTEMONE DECISION GATING MODELS
+                 =============================================================== -->
+            <div class="mt-8 space-y-4">
+                <div class="p-4 rounded-2xl border border-amber-300 bg-amber-50/70">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                        <h4 class="text-sm font-extrabold text-amber-950 flex items-center gap-2">
+                            <span class="text-lg">⚖️</span> SystemOne Decision Gating Models &amp; Classifiers
+                        </h4>
+                        <span class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-amber-200 text-amber-900 border border-amber-300">
+                            ollama.systemone architecture
+                        </span>
+                    </div>
+                    <p class="text-xs text-amber-900/80 mt-1">
+                        <strong>Architecture Guarantee:</strong> SystemOne models (<span class="font-mono font-bold">d1</span>, <span class="font-mono font-bold">tev1</span>) evaluate an arbitrary input state against structured criteria questions in a single calibrated forward pass without generating output tokens. <strong>SystemOne models DO NOT get tools, system messages, thinking mode, or sampling randomness (temperature, top_p, top_k, num_predict).</strong>
+                    </p>
+                </div>
+
+                <div class="space-y-5" id="decisionAgentsList">
+                    {% for agent in agent_configs if agent.call_type == 'decision' %}
+                    <div class="agent-card bg-amber-50/30 border border-amber-200 rounded-2xl p-5 shadow-xs transition hover:border-amber-300" id="agent-card-{{ agent.id }}" data-category="{{ agent.category }}">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-amber-200/70">
+                            <div>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <h4 class="text-sm font-extrabold text-gray-900">{{ agent.name }}</h4>
+                                    <code class="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-200 text-gray-800">{{ agent.id }}</code>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-200">
+                                        SystemOne Decision
+                                    </span>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+                                        {{ agent.category }}
+                                    </span>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                        v{{ agent.version or 1 }}
+                                    </span>
+                                    {% if agent.is_published %}
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1" title="Published {{ agent.published_at }}">
+                                        <span>🔒</span> Frozen Snapshot
+                                    </span>
+                                    {% else %}
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                                        <span>📝</span> Draft (Staged Changes)
+                                    </span>
+                                    {% endif %}
+                                </div>
+                                <span class="text-[11px] text-gray-500 mt-1 block">Last updated: {{ agent.updated_at[:19] if agent.updated_at else 'Initial' }}</span>
+                            </div>
+                            <div class="flex items-center gap-2.5 flex-wrap">
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer text-xs font-bold text-gray-700">
+                                    <input type="checkbox" data-field="enabled" {% if agent.enabled %}checked{% endif %} class="rounded text-amber-600 focus:ring-amber-500 h-4 w-4">
+                                    <span>Active</span>
+                                </label>
+                                <button type="button" onclick="testRunAgent('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 shadow-xs transition flex items-center gap-1">
+                                    <span>🧪</span> Test Run
+                                </button>
+                                <button type="button" onclick="saveAgentConfig('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition flex items-center gap-1">
+                                    <span>💾</span> Save Draft
+                                </button>
+                                <button type="button" onclick="publishAgentConfig('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition flex items-center gap-1">
+                                    <span>🚀</span> Publish Snapshot
+                                </button>
+                                {% if agent.id not in ['link_crawler'] %}
+                                <button type="button" onclick="deleteAgentConfig('{{ agent.id }}')" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 transition" title="Delete custom agent">
+                                    <span>🗑️</span>
+                                </button>
+                                {% endif %}
+                                <span id="agent-status-{{ agent.id }}" class="text-xs"></span>
+                            </div>
+                        </div>
+
+                        <!-- SystemOne Parameters (Strictly context window and model only) -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-amber-900 mb-1" title="The specific SystemOne decision model identifier.">Decision Model</label>
+                                <input type="text" data-field="model" value="{{ agent.model }}" title="The specific SystemOne decision model identifier." class="w-full text-xs font-mono p-2 border border-amber-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-amber-900 mb-1 cursor-help flex items-center gap-1" title="Context window size in tokens for state payload ingestion.">
+                                    <span>Context Window (num_ctx)</span>
+                                    <span class="text-amber-500 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="1024" min="1024" max="65536" data-field="num_ctx" value="{{ agent.num_ctx or 16384 }}" title="Context window size in tokens for state payload ingestion." class="w-full text-xs font-mono p-2 border border-amber-300 rounded-lg bg-white">
+                            </div>
+                        </div>
+
+                        <!-- State Context Jinja Template -->
+                        <div class="mt-4">
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-[10px] font-bold uppercase tracking-wider text-amber-900">
+                                    State Context Jinja2 Template (Evaluated into State Payload)
+                                </label>
+                                <span class="text-[10px] text-gray-400 font-mono">Variables: &#123;&#123; data.title &#125;&#125;, &#123;&#123; data.url &#125;&#125;, etc.</span>
+                            </div>
+                            <textarea rows="5" data-field="user_prompt_template" id="agent-template-{{ agent.id }}" data-available-fields="{{ (agent.available_fields or []) | tojson }}" class="agent-jinja-template w-full text-xs font-mono p-3 border border-amber-300 rounded-xl bg-white shadow-inner focus:ring-amber-500 focus:border-amber-500">{{ agent.user_prompt_template or '' }}</textarea>
+                        </div>
+
+                        <!-- Questions & Criteria Schema -->
+                        <div class="mt-4 pt-3 border-t border-amber-200">
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-[10px] font-bold uppercase tracking-wider text-amber-900 flex items-center gap-1.5" title="Structured questions, instructions, and criteria sent to client.systemone() during forward pass.">
+                                    <span>⚖️ Decision Questions &amp; Evaluation Criteria Schema (JSON)</span>
+                                    <span class="text-xs font-normal text-amber-600">ⓘ</span>
+                                </label>
+                                <span class="text-[10px] text-gray-400 font-mono">Schema: {"questions": {"&lt;id&gt;": {"type": "score|choice|noul", "instructions": "...", "criteria": {...}}}}</span>
+                            </div>
+                            <textarea rows="6" data-field="extra_options" class="w-full text-xs font-mono p-3 border border-amber-300 rounded-xl bg-white focus:ring-amber-500 focus:border-amber-500 shadow-inner" placeholder='{"questions": { ... }}'>{{ (agent.extra_options | tojson(indent=2)) if agent.extra_options else '{}' }}</textarea>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- ===============================================================
+                 SECTION 2: GENERATIVE LLM & CODING WORKER AGENTS
+                 =============================================================== -->
+            <div class="mt-10 pt-8 border-t border-gray-200 space-y-4">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div>
+                        <h4 class="text-sm font-extrabold text-gray-900 flex items-center gap-2">
+                            <span class="text-lg">🤖</span> Generative LLM &amp; Coding Worker Agents
+                        </h4>
+                        <p class="text-xs text-gray-500 mt-0.5">
+                            Autonomous curation, tagging, interactive chat, code synthesis, and error diagnosis agents using standard Ollama completion/chat models with configurable sampling, tool primitives, and persona directives.
+                        </p>
+                    </div>
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-indigo-100 text-indigo-900 border border-indigo-200">
+                        Ollama Chat Architecture
+                    </span>
+                </div>
+
+                <div class="space-y-6" id="llmAgentsList">
+                    {% for agent in agent_configs if agent.call_type != 'decision' %}
+                    <div class="agent-card bg-gray-50/70 border border-gray-200 rounded-2xl p-5 shadow-xs transition hover:border-gray-300" id="agent-card-{{ agent.id }}" data-category="{{ agent.category }}">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-gray-200">
+                            <div>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <h4 class="text-sm font-extrabold text-gray-900">{{ agent.name }}</h4>
+                                    <code class="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-200 text-gray-800">{{ agent.id }}</code>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider {% if agent.call_type == 'embedding' %}bg-purple-100 text-purple-800 border border-purple-200{% elif agent.call_type == 'coding' %}bg-blue-100 text-blue-800 border border-blue-200{% else %}bg-indigo-100 text-indigo-800 border border-indigo-200{% endif %}">
+                                        {{ agent.call_type }}
+                                    </span>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+                                        {{ agent.category }}
+                                    </span>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                        v{{ agent.version or 1 }}
+                                    </span>
+                                    {% if agent.is_published %}
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1" title="Published {{ agent.published_at }}">
+                                        <span>🔒</span> Frozen Snapshot
+                                    </span>
+                                    {% else %}
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                                        <span>📝</span> Draft (Staged Changes)
+                                    </span>
+                                    {% endif %}
+                                </div>
+                                <span class="text-[11px] text-gray-500 mt-1 block">Last updated: {{ agent.updated_at[:19] if agent.updated_at else 'Initial' }}</span>
+                            </div>
+                            <div class="flex items-center gap-2.5 flex-wrap">
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer text-xs font-bold text-gray-700">
+                                    <input type="checkbox" data-field="enabled" {% if agent.enabled %}checked{% endif %} class="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4">
+                                    <span>Active</span>
+                                </label>
+                                {% if agent.call_type != 'embedding' %}
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer text-xs font-bold text-gray-700" title="Enable model internal reasoning and thinking tokens before outputting response.">
+                                    <input type="checkbox" data-field="thinking" {% if agent.thinking %}checked{% endif %} class="rounded text-amber-600 focus:ring-amber-500 h-4 w-4">
+                                    <span>Thinking</span>
+                                </label>
+                                {% endif %}
+                                <button type="button" onclick="testRunAgent('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 shadow-xs transition flex items-center gap-1">
+                                    <span>🧪</span> Test Run
+                                </button>
+                                <button type="button" onclick="saveAgentConfig('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition flex items-center gap-1">
+                                    <span>💾</span> Save Draft
+                                </button>
+                                <button type="button" onclick="publishAgentConfig('{{ agent.id }}')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition flex items-center gap-1">
+                                    <span>🚀</span> Publish Snapshot
+                                </button>
+                                {% if agent.id not in ['maintenance_agent', 'wiki_curation', 'tag_curation', 'youtube_curation', 'article_chat', 'workspace_agent', 'taxonomy_agent', 'rag_synthesis', 'embedding_default'] %}
+                                <button type="button" onclick="deleteAgentConfig('{{ agent.id }}')" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 transition" title="Delete custom agent">
+                                    <span>🗑️</span>
+                                </button>
+                                {% endif %}
+                                <span id="agent-status-{{ agent.id }}" class="text-xs"></span>
+                            </div>
+                        </div>
+
+                        <!-- Parameters Grid (Sampling Options) -->
+                        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+                            <div class="col-span-2 sm:col-span-1">
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1" title="The specific Ollama model identifier to invoke for this agent.">Model</label>
+                                <input type="text" data-field="model" value="{{ agent.model }}" title="The specific Ollama model identifier to invoke for this agent." class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Determines how 'creative' or random the model's answers are. Lower values (0.0 - 0.3) are factual, focused, and deterministic. Higher values (0.7 - 1.2) produce more diverse, creative answers.">
+                                    <span>Temperature</span>
+                                    <span class="text-indigo-400 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="0.05" min="0" max="2" data-field="temperature" value="{{ agent.temperature or 0.2 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Maximum number of tokens to generate in the output response (completion length cutoff). Higher values allow longer outputs.">
+                                    <span>Num Predict</span>
+                                    <span class="text-indigo-400 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="128" min="64" max="16384" data-field="num_predict" value="{{ agent.num_predict or 2048 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Context window size in tokens. Sets how much prior text, context, or document data the model can consider simultaneously.">
+                                    <span>Num Context</span>
+                                    <span class="text-indigo-400 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="1024" min="1024" max="65536" data-field="num_ctx" value="{{ agent.num_ctx or 8192 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Nucleus sampling threshold. The model considers only tokens comprising the top P probability mass (e.g. 0.9 = top 90%). Lower values reduce unlikely words.">
+                                    <span>Top P</span>
+                                    <span class="text-indigo-400 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="0.05" min="0.1" max="1.0" data-field="top_p" value="{{ agent.top_p or 0.9 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1 cursor-help flex items-center gap-1" title="Top-K sampling limit. Limits token selection to the K highest-probability choices (e.g. 40). Lower values (e.g. 10 - 20) make output more predictable.">
+                                    <span>Top K</span>
+                                    <span class="text-indigo-400 font-normal">ⓘ</span>
+                                </label>
+                                <input type="number" step="5" min="1" max="100" data-field="top_k" value="{{ agent.top_k or 40 }}" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                            </div>
+                        </div>
+
+                        <!-- Prompts Editors -->
+                        {% if agent.call_type != 'embedding' %}
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-600 mb-1">
+                                    System Prompt / Persona Directive
+                                </label>
+                                <textarea rows="6" data-field="system_prompt" class="w-full text-xs font-mono p-3 border border-gray-300 rounded-xl bg-white shadow-inner focus:ring-indigo-500 focus:border-indigo-500">{{ agent.system_prompt or '' }}</textarea>
+                            </div>
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-[10px] font-bold uppercase tracking-wider text-gray-600">
+                                        User Prompt Template (Jinja2)
+                                    </label>
+                                    <span class="text-[10px] text-gray-400 font-mono">Variables: &#123;&#123; data.title &#125;&#125;, &#123;&#123; data.wiki &#125;&#125;, etc.</span>
+                                </div>
+                                <textarea rows="6" data-field="user_prompt_template" id="agent-template-{{ agent.id }}" data-available-fields="{{ (agent.available_fields or []) | tojson }}" class="agent-jinja-template w-full text-xs font-mono p-3 border border-gray-300 rounded-xl bg-white shadow-inner focus:ring-indigo-500 focus:border-indigo-500">{{ agent.user_prompt_template or '' }}</textarea>
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Tools Configuration -->
+                        <div class="mt-4 pt-3 border-t border-gray-200">
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5" title="Comma-separated tool primitives that the model is permitted to execute autonomously.">
+                                Allowed Tool Primitives (comma-separated)
+                            </label>
+                            <input type="text" data-field="tools" value="{{ (agent.tools or []) | join(', ') }}" placeholder="fetch_page, get_system_logs, execute_sql, search_vectors, run_python, notify_gotify" class="w-full text-xs font-mono p-2 border border-gray-300 rounded-lg bg-white">
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div>
+
+<!-- Hidden JSON Payloads for Prompts and Revisions -->
+<script id="allPromptsData" type="application/json">{{ all_prompts | tojson }}</script>
+<script id="promptsHistoryData" type="application/json">{{ prompts_history | tojson }}</script>
 
 <!-- Tab Switching Controller -->
 <script>
+    // Null-safe HTML escaping helper used by Prompt Studio renderers and status banners.
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function switchAdminTab(tabId) {
         // Hide all panes
         document.querySelectorAll('.admin-tab-pane').forEach(el => el.classList.add('hidden'));
@@ -831,6 +1402,17 @@
             localStorage.setItem('kb_admin_active_tab', tabId);
             window.location.hash = tabId;
         } catch (e) {}
+
+        // Tab layout hook for Monaco Editor in Prompts Studio
+        if (tabId === 'tab-prompts') {
+            setTimeout(() => {
+                if (promptMonacoEditor) {
+                    promptMonacoEditor.layout();
+                } else if (typeof initPromptStudio === 'function') {
+                    initPromptStudio();
+                }
+            }, 60);
+        }
     }
 
     // Initialize tab on load from URL hash or localStorage
@@ -843,7 +1425,700 @@
         } else {
             switchAdminTab('tab-general');
         }
+
+        if (initialTab === 'tab-prompts') {
+            setTimeout(initPromptStudio, 100);
+        }
     });
+
+    /* =======================================================================
+       AGENT CONFIGURATIONS CONTROLLER
+       ======================================================================= */
+    function filterAgentCards(category) {
+        document.querySelectorAll('.agent-filter-btn').forEach(btn => {
+            btn.classList.remove('bg-indigo-600', 'text-white', 'active');
+            btn.classList.add('bg-gray-100', 'text-gray-700');
+        });
+        const activeBtn = event?.currentTarget;
+        if (activeBtn) {
+            activeBtn.classList.add('bg-indigo-600', 'text-white', 'active');
+            activeBtn.classList.remove('bg-gray-100', 'text-gray-700');
+        }
+
+        const cards = document.querySelectorAll('.agent-card');
+        cards.forEach(card => {
+            const cardCat = card.getAttribute('data-category');
+            if (category === 'all' || cardCat === category) {
+                card.classList.remove('hidden');
+            } else {
+                card.classList.add('hidden');
+            }
+        });
+    }
+
+    async function saveAgentConfig(agentId) {
+        const card = document.getElementById('agent-card-' + agentId);
+        if (!card) return;
+
+        const model = card.querySelector('[data-field="model"]')?.value;
+        const enabled = card.querySelector('[data-field="enabled"]')?.checked;
+        const thinking = card.querySelector('[data-field="thinking"]')?.checked;
+        const temperature = parseFloat(card.querySelector('[data-field="temperature"]')?.value || '0.2');
+        const num_predict = parseInt(card.querySelector('[data-field="num_predict"]')?.value || '2048', 10);
+        const num_ctx = parseInt(card.querySelector('[data-field="num_ctx"]')?.value || '8192', 10);
+        const top_p = parseFloat(card.querySelector('[data-field="top_p"]')?.value || '0.9');
+        const top_k = parseInt(card.querySelector('[data-field="top_k"]')?.value || '40', 10);
+        const system_prompt = card.querySelector('[data-field="system_prompt"]')?.value;
+        const user_prompt_template = card.querySelector('[data-field="user_prompt_template"]')?.value;
+        const toolsStr = card.querySelector('[data-field="tools"]')?.value || '';
+        const tools = toolsStr.split(',').map(s => s.trim()).filter(Boolean);
+        const extraOptionsEl = card.querySelector('[data-field="extra_options"]');
+        let extra_options = undefined;
+        if (extraOptionsEl && extraOptionsEl.value.trim()) {
+            try {
+                extra_options = JSON.parse(extraOptionsEl.value.trim());
+            } catch (err) {
+                alert("Invalid JSON in Decision Questions / Extra Options for " + agentId + ": " + err.message);
+                return;
+            }
+        }
+
+        const payload = {
+            model,
+            enabled,
+            thinking,
+            temperature,
+            num_predict,
+            num_ctx,
+            top_p,
+            top_k,
+            system_prompt,
+            user_prompt_template,
+            tools,
+            ...(extra_options !== undefined ? { extra_options } : {})
+        };
+
+        const statusEl = document.getElementById('agent-status-' + agentId);
+        if (statusEl) {
+            statusEl.className = 'text-xs text-indigo-600 font-bold';
+            statusEl.innerText = 'Saving...';
+        }
+
+        try {
+            const resp = await fetch('/api/admin/agents/' + encodeURIComponent(agentId), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!resp.ok) {
+                let errText = resp.statusText;
+                try {
+                    const errJson = await resp.json();
+                    errText = errJson.detail || errText;
+                } catch {}
+                throw new Error(errText);
+            }
+            if (statusEl) {
+                statusEl.className = 'text-xs text-emerald-600 font-bold';
+                statusEl.innerText = 'Saved!';
+                setTimeout(() => { if (statusEl.innerText === 'Saved!') statusEl.innerText = ''; }, 3000);
+            }
+        } catch (err) {
+            if (statusEl) {
+                statusEl.className = 'text-xs text-red-600 font-bold';
+                statusEl.innerText = 'Error: ' + err.message;
+            }
+        }
+    }
+
+    async function publishAgentConfig(agentId) {
+        if (!confirm(`Publish a frozen snapshot for '${agentId}'? This increments the agent version and commits the current draft configuration.`)) {
+            return;
+        }
+        const statusEl = document.getElementById('agent-status-' + agentId);
+        if (statusEl) {
+            statusEl.className = 'text-xs text-indigo-600 font-bold';
+            statusEl.innerText = 'Publishing snapshot...';
+        }
+        try {
+            const resp = await fetch('/api/admin/agents/' + encodeURIComponent(agentId) + '/publish', {
+                method: 'POST'
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Publish failed');
+            alert(`Agent '${agentId}' successfully published as version v${data.agent.version} (Frozen Snapshot)!`);
+            window.location.reload();
+        } catch (err) {
+            alert('Failed to publish snapshot: ' + err.message);
+            if (statusEl) statusEl.innerText = '';
+        }
+    }
+
+    async function deleteAgentConfig(agentId) {
+        if (!confirm(`Are you sure you want to permanently delete custom agent '${agentId}'? This action cannot be undone.`)) {
+            return;
+        }
+        try {
+            const resp = await fetch('/api/admin/agents/' + encodeURIComponent(agentId), {
+                method: 'DELETE'
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Delete failed');
+            alert(data.message || `Agent '${agentId}' deleted.`);
+            const card = document.getElementById('agent-card-' + agentId);
+            if (card) card.remove();
+        } catch (err) {
+            alert('Delete failed: ' + err.message);
+        }
+    }
+
+    async function testRunAgent(agentId) {
+        const modal = document.getElementById('testRunModal');
+        const titleEl = document.getElementById('testRunModalTitle');
+        const outputEl = document.getElementById('testRunModalOutput');
+        const latencyEl = document.getElementById('testRunModalLatency');
+        const promptEl = document.getElementById('testRunModalPrompt');
+
+        if (!modal) return;
+        titleEl.innerText = `🧪 Test Run: ${agentId}`;
+        outputEl.innerText = 'Executing test run with sample knowledge base article... Please wait.';
+        latencyEl.innerText = 'Waiting...';
+        promptEl.innerText = 'Rendering template...';
+        modal.classList.remove('hidden');
+
+        try {
+            const resp = await fetch('/api/admin/agents/' + encodeURIComponent(agentId) + '/test-run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+            const data = await resp.json();
+            if (!resp.ok || data.status === 'error') {
+                outputEl.innerText = 'ERROR: ' + (data.error || data.detail || 'Unknown test error');
+                latencyEl.innerText = (data.latency_ms || 0) + ' ms';
+                promptEl.innerText = data.rendered_prompt || 'N/A';
+                return;
+            }
+
+            latencyEl.innerText = `${data.latency_ms} ms (${data.model})`;
+            promptEl.innerText = data.rendered_prompt || '';
+
+            if (typeof data.output === 'object') {
+                outputEl.innerText = JSON.stringify(data.output, null, 2);
+            } else {
+                outputEl.innerText = data.output || '(No output returned)';
+            }
+        } catch (err) {
+            outputEl.innerText = 'Network error during test execution: ' + err.message;
+        }
+    }
+
+    function closeTestRunModal() {
+        document.getElementById('testRunModal')?.classList.add('hidden');
+    }
+
+    function openCreateAgentModal() {
+        document.getElementById('createAgentModal')?.classList.remove('hidden');
+    }
+
+    function closeCreateAgentModal() {
+        document.getElementById('createAgentModal')?.classList.add('hidden');
+    }
+
+    async function submitCreateAgent() {
+        const id = document.getElementById('newAgentId')?.value.trim();
+        const name = document.getElementById('newAgentName')?.value.trim();
+        const category = document.getElementById('newAgentCategory')?.value.trim() || 'custom';
+        const call_type = document.getElementById('newAgentCallType')?.value;
+        const model = document.getElementById('newAgentModel')?.value.trim();
+        const system_prompt = document.getElementById('newAgentSystemPrompt')?.value || '';
+        const user_prompt_template = document.getElementById('newAgentTemplate')?.value || '';
+
+        if (!id || !name || !model) {
+            alert('Please fill in required fields: Agent ID, Name, and Model.');
+            return;
+        }
+
+        try {
+            const resp = await fetch('/api/admin/agents/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id, name, category, call_type, model, system_prompt, user_prompt_template
+                })
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Failed to create agent');
+            alert(`Worker Agent '${name}' created successfully in draft mode!`);
+            window.location.reload();
+        } catch (err) {
+            alert('Error creating agent: ' + err.message);
+        }
+    }
+
+    // Initialize Jinja Highlighter on all agent prompt templates
+    document.addEventListener('DOMContentLoaded', () => {
+        if (typeof window.initJinjaHighlighter === 'function') {
+            document.querySelectorAll('.agent-jinja-template').forEach(ta => {
+                let fields = null;
+                if (ta.dataset.availableFields) {
+                    try {
+                        fields = JSON.parse(ta.dataset.availableFields);
+                    } catch (e) {}
+                }
+                window.initJinjaHighlighter(ta, {
+                    availableFields: fields || ['title', 'url', 'md_content', 'description', 'tags', 'content', 'reading_time_minutes', 'fetched_at']
+                });
+            });
+        }
+    });
+
+    /* =======================================================================
+       PROMPT STUDIO CONTROLLER (MONACO + OBSIDIAN LIVE MARKDOWN PREVIEW)
+       ======================================================================= */
+    let allPrompts = [];
+    let promptsHistory = {};
+    let activePromptId = 'wiki_prompt';
+    let promptMonacoEditor = null;
+    let studioViewMode = 'split'; // 'split', 'editor', 'preview'
+
+    function initPromptStudio() {
+        if (allPrompts.length > 0 && promptMonacoEditor) {
+            promptMonacoEditor.layout();
+            return;
+        }
+
+        try {
+            const dataEl = document.getElementById('allPromptsData');
+            const histEl = document.getElementById('promptsHistoryData');
+            if (dataEl && dataEl.textContent) allPrompts = JSON.parse(dataEl.textContent);
+            if (histEl && histEl.textContent) promptsHistory = JSON.parse(histEl.textContent);
+        } catch (e) {
+            console.error("Failed to parse prompt JSON metadata:", e);
+        }
+
+        // Check if query string specified target_prompt
+        const urlParams = new URLSearchParams(window.location.search);
+        const target = urlParams.get('target_prompt');
+        if (target && allPrompts.some(p => p.id === target)) {
+            activePromptId = target;
+        }
+
+        renderPromptList();
+        initPromptMonaco();
+    }
+
+    function initPromptMonaco() {
+        if (typeof require === 'undefined') {
+            setTimeout(initPromptMonaco, 50);
+            return;
+        }
+
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
+        require(['vs/editor/editor.main'], function() {
+            const container = document.getElementById('monacoPromptContainer');
+            if (!container) return;
+
+            const current = allPrompts.find(p => p.id === activePromptId) || allPrompts[0];
+            const isDark = document.documentElement.classList.contains('dark');
+
+            if (promptMonacoEditor) {
+                promptMonacoEditor.dispose();
+            }
+
+            promptMonacoEditor = monaco.editor.create(container, {
+                value: current ? current.value : '',
+                language: 'markdown',
+                theme: isDark ? 'vs-dark' : 'vs',
+                automaticLayout: true,
+                fontSize: 13,
+                lineNumbers: 'on',
+                wordWrap: 'on',
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                padding: { top: 12, bottom: 12 },
+            });
+
+            promptMonacoEditor.onDidChangeModelContent(() => {
+                updateMarkdownPreview();
+                updateStudioStats();
+            });
+
+            // Keyboard shortcut Ctrl+S / Cmd+S
+            promptMonacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function() {
+                saveCurrentPrompt();
+            });
+
+            updateMarkdownPreview();
+            updateStudioStats();
+            updateActivePromptUI();
+
+            setTimeout(() => {
+                if (promptMonacoEditor) promptMonacoEditor.layout();
+            }, 60);
+            setTimeout(() => {
+                if (promptMonacoEditor) promptMonacoEditor.layout();
+            }, 200);
+        });
+    }
+
+    // Debounced window resize listener to maintain editor layout on half-screen or split changes
+    window.addEventListener('resize', () => {
+        if (promptMonacoEditor) {
+            clearTimeout(window._promptMonacoResizeTimeout);
+            window._promptMonacoResizeTimeout = setTimeout(() => {
+                promptMonacoEditor.layout();
+            }, 80);
+        }
+    });
+
+    function renderPromptList() {
+        const container = document.getElementById('promptsListContainer');
+        if (!container) return;
+
+        const categories = ["Curation", "Research & Architecture", "Diagnostics & Coding"];
+        const grouped = {};
+        categories.forEach(c => grouped[c] = []);
+
+        const searchFilter = (document.getElementById('promptSearchInput')?.value || '').toLowerCase().trim();
+
+        allPrompts.forEach(p => {
+            const matchesSearch = !searchFilter || 
+                p.label.toLowerCase().includes(searchFilter) || 
+                p.id.toLowerCase().includes(searchFilter) || 
+                (p.description || '').toLowerCase().includes(searchFilter);
+
+            if (matchesSearch) {
+                const cat = p.category || "Curation";
+                if (!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push(p);
+            }
+        });
+
+        let html = '';
+        categories.forEach(cat => {
+            const items = grouped[cat] || [];
+            if (items.length === 0) return;
+
+            html += `
+                <div>
+                    <div class="text-[10px] font-extrabold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5 px-2">
+                        ${cat}
+                    </div>
+                    <div class="space-y-1">
+            `;
+
+            items.forEach(p => {
+                const isActive = p.id === activePromptId;
+                const isModified = p.value !== p.default;
+                const activeCls = isActive 
+                    ? 'bg-indigo-50 dark:bg-indigo-900/40 border-indigo-300 dark:border-indigo-600 text-indigo-900 dark:text-indigo-200 shadow-sm' 
+                    : 'bg-white dark:bg-slate-800/80 hover:bg-gray-100 dark:hover:bg-slate-700/60 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300';
+
+                html += `
+                    <button type="button" onclick="selectPrompt('${p.id}')" class="w-full text-left p-2.5 rounded-xl border transition flex items-center justify-between gap-2 ${activeCls}">
+                        <div class="min-w-0 flex items-center gap-2">
+                            <span class="text-sm flex-shrink-0">${p.icon || '📝'}</span>
+                            <div class="truncate">
+                                <div class="text-xs font-bold truncate">${p.label}</div>
+                                <div class="text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate">${p.id}</div>
+                            </div>
+                        </div>
+                        <div class="flex-shrink-0 flex items-center gap-1">
+                            ${isModified ? '<span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Mod</span>' : ''}
+                            ${isActive ? '<span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-600 text-white">Active</span>' : ''}
+                        </div>
+                    </button>
+                `;
+            });
+
+            html += `
+                    </div>
+                </div>
+            `;
+        });
+
+        if (html === '') {
+            html = '<div class="text-xs text-gray-400 italic text-center py-6">No prompts matching filter.</div>';
+        }
+
+        container.innerHTML = html;
+    }
+
+    function filterPromptList() {
+        renderPromptList();
+    }
+
+    function selectPrompt(promptId) {
+        if (promptId === activePromptId) return;
+        activePromptId = promptId;
+
+        const current = allPrompts.find(p => p.id === promptId);
+        if (!current) return;
+
+        if (promptMonacoEditor) {
+            promptMonacoEditor.setValue(current.value);
+        }
+
+        updateActivePromptUI();
+        updateMarkdownPreview();
+        updateStudioStats();
+        renderPromptList();
+    }
+
+    function updateActivePromptUI() {
+        const current = allPrompts.find(p => p.id === activePromptId);
+        if (!current) return;
+
+        const labelEl = document.getElementById('activePromptLabel');
+        const catEl = document.getElementById('activePromptCategoryBadge');
+        const descEl = document.getElementById('activePromptDescription');
+        const headBadge = document.getElementById('activePromptHeadBadge');
+
+        if (labelEl) labelEl.textContent = `${current.icon || '🤖'} ${current.label}`;
+        if (catEl) catEl.textContent = current.category || 'General';
+        if (descEl) descEl.textContent = current.description || '';
+
+        const isModified = current.value !== current.default;
+        if (headBadge) {
+            if (isModified) {
+                headBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800';
+                headBadge.textContent = 'Customized';
+            } else {
+                headBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800';
+                headBadge.textContent = 'Default';
+            }
+        }
+
+        // Render Version History
+        const historyList = promptsHistory[activePromptId] || [];
+        const histCountEl = document.getElementById('promptHistoryCount');
+        const histContainer = document.getElementById('promptHistoryContainer');
+
+        if (histCountEl) histCountEl.textContent = historyList.length;
+
+        if (histContainer) {
+            if (historyList.length === 0) {
+                histContainer.innerHTML = '<p class="text-xs text-gray-400 italic py-2">No past revisions recorded yet for this prompt.</p>';
+            } else {
+                histContainer.innerHTML = historyList.map(h => {
+                    const isHead = h.is_head === 1;
+                    const dateStr = (h.created_at || '').substring(0, 16).replace('T', ' ');
+                    return `
+                        <div class="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 flex flex-col gap-1.5 shadow-sm">
+                            <div class="flex justify-between items-center">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold text-xs text-gray-800 dark:text-gray-200">Version ${h.version}</span>
+                                    <span class="text-[10px] text-gray-400 font-mono">${dateStr}</span>
+                                    ${isHead ? '<span class="text-[9px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-700">Active HEAD</span>' : ''}
+                                </div>
+                                ${!isHead ? `
+                                    <button type="button" onclick="setPromptHead(${h.id}, '${activePromptId}')" class="px-2 py-0.5 text-[10px] font-bold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 rounded transition">
+                                        Restore Version ${h.version}
+                                    </button>
+                                ` : ''}
+                            </div>
+                            <pre class="text-[10px] font-mono text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-slate-900/60 p-2 rounded max-h-16 overflow-y-auto whitespace-pre-wrap">${escapeHtml(h.prompt_text || '')}</pre>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+    }
+
+    function updateMarkdownPreview() {
+        if (!promptMonacoEditor) return;
+        const val = promptMonacoEditor.getValue();
+        const previewEl = document.getElementById('promptMarkdownPreview');
+        if (previewEl) {
+            if (typeof marked !== 'undefined') {
+                previewEl.innerHTML = marked.parse(val);
+            } else {
+                previewEl.textContent = val;
+            }
+        }
+    }
+
+    function updateStudioStats() {
+        if (!promptMonacoEditor) return;
+        const text = promptMonacoEditor.getValue();
+        const lineCount = text.split('\n').length;
+        const charCount = text.length;
+        const statsEl = document.getElementById('promptEditorStats');
+        if (statsEl) {
+            statsEl.textContent = `${lineCount.toLocaleString()} lines · ${charCount.toLocaleString()} chars`;
+        }
+    }
+
+    function setViewMode(mode) {
+        studioViewMode = mode;
+        const editorCol = document.getElementById('promptEditorCol');
+        const previewCol = document.getElementById('promptPreviewCol');
+        const btnSplit = document.getElementById('btnViewSplit');
+        const btnEditor = document.getElementById('btnViewEditor');
+        const btnPreview = document.getElementById('btnViewPreview');
+
+        [btnSplit, btnEditor, btnPreview].forEach(b => {
+            if (b) {
+                b.classList.remove('bg-indigo-600', 'text-white');
+                b.classList.add('text-gray-600', 'dark:text-gray-400');
+            }
+        });
+
+        if (mode === 'split') {
+            if (editorCol) {
+                editorCol.classList.remove('hidden');
+                editorCol.className = 'w-full lg:w-1/2 flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-slate-700';
+            }
+            if (previewCol) {
+                previewCol.classList.remove('hidden');
+                previewCol.className = 'w-full lg:w-1/2 flex flex-col bg-gray-50/40 dark:bg-slate-900/40';
+            }
+            if (btnSplit) {
+                btnSplit.classList.add('bg-indigo-600', 'text-white');
+                btnSplit.classList.remove('text-gray-600', 'dark:text-gray-400');
+            }
+        } else if (mode === 'editor') {
+            if (editorCol) {
+                editorCol.classList.remove('hidden');
+                editorCol.className = 'w-full flex flex-col';
+            }
+            if (previewCol) previewCol.classList.add('hidden');
+            if (btnEditor) {
+                btnEditor.classList.add('bg-indigo-600', 'text-white');
+                btnEditor.classList.remove('text-gray-600', 'dark:text-gray-400');
+            }
+        } else if (mode === 'preview') {
+            if (editorCol) editorCol.classList.add('hidden');
+            if (previewCol) {
+                previewCol.classList.remove('hidden');
+                previewCol.className = 'w-full flex flex-col bg-gray-50/40 dark:bg-slate-900/40';
+            }
+            if (btnPreview) {
+                btnPreview.classList.add('bg-indigo-600', 'text-white');
+                btnPreview.classList.remove('text-gray-600', 'dark:text-gray-400');
+            }
+        }
+
+        if (promptMonacoEditor) {
+            setTimeout(() => promptMonacoEditor.layout(), 30);
+            setTimeout(() => promptMonacoEditor.layout(), 150);
+        }
+    }
+
+    async function saveCurrentPrompt() {
+        if (!promptMonacoEditor) return;
+        const text = promptMonacoEditor.getValue();
+        const current = allPrompts.find(p => p.id === activePromptId);
+        const saveBtn = document.getElementById('btnSavePrompt');
+
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span>⏳</span> Saving...';
+        }
+
+        try {
+            const res = await fetch('/api/config/prompts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt_id: activePromptId, prompt_text: text })
+            });
+            const data = await res.json();
+            if (res.ok && data.status === 'success') {
+                if (current) current.value = text;
+                showPromptNotification(`Prompt "${current ? current.label : activePromptId}" saved and activated.`, 'success');
+                updateActivePromptUI();
+                renderPromptList();
+            } else {
+                showPromptNotification('Failed to save prompt: ' + (data.detail || data.message || 'Server error'), 'error');
+            }
+        } catch (e) {
+            showPromptNotification('Network error saving prompt: ' + e.message, 'error');
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<span>💾</span> Save Prompt';
+            }
+        }
+    }
+
+    async function resetCurrentPromptToDefault() {
+        const current = allPrompts.find(p => p.id === activePromptId);
+        if (!current) return;
+
+        if (!confirm(`Are you sure you want to reset "${current.label}" to its factory default instructions?`)) {
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/config/prompts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt_id: activePromptId, reset_default: true })
+            });
+            const data = await res.json();
+            if (res.ok && data.status === 'success') {
+                current.value = current.default;
+                if (promptMonacoEditor) {
+                    promptMonacoEditor.setValue(current.default);
+                }
+                showPromptNotification(`"${current.label}" reset to default instructions.`, 'success');
+                updateActivePromptUI();
+                updateMarkdownPreview();
+                updateStudioStats();
+                renderPromptList();
+            } else {
+                showPromptNotification('Failed to reset prompt: ' + (data.detail || data.message || 'Server error'), 'error');
+            }
+        } catch (e) {
+            showPromptNotification('Error: ' + e.message, 'error');
+        }
+    }
+
+    function copyCurrentPrompt() {
+        if (!promptMonacoEditor) return;
+        const text = promptMonacoEditor.getValue();
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(() => {
+                showPromptNotification('Prompt text copied to clipboard!', 'info');
+            }).catch(() => {
+                copyToClipboard(text);
+                showPromptNotification('Prompt text copied to clipboard!', 'info');
+            });
+        } else {
+            copyToClipboard(text);
+            showPromptNotification('Prompt text copied to clipboard!', 'info');
+        }
+    }
+
+    function showPromptNotification(msg, type = 'info') {
+        const banner = document.getElementById('promptStatusBanner');
+        if (!banner) return;
+
+        let icon = 'ℹ️';
+        let cls = 'bg-indigo-50 border-indigo-200 text-indigo-800 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-300';
+        if (type === 'success') {
+            icon = '✅';
+            cls = 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-300';
+        } else if (type === 'error') {
+            icon = '⚠️';
+            cls = 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-900/30 dark:border-rose-800 dark:text-rose-300';
+        }
+
+        banner.className = `text-xs font-semibold px-3 py-1.5 rounded-lg border flex items-center gap-2 transition animate-fade-in shadow-sm ${cls}`;
+        banner.innerHTML = `<span>${icon}</span> <span>${escapeHtml(msg)}</span>`;
+        banner.classList.remove('hidden');
+
+        setTimeout(() => {
+            banner.classList.add('hidden');
+        }, 4500);
+    }
+
+    function setPromptHead(promptId, promptType) {
+        document.getElementById('head_prompt_id').value = promptId;
+        document.getElementById('head_prompt_type').value = promptType;
+        document.getElementById('setPromptHeadForm').submit();
+    }
 
     function testOllamaConnection() {
         const host = document.getElementById('ollama_host').value.trim();
@@ -886,9 +2161,9 @@
     }
 
     async function loadAdminOllamaModels() {
-        const select = document.getElementById('admin_model_quick_select');
+        const datalist = document.getElementById('admin_model_options');
+        const embDatalist = document.getElementById('admin_embedding_model_options');
         const info = document.getElementById('admin_loaded_models_info');
-        if (!select) return;
         try {
             if (info) info.textContent = 'Checking /api/models...';
             const res = await fetch('/api/models');
@@ -897,27 +2172,36 @@
             const loaded = data.loaded_models || [];
             const models = data.models || [];
 
-            select.innerHTML = '<option value="">Select model...</option>';
-            if (loaded.length > 0) {
-                const grp = document.createElement('optgroup');
-                grp.label = '🟢 Loaded in VRAM';
+            if (datalist) {
+                datalist.innerHTML = '';
                 loaded.forEach(m => {
                     const opt = document.createElement('option');
                     opt.value = m;
-                    opt.textContent = `🟢 ${m} (In VRAM)`;
-                    grp.appendChild(opt);
+                    opt.label = `🟢 ${m} (In VRAM)`;
+                    datalist.appendChild(opt);
                 });
-                select.appendChild(grp);
+                models.filter(m => !loaded.includes(m)).forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    datalist.appendChild(opt);
+                });
             }
-            const grpOther = document.createElement('optgroup');
-            grpOther.label = loaded.length > 0 ? 'Installed on Disk' : 'Available Models';
-            models.filter(m => !loaded.includes(m)).forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m;
-                opt.textContent = m;
-                grpOther.appendChild(opt);
-            });
-            select.appendChild(grpOther);
+
+            if (embDatalist) {
+                embDatalist.innerHTML = '';
+                models.filter(m => m.toLowerCase().includes('embed') || m.toLowerCase().includes('bge') || m.toLowerCase().includes('nomic') || m.toLowerCase().includes('gemma')).forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    embDatalist.appendChild(opt);
+                });
+                models.forEach(m => {
+                    if (!embDatalist.querySelector(`option[value="${m}"]`)) {
+                        const opt = document.createElement('option');
+                        opt.value = m;
+                        embDatalist.appendChild(opt);
+                    }
+                });
+            }
 
             if (info) {
                 if (loaded.length > 0) {
@@ -1259,6 +2543,104 @@
                     Save Changes to Form
                 </button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Create New Worker Agent -->
+<div id="createAgentModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4 animate-fade-in">
+    <div class="bg-white rounded-2xl border border-gray-200 w-full max-w-xl flex flex-col shadow-2xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+            <div>
+                <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                    ➕ Create New Worker Agent
+                </h3>
+                <p class="text-xs text-gray-500">Configure a custom agent for autonomous curation, coding, or decision gating.</p>
+            </div>
+            <button type="button" onclick="closeCreateAgentModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold p-1 rounded-lg hover:bg-gray-200 transition">
+                ✕
+            </button>
+        </div>
+        <div class="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Agent ID (slug)</label>
+                    <input type="text" id="newAgentId" placeholder="e.g. news_synthesizer" class="w-full text-xs font-mono p-2.5 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Display Name</label>
+                    <input type="text" id="newAgentName" placeholder="e.g. Technical News Synthesizer" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg">
+                </div>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Category</label>
+                    <input type="text" id="newAgentCategory" value="custom" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Architecture</label>
+                    <select id="newAgentCallType" class="w-full text-xs p-2.5 border border-gray-300 rounded-lg bg-white font-medium">
+                        <option value="llm">Generative LLM</option>
+                        <option value="decision">SystemOne Decision (d1/tev1)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Model</label>
+                    <input type="text" id="newAgentModel" value="gemma4:e4b" class="w-full text-xs font-mono p-2.5 border border-gray-300 rounded-lg">
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">System Prompt (LLM Only)</label>
+                <textarea rows="3" id="newAgentSystemPrompt" placeholder="You are an autonomous technical curation agent..." class="w-full text-xs font-mono p-2.5 border border-gray-300 rounded-lg"></textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">User Prompt / State Template (Jinja2)</label>
+                <textarea rows="3" id="newAgentTemplate" placeholder="{% raw %}Article Title: {{ data.title }}&#10;URL: {{ data.url }}&#10;Content: {{ data.md_content }}{% endraw %}" class="w-full text-xs font-mono p-2.5 border border-gray-300 rounded-lg"></textarea>
+            </div>
+        </div>
+        <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+            <button type="button" onclick="closeCreateAgentModal()" class="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 text-xs font-bold rounded-xl transition shadow-xs">
+                Cancel
+            </button>
+            <button type="button" onclick="submitCreateAgent()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition shadow-xs">
+                Create Draft Agent
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Test Run Execution Preview -->
+<div id="testRunModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4 animate-fade-in">
+    <div class="bg-white rounded-2xl border border-gray-200 w-full max-w-3xl flex flex-col shadow-2xl overflow-hidden max-h-[85vh]">
+        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+            <div>
+                <h3 id="testRunModalTitle" class="text-base font-bold text-gray-900 flex items-center gap-2">
+                    🧪 Test Run Output
+                </h3>
+                <p class="text-xs text-gray-500">Live preview of agent execution on sample data before publishing snapshot.</p>
+            </div>
+            <button type="button" onclick="closeTestRunModal()" class="text-gray-400 hover:text-gray-600 text-xl font-bold p-1 rounded-lg hover:bg-gray-200 transition">
+                ✕
+            </button>
+        </div>
+        <div class="p-6 space-y-4 overflow-y-auto">
+            <div class="flex items-center justify-between text-xs p-3 rounded-xl bg-gray-50 border border-gray-200 font-mono">
+                <span class="text-gray-600 font-bold">Execution Latency:</span>
+                <span id="testRunModalLatency" class="font-extrabold text-indigo-600">Waiting...</span>
+            </div>
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Rendered Prompt / State Context</label>
+                <div id="testRunModalPrompt" class="p-3 bg-gray-50 border border-gray-200 rounded-xl font-mono text-xs whitespace-pre-wrap max-h-36 overflow-y-auto text-gray-700"></div>
+            </div>
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1">Agent Response / Structured Output</label>
+                <div id="testRunModalOutput" class="p-4 bg-gray-900 text-emerald-400 rounded-xl font-mono text-xs whitespace-pre-wrap max-h-72 overflow-y-auto shadow-inner leading-relaxed"></div>
+            </div>
+        </div>
+        <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end">
+            <button type="button" onclick="closeTestRunModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition shadow-xs">
+                Close Preview
+            </button>
         </div>
     </div>
 </div>

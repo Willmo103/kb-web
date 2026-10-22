@@ -28,6 +28,7 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - **Admin Portal Tabbed Layout**: Ergonomic, 5-tab dashboard with persistent tab state across General, Prompts, Backups, Media, and Diagnostics.
 - **Custom Report Builder & ERP Data Grid**: Multi-table data grid (`/reports`) with dynamic joins, filtering, saved views, and high-volume streaming exports in `.csv`, `.json`, and native Excel `.xlsx`.
 - **In-Browser Replit-Lite Workspaces & Pyodide Python WASM**: Full browser-based coding studio (`/workspaces`) with persistent multi-file workspaces stored in the database, Monaco Editor, live Pyodide Python 3 WASM execution runtime, sandboxed HTML/JS preview with console log interceptor, ZIP archive bundling, and ephemeral Ollama coding agent with interactive diff review and merge.
+- **Model Evaluation Studio & Calibration Suite**: Dedicated evaluation studio (`/evals`) for side-by-side comparative testing across models and prompts (Prompt & Model Matrix), structured multi-question decision gating (`d1` default with 16k context window and `tev1` via `client.systemone`), and embedding retrieval benchmarks before production worker agent deployment.
 
 ---
 
@@ -48,7 +49,11 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - `src/kb_web/routers/embeddings.py`: Multi-model embedding management, reindexing, and side-by-side comparison.
 - `src/kb_web/routers/notes.py`: Personal knowledge notes, code paste ingestion, and Obsidian vault archives.
 - `src/kb_web/routers/reports.py`: Dynamic report builder, multi-table joins, and streaming data exports.
+- `src/kb_web/routers/evals.py`: Model Evaluation Studio (`/evals`), matrix runner, `d1`/`tev1` decision gating, and embedding retrieval benchmarks.
 - `src/kb_web/routers/workspaces.py`: Persistent in-browser IDE workspaces, starter templates, file sync, ZIP export, and Ollama agent integration.
+- `src/kb_web/worker.py`: Modular Autonomous Background Server Worker engine and job runner registry (`ServerJob` and `AutonomousWorker`).
+- `src/kb_web/routers/worker.py`: REST and Admin API endpoints for inspecting, configuring, and triggering individual server jobs (`/api/jobs`, `/admin/jobs`).
+- `src/kb_web/repo_importer.py`: Git repository cloning and knowledge base ingestion engine (`rpr` devtul shallow clone, markdown file tree generator).
 - `src/kb_web/maintenance_agent.py`: Automated website maintenance agent sidecar, diagnostic tools, and background daemon.
 - `src/kb_web/routers/errors.py`: REST API for inspecting, searching, and diagnosing logged server error incidents.
 - `src/kb_web/cli.py`: Typer command launcher.
@@ -82,19 +87,26 @@ All web views, media assets, personal notes, in-browser workspaces, and API endp
 - **Media Asset Gating**: All files under `/media/...` require authentication, preventing unauthorized access to personal attachments and downloaded video files.
 - **Public Allowlist**: Gated access is strictly exempted only for login flow and essential PWA resources: `/login`, `/logout`, `/favicon.ico`, `/icon.png`, `/manifest.json`, and `/sw.js`.
 
-### 2. Session Cookies & Rate Limiting
+### 2. Session Cookies, Random Session Secret & Rate Limiting
+- **Cryptographically Random Session Secret (SEC-05)**: Session token HMAC signing uses an independent, high-entropy 32-byte secret (`KB_SESSION_SECRET` or persisted in `settings_external`), fully decoupled from the administrative password.
+- **Scrypt Salted Password Hashing (SEC-06)**: Passwords are protected using standard `hashlib.scrypt` with random 16-byte salts (`scrypt$<salt>$<hash>`), with seamless transparent migration from legacy plaintext upon successful login. Plaintext secrets are strictly redacted from `kb-web.json` backup exports.
 - **Cookie Security**: Authentication session tokens (`kb_session`) are signed and set with `HttpOnly=True`, `SameSite=Lax`, and dynamically enabled `Secure=True` whenever HTTPS is detected directly or through reverse-proxy headers (`X-Forwarded-Proto: https`).
-- **Brute-Force Rate Limiting**: The `POST /login` endpoint employs an in-memory sliding-window rate limiter per client IP. More than 5 failed authentication attempts within a 60-second window triggers an immediate HTTP `429 Too Many Requests`.
+- **Brute-Force Rate Limiting & Proxy Verification (SEC-01)**: The `POST /login` endpoint employs an in-memory sliding-window rate limiter per client IP (max 5 failed attempts per 60s) and a global lockout ceiling (max 50 failed attempts per 60s across all clients). Forwarded proxy headers (`X-Forwarded-For`) are only evaluated if the connecting IP matches configured `trusted_proxies` (`KB_TRUSTED_PROXIES`), extracting the rightmost untrusted hop to eliminate spoofing attacks.
+- **Fail-Closed Default Credentials (SEC-04)**: Public default API keys (`kb-secret-key`) are rejected by default with HTTP `401 Unauthorized` unless explicitly permitted for local development via `KB_ALLOW_INSECURE_DEFAULTS=1`. Persistent warning banners alert administrators in the UI if default factory credentials remain active.
 - **Constant-Time Verification**: All password and API key checks utilize `hmac.compare_digest` to prevent side-channel timing attacks.
 
-### 3. HTTP Security Headers
+### 3. HTTP Security Headers & Stored XSS Sanitization (SEC-02)
 Every HTTP response automatically includes enterprise security headers:
-- `X-Content-Type-Options: nosniff` (prevents MIME-type sniffing)
-- `X-Frame-Options: SAMEORIGIN` (prevents clickjacking attacks)
-- `X-XSS-Protection: 1; mode=block` (legacy XSS filtering)
-- `Referrer-Policy: strict-origin-when-cross-origin` (prevents URL parameter leakage across domains)
+- `Content-Security-Policy`: Strict policy restricting script execution, style loading, and frame ancestors.
+- `X-Content-Type-Options: nosniff` (prevents MIME-type sniffing).
+- `X-Frame-Options: SAMEORIGIN` (prevents clickjacking attacks).
+- `Referrer-Policy: strict-origin-when-cross-origin` (prevents URL parameter leakage across domains).
+- `X-XSS-Protection: 1; mode=block`.
+- **Stored Markdown/HTML Sanitization**: All rendered wiki and page markdown content passes through `nh3` (high-performance Rust-based HTML allowlist sanitizer) before Jinja2 template delivery, stripping `<script>`, `<iframe>`, inline event handlers (`onerror`, `onload`), and dangerous URI schemes (`javascript:`).
 
-### 4. Path Traversal & ZipSlip Safeguards
+### 4. Git Ingestion & Path Traversal Safeguards (SEC-03)
+- **Safe Git Subprocess Execution**: Remote repository cloning strictly validates URLs against an allowlist protocol schema (`https://`, `http://`, `ssh://`, `git@`), forbidding leading dashes (argument injection) and `file://` / local paths. Subprocesses execute with `shell=False` across all platforms and enforce `-c protocol.file.allow=never` with `--` argument delimiters.
+
 - **Obsidian Vault Archives**: Zip file extractions under `/api/notes/upload-vault` sanitize all archive member paths against directory traversal (`..`) and enforce target path canonicalization before writing files to disk.
 - **Virtual Workspaces**: Workspace file CRUD endpoints (`/api/workspaces/...`) enforce path component validation to disallow directory escapes outside the workspace context.
 

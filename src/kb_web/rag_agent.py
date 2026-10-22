@@ -14,8 +14,10 @@ from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc
 
-from .models_orm import FetchedPage, Note, ChunkEmbedding, SettingExternal
-from .utils import _get_ollama_client, chunk_text_with_overlap, cosine_similarity
+from .models_orm import FetchedPage, Note, ChunkEmbedding, SettingExternal, SettingOllama
+from .utils import _get_ollama_client, chunk_text_with_overlap, cosine_similarity, get_active_embedding_model
+from .base import config
+from .config import DEFAULT_RAG_REPORT_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +254,7 @@ def vector_rag_subagent(
     session: Session,
     client: Any,
     query: str,
-    active_model: str = "embeddinggemma",
+    active_model: Optional[str] = None,
     limit: int = 15,
     enabled: bool = True,
     min_similarity: float = 0.0,
@@ -260,6 +262,8 @@ def vector_rag_subagent(
     """Sub-agent that embeds search query and performs cosine vector similarity search."""
     if not enabled:
         return []
+    if not active_model:
+        active_model = get_active_embedding_model(session=session, config=config)
     prompt = f"search_query: {query}" if ("gemma" in active_model or "nomic" in active_model) else query
     query_vector = None
     try:
@@ -687,24 +691,7 @@ def compile_rag_report(
         evidence_text += f"- **Technical Depth**: {dec.get('depth', 'N/A')}\n"
         evidence_text += f"- **Excerpt**:\n{c.get('snippet', '')[:800]}\n"
 
-    system_prompt = (
-        "You are the expert Senior Research & Synthesis Agent for kb-web.\n"
-        "Your task is to analyze the user's research query and synthesize the provided vetted evidence "
-        "into a comprehensive, publication-grade Markdown research report.\n\n"
-        "Structure your output strictly using the following Markdown sections:\n"
-        "# [Concise, Descriptive Report Title]\n\n"
-        "## Executive Summary\n"
-        "[A clear, synthesized overview directly answering the query]\n\n"
-        "## Key Findings & Core Insights\n"
-        "[Detailed, bulleted breakdown of actionable facts and architectural insights]\n\n"
-        "## Technical Architecture & Code Examples\n"
-        "[Concrete code snippets, configuration rules, SQL queries, or commands extracted from evidence]\n\n"
-        "## Evidence & Citations Table\n"
-        "| # | Source Title | Channel | Decision Score | URL |\n"
-        "|---|---|---|---|---|\n"
-        "[Fill table rows based on sources provided]\n\n"
-        "Do not invent false details. If certain specifics are not covered in the evidence, state so clearly."
-    )
+    system_prompt = getattr(config, "rag_report_prompt", DEFAULT_RAG_REPORT_PROMPT)
 
     user_prompt = (
         f"Research Query: {query}\n"
@@ -838,8 +825,7 @@ def run_agentic_rag_pipeline(
     )
 
     if not active_embedding_model:
-        setting = session.query(SettingExternal).filter_by(key="active_embedding_model").first()
-        active_embedding_model = setting.value if setting else "embeddinggemma"
+        active_embedding_model = get_active_embedding_model(session=session, config=config)
 
     chosen_synthesis_model = (
         synthesis_model

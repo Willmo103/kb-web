@@ -6,8 +6,8 @@ import os
 import json
 import logging
 import time
-from datetime import datetime
-from typing import AsyncGenerator, Optional
+from datetime import datetime, timezone
+from typing import Any, AsyncGenerator, Dict, List, Optional
 from pydantic import BaseModel, Field
 from urllib.parse import unquote_plus, quote_plus, urlparse
 from fastapi import (
@@ -39,6 +39,8 @@ from ..models_orm import (
     Base,
     FetchedPage,
     PageVersion,
+    WikiVersion,
+    Note,
     YouTubeVideo,
     ArticleEmbedding,
     TitleEmbedding,
@@ -52,6 +54,7 @@ from ..models_orm import (
     CliApiKey,
     RegisteredClient,
     SystemLog,
+    SettingExternal,
 )
 from sqlalchemy import or_, text, func
 from ..utils import (
@@ -74,54 +77,75 @@ from bs4 import BeautifulSoup  # type: ignore
 router = APIRouter()
 
 
+logger = logging.getLogger("kb_web")
+
 # --- Background Tasks Routine ---
 
 
 def run_bulk_description_maintenance() -> None:
-    """Loops through historical page captures, prompting Ollama to rewrite pages lacking proper descriptions."""
+    """Loops through historical page captures in batches, prompting Ollama to rewrite pages lacking proper descriptions."""
     client = _get_ollama_client()
     with db_session() as session:
-        rows = session.query(FetchedPage).all()
-        for row in rows:
-            desc = row.description or ""
-            if not desc or "AI Processing skipped" in desc:
-                try:
-                    p_dict = {col.name: getattr(row, col.name) for col in row.__table__.columns}
-                    for fld in ("links", "keywords", "tags"):
-                        if p_dict.get(fld):
-                            try:
-                                p_dict[fld] = json.loads(p_dict[fld])
-                            except Exception:
-                                p_dict[fld] = []
-                        else:
-                            p_dict[fld] = []
-                    page_obj = HTMLPage(**p_dict)
-                    print(f"Running maintenance extraction for: {page_obj.url}")
-                    wiki_text = extract_wiki_content(page_obj, config, client)
-                    row.description = wiki_text
-                except Exception as e:
-                    print(f"Failed background processing for {row.url}: {e}")
+        candidate_urls = [
+            r[0]
+            for r in session.query(FetchedPage.url)
+            .filter(
+                (FetchedPage.description.is_(None))
+                | (FetchedPage.description == "")
+                | (FetchedPage.description.like("%AI Processing skipped%"))
+            )
+            .all()
+        ]
+
+    logger.info(f"Found {len(candidate_urls)} page(s) requiring description maintenance.")
+    for url in candidate_urls:
+        try:
+            with db_session() as session:
+                row = session.query(FetchedPage).filter_by(url=url).first()
+                if not row:
                     continue
+                p_dict = {col.name: getattr(row, col.name) for col in row.__table__.columns}
+                for fld in ("links", "keywords", "tags"):
+                    if p_dict.get(fld):
+                        try:
+                            p_dict[fld] = json.loads(p_dict[fld])
+                        except Exception:
+                            p_dict[fld] = []
+                    else:
+                        p_dict[fld] = []
+                page_obj = HTMLPage(**p_dict)
+                logger.info(f"Running maintenance extraction for: {page_obj.url}")
+                wiki_text = extract_wiki_content(page_obj, config, client)
+                row.description = wiki_text
+                session.commit()
+        except Exception as e:
+            logger.error(f"Failed background processing for {url}: {e}", exc_info=True)
+            continue
 
 
 def run_bulk_embedding_maintenance() -> None:
-    """Loops through all fetched pages, generating embeddings for any that are missing."""
+    """Loops through fetched pages, generating embeddings in discrete batches for any that are missing."""
     client = _get_ollama_client()
     with db_session() as session:
-        rows = session.query(FetchedPage).all()
-        for row in rows:
-            url = row.url
-            art_emb = session.query(ArticleEmbedding).filter_by(url=url).first()
-            tit_emb = session.query(TitleEmbedding).filter_by(url=url).first()
+        all_urls = [r[0] for r in session.query(FetchedPage.url).all()]
 
-            if not art_emb or not tit_emb:
+    logger.info(f"Checking embedding status for {len(all_urls)} page(s).")
+    for url in all_urls:
+        try:
+            with db_session() as session:
+                art_emb = session.query(ArticleEmbedding).filter_by(url=url).first()
+                tit_emb = session.query(TitleEmbedding).filter_by(url=url).first()
+                needs_update = not art_emb or not tit_emb
+
+            if needs_update:
+                logger.info(f"Updating missing embeddings for: {url}")
                 update_article_embedding(None, url, config, client)
+        except Exception as e:
+            logger.error(f"Failed embedding generation for {url}: {e}", exc_info=True)
+            continue
 
 
 # --- Router Endpoints ---
-
-
-logger = logging.getLogger("kb_web")
 
 
 @router.get("/import", response_class=HTMLResponse, dependencies=[Depends(verify_auth)])
@@ -133,7 +157,7 @@ def get_import_url_page() -> HTMLResponse:
             for c in session.query(Collection).all()
         ]
     template = _jinja_env.get_template("url_import.j2.html")
-    return HTMLResponse(content=template.render(is_admin=True, collections=collections))
+    return HTMLResponse(content=template.render(is_admin=True, collections=collections, config=config))
 
 
 @router.get(
@@ -160,7 +184,7 @@ def handle_incoming_mobile_share(
     template = _jinja_env.get_template("url_import.j2.html")
     return HTMLResponse(
         content=template.render(
-            prefilled_url=target_link, is_admin=True, collections=collections
+            prefilled_url=target_link, is_admin=True, collections=collections, config=config
         )
     )
 
@@ -310,23 +334,27 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             or 0
         )
 
+        all_prompts = config.get_all_prompts()
+        prompts_history = {}
         try:
-            wiki_prompts_history = [
-                {col.name: getattr(p, col.name) for col in p.__table__.columns}
-                for p in session.query(AgentPrompt)
-                .filter_by(prompt_type="wiki_prompt")
-                .order_by(AgentPrompt.version.desc())
-                .all()
-            ]
-            youtube_prompts_history = [
-                {col.name: getattr(p, col.name) for col in p.__table__.columns}
-                for p in session.query(AgentPrompt)
-                .filter_by(prompt_type="youtube_wiki_prompt")
-                .order_by(AgentPrompt.version.desc())
-                .all()
-            ]
+            for p_meta in all_prompts:
+                p_type = p_meta["id"]
+                try:
+                    prompts_history[p_type] = [
+                        {col.name: getattr(p, col.name) for col in p.__table__.columns}
+                        for p in session.query(AgentPrompt)
+                        .filter_by(prompt_type=p_type)
+                        .order_by(AgentPrompt.version.desc())
+                        .all()
+                    ]
+                except Exception as inner_e:
+                    logger.error(f"Failed to fetch prompt history for {p_type}: {inner_e}")
+                    prompts_history[p_type] = []
         except Exception as e:
-            print(f"Failed to fetch prompt history: {e}")
+            logger.error(f"Failed to fetch prompt history: {e}")
+
+        wiki_prompts_history = prompts_history.get("wiki_prompt", [])
+        youtube_prompts_history = prompts_history.get("youtube_wiki_prompt", [])
 
         try:
             cli_keys = [
@@ -383,6 +411,13 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
     except Exception as e:
         print(f"Failed to retrieve worker status: {e}")
 
+    agent_configs = []
+    try:
+        from ..agent_config import list_agent_configs
+        agent_configs = list_agent_configs()
+    except Exception as e:
+        logger.warning(f"Failed to retrieve agent configs: {e}")
+
     template = _jinja_env.get_template("admin.j2.html")
     return HTMLResponse(
         content=template.render(
@@ -390,8 +425,10 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             completion_message=msg,
             config=config,
             is_admin=True,
-            is_default_password=(config.admin_password == "admin123"),
-            is_default_api_key=(config.api_key == "kb-secret-key"),
+            is_default_password=config.is_default_password,
+            is_default_api_key=config.is_default_api_key,
+            all_prompts=all_prompts,
+            prompts_history=prompts_history,
             wiki_prompts_history=wiki_prompts_history,
             youtube_prompts_history=youtube_prompts_history,
             cli_keys=cli_keys,
@@ -400,8 +437,192 @@ def get_admin_dashboard(msg: Optional[str] = Query(None)) -> HTMLResponse:
             video_backups=video_backups,
             video_files_count=video_files_count,
             worker_status=worker_status,
+            agent_configs=agent_configs,
         )
     )
+
+
+class AgentConfigUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    model: Optional[str] = None
+    call_type: Optional[str] = None
+    system_prompt: Optional[str] = None
+    user_prompt_template: Optional[str] = None
+    thinking: Optional[bool] = None
+    temperature: Optional[float] = None
+    num_predict: Optional[int] = None
+    num_ctx: Optional[int] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    tools: Optional[List[str]] = None
+    enabled: Optional[bool] = None
+    extra_options: Optional[Dict[str, Any]] = None
+
+
+class CreateAgentRequest(BaseModel):
+    id: str = Field(..., min_length=2, max_length=64)
+    name: str = Field(..., min_length=2)
+    category: str = Field("custom", min_length=2)
+    call_type: str = Field("llm", description="'llm' or 'decision'")
+    model: str = Field(..., min_length=1)
+    system_prompt: Optional[str] = ""
+    user_prompt_template: Optional[str] = ""
+    num_ctx: Optional[int] = 8192
+    temperature: Optional[float] = 0.2
+    num_predict: Optional[int] = 2048
+    top_p: Optional[float] = 0.9
+    top_k: Optional[int] = 40
+    tools: Optional[List[str]] = Field(default_factory=list)
+    extra_options: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+
+class AgentTestRunRequest(BaseModel):
+    sample_data: Dict[str, Any] = Field(default_factory=dict)
+
+
+@router.get("/api/admin/agents", dependencies=[Depends(verify_auth)])
+def api_get_agent_configs() -> dict:
+    """Returns all configured agents and their full parameter profiles."""
+    from ..agent_config import list_agent_configs
+    return {"status": "success", "agents": list_agent_configs()}
+
+
+@router.post("/api/admin/agents/create", dependencies=[Depends(verify_auth)])
+def api_create_agent_config(payload: CreateAgentRequest) -> dict:
+    """Creates a new custom worker agent in draft mode."""
+    from ..agent_config import get_agent_config, save_agent_config
+    # Normalize ID
+    clean_id = payload.id.strip().lower().replace(" ", "_")
+    existing = get_agent_config(clean_id)
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Agent with ID '{clean_id}' already exists")
+
+    agent_data = {
+        "name": payload.name,
+        "category": payload.category,
+        "call_type": payload.call_type,
+        "model": payload.model,
+        "system_prompt": payload.system_prompt if payload.call_type != "decision" else "",
+        "user_prompt_template": payload.user_prompt_template,
+        "num_ctx": payload.num_ctx or 8192,
+        "temperature": payload.temperature if payload.call_type != "decision" else None,
+        "num_predict": payload.num_predict if payload.call_type != "decision" else None,
+        "top_p": payload.top_p if payload.call_type != "decision" else None,
+        "top_k": payload.top_k if payload.call_type != "decision" else None,
+        "tools": payload.tools if payload.call_type != "decision" else [],
+        "extra_options": payload.extra_options or {},
+        "enabled": 1,
+        "is_published": 0,
+        "version": 1,
+    }
+    created = save_agent_config(clean_id, agent_data)
+    return {"status": "success", "agent": created}
+
+
+@router.get("/api/admin/agents/{agent_id}", dependencies=[Depends(verify_auth)])
+def api_get_single_agent_config(agent_id: str) -> dict:
+    """Returns a single agent configuration."""
+    from ..agent_config import get_agent_config
+    cfg = get_agent_config(agent_id)
+    if not cfg:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    return {"status": "success", "agent": cfg}
+
+
+@router.post("/api/admin/agents/{agent_id}", dependencies=[Depends(verify_auth)])
+def api_update_agent_config(agent_id: str, payload: AgentConfigUpdateRequest) -> dict:
+    """Updates any or all parameters for an agent."""
+    from ..agent_config import save_agent_config
+    update_data = {k: v for k, v in payload.dict().items() if v is not None}
+    res = save_agent_config(agent_id, update_data)
+    if not res:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    return {"status": "success", "agent": res}
+
+
+@router.delete("/api/admin/agents/{agent_id}", dependencies=[Depends(verify_auth)])
+def api_delete_agent_config(agent_id: str) -> dict:
+    """Deletes an agent configuration."""
+    from ..agent_config import delete_agent_config
+    success = delete_agent_config(agent_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found or could not be deleted")
+    return {"status": "success", "message": f"Agent '{agent_id}' successfully deleted"}
+
+
+@router.post("/api/admin/agents/{agent_id}/publish", dependencies=[Depends(verify_auth)])
+def api_publish_agent_config(agent_id: str) -> dict:
+    """Publishes a frozen snapshot commit of the agent configuration, incrementing its version."""
+    from ..agent_config import publish_agent_config
+    try:
+        updated = publish_agent_config(agent_id)
+        return {"status": "success", "agent": updated}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/api/admin/agents/{agent_id}/test-run", dependencies=[Depends(verify_auth)])
+def api_test_run_agent(agent_id: str, payload: AgentTestRunRequest) -> dict:
+    """Runs a draft or published agent on sample input data to preview outputs before publishing."""
+    from ..agent_config import test_run_agent_config
+    try:
+        sample_data = payload.sample_data or {
+            "title": "Sample Knowledge Base Article",
+            "url": "https://example.com/test-article",
+            "md_content": "This is test markdown content to verify the agent's prompt template and model responses.",
+            "description": "Test article description for worker agent evaluation.",
+        }
+        result = test_run_agent_config(agent_id, sample_data)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UpdatePromptRequest(BaseModel):
+    prompt_id: str
+    prompt_text: Optional[str] = None
+    reset_default: bool = False
+
+
+@router.get("/api/config/prompts", dependencies=[Depends(verify_auth)])
+def api_get_prompts() -> dict:
+    """Returns the list of all configurable system prompts, their current values, defaults, and descriptions."""
+    return {
+        "status": "success",
+        "prompts": config.get_all_prompts(),
+    }
+
+
+@router.post("/api/config/prompts", dependencies=[Depends(verify_auth)])
+def api_update_prompt(payload: UpdatePromptRequest) -> dict:
+    """Updates a system prompt or resets it to its default value."""
+    all_prompts = {p["id"]: p for p in config.get_all_prompts()}
+    if payload.prompt_id not in all_prompts:
+        raise HTTPException(status_code=400, detail=f"Invalid prompt ID '{payload.prompt_id}'")
+
+    if payload.reset_default:
+        default_val = all_prompts[payload.prompt_id]["default"]
+        setattr(config, payload.prompt_id, default_val)
+        config.save()
+        updated_prompt = next(p for p in config.get_all_prompts() if p["id"] == payload.prompt_id)
+        return {
+            "status": "success",
+            "message": f"Prompt '{payload.prompt_id}' reset to default.",
+            "prompt": updated_prompt,
+        }
+
+    if payload.prompt_text is None:
+        raise HTTPException(status_code=400, detail="Missing 'prompt_text' in request body.")
+
+    setattr(config, payload.prompt_id, payload.prompt_text)
+    config.save()
+    updated_prompt = next(p for p in config.get_all_prompts() if p["id"] == payload.prompt_id)
+    return {
+        "status": "success",
+        "message": f"Prompt '{payload.prompt_id}' updated successfully.",
+        "prompt": updated_prompt,
+    }
 
 
 @router.post("/admin/prompts/set-head", dependencies=[Depends(verify_auth)])
@@ -421,19 +642,19 @@ def set_prompt_head(
                 session.flush()
 
                 # 3. Retrieve the prompt text and sync with the active Config attributes
-                if prompt_type == "wiki_prompt":
-                    config._wiki_prompt = target.prompt_text
-                elif prompt_type == "youtube_wiki_prompt":
-                    config._youtube_wiki_prompt = target.prompt_text
+                if hasattr(config, f"_{prompt_type}"):
+                    setattr(config, f"_{prompt_type}", target.prompt_text)
+                elif hasattr(config, prompt_type):
+                    setattr(config, prompt_type, target.prompt_text)
                 config.save()
 
         return RedirectResponse(
-            url="/admin?msg=Selected+prompt+version+successfully+restored+as+active+HEAD.",
+            url=f"/admin?msg=Selected+prompt+version+successfully+restored+as+active+HEAD.&target_prompt={prompt_type}#tab-prompts",
             status_code=303,
         )
     except Exception as e:
         return RedirectResponse(
-            url=f"/admin?msg=Error+restoring+prompt+version:+{quote_plus(str(e))}",
+            url=f"/admin?msg=Error+restoring+prompt+version:+{quote_plus(str(e))}#tab-prompts",
             status_code=303,
         )
 
@@ -448,24 +669,66 @@ def handle_config_update(
     gotify_token: str = Form(None),
     qdrant_host_url: str = Form(None),
     qdrant_api_key: str = Form(None),
-    wiki_prompt: str = Form(...),
-    youtube_wiki_prompt: str = Form(...),
+    wiki_prompt: Optional[str] = Form(None),
+    youtube_wiki_prompt: Optional[str] = Form(None),
     max_input_length: int = Form(20000),
     ollama_think: bool = Form(False),
+    taxonomy_batch_limit: Optional[int] = Form(None),
+    rag_search_top_k: Optional[int] = Form(None),
+    similarity_threshold: Optional[float] = Form(None),
+    ollama_timeout: Optional[int] = Form(None),
+    notifications_poll_interval_seconds: Optional[int] = Form(None),
+    page_cards_per_page: Optional[int] = Form(None),
+    crawler_default_max_pages: Optional[int] = Form(None),
+    repo_import_default_depth: Optional[int] = Form(None),
+    youtube_download_format: Optional[str] = Form(None),
+    trusted_proxies: Optional[str] = Form(None),
 ) -> RedirectResponse:
-    """Saves updated server settings (Ollama, Gotify, and Qdrant parameters) to config file."""
+    """Saves updated server settings (Ollama, Gotify, Qdrant, operational thresholds, and media download format) to config."""
     config.ollama_host = ollama_host
     config.ollama_model = ollama_model
     config.ollama_embedding_model = ollama_embedding_model
+    try:
+        with db_session() as session:
+            ext_setting = session.query(SettingExternal).filter_by(key="active_embedding_model").first()
+            if ext_setting:
+                ext_setting.value = ollama_embedding_model
+            else:
+                session.add(SettingExternal(key="active_embedding_model", value=ollama_embedding_model))
+            session.commit()
+    except Exception:
+        pass
     config.api_key = api_key
     config.gotify_url = gotify_url or None
     config.gotify_token = gotify_token or None
     config.qdrant_host_url = qdrant_host_url or None
     config.qdrant_api_key = qdrant_api_key or None
-    config.wiki_prompt = wiki_prompt
-    config.youtube_wiki_prompt = youtube_wiki_prompt
+    if wiki_prompt is not None:
+        config.wiki_prompt = wiki_prompt
+    if youtube_wiki_prompt is not None:
+        config.youtube_wiki_prompt = youtube_wiki_prompt
     config.max_input_length = max_input_length
     config.ollama_think = ollama_think
+    if taxonomy_batch_limit is not None:
+        config.taxonomy_batch_limit = taxonomy_batch_limit
+    if rag_search_top_k is not None:
+        config.rag_search_top_k = rag_search_top_k
+    if similarity_threshold is not None:
+        config.similarity_threshold = similarity_threshold
+    if ollama_timeout is not None:
+        config.ollama_timeout = ollama_timeout
+    if notifications_poll_interval_seconds is not None:
+        config.notifications_poll_interval_seconds = notifications_poll_interval_seconds
+    if page_cards_per_page is not None:
+        config.page_cards_per_page = page_cards_per_page
+    if crawler_default_max_pages is not None:
+        config.crawler_default_max_pages = crawler_default_max_pages
+    if repo_import_default_depth is not None:
+        config.repo_import_default_depth = repo_import_default_depth
+    if youtube_download_format is not None and youtube_download_format.strip():
+        config.youtube_download_format = youtube_download_format.strip()
+    if trusted_proxies is not None and trusted_proxies.strip():
+        config.trusted_proxies = trusted_proxies.strip()
     config.save()
 
     return RedirectResponse(
@@ -521,9 +784,17 @@ def test_ollama() -> dict:
 @router.post(
     "/admin/regenerate/wiki", dependencies=[Depends(verify_auth)], response_model=None
 )
-def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
-    """Triggers the Ollama wiki page re-generation process for a page."""
-    decoded_url = unquote_plus(url)
+def handle_regenerate_wiki(
+    url: Optional[str] = Query(None),
+    form_url: Optional[str] = Form(None, alias="url"),
+    model: Optional[str] = Form(None),
+    steering_instructions: Optional[str] = Form(None),
+) -> RedirectResponse:
+    """Triggers the Ollama wiki page re-generation process for a page with optional model and steering."""
+    target_url = form_url or url
+    if not target_url:
+        raise HTTPException(status_code=400, detail="Target URL required.")
+    decoded_url = unquote_plus(target_url)
     with db_session() as session:
         page = session.query(FetchedPage).filter_by(url=decoded_url).first()
         if not page:
@@ -532,6 +803,20 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
             return RedirectResponse(
                 url=f"/view/page?url={quote_plus(decoded_url)}&error=Item+is+frozen+and+immutable+to+modifications.",
                 status_code=303,
+            )
+
+        # Archive the existing wiki before overwriting, if wiki_content existed
+        existing_wiki = page.description or ""
+        if existing_wiki.strip():
+            session.add(
+                WikiVersion(
+                    url=page.url,
+                    title=page.title,
+                    wiki_content=existing_wiki,
+                    model_name=getattr(page, "wiki_model", None),
+                    steering_instructions=None,
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                )
             )
 
         p_dict = {col.name: getattr(page, col.name) for col in page.__table__.columns}
@@ -546,7 +831,16 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
         page_obj = HTMLPage(**p_dict)
 
         client = _get_ollama_client()
-        wiki_entry = extract_wiki_content(page_obj, config, client)
+        chosen_model = (model or "").strip() or getattr(config, "ollama_model", "gemma4:latest")
+        clean_steering = (steering_instructions or "").strip() or None
+
+        wiki_entry = extract_wiki_content(
+            page_obj,
+            config,
+            client,
+            model=chosen_model,
+            steering_instructions=clean_steering,
+        )
 
         title = page_obj.title or page_obj.url
         if wiki_entry.strip().startswith("#"):
@@ -555,10 +849,61 @@ def handle_regenerate_wiki(url: str = Query(...)) -> RedirectResponse:
 
         page.description = wiki_entry
         page.title = title
+        page.wiki_model = chosen_model
 
     update_article_embedding(None, decoded_url, config, client)
     return RedirectResponse(
-        url=f"/view/page?url={quote_plus(decoded_url)}", status_code=303
+        url=f"/view/page?url={quote_plus(decoded_url)}&msg=Wiki+successfully+regenerated+with+{quote_plus(chosen_model)}.",
+        status_code=303,
+    )
+
+
+@router.post(
+    "/admin/wiki/restore", dependencies=[Depends(verify_auth)], response_model=None
+)
+def handle_restore_wiki(
+    url: str = Form(...),
+    version_id: int = Form(...),
+) -> RedirectResponse:
+    """Restores a historical wiki version, archiving the current one first."""
+    decoded_url = unquote_plus(url)
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=decoded_url).first()
+        if not page:
+            raise HTTPException(status_code=404, detail="Ingested page profile missing.")
+        if getattr(page, "is_frozen", 0):
+            return RedirectResponse(
+                url=f"/view/page?url={quote_plus(decoded_url)}&error=Item+is+frozen+and+immutable+to+modifications.",
+                status_code=303,
+            )
+
+        wiki_version = session.query(WikiVersion).filter_by(id=version_id, url=decoded_url).first()
+        if not wiki_version:
+            raise HTTPException(status_code=404, detail="Wiki version not found.")
+
+        # Archive current description if present
+        if page.description and page.description.strip():
+            session.add(
+                WikiVersion(
+                    url=page.url,
+                    title=page.title,
+                    wiki_content=page.description,
+                    model_name=getattr(page, "wiki_model", None),
+                    steering_instructions=None,
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                )
+            )
+
+        page.description = wiki_version.wiki_content
+        if wiki_version.title:
+            page.title = wiki_version.title
+        page.wiki_model = wiki_version.model_name
+
+    client = _get_ollama_client()
+    update_article_embedding(None, decoded_url, config, client)
+    return RedirectResponse(
+        url=f"/view/page?url={quote_plus(decoded_url)}&msg=Wiki+version+restored+successfully.",
+        status_code=303,
     )
 
 
@@ -703,6 +1048,17 @@ def handle_refetch_page(
                         tags=current_row.tags,
                     )
                 )
+                if current_row.description and current_row.description.strip():
+                    session.add(
+                        WikiVersion(
+                            url=current_row.url,
+                            title=current_row.title,
+                            wiki_content=current_row.description,
+                            model_name=getattr(current_row, "wiki_model", None),
+                            steering_instructions=None,
+                            created_at=datetime.now(timezone.utc).isoformat(),
+                        )
+                    )
     except Exception as exc:
         print(f"Failed to archive version: {exc}")
 
@@ -735,6 +1091,8 @@ def handle_refetch_page(
         pass
 
     serialized, creator = serialize_page_for_db(page_data)
+    refetch_model = getattr(config, "ollama_model", "gemma4:latest")
+    serialized["wiki_model"] = refetch_model
     with db_session() as session:
         page = session.query(FetchedPage).filter_by(url=decoded_url).first()
         if page:
@@ -849,6 +1207,7 @@ def handle_delete_page(url: str = Form(...)) -> RedirectResponse:
 
                 # 4. Archived versions and links
                 session.query(PageVersion).filter_by(url=u).delete()
+                session.query(WikiVersion).filter_by(url=u).delete()
                 session.query(Link).filter_by(url=u).delete()
 
                 # 5. Finally delete the parent page record

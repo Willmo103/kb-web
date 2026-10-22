@@ -12,6 +12,7 @@ from typing import Optional, List, Dict, Any
 from urllib.parse import urlparse, unquote_plus
 
 from fastapi import APIRouter, Query, HTTPException, Depends
+from pydantic import BaseModel
 from sqlalchemy import or_, func, desc, asc
 
 from ..base import db_session, config
@@ -23,6 +24,7 @@ from ..models_orm import (
     CollectionItem,
     CollectionAction,
     PageVersion,
+    WikiVersion,
     PageCardView,
     ArticleEmbedding,
     TitleEmbedding,
@@ -215,6 +217,7 @@ def delete_article(url: str = Query(..., description="URL of the page to delete"
                 session.query(YouTubeVideo).filter_by(url=u).delete()
 
             session.query(PageVersion).filter_by(url=u).delete()
+            session.query(WikiVersion).filter_by(url=u).delete()
             session.query(Link).filter_by(url=u).delete()
             c = session.query(FetchedPage).filter_by(url=u).delete()
             deleted_count += c
@@ -592,7 +595,7 @@ def search_rag_chunks_get(
     )
     return {
         "query": q,
-        "model": model or getattr(config, "ollama_embedding_model", "embeddinggemma"),
+        "model": model or getattr(config, "ollama_embedding_model", "nomic-embed-text"),
         "count": len(results),
         "results": results,
     }
@@ -621,9 +624,46 @@ def search_rag_chunks_post(
     )
     return {
         "query": query,
-        "model": model or getattr(config, "ollama_embedding_model", "embeddinggemma"),
+        "model": model or getattr(config, "ollama_embedding_model", "nomic-embed-text"),
         "count": len(results),
         "results": results,
     }
+
+
+class ImportRepoRequest(BaseModel):
+    repo_url: str
+    depth: int = 1
+    collection_id: Optional[int] = None
+    match: List[str] = []
+    exclude: List[str] = []
+
+
+@router.post("/import/repo")
+def import_git_repository(payload: ImportRepoRequest) -> Dict[str, Any]:
+    """Clones a Git repository, generates its structured markdown representation using devtul's rpr engine, and indexes it into the RAG system."""
+    from ..repo_importer import import_git_repo
+
+    if not payload.repo_url or not payload.repo_url.strip():
+        raise HTTPException(status_code=400, detail="Repository URL is required")
+
+    try:
+        page = import_git_repo(
+            repo_url=payload.repo_url.strip(),
+            depth=payload.depth,
+            match_patterns=payload.match,
+            exclude_patterns=payload.exclude,
+            collection_id=payload.collection_id,
+        )
+        return {
+            "status": "success",
+            "url": page.url,
+            "title": page.title,
+            "description": page.description,
+            "tags": page.tags,
+            "view_url": f"/view/page?url={page.url}",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to import repository: {e}")
+
 
 

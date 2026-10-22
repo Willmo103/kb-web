@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import or_, text
 
 from .base import db_session
-from .config import Config
+from .config import Config, DEFAULT_MAINTENANCE_AGENT_PROMPT
 from .models_orm import ServerErrorLog
 
 logger = logging.getLogger("kb_web.maintenance_agent")
@@ -238,14 +238,7 @@ def analyze_error_with_agent(
     if code_context:
         context_str = "\n\nRelevant Code Search Matches:\n" + "\n".join(code_context)
 
-    system_instructions = (
-        "You are the kb-web Site Maintenance Agent. You provide immediate, accurate root cause "
-        "diagnostics and precise code/database fixes for uncaught server errors.\n"
-        "Structure your response with:\n"
-        "1. 🔍 Root Cause Analysis (what broke and why)\n"
-        "2. 📍 Affected Component / Source Location\n"
-        "3. 🛠️ Actionable Recommended Fix (exact SQL or Python code change required)"
-    )
+    system_instructions = getattr(cfg, "maintenance_agent_prompt", DEFAULT_MAINTENANCE_AGENT_PROMPT)
 
     user_message = f"Please analyze this server error:\n\n{prompt_content}{context_str}"
 

@@ -1,0 +1,51 @@
+[
+  {
+    "id": "RELIABILITY_BARE_EXCEPT",
+    "sev": "Low",
+    "cat": "Code Quality",
+    "labels": [
+      "enhancement"
+    ],
+    "loc": "src\\kb_web\\agent_memory.py:87, src\\kb_web\\base.py:558, src\\kb_web\\base.py:606, src\\kb_web\\config.py:56, src\\kb_web\\config.py:246 (+73 more)",
+    "title": "Reliability: Silent exception swallowing (except: pass) (78 occurrences)",
+    "sum": "Swallowing exceptions without logging obscures underlying errors and operational failures.",
+    "body": "## Summary\nSwallowing exceptions without logging obscures underlying errors and operational failures.\n\n**Occurrences (78 total):**\n\n- `src\\kb_web\\agent_memory.py:87`: `except Exception:`\n- `src\\kb_web\\base.py:558`: `except Exception:`\n- `src\\kb_web\\base.py:606`: `except Exception:`\n- `src\\kb_web\\config.py:56`: `except Exception:`\n- `src\\kb_web\\config.py:246`: `except Exception:`\n- `src\\kb_web\\config.py:264`: `except Exception:`\n- `src\\kb_web\\config.py:371`: `except Exception:`\n- `src\\kb_web\\config.py:623`: `except Exception:`\n- `src\\kb_web\\config.py:637`: `except Exception:`\n- `src\\kb_web\\db.py:24`: `except Exception:`\n- ... and 68 additional occurrences."
+  },
+  {
+    "id": "RELIABILITY_NAIVE_DATETIME",
+    "sev": "Low",
+    "cat": "Code Quality",
+    "labels": [
+      "enhancement"
+    ],
+    "loc": "src\\kb_web\\agent_memory.py:30, src\\kb_web\\agent_tools.py:32, src\\kb_web\\agent_tools.py:139, src\\kb_web\\base.py:79, src\\kb_web\\base.py:462 (+97 more)",
+    "title": "Code Quality: Naive local datetime instead of timezone-aware UTC (102 occurrences)",
+    "sum": "Use datetime.now(timezone.utc) to prevent timezone drift across client and server environments.",
+    "body": "## Summary\nUse datetime.now(timezone.utc) to prevent timezone drift across client and server environments.\n\n**Occurrences (102 total):**\n\n- `src\\kb_web\\agent_memory.py:30`: `now_str = datetime.now().isoformat()`\n- `src\\kb_web\\agent_tools.py:32`: `now_str = datetime.now().isoformat()`\n- `src\\kb_web\\agent_tools.py:139`: `now_str = datetime.now().isoformat()`\n- `src\\kb_web\\base.py:79`: `timestamp=datetime.now().isoformat(),`\n- `src\\kb_web\\base.py:462`: `\"timestamp\": datetime.now().isoformat(),`\n- `src\\kb_web\\config.py:680`: `created_at=datetime.now().isoformat(),`\n- `src\\kb_web\\config.py:722`: `\"created_at\": datetime.now().isoformat(),`\n- `src\\kb_web\\crawler.py:376`: `created_at=datetime.now().isoformat(),`\n- `src\\kb_web\\crawler.py:431`: `added_at=datetime.now().isoformat(),`\n- `src\\kb_web\\db.py:54`: `created_at=datetime.now().isoformat(),`\n- ... and 92 additional occurrences."
+  },
+  {
+    "id": "CODE_PRINT_STMT",
+    "sev": "Low",
+    "cat": "Code Quality",
+    "labels": [
+      "enhancement"
+    ],
+    "loc": "src\\kb_web\\base.py:167, src\\kb_web\\base.py:171, src\\kb_web\\base.py:474, src\\kb_web\\config.py:67, src\\kb_web\\config.py:70 (+154 more)",
+    "title": "Code Quality: Unstructured print() calls in server code (159 occurrences)",
+    "sum": "Replace standard print statements with structured logging for observability.",
+    "body": "## Summary\nReplace standard print statements with structured logging for observability.\n\n**Occurrences (159 total):**\n\n- `src\\kb_web\\base.py:167`: `print(`\n- `src\\kb_web\\base.py:171`: `print(f\"Warning: Initial database connection during engine startup deferred: {e}\")`\n- `src\\kb_web\\base.py:474`: `print(f\"Failed to log Ollama call to database: {err}\")`\n- `src\\kb_web\\config.py:67`: `print(f\"\u2705 Environment variables loaded from {ENV_FILE}\")`\n- `src\\kb_web\\config.py:70`: `print(f\"\u26a0\ufe0f Environment variables not loaded from {ENV_FILE}\")`\n- `src\\kb_web\\config.py:294`: `print(f\"Error reading DB setting from PostgreSQL: {e}\")`\n- `src\\kb_web\\config.py:360`: `print(f\"Error writing DB setting to PostgreSQL: {e}\")`\n- `src\\kb_web\\config.py:686`: `print(f\"Error setting {prompt_type} on PostgreSQL: {e}\")`\n- `src\\kb_web\\config.py:727`: `print(f\"Error setting {prompt_type}: {e}\")`\n- `src\\kb_web\\config.py:1036`: `print(f\"Saved configurations to {config_file}\")`\n- ... and 149 additional occurrences."
+  },
+  {
+    "id": "SEC_SQL_INJECTION",
+    "sev": "High",
+    "cat": "Security",
+    "labels": [
+      "security",
+      "bug"
+    ],
+    "loc": "src\\kb_web\\config.py:713, src\\kb_web\\models_orm.py:703, src\\kb_web\\models_orm.py:705, src\\kb_web\\routers\\admin.py:1315, src\\kb_web\\routers\\admin.py:1362 (+10 more)",
+    "title": "Security: Potential SQL injection via formatted f-string query (15 occurrences)",
+    "sum": "Raw queries should use parameterized binding rather than Python string formatting.",
+    "body": "## Summary\nRaw queries should use parameterized binding rather than Python string formatting.\n\n**Occurrences (15 total):**\n\n- `src\\kb_web\\config.py:713`: `db.execute(`\n- `src\\kb_web\\models_orm.py:703`: `tbl_cols = [row[1] for row in conn.execute(text(f\"PRAGMA table_info({tbl});\")).fetchall()]`\n- `src\\kb_web\\models_orm.py:705`: `conn.execute(text(f\"ALTER TABLE {tbl} ADD COLUMN is_frozen INTEGER DEFAULT 0;\"))`\n- `src\\kb_web\\routers\\admin.py:1315`: `text(`\n- `src\\kb_web\\routers\\admin.py:1362`: `await websocket.send_text(f\"ERROR: {str(e)}\")`\n- `src\\kb_web\\scripts\\db_migrate_sqlite.py:211`: `target_session.execute(text(f\"TRUNCATE TABLE {table_name} CASCADE;\"))`\n- `src\\kb_web\\scripts\\db_migrate_sqlite.py:279`: `seq_sql = text(`\n- `src\\kb_web\\scripts\\db_migrate_sqlite.py:305`: `t_conn.execute(text(f\"TRUNCATE TABLE {tbl_name} CASCADE;\"))`\n- `src\\kb_web\\scripts\\db_replication.py:49`: `text(f\"CREATE PUBLICATION {publication_name} FOR ALL TABLES;\")`\n- `src\\kb_web\\scripts\\db_replication.py:110`: `text(f\"SELECT 1 FROM pg_subscription WHERE subname = '{subscription_name}';\")`\n- ... and 5 additional occurrences."
+  }
+]

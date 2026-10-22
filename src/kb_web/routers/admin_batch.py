@@ -22,6 +22,7 @@ from ..models_orm import (
     CollectionItem,
     CollectionAction,
     PageVersion,
+    WikiVersion,
     ArticleEmbedding,
     TitleEmbedding,
     VideoEmbedding,
@@ -84,6 +85,7 @@ def _cascade_delete_page_urls(session, urls: List[str]) -> int:
             session.query(YouTubeVideo).filter_by(url=u).delete()
 
         session.query(PageVersion).filter_by(url=u).delete()
+        session.query(WikiVersion).filter_by(url=u).delete()
         session.query(Link).filter_by(url=u).delete()
         c = session.query(FetchedPage).filter_by(url=u).delete()
         deleted_count += c
@@ -138,6 +140,7 @@ def batch_delete_notes(payload: BatchDeleteNotesRequest) -> Dict[str, Any]:
             "deleted_count": res["deleted_count"],
             "deleted_ids": res["deleted_ids"],
             "deleted_urls": res["deleted_urls"],
+            "pruned_categories": res.get("pruned_categories", []),
         }
 
 
