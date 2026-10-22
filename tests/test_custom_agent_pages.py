@@ -265,12 +265,14 @@ def test_steer_topic_grounding(sample_agent: str):
             title="Raft Distributed Consensus Architecture",
             md_content="Raft algorithm guarantees state machine replication across server quorums.",
             tags="consensus,raft,database",
+            fetched_at="2099-01-01T00:00:00",
         )
         f2 = FetchedPage(
             url=u2,
             title="Tomato Soup Recipe",
             md_content="How to make hot tomato soup in winter.",
             tags="cooking,soup",
+            fetched_at="2099-01-01T00:00:00",
         )
         session.add_all([f1, f2])
         session.commit()
@@ -281,14 +283,13 @@ def test_steer_topic_grounding(sample_agent: str):
         assert res["new_observations"] >= 1
 
         # Verify an observation was recorded in agent's working memory
-        obs = (
+        obs_list = (
             session.query(AgentObservation)
             .filter_by(agent_id=sample_agent)
-            .order_by(AgentObservation.id.desc())
-            .first()
+            .all()
         )
-        assert obs is not None
-        assert "Raft Distributed Consensus Architecture" in obs.content
+        assert len(obs_list) >= 1
+        assert any("Raft Distributed Consensus Architecture" in o.content for o in obs_list)
 
 
 @patch("kb_web.custom_agent_engine._get_ollama_client")

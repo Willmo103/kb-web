@@ -1,0 +1,267 @@
+[
+  {
+    "id": "BUG-01",
+    "sev": "High",
+    "cat": "Bug",
+    "labels": [
+      "bug",
+      "worker",
+      "vector"
+    ],
+    "loc": "src/kb_web/worker.py:452-462",
+    "title": "Worker: Vector Embedding Indexer indefinitely loops on oldest single page",
+    "sum": "_run_embedding_refresh queries FetchedPage without checking for missing ChunkEmbeddings, reprocessing the exact same page on every cycle.",
+    "body": "## Summary\nIn `src/kb_web/worker.py`, the `_run_embedding_refresh` method is intended to process unindexed pages. However, the query selects `session.query(FetchedPage).order_by(FetchedPage.fetched_at.asc()).first()` without any filter condition.\n\n## Impact\nEvery 15 minutes when the background worker runs `embedding_refresh`, it fetches the exact same oldest page in the database, re-embeds it, and exits. Newer pages are never indexed by the worker unless manually triggered via the admin portal.\n\n## Proposed Fix\nAdd a filter checking for pages lacking chunk embeddings:\n```python\nsubq = select(ChunkEmbedding.source_id).where(ChunkEmbedding.model_name == job.model)\nrow = session.query(FetchedPage).filter(FetchedPage.url.not_in(subq)).order_by(FetchedPage.fetched_at.asc()).first()\n```",
+    "status": "fixed"
+  },
+  {
+    "id": "SEC-01",
+    "sev": "High",
+    "cat": "Security",
+    "labels": [
+      "security",
+      "bug",
+      "sql"
+    ],
+    "loc": "src/kb_web/config.py:719-726",
+    "title": "Security: Unescaped f-string queries in prompt version updates",
+    "sum": "AgentPrompt version queries concatenate raw prompt_type into SQL statements instead of using parameterized bindings.",
+    "body": "## Summary\nIn `src/kb_web/config.py:719` and `726`, raw f-strings are used to construct SQL queries:\n```python\ndb.execute_returning_dicts(f\"SELECT MAX(version) as mv FROM agent_prompts WHERE prompt_type = '{prompt_type}'\")\ndb.execute(f\"UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = '{prompt_type}'\")\n```\n\n## Impact\nIf a dynamic or user-supplied prompt type contains quotes or SQL control characters, it causes SQL syntax errors or potential SQL injection.\n\n## Proposed Fix\nUse parameterized queries:\n```python\ndb.execute(\"UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = ?\", [prompt_type])\n```",
+    "status": "fixed"
+  },
+  {
+    "id": "SEC-02",
+    "sev": "High",
+    "cat": "Security",
+    "labels": [
+      "security",
+      "xss",
+      "frontend",
+      "ui"
+    ],
+    "loc": "src/kb_web/templates/base.j2.html:732, 770",
+    "title": "Security: Stored XSS in Global Layout Notifications Dropdown & Toasts",
+    "sum": "Global notification messages and toast popups in base.j2.html concatenate unescaped message strings directly into innerHTML across all pages.",
+    "body": "## Summary\nIn `src/kb_web/templates/base.j2.html`, the persistent global notification fetcher executes:\n```javascript\nhtml += '<p class=\"notif-msg text-gray-700 mt-0.5 break-words text-xs\">' + (n.message || '') + '</p>';\nlist.innerHTML = html;\n```\nand inside `showToastNotification`:\n```javascript\ntoast.innerHTML = '...<div class=\"text-gray-650 dark:text-gray-300 mt-0.5 break-words\">' + message + linkHtml + '</div>...';\n```\n\n## Impact\nBecause `base.j2.html` is inherited by every page in the application, any background worker error, crawl alert, or agent observation whose title or URL contains HTML tags or JavaScript payloads (`<img src=x onerror=...>`, `<script>...`) achieves Stored Cross-Site Scripting (XSS) in the context of the user's or administrator's browser session.\n\n## Proposed Fix\nDefine and use an `escapeHtml()` utility within `base.j2.html` to sanitize `n.message` and `message` before assigning to `innerHTML`, or set `textContent` / `innerText` on child nodes.",
+    "status": "fixed"
+  },
+  {
+    "id": "SEC-03",
+    "sev": "High",
+    "cat": "Security",
+    "labels": [
+      "security",
+      "xss",
+      "wiki",
+      "agent"
+    ],
+    "loc": "src/kb_web/routers/agent_pages.py:107-113, 174-180",
+    "title": "Security: Stored XSS in Autonomous Agent Wikis & Themed Canvas Pages",
+    "sum": "Agent wiki markdown and themed canvas pages render raw markdown without HTML sanitization (nh3/bleach) into {{ rendered_body | safe }}.",
+    "body": "## Summary\nIn `src/kb_web/routers/agent_pages.py`, agent wiki articles and themed canvas pages render markdown via:\n```python\nrendered_body = markdown.markdown(\n    page.body_markdown or \"\",\n    extensions=[\"fenced_code\", \"tables\", \"nl2br\", \"toc\"],\n)\n```\nand pass it directly to `topic_wiki_page.j2.html` and `agent_page_themed.j2.html` where it is rendered with `{{ rendered_body | safe }}`. Unlike `src/kb_web/routers/pages.py`, no call to `sanitize_html()` or `nh3.clean()` is made.\n\n## Impact\nAn autonomous topic agent or user-submitted article note containing `<script>`, malicious `<iframe src=...>`, or event handlers (`onload=...`) executes arbitrary scripts whenever a visitor or administrator inspects the living wiki or themed page.\n\n## Proposed Fix\nSanitize `rendered_body` using `sanitize_html(rendered_body)` before passing it to the Jinja template.",
+    "status": "fixed"
+  },
+  {
+    "id": "SEC-04",
+    "sev": "Medium",
+    "cat": "Security",
+    "labels": [
+      "security",
+      "xss",
+      "frontend"
+    ],
+    "loc": "src/kb_web/templates/view_collection.j2.html:338, 366, collection_editor.j2.html:422",
+    "title": "Security: DOM XSS & Attribute Breakout via Unescaped URLs in Event Handlers",
+    "sum": "Item URLs containing quotes or control characters break JavaScript string literals in onclick handlers and data attributes.",
+    "body": "## Summary\nIn `src/kb_web/templates/view_collection.j2.html:366`:\n```javascript\ncard.innerHTML = `... <button onclick=\"removeSingleItem('${item.url}')\">\u274c</button> ...`;\n```\nand in `collection_editor.j2.html:422`:\n```javascript\n<p>Original Link: <a href=\"${orig.url}\" target=\"_blank\">${orig.url}</a></p>\n```\n\n## Impact\nIf an ingested URL contains single quotes, double quotes, or JavaScript control sequences (e.g. `https://example.com/item');alert(1);//`), interpolating into `removeSingleItem('${item.url}')` causes JavaScript execution or syntax errors when rendering items.\n\n## Proposed Fix\nEscape URLs using `escapeHtml(item.url)` for attribute values and use `encodeURIComponent()` or `dataset` attributes rather than inline JavaScript string concatenation.",
+    "status": "fixed"
+  },
+  {
+    "id": "BUG-02",
+    "sev": "Medium",
+    "cat": "Bug",
+    "labels": [
+      "bug",
+      "workspace",
+      "frontend"
+    ],
+    "loc": "src/kb_web/templates/workspace_ide.j2.html:1201-1209",
+    "title": "Workspace: Folder deletion loop sends N individual requests instead of atomic prefix deletion",
+    "sum": "Deleting a folder in Workspace IDE executes a client-side loop sending sequential DELETE requests per file instead of using server prefix deletion.",
+    "body": "## Summary\nIn `src/kb_web/templates/workspace_ide.j2.html:1201-1209`:\n```javascript\nfor (const p of toDelete) {\n  VFS.deleteFile(p);\n  closeTab(p);\n  await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {\n    method: \"DELETE\",\n    headers: { \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({ path: p }),\n  });\n}\n```\nMeanwhile, the backend endpoint `DELETE /api/workspaces/{workspace_id}/files` in `workspaces.py:909-921` ALREADY handles folder prefixes atomically.\n\n## Impact\nDeleting a folder with 50 files fires 50 sequential HTTP requests. If network latency is high or a single request fails, the folder is left in a partially deleted, desynchronized state between the client and server.\n\n## Proposed Fix\nReplace the client-side loop with a single atomic deletion call:\n```javascript\nawait fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {\n  method: \"DELETE\",\n  headers: { \"Content-Type\": \"application/json\" },\n  body: JSON.stringify({ path: folderPath }),\n});\n```",
+    "status": "fixed"
+  },
+  {
+    "id": "BUG-03",
+    "sev": "Medium",
+    "cat": "Bug",
+    "labels": [
+      "bug",
+      "frontend",
+      "jinja"
+    ],
+    "loc": "src/kb_web/static/js/jinja_highlighter.js:98-105, 260",
+    "title": "Frontend: Jinja Highlighter event listener leak and Jinja filter regex breakage",
+    "sum": "JinjaHighlighter lacks destroy/cleanup methods for window resize listeners, and regex fails to match Jinja expressions using pipe filters.",
+    "body": "## Summary\n1. In `src/kb_web/static/js/jinja_highlighter.js`, every instance binds `window.addEventListener('resize', ...)` and `ResizeObserver` without providing a `destroy()` or `disconnect()` method. When editor dialogs or tab views re-render, listeners accumulate, leaking memory.\n2. The parameter detection regex `const regex = /\\{\\{\\s*([a-zA-Z0-9_.]+)\\s*\\}\\}/g;` only allows alphanumeric characters and dots. If a prompt uses standard Jinja filter expressions like `{{ data.title | default('None') }}` or `{{ data.tags | join(', ') }}`, the regex fails to match or misidentifies the field as invalid.\n\n## Proposed Fix\n1. Add a `destroy()` method that removes the window resize listener and disconnects `this.resizeObserver`.\n2. Update regex to accommodate Jinja filters: `/\\{\\{\\s*([a-zA-Z0-9_.]+)(?:\\s*\\|[^}]+)?\\s*\\}\\}/g`.",
+    "status": "fixed"
+  },
+  {
+    "id": "BUG-04",
+    "sev": "Medium",
+    "cat": "Bug",
+    "labels": [
+      "bug",
+      "admin",
+      "frontend"
+    ],
+    "loc": "src/kb_web/templates/admin.j2.html:1660, 2647",
+    "title": "Admin: Jinja Highlighter script tag placed after DOMContentLoaded initialization block",
+    "sum": "admin.j2.html calls initJinjaHighlighter inside DOMContentLoaded at line 1660, but loads jinja_highlighter.js at line 2647.",
+    "body": "## Summary\nIn `src/kb_web/templates/admin.j2.html`, the script at line 1660 attempts to initialize all `.agent-jinja-template` textareas:\n```javascript\ndocument.addEventListener('DOMContentLoaded', () => {\n    if (typeof window.initJinjaHighlighter === 'function') {\n        ...\n```\nHowever, `<script src=\"/static/js/jinja_highlighter.js\"></script>` is placed at line 2647, at the very bottom of the template block. In certain browsers or cached states, `DOMContentLoaded` fires before the script has finished executing, leaving `window.initJinjaHighlighter` undefined.\n\n## Proposed Fix\nMove `<script src=\"/static/js/jinja_highlighter.js\"></script>` to the `extra_head` block or before the main inline script block, consistent with `evals.j2.html`.",
+    "status": "fixed"
+  },
+  {
+    "id": "PERF-01",
+    "sev": "Medium",
+    "cat": "Performance",
+    "labels": [
+      "performance",
+      "database"
+    ],
+    "loc": "src/kb_web/models_orm.py:867-884",
+    "title": "Performance: Unindexed per-row ghost stub deletion loop runs on every server startup",
+    "sum": "ensure_views_and_indexes executes 10 separate DELETE statements per ghost URL in a Python loop every time the server boots.",
+    "body": "## Summary\nIn `src/kb_web/models_orm.py:867-884`, `ensure_views_and_indexes(engine)` queries for ghost URLs matching `Archived Item (%` and executes 10 separate `DELETE FROM ... WHERE url = :u` statements sequentially for every ghost URL found on every server boot.\n\n## Impact\nIncreases server startup latency, especially on larger databases or remote PostgreSQL instances over higher-latency connections.\n\n## Recommendation\nWrap the cleanup into a single batch CTE or set-based DELETE statement, or move it to a one-time Alembic migration script.",
+    "status": "fixed"
+  },
+  {
+    "id": "PERF-02",
+    "sev": "Medium",
+    "cat": "Performance",
+    "labels": [
+      "performance",
+      "notes",
+      "database",
+      "ollama"
+    ],
+    "loc": "src/kb_web/routers/notes.py:385-411",
+    "title": "Performance: Vault Zip unpacker opens individual DB session per note and overwhelms Ollama queue",
+    "sum": "Unpacking a note vault zip executes a per-file database commit and spawns unbounded concurrent background Ollama tasks.",
+    "body": "## Summary\nIn `src/kb_web/routers/notes.py:385-411`, during zip extraction, every single `.md` file opens a new `with db_session() as session:`, executes a `commit()`, and immediately adds `_process_note_in_background` to FastAPI `background_tasks`.\n\n## Impact\nImporting a 2,000-note vault causes 2,000 individual database transactions, followed by 2,000 concurrent background workers attempting to hit Ollama simultaneously for tags, titles, and embeddings, resulting in CPU starvation and Ollama timeouts.\n\n## Recommendation\nBatch all database insertions in a single transaction, and delegate the post-processing to the asynchronous `autonomous_worker` job queue or a throttled task pool.",
+    "status": "fixed"
+  },
+  {
+    "id": "PERF-03",
+    "sev": "Medium",
+    "cat": "Performance",
+    "labels": [
+      "performance",
+      "taxonomy",
+      "database"
+    ],
+    "loc": "src/kb_web/routers/taxonomy.py:175-180",
+    "title": "Performance: Unbounded in-memory scan of all Note records during taxonomy classification",
+    "sum": "trigger_classify_notes loads every Note record into memory via query.all() before filtering in Python.",
+    "body": "## Summary\nIn `src/kb_web/routers/taxonomy.py:175-180`, the endpoint executes:\n```python\nall_matching = query.all()\ntarget_notes = [\n    n for n in all_matching\n    if f\"note_{n.id}\" not in classified_item_ids and str(n.id) not in classified_item_ids\n]\n```\n\n## Impact\nOn vaults with 20,000+ notes, `query.all()` allocates all ORM note instances into Python memory at once, spiking RAM usage and causing garbage collection thrashing.\n\n## Recommendation\nPerform the exclusion at the database query level using SQL `NOT IN` or a `LEFT JOIN ... WHERE TaxonomyItem.id IS NULL`.",
+    "status": "fixed"
+  },
+  {
+    "id": "DEPR-01",
+    "sev": "Medium",
+    "cat": "Deprecation",
+    "labels": [
+      "deprecation",
+      "refactor",
+      "taxonomy"
+    ],
+    "loc": "src/kb_web/taxonomy_state_machine.py:1-1289",
+    "title": "Deprecation: Phase out legacy 10-item partitioning Category Taxonomy State Machine",
+    "sum": "1,289 lines of flat category ontology logic locks global additions during partitioning and should be deprecated in favor of 7-tier biological taxonomy.",
+    "body": "## Summary\n`src/kb_web/taxonomy_state_machine.py` contains 1,289 lines of complex dynamic folder restructuring code. When any category reaches 10 items, it triggers a global lock (`_taxonomy_lock`) and sets `_partitioning_paused = True`, halting additions across the entire application while partitioning items.\n\n## Impact\n- Causes intermittent thread contention and delayed web page imports.\n- Re-partitions and merges categories ad-hoc, destabilizing category URLs and bookmarks.\n- Duplicates and conflicts with the new, structured 7-tier biological taxonomy (`src/kb_web/taxonomy/` and `src/kb_web/context_mesh/`).\n\n## Recommendation\nMark `taxonomy_state_machine.py`, `TaxonomyCategory`, and `TaxonomyItem` as deprecated. Transition `/taxonomy` and `/api/taxonomy/*` to query `TaxonomyEngine` and `taxonomy_entities` coordinates.",
+    "status": "fixed"
+  },
+  {
+    "id": "DEPR-02",
+    "sev": "Medium",
+    "cat": "Deprecation",
+    "labels": [
+      "deprecation",
+      "database",
+      "vector"
+    ],
+    "loc": "src/kb_web/models_orm.py:114-128, 217-224",
+    "title": "Deprecation: Fragmented article_embeddings, title_embeddings, and video_embeddings tables",
+    "sum": "Redundant single-vector tables should be phased out in favor of ChunkEmbedding and context_statements.statement_vector.",
+    "body": "## Summary\n`models_orm.py` maintains three separate single-vector tables:\n- `article_embeddings`\n- `title_embeddings`\n- `video_embeddings`\n\nMeanwhile, `chunk_embeddings` already stores multi-chunk vectors with document chunk offsets, metadata, and model names for semantic search in PostgreSQL (pgvector) and Qdrant. Furthermore, `context_statements` now provides atomic intent and fact vector search.\n\n## Recommendation\nConsolidate document-level search onto `chunk_embeddings` and deprecate the three legacy single-vector tables to reduce write amplification and index overhead during ingestion.",
+    "status": "fixed"
+  },
+  {
+    "id": "DEPR-03",
+    "sev": "Low",
+    "cat": "Deprecation",
+    "labels": [
+      "deprecation",
+      "dependencies"
+    ],
+    "loc": "src/kb_web/db.py:18-26, pyproject.toml:22",
+    "title": "Deprecation: Direct sqlite_utils dependency in PostgreSQL-first architecture",
+    "sum": "sqlite-utils is imported directly in db.py despite PostgreSQL being the primary database and SQLAlchemy managing sessions.",
+    "body": "## Summary\n`src/kb_web/db.py:18` imports `sqlite_utils.Database` directly in `get_db()`. In the current architecture, all queries, models, and migrations are managed through SQLAlchemy `db_session()` and PostgreSQL `SafeVector`.\n\n## Recommendation\nDeprecate `get_db()` and remove `sqlite-utils` from `pyproject.toml` dependencies once remaining CLI commands are migrated to standard SQLAlchemy sessions.",
+    "status": "fixed"
+  },
+  {
+    "id": "CONF-01",
+    "sev": "Low",
+    "cat": "Config",
+    "labels": [
+      "deprecation",
+      "sqlalchemy"
+    ],
+    "loc": "src/kb_web/models_orm.py:7",
+    "title": "Deprecation: SQLAlchemy 2.0 MovedIn20Warning for declarative_base()",
+    "sum": "Use sqlalchemy.orm.declarative_base() instead of sqlalchemy.ext.declarative.declarative_base() to avoid deprecation warnings.",
+    "body": "## Summary\n`src/kb_web/models_orm.py:7` imports `declarative_base` from `sqlalchemy.ext.declarative`, triggering `MovedIn20Warning: The declarative_base() function is now available as sqlalchemy.orm.declarative_base()` on every test and server startup.\n\n## Proposed Fix\nChange line 4 in `models_orm.py`:\n```python\nfrom sqlalchemy.orm import relationship, declarative_base\n```",
+    "status": "fixed"
+  },
+  {
+    "id": "ARCH-01",
+    "sev": "Low",
+    "cat": "Code Quality",
+    "labels": [
+      "refactor",
+      "database"
+    ],
+    "loc": "src/kb_web/db.py:78-112, models_orm.py:903",
+    "title": "Architecture: Hardcoded magic id=1 assumptions for General Collection",
+    "sum": "General Collection assumption hardcodes collection_id=1 across database views and queries, creating migration and domain grouping fragility.",
+    "body": "## Summary\nThroughout `src/kb_web/db.py` and the `vw_page_cards` view definition (`models_orm.py:903`), collection ID 1 is hardcoded as `General Collection` (`ci.collection_id != 1`).\n\n## Impact\nIf database IDs are re-sequenced or restored from external dumps where collections start at a different sequence, items in the primary collection are miscategorized or hidden from general views.\n\n## Recommendation\nReplace hardcoded `id=1` with an explicit boolean flag on the Collection model (e.g. `is_default: bool = False`) or lookup by slug.",
+    "status": "fixed"
+  },
+  {
+    "id": "CODE-01",
+    "sev": "Low",
+    "cat": "Code Quality",
+    "labels": [
+      "enhancement"
+    ],
+    "loc": "src/kb_web/agent_memory.py:30 (+94 occurrences)",
+    "title": "Code Quality: Naive local datetime instead of timezone-aware UTC",
+    "sum": "Use datetime.now(timezone.utc) to prevent timezone drift across client and server environments.",
+    "body": "## Summary\nAcross 95 occurrences in the repository, timestamps are generated using `datetime.now().isoformat()` without timezone awareness instead of `datetime.now(timezone.utc).isoformat()`.\n\n## Impact\nCan lead to subtle ordering issues or mismatched timestamps when client and server operate across differing UTC offsets.",
+    "status": "open"
+  },
+  {
+    "id": "CODE-02",
+    "sev": "Low",
+    "cat": "Code Quality",
+    "labels": [
+      "enhancement"
+    ],
+    "loc": "src/kb_web/agent_config.py:435 (+92 occurrences)",
+    "title": "Reliability: Silent exception swallowing without structured logging",
+    "sum": "Swallowing exceptions with bare except: pass obscures operational failures in background tasks and database transactions.",
+    "body": "## Summary\nOver 90 code blocks catch broad `Exception` and execute `pass` without logging the exception details or traceback.\n\n## Recommendation\nAdd debug or warning logs (`logger.debug(f\"Handled exception: {e}\", exc_info=True)`) to preserve observability.",
+    "status": "open"
+  }
+]

@@ -679,6 +679,16 @@
             }
         });
 
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         var knownNotifIds = new Set();
         var isFirstNotifLoad = true;
 
@@ -719,20 +729,20 @@
                             var unreadBg = !n.is_read ? 'notif-unread font-semibold bg-indigo-50/60' : 'notif-read bg-white';
                             var targetUrl = n.url || (n.page_id && String(n.page_id).indexOf('://') !== -1 ? n.page_id : null);
                             var pageHref = targetUrl ? ('/view/page?url=' + encodeURIComponent(targetUrl)) : (n.page_id ? ('/pages/' + n.page_id) : '');
-                            var pageLink = pageHref ? '<a href="' + pageHref + '" class="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline block mt-1">View Page →</a>' : '';
+                            var pageLink = pageHref ? '<a href="' + escapeHtml(pageHref) + '" class="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline block mt-1">View Page →</a>' : '';
                             var timeStr = n.created_at ? n.created_at.replace('T', ' ').substring(0, 16) : '';
 
                             html += '<div class="p-3 ' + unreadBg + ' hover:bg-gray-50 transition flex items-start gap-2.5 notif-row border-b border-gray-100 last:border-b-0 group relative">';
                             html += '<span class="text-base flex-shrink-0">' + icon + '</span>';
                             html += '<div class="flex-grow min-w-0 pr-4">';
                             html += '<div class="flex items-center justify-between">';
-                            html += '<span class="font-bold notif-title text-gray-850 text-[11px] uppercase tracking-wider">' + (n.stage || 'Ingest') + '</span>';
-                            html += '<span class="text-[10px] text-gray-400 font-mono">' + timeStr + '</span>';
+                            html += '<span class="font-bold notif-title text-gray-850 text-[11px] uppercase tracking-wider">' + escapeHtml(n.stage || 'Ingest') + '</span>';
+                            html += '<span class="text-[10px] text-gray-400 font-mono">' + escapeHtml(timeStr) + '</span>';
                             html += '</div>';
-                            html += '<p class="notif-msg text-gray-700 mt-0.5 break-words text-xs">' + (n.message || '') + '</p>';
+                            html += '<p class="notif-msg text-gray-700 mt-0.5 break-words text-xs">' + escapeHtml(n.message || '') + '</p>';
                             html += pageLink;
                             html += '</div>';
-                            html += '<button type="button" onclick="deleteNotification(' + n.id + ', event)" class="opacity-0 group-hover:opacity-100 transition absolute top-2 right-2 text-gray-400 hover:text-red-500 p-1 text-xs" title="Delete notification">✕</button>';
+                            html += '<button type="button" onclick="deleteNotification(' + parseInt(n.id, 10) + ', event)" class="opacity-0 group-hover:opacity-100 transition absolute top-2 right-2 text-gray-400 hover:text-red-500 p-1 text-xs" title="Delete notification">✕</button>';
                             html += '</div>';
 
                             if (!isFirstNotifLoad && !n.is_read && !knownNotifIds.has(n.id)) {
@@ -766,8 +776,8 @@
             toast.className = 'pointer-events-auto bg-white dark:bg-gray-800 border border-indigo-200 dark:border-indigo-900 shadow-xl rounded-xl p-3 flex items-start gap-3 transition transform duration-300 ease-out translate-y-2 opacity-0 text-xs';
             var targetUrl = url || (pageId && String(pageId).indexOf('://') !== -1 ? pageId : null);
             var pageHref = targetUrl ? ('/view/page?url=' + encodeURIComponent(targetUrl)) : (pageId ? ('/pages/' + pageId) : '');
-            var linkHtml = pageHref ? '<a href="' + pageHref + '" class="text-indigo-600 font-bold hover:underline ml-2">View</a>' : '';
-            toast.innerHTML = '<span class="text-lg">' + icon + '</span><div class="flex-grow min-w-0"><div class="font-bold text-gray-950 dark:text-gray-100">' + (stage || 'Update') + '</div><div class="text-gray-650 dark:text-gray-300 mt-0.5 break-words">' + message + linkHtml + '</div></div><button onclick="this.parentElement.remove()" class="text-gray-400 hover:text-gray-600 font-bold ml-1">✕</button>';
+            var linkHtml = pageHref ? '<a href="' + escapeHtml(pageHref) + '" class="text-indigo-600 font-bold hover:underline ml-2">View</a>' : '';
+            toast.innerHTML = '<span class="text-lg">' + icon + '</span><div class="flex-grow min-w-0"><div class="font-bold text-gray-950 dark:text-gray-100">' + escapeHtml(stage || 'Update') + '</div><div class="text-gray-650 dark:text-gray-300 mt-0.5 break-words">' + escapeHtml(message || '') + linkHtml + '</div></div><button onclick="this.parentElement.remove()" class="text-gray-400 hover:text-gray-600 font-bold ml-1">✕</button>';
             container.appendChild(toast);
             setTimeout(function() {
                 toast.classList.remove('translate-y-2', 'opacity-0');
@@ -796,6 +806,17 @@
         fetchNotifications();
         setInterval(fetchNotifications, 5000);
         {% endif %}
+
+        // Intercept internal pseudo-schemes (note://, workspace://, etc.) so clicking them opens cleanly without browser handler errors
+        document.addEventListener('click', function(e) {
+            var target = e.target.closest('a');
+            if (!target) return;
+            var href = target.getAttribute('href');
+            if (href && (href.startsWith('note://') || href.startsWith('workspace://'))) {
+                e.preventDefault();
+                window.location.href = '/open?url=' + encodeURIComponent(href);
+            }
+        });
     </script>
 </body>
 </html>

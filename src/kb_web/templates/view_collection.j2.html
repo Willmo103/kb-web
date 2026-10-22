@@ -335,13 +335,13 @@
 
             card.innerHTML = `
                 <div class="flex items-center gap-3 truncate">
-                    <input type="checkbox" class="item-select w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer" data-url="${item.url}" onchange="updateSelectionBar()" />
+                    <input type="checkbox" class="item-select w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer" data-url="${escapeHtml(item.url)}" onchange="updateSelectionBar()" />
                     <div class="truncate">
                         <div class="flex items-center gap-2 mb-0.5">
                             <span class="px-1.5 py-0.5 bg-gray-100 text-gray-650 text-[10px] font-mono rounded border border-gray-200 truncate max-w-40">
                                 ${escapeHtml(item.hostname)}
                             </span>
-                            <span class="text-[10px] text-gray-400 font-semibold">${item.fetched_at}</span>
+                            <span class="text-[10px] text-gray-400 font-semibold">${escapeHtml(item.fetched_at || '')}</span>
                             ${item.isNew ? '<span class="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[9px] font-bold rounded">Staged</span>' : ''}
                             ${item.collection_title ? `
                                 <span class="px-2 py-0.5 bg-indigo-50 text-indigo-705 text-[10px] font-bold rounded border border-indigo-150">
@@ -351,19 +351,19 @@
                                 <span class="px-2 py-0.5 bg-gray-50 text-gray-405 text-[10px] font-medium rounded border border-gray-200 italic">
                                     None
                                 </span>
-                                <a href="/view/page?url=${item.safe_url}" class="text-indigo-650 hover:text-indigo-850 text-[10px] font-bold hover:underline select-text ml-1" target="_blank">
+                                <a href="/view/page?url=${escapeHtml(item.safe_url)}" class="text-indigo-650 hover:text-indigo-850 text-[10px] font-bold hover:underline select-text ml-1" target="_blank">
                                     + Add to Collection
                                 </a>
                             `}
                         </div>
                         <h3 class="text-sm font-bold text-gray-900 truncate">
-                            <a href="/view/page?url=${item.safe_url}" class="hover:text-indigo-650 select-text" target="_blank">${escapeHtml(item.title)}</a>
+                            <a href="/view/page?url=${escapeHtml(item.safe_url)}" class="hover:text-indigo-650 select-text" target="_blank">${escapeHtml(item.title)}</a>
                         </h3>
                     </div>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
                     <span class="text-gray-300 text-sm cursor-grab select-none">☰</span>
-                    <button onclick="removeSingleItem('${item.url}')" class="text-gray-400 hover:text-red-650 transition text-sm font-bold p-1">❌</button>
+                    <button type="button" data-url="${escapeHtml(item.url)}" onclick="removeSingleItem(this.dataset.url)" class="text-gray-400 hover:text-red-650 transition text-sm font-bold p-1">❌</button>
                 </div>
             `;
             container.appendChild(card);

@@ -95,9 +95,13 @@
             this.setupEditorDOM();
 
             // Setup event listeners
-            this.textarea.addEventListener('input', () => this.update());
-            this.textarea.addEventListener('scroll', () => this.syncScroll());
-            window.addEventListener('resize', () => this.syncDimensions());
+            this._onInput = () => this.update();
+            this._onScroll = () => this.syncScroll();
+            this._onResize = () => this.syncDimensions();
+
+            this.textarea.addEventListener('input', this._onInput);
+            this.textarea.addEventListener('scroll', this._onScroll);
+            window.addEventListener('resize', this._onResize);
 
             if (window.ResizeObserver) {
                 this.resizeObserver = new ResizeObserver(() => this.syncDimensions());
@@ -108,6 +112,31 @@
             this.renderFieldsBar();
             this.syncDimensions();
             this.update();
+        }
+
+        destroy() {
+            if (this.textarea) {
+                this.textarea.removeEventListener('input', this._onInput);
+                this.textarea.removeEventListener('scroll', this._onScroll);
+                delete this.textarea.dataset.highlighterInit;
+            }
+            if (this._onResize) {
+                window.removeEventListener('resize', this._onResize);
+            }
+            if (this.resizeObserver) {
+                this.resizeObserver.disconnect();
+                this.resizeObserver = null;
+            }
+            if (this.wrapper && this.wrapper.parentNode) {
+                this.wrapper.parentNode.insertBefore(this.textarea, this.wrapper);
+                this.wrapper.remove();
+            }
+            if (this.fieldsBar && !this.options.fieldsBarContainerId && this.fieldsBar.parentNode) {
+                this.fieldsBar.remove();
+            }
+            if (this.statusBar && !this.options.statusBarContainerId && this.statusBar.parentNode) {
+                this.statusBar.remove();
+            }
         }
 
         setupEditorDOM() {
@@ -257,7 +286,7 @@
         update() {
             const text = this.textarea.value || '';
             const detectedParams = [];
-            const regex = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
+            const regex = /\{\{\s*([a-zA-Z0-9_.]+)(?:\s*\|[^}]+)?\s*\}\}/g;
 
             let lastIndex = 0;
             let highlightedHtml = '';

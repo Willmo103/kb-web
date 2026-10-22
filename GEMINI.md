@@ -73,6 +73,7 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 - [ui_component_uat_rules.md](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/rules/ui_component_uat_rules.md): Strict UAT rules for Jinja2 templates, CSS, PWA & Extension UI.
 - [vcs_testing_artifact_rules.md](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/rules/vcs_testing_artifact_rules.md): VCS testing artifact generation and commit requirements (`uat/`).
 - [custom_html_feedback_rules.md](file:///c:/Users/Will/Desktop/will_mono/remotes/kb-mono/remotes/kb-web/.agent/rules/custom_html_feedback_rules.md): Interactive HTML form feedback collection & issue parser workflow.
+- [user_intent_rules.md](file:///c:/src/kb-web/.agents/rules/user_intent_rules.md): User intent primacy and mandatory multiple-choice disambiguation.
 
 ---
 

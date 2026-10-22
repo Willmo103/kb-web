@@ -11,10 +11,17 @@ from .config import (
 
 
 def get_db(config: Config):
-    """Connects to the database and returns a Database instance from sqlite-utils.
+    """[DEPRECATED] Connects to the database and returns a Database instance from sqlite-utils.
 
-    This is kept for backward compatibility with base CLI configurations.
+    Deprecated: In PostgreSQL-first architecture, use SQLAlchemy `db_session()` instead.
+    This is kept strictly for backward compatibility with base CLI configurations.
     """
+    import warnings
+    warnings.warn(
+        "get_db() is deprecated and will be removed; use SQLAlchemy db_session() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from sqlite_utils import Database
     from pathlib import Path
 

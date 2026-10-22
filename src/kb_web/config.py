@@ -704,7 +704,7 @@ class Config:
                 current_head = None
                 rows = list(
                     db["agent_prompts"].rows_where(
-                        f"prompt_type = '{prompt_type}' AND is_head = 1"
+                        "prompt_type = ? AND is_head = 1", [prompt_type]
                     )
                 )
                 if rows:
@@ -716,14 +716,16 @@ class Config:
                     max_version = 0
                     all_versions = list(
                         db.execute_returning_dicts(
-                            f"SELECT MAX(version) as mv FROM agent_prompts WHERE prompt_type = '{prompt_type}'"
+                            "SELECT MAX(version) as mv FROM agent_prompts WHERE prompt_type = ?",
+                            [prompt_type],
                         )
                     )
                     if all_versions and all_versions[0]["mv"] is not None:
                         max_version = all_versions[0]["mv"]
 
                     db.execute(
-                        f"UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = '{prompt_type}'"
+                        "UPDATE agent_prompts SET is_head = 0 WHERE prompt_type = ?",
+                        [prompt_type],
                     )
                     db["agent_prompts"].insert(
                         {

@@ -1198,18 +1198,26 @@
       const prefix = `${folderPath}/`;
       const toDelete = paths.filter(p => p === folderPath || p.startsWith(prefix));
 
-      for (const p of toDelete) {
-        VFS.deleteFile(p);
-        closeTab(p);
-        await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {
+      try {
+        const res = await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: p }),
+          body: JSON.stringify({ path: folderPath }),
         });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `Server error ${res.status}`);
+        }
+        for (const p of toDelete) {
+          VFS.deleteFile(p);
+          closeTab(p);
+        }
+        refreshFileTree();
+        logConsole(`Deleted folder: ${folderPath} (${toDelete.length} files removed)`);
+      } catch (err) {
+        logConsole(`Failed to delete folder: ${err.message}`);
+        alert(`Failed to delete folder: ${err.message}`);
       }
-
-      refreshFileTree();
-      logConsole(`Deleted folder: ${folderPath} (${toDelete.length} files removed)`);
     }
 
     async function promptRenameFile(oldPath, event) {
@@ -1220,37 +1228,48 @@
       const oldFile = VFS.getFile(oldPath);
       if (!oldFile) return;
 
-      VFS.renameFile(oldPath, cleanNew);
+      try {
+        // Sync rename to server first before mutating local VFS
+        const delRes = await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: oldPath }),
+        });
+        if (!delRes.ok) throw new Error("Failed to remove old file reference on server");
+        await syncFileToServer(cleanNew, oldFile.content, VFS.inferLanguage(cleanNew.split(".").pop()));
 
-      // Sync rename to server
-      await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: oldPath }),
-      });
-      await syncFileToServer(cleanNew, oldFile.content, VFS.inferLanguage(cleanNew.split(".").pop()));
+        VFS.renameFile(oldPath, cleanNew);
+        const tabIdx = openTabs.indexOf(oldPath);
+        if (tabIdx !== -1) openTabs[tabIdx] = cleanNew;
+        if (activeFilePath === oldPath) activeFilePath = cleanNew;
 
-      const tabIdx = openTabs.indexOf(oldPath);
-      if (tabIdx !== -1) openTabs[tabIdx] = cleanNew;
-      if (activeFilePath === oldPath) activeFilePath = cleanNew;
-
-      refreshFileTree();
-      renderTabs();
-      logConsole(`Renamed "${oldPath}" -> "${cleanNew}"`);
+        refreshFileTree();
+        renderTabs();
+        logConsole(`Renamed "${oldPath}" -> "${cleanNew}"`);
+      } catch (err) {
+        logConsole(`Error renaming file: ${err.message}`);
+        alert(`Error renaming file: ${err.message}`);
+      }
     }
 
     async function deleteWorkspaceFile(path, event) {
       event.stopPropagation();
       if (confirm(`Delete "${path}"?`)) {
-        VFS.deleteFile(path);
-        closeTab(path);
-        refreshFileTree();
-        await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path }),
-        });
-        logConsole(`Deleted file: ${path}`);
+        try {
+          const res = await fetch(`/api/workspaces/${WORKSPACE_ID}/files`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path }),
+          });
+          if (!res.ok) throw new Error(`Server returned ${res.status}`);
+          VFS.deleteFile(path);
+          closeTab(path);
+          refreshFileTree();
+          logConsole(`Deleted file: ${path}`);
+        } catch (err) {
+          logConsole(`Failed to delete file ${path}: ${err.message}`);
+          alert(`Failed to delete file: ${err.message}`);
+        }
       }
     }
 

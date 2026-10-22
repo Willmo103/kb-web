@@ -24,6 +24,7 @@ from ..models_orm import (
     CollectionItem,
     CollectionAction,
     PageVersion,
+    WikiVersion,
     PageCardView,
     ArticleEmbedding,
     TitleEmbedding,
@@ -216,6 +217,7 @@ def delete_article(url: str = Query(..., description="URL of the page to delete"
                 session.query(YouTubeVideo).filter_by(url=u).delete()
 
             session.query(PageVersion).filter_by(url=u).delete()
+            session.query(WikiVersion).filter_by(url=u).delete()
             session.query(Link).filter_by(url=u).delete()
             c = session.query(FetchedPage).filter_by(url=u).delete()
             deleted_count += c
@@ -593,7 +595,7 @@ def search_rag_chunks_get(
     )
     return {
         "query": q,
-        "model": model or getattr(config, "ollama_embedding_model", "embeddinggemma"),
+        "model": model or getattr(config, "ollama_embedding_model", "nomic-embed-text"),
         "count": len(results),
         "results": results,
     }
@@ -622,7 +624,7 @@ def search_rag_chunks_post(
     )
     return {
         "query": query,
-        "model": model or getattr(config, "ollama_embedding_model", "embeddinggemma"),
+        "model": model or getattr(config, "ollama_embedding_model", "nomic-embed-text"),
         "count": len(results),
         "results": results,
     }

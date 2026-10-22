@@ -29,6 +29,32 @@
     </div>
     {% endif %}
 
+    {% if active_wiki_version_id %}
+    <div class="bg-indigo-50 border border-indigo-200 text-indigo-900 p-4 rounded-lg text-sm mb-6 shadow-sm flex flex-wrap justify-between items-center gap-3 w-full mx-auto">
+        <div class="flex items-center gap-2">
+            <span>📜</span>
+            <span>You are viewing a historical wiki version generated on <strong>{{ active_wiki_version.created_at[:16] | replace('T', ' ') if active_wiki_version and active_wiki_version.created_at else '' }}</strong>{% if active_wiki_version and active_wiki_version.model_name %} by <strong>{{ active_wiki_version.model_name }}</strong>{% endif %}.</span>
+            {% if active_wiki_version and active_wiki_version.steering_instructions %}
+            <span class="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-[10px] rounded font-mono font-medium" title="{{ active_wiki_version.steering_instructions }}">Custom Steered</span>
+            {% endif %}
+        </div>
+        <div class="flex items-center gap-2">
+            {% if is_admin %}
+            <form action="/admin/wiki/restore" method="POST" class="m-0 inline">
+                <input type="hidden" name="url" value="{{ page.url }}" />
+                <input type="hidden" name="version_id" value="{{ active_wiki_version_id }}" />
+                <button type="submit" class="text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded transition shadow-sm" onclick="return confirm('Restore this historical wiki as the active version? Current wiki will be archived.');">
+                    ↩️ Restore Version
+                </button>
+            </form>
+            {% endif %}
+            <a href="/view/page?url={{ page.safe_url }}" class="text-xs font-bold bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-800 px-3 py-1.5 rounded transition shadow-sm">
+                View Current Version
+            </a>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="flex flex-col lg:flex-row gap-6 w-full mx-auto">
 
         <!-- Left Sidebar (Similar Articles) -->
@@ -69,8 +95,22 @@
                 </div>
                 <h1 class="text-2xl font-extrabold text-gray-900 mt-0.5">{{ page.title or page.url }}</h1>
                 {% if page.title and page.title != page.url %}
-                <p class="text-xs text-gray-400 truncate mt-1">
-                    Target: <a href="{{ page.url }}" target="_blank" class="hover:underline font-mono text-indigo-600 break-all">{{ page.url }}</a>
+                {% set resolved = resolve_entity_url(page.url) %}
+                <p class="text-xs text-gray-500 truncate mt-1 flex items-center gap-1.5 flex-wrap">
+                    <span class="text-gray-400">Target:</span>
+                    {% if resolved.clickable %}
+                        <a href="{{ resolved.target_url }}" {% if resolved.target == '_blank' %}target="_blank" rel="noopener noreferrer"{% endif %} class="hover:underline font-mono text-indigo-600 break-all flex items-center gap-1">
+                            <span>{{ resolved.icon }}</span> {{ page.url }}
+                        </a>
+                        {% if resolved.is_internal %}
+                        <span class="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-semibold rounded">{{ resolved.label }}</span>
+                        {% endif %}
+                    {% else %}
+                        <span class="font-mono text-gray-500 break-all flex items-center gap-1">
+                            <span>{{ resolved.icon }}</span> {{ page.url }}
+                        </span>
+                        <span class="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-[10px] font-semibold rounded">Synthetic Link</span>
+                    {% endif %}
                 </p>
                 {% endif %}
             </div>
@@ -267,8 +307,183 @@
 
             <!-- Clean wiki page content -->
             <div class="bg-white p-4 sm:p-8 rounded-lg shadow-sm border border-gray-200 mb-6 animate-fade-in overflow-hidden">
+                <!-- Wiki Metadata Header -->
+                <div class="flex flex-wrap items-center justify-between gap-2 pb-4 mb-6 border-b border-gray-100 text-xs">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="font-bold text-gray-500 uppercase tracking-wider text-[10px]">AI Wiki Digest</span>
+                        {% if current_wiki_model %}
+                        <span class="px-2.5 py-1 bg-indigo-50 border border-indigo-200 text-indigo-700 font-semibold rounded-full flex items-center gap-1.5 shadow-sm" title="Ollama Model that generated this wiki version">
+                            <span>🤖</span> Model: <strong class="font-mono text-indigo-900">{{ current_wiki_model }}</strong>
+                        </span>
+                        {% endif %}
+                        {% if active_wiki_version and active_wiki_version.steering_instructions %}
+                        <span class="px-2 py-0.5 bg-amber-50 border border-amber-200 text-amber-800 font-medium rounded text-[11px]" title="{{ active_wiki_version.steering_instructions }}">
+                            🎯 Steered Directives
+                        </span>
+                        {% endif %}
+                    </div>
+                    {% if wiki_versions %}
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <span class="text-gray-400 text-[11px] font-medium mr-1">History:</span>
+                        <a href="/view/page?url={{ page.safe_url }}" class="px-2 py-0.5 rounded text-[11px] font-semibold transition {% if not active_wiki_version_id %}bg-indigo-600 text-white shadow-sm{% else %}bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200{% endif %}">
+                            Latest
+                        </a>
+                        {% for wv in wiki_versions %}
+                        <a href="/view/page?url={{ page.safe_url }}&wiki_version_id={{ wv.id }}" class="px-2 py-0.5 rounded text-[11px] font-semibold transition {% if active_wiki_version_id == wv.id %}bg-indigo-600 text-white shadow-sm{% else %}bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200{% endif %}" title="v{{ loop.index }} by {{ wv.model_name or 'LLM' }} at {{ wv.created_at }}">
+                            v{{ loop.index }} ({{ wv.model_name.split(':')[0] if wv.model_name else 'LLM' }})
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+
                 <div class="prose max-w-none break-words overflow-x-auto">
                     {{ rendered_wiki_html | safe }}
+                </div>
+            </div>
+
+            <!-- Extracted Facts & Context Mesh section -->
+            <div id="facts-context-mesh-card" class="bg-white p-4 sm:p-6 rounded-lg shadow-sm border border-gray-200 mb-6 overflow-hidden">
+                <!-- Taxonomy Breadcrumb Header -->
+                {% if taxonomy_entity %}
+                <div class="mb-4 pb-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center gap-1.5 flex-wrap text-xs">
+                        <span class="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                            <span>🧬</span> 7-Tier Taxonomy:
+                        </span>
+                        <a href="/taxonomy" class="px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-mono text-[11px] rounded border border-indigo-200 transition" title="Kingdom">
+                            {{ taxonomy_entity.kingdom }}
+                        </a>
+                        <span class="text-gray-300">/</span>
+                        <a href="/taxonomy" class="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-mono text-[11px] rounded border border-blue-200 transition" title="Phylum">
+                            {{ taxonomy_entity.phylum }}
+                        </a>
+                        <span class="text-gray-300">/</span>
+                        <a href="/taxonomy" class="px-2 py-0.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 font-mono text-[11px] rounded border border-cyan-200 transition" title="Class">
+                            {{ taxonomy_entity.class_name }}
+                        </a>
+                        <span class="text-gray-300">/</span>
+                        <a href="/taxonomy" class="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-mono text-[11px] rounded border border-emerald-200 transition" title="Order">
+                            {{ taxonomy_entity.order_name }}
+                        </a>
+                        <span class="text-gray-300">/</span>
+                        <a href="/taxonomy" class="px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-mono text-[11px] rounded border border-amber-200 transition" title="Family">
+                            {{ taxonomy_entity.family }}
+                        </a>
+                        {% if taxonomy_entity.genus %}
+                        <span class="text-gray-300">/</span>
+                        <span class="px-2 py-0.5 bg-purple-50 text-purple-700 font-mono text-[11px] rounded border border-purple-200" title="Genus">
+                            {{ taxonomy_entity.genus }}
+                        </span>
+                        {% endif %}
+                        {% if taxonomy_entity.species %}
+                        <span class="text-gray-300">/</span>
+                        <span class="px-2 py-0.5 bg-rose-50 text-rose-700 font-mono text-[11px] rounded border border-rose-200" title="Species">
+                            {{ taxonomy_entity.species }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    <a href="/taxonomy" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                        View Taxonomy Tree ↗
+                    </a>
+                </div>
+                {% endif %}
+
+                <!-- Section Header with Count and Extract Now Button -->
+                <div class="flex flex-wrap items-center justify-between gap-3 pb-3 mb-4 border-b border-gray-100">
+                    <div class="flex items-center gap-2">
+                        <span class="text-base">💡</span>
+                        <h3 class="text-sm font-bold text-gray-800 uppercase tracking-wider">
+                            Extracted Facts & Intent Mesh
+                        </h3>
+                        <span id="facts-count-badge" class="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 font-mono font-bold text-xs rounded-full border border-indigo-200">
+                            {{ context_statements | length }} statement{% if (context_statements | length) != 1 %}s{% endif %}
+                        </span>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button type="button" id="extract-facts-now-btn" onclick="triggerFactExtractionNow('{{ page.url }}')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold transition shadow-sm">
+                            <span id="extract-facts-spinner" class="hidden animate-spin">🌀</span>
+                            <span>⚡ Extract Facts Now</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Statements List -->
+                <div id="facts-statements-list" class="space-y-3">
+                    {% if not context_statements %}
+                    <div id="facts-empty-state" class="p-6 text-center text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                        <span class="text-3xl block mb-2">📜</span>
+                        <p class="text-xs font-semibold text-gray-600 mb-1">No atomic context statements extracted yet</p>
+                        <p class="text-[11px] text-gray-400 max-w-md mx-auto mb-3">Context mesh statements distill facts, user affordances, invariants, and intent mappings from this article.</p>
+                        <button type="button" onclick="triggerFactExtractionNow('{{ page.url }}')" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-sm">
+                            ⚡ Extract Statements Now
+                        </button>
+                    </div>
+                    {% else %}
+                        {% for stmt in context_statements %}
+                        <div id="statement-card-{{ stmt.id }}" class="p-3.5 bg-gray-50/70 hover:bg-gray-50 border border-gray-200 rounded-lg transition shadow-sm flex flex-col gap-2">
+                            <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    {% if stmt.statement_type == 'fact' %}
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-blue-100 text-blue-800 border border-blue-200">Fact</span>
+                                    {% elif stmt.statement_type == 'intent_mapping' %}
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-purple-100 text-purple-800 border border-purple-200">Intent</span>
+                                    {% elif stmt.statement_type == 'negative_invariant' %}
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-rose-100 text-rose-800 border border-rose-200">Invariant</span>
+                                    {% elif stmt.statement_type == 'affordance' %}
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">Affordance</span>
+                                    {% elif stmt.statement_type == 'habit' %}
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-amber-100 text-amber-800 border border-amber-200">Habit</span>
+                                    {% elif stmt.statement_type == 'preference' %}
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-cyan-100 text-cyan-800 border border-cyan-200">Preference</span>
+                                    {% else %}
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-gray-100 text-gray-800 border border-gray-200">{{ stmt.statement_type }}</span>
+                                    {% endif %}
+
+                                    <span class="px-1.5 py-0.5 bg-gray-200/70 text-gray-700 font-mono text-[10px] rounded">
+                                        {{ stmt.layer_level }}
+                                    </span>
+
+                                    <span class="text-[11px] text-gray-400 font-mono truncate max-w-xs" title="{{ stmt.canonical_path }}">
+                                        {{ stmt.canonical_path }}
+                                    </span>
+                                </div>
+
+                                <div class="flex items-center gap-2">
+                                    <span id="eval-status-badge-{{ stmt.id }}" class="px-2 py-0.5 text-[10px] font-bold rounded-full border {% if stmt.eval_status == 'approved' %}bg-emerald-100 text-emerald-800 border-emerald-200{% elif stmt.eval_status == 'flagged' %}bg-amber-100 text-amber-800 border-amber-200{% elif stmt.eval_status == 'rejected' %}bg-rose-100 text-rose-800 border-rose-200{% else %}bg-gray-100 text-gray-600 border-gray-200{% endif %}">
+                                        {{ stmt.eval_status | capitalize }}
+                                    </span>
+                                    <span class="text-[10px] font-mono text-gray-400">
+                                        Score: <strong id="score-rank-{{ stmt.id }}" class="text-gray-700">{{ "%.1f" | format(stmt.score_rank) }}</strong>
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="text-xs font-medium text-gray-850 leading-relaxed pl-1">
+                                {{ stmt.statement }}
+                            </div>
+
+                            <!-- Evaluation Controls -->
+                            <div class="flex items-center justify-between gap-2 pt-1 border-t border-gray-100 text-[11px]">
+                                <span class="text-gray-400 font-mono text-[10px]">
+                                    {{ stmt.created_at[:10] }}
+                                </span>
+                                <div class="flex items-center gap-1.5">
+                                    <button type="button" onclick="evaluateStatement('{{ stmt.id }}', 'approved', 5.0, this)" class="px-2 py-0.5 rounded bg-white hover:bg-emerald-50 text-emerald-700 border border-gray-200 hover:border-emerald-300 font-semibold transition" title="Approve this statement">
+                                        👍 Approve
+                                    </button>
+                                    <button type="button" onclick="evaluateStatement('{{ stmt.id }}', 'flagged', 2.5, this)" class="px-2 py-0.5 rounded bg-white hover:bg-amber-50 text-amber-700 border border-gray-200 hover:border-amber-300 font-semibold transition" title="Flag for manual review">
+                                        ⚠️ Flag
+                                    </button>
+                                    <button type="button" onclick="evaluateStatement('{{ stmt.id }}', 'rejected', 1.0, this)" class="px-2 py-0.5 rounded bg-white hover:bg-rose-50 text-rose-700 border border-gray-200 hover:border-rose-300 font-semibold transition" title="Reject statement">
+                                        👎 Reject
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% endif %}
                 </div>
             </div>
 
@@ -358,6 +573,12 @@
                         <span>✏️</span> {% if page.is_frozen == 1 %}View in Editor (Read-Only){% else %}Edit in Monaco Editor{% endif %}
                     </a>
                     {% endif %}
+                    {% if page.url and page.url.startswith('workspace://') %}
+                    {% set ws_res = resolve_entity_url(page.url) %}
+                    <a href="{{ ws_res.target_url }}" class="w-full text-left text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm flex items-center gap-2">
+                        <span>💻</span> Open in Workspace
+                    </a>
+                    {% endif %}
                     {% if is_admin %}
                     <form action="/admin/freeze/page" method="post" class="m-0">
                         <input type="hidden" name="url" value="{{ page.url }}" />
@@ -379,11 +600,9 @@
                         <span>🔒</span> Tags Locked (Frozen)
                     </button>
                     {% else %}
-                    <form action="/admin/regenerate/wiki?url={{ page.safe_url }}" method="post" class="m-0">
-                        <button type="submit" class="w-full text-left text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm flex items-center gap-2">
-                            <span>🔄</span> Regenerate Wiki
-                        </button>
-                    </form>
+                    <button type="button" onclick="openRegenerateWikiModal()" class="w-full text-left text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3 border border-indigo-200 rounded transition shadow-sm flex items-center gap-2">
+                        <span>🔄</span> Regenerate Wiki
+                    </button>
 
                     <form action="/admin/regenerate/tags?url={{ page.safe_url }}" method="post" class="m-0">
                         <button type="submit" class="w-full text-left text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold py-2 px-3 border border-amber-200 rounded transition shadow-sm flex items-center gap-2">
@@ -624,6 +843,150 @@
             }
         }
     });
+
+    function openRegenerateWikiModal() {
+        var modal = document.getElementById('regenerate-wiki-modal');
+        if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeRegenerateWikiModal() {
+        var modal = document.getElementById('regenerate-wiki-modal');
+        if (modal) modal.classList.add('hidden');
+    }
+
+    function submitRegenerateWikiForm(event) {
+        var btn = document.getElementById('regenerate-wiki-submit-btn');
+        var spinner = document.getElementById('regenerate-btn-spinner');
+        var text = document.getElementById('regenerate-btn-text');
+        if (btn && spinner && text) {
+            btn.disabled = true;
+            btn.classList.add('opacity-75', 'cursor-not-allowed');
+            spinner.classList.remove('hidden');
+            text.textContent = 'Generating Wiki...';
+        }
+    }
+
+    function evaluateStatement(stmtId, status, score, btn) {
+        if (!stmtId) return;
+        var originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '...';
+
+        fetch('/api/context-mesh/statements/' + encodeURIComponent(stmtId) + '/evaluate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ eval_status: status, score_rank: score })
+        })
+        .then(function(res) {
+            if (!res.ok) throw new Error('Evaluation failed');
+            return res.json();
+        })
+        .then(function(data) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            var badge = document.getElementById('eval-status-badge-' + stmtId);
+            if (badge && data.statement) {
+                var s = data.statement.eval_status;
+                badge.textContent = s.charAt(0).toUpperCase() + s.slice(1);
+                if (s === 'approved') {
+                    badge.className = 'px-2 py-0.5 text-[10px] font-bold rounded-full border bg-emerald-100 text-emerald-800 border-emerald-200';
+                } else if (s === 'flagged') {
+                    badge.className = 'px-2 py-0.5 text-[10px] font-bold rounded-full border bg-amber-100 text-amber-800 border-amber-200';
+                } else if (s === 'rejected') {
+                    badge.className = 'px-2 py-0.5 text-[10px] font-bold rounded-full border bg-rose-100 text-rose-800 border-rose-200';
+                }
+            }
+            var scoreEl = document.getElementById('score-rank-' + stmtId);
+            if (scoreEl && data.statement) {
+                scoreEl.textContent = Number(data.statement.score_rank).toFixed(1);
+            }
+        })
+        .catch(function(err) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            alert('Failed to evaluate statement: ' + err.message);
+        });
+    }
+
+    function triggerFactExtractionNow(targetUrl) {
+        var btn = document.getElementById('extract-facts-now-btn');
+        var spinner = document.getElementById('extract-facts-spinner');
+        if (btn) btn.disabled = true;
+        if (spinner) spinner.classList.remove('hidden');
+
+        fetch('/api/context-mesh/extract-now', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: targetUrl })
+        })
+        .then(function(res) {
+            if (!res.ok) throw new Error('Fact extraction failed');
+            return res.json();
+        })
+        .then(function(data) {
+            if (data.status === 'success') {
+                window.location.reload();
+            } else {
+                alert('Fact extraction warning: ' + (data.message || 'Unknown response'));
+                if (btn) btn.disabled = false;
+                if (spinner) spinner.classList.add('hidden');
+            }
+        })
+        .catch(function(err) {
+            alert('Failed to extract facts: ' + err.message);
+            if (btn) btn.disabled = false;
+            if (spinner) spinner.classList.add('hidden');
+        });
+    }
 </script>
+
+<!-- Regenerate Wiki Modal -->
+<div id="regenerate-wiki-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4">
+    <div class="bg-white rounded-lg p-6 max-w-lg w-full shadow-2xl border border-gray-200 animate-fade-in">
+        <div class="flex items-center justify-between mb-3 border-b pb-3">
+            <h3 class="text-lg font-bold text-gray-950 flex items-center gap-2">
+                <span>🔄</span> Regenerate AI Wiki
+            </h3>
+            <button type="button" onclick="closeRegenerateWikiModal()" class="text-gray-400 hover:text-gray-600 font-bold text-lg">✕</button>
+        </div>
+        <p class="text-xs text-gray-600 mb-4">
+            Select a model and optionally provide steering directives to tailor the generated wiki. The current wiki will be safely archived into history.
+        </p>
+
+        <form action="/admin/regenerate/wiki" method="POST" id="regenerate-wiki-form" onsubmit="submitRegenerateWikiForm(event)">
+            <input type="hidden" name="url" value="{{ page.url }}" />
+
+            <div class="mb-4">
+                <label for="wiki-model-select" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Ollama Model
+                </label>
+                <select name="model" id="wiki-model-select" class="w-full text-xs bg-gray-50 border border-gray-300 rounded-lg p-2.5 text-gray-800 focus:ring-2 focus:ring-indigo-500 font-mono">
+                    {% for m in installed_models %}
+                    <option value="{{ m }}" {% if current_wiki_model == m or (not current_wiki_model and loop.first) %}selected{% endif %}>{{ m }}</option>
+                    {% endfor %}
+                </select>
+                <p class="text-[10px] text-gray-400 mt-1">Select any installed Ollama model to generate this wiki iteration.</p>
+            </div>
+
+            <div class="mb-6">
+                <label for="steering-instructions-input" class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Steering Directives (Optional)
+                </label>
+                <textarea name="steering_instructions" id="steering-instructions-input" rows="4" placeholder="E.g. Focus on technical architecture and code snippets; summarize in bullet points; highlight security considerations..." class="w-full text-xs bg-gray-50 border border-gray-300 rounded-lg p-2.5 text-gray-800 focus:ring-2 focus:ring-indigo-500"></textarea>
+                <p class="text-[10px] text-gray-400 mt-1">Directives are appended to the system curation prompt to guide the model's focus.</p>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-2 border-t border-gray-100">
+                <button type="button" onclick="closeRegenerateWikiModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg transition">
+                    Cancel
+                </button>
+                <button type="submit" id="regenerate-wiki-submit-btn" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition shadow flex items-center gap-2">
+                    <span id="regenerate-btn-spinner" class="hidden animate-spin">🌀</span>
+                    <span id="regenerate-btn-text">Regenerate Wiki</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
 {% endblock %}
 

@@ -5,8 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.11] - 2026-10-19
+## [0.5.11] - 2026-10-22
 ### Added
+- **Extracted Facts & Context Mesh UI Display (`routers/pages.py`, `templates/view_page.j2.html`)**:
+  - Exposed extracted atomic facts and context statements (`ContextStatementORM`) on the Article Profile view.
+  - Added dedicated "Extracted Facts & Intent Mesh" card featuring color-coded statement type badges (`Fact` [blue], `Intent` [purple], `Invariant` [rose], `Affordance` [emerald], `Habit` [amber], `Preference` [cyan]), taxonomic layer level badges (`SPECIES`, `GENUS`, etc.), canonical taxonomy coordinates path, review status indicators (`approved`, `flagged`, `rejected`, `unreviewed`), and confidence score ranks.
+  - Added interactive one-click evaluation controls (`👍 Approve`, `⚠️ Flag`, `👎 Reject`) with dynamic asynchronous feedback updates via `POST /api/context-mesh/statements/{id}/evaluate`.
+  - Added on-demand `⚡ Extract Facts Now` action button calling `POST /api/context-mesh/extract-now`.
+- **7-Tier Biological Taxonomy Auto-Population & Library Sync (`taxonomy/engine.py`, `context_mesh/pipeline.py`, `pipeline.py`, `routers/taxonomy.py`)**:
+  - Automated taxonomy coordinate registration during page ingestion and fact extraction via `TaxonomyEngine().register_entity(...)`.
+  - Implemented `TaxonomyEngine.sync_entities_from_library(limit)` and endpoint `POST /api/taxonomy/sync-entities` to scan existing articles and notes and infer 7-tier coordinates.
+  - Implemented `TaxonomyEngine.get_7tier_tree()` and endpoint `GET /api/taxonomy/7tier/tree` compiling a hierarchical 7-tier biological tree of Kingdoms, Phyla, Classes, Orders, and Families with real-time entity and statement counts.
+- **Upgraded Interactive Taxonomy & Living Facts Mesh Explorer (`routers/taxonomy.py`, `templates/taxonomy.j2.html`)**:
+  - Modernized `/taxonomy` into a dual-view portal featuring:
+    * **Tab 1: 7-Tier Biological Ontology & Living Facts Explorer**: Interactive hierarchical tree navigator from Kingdom down to Family, breadcrumb coordinate display, live atomic context facts mesh explorer with statement type filters and search, and mapped physical entity cards with direct article profile links.
+    * **Tab 2: Autonomous Category Clusters (Legacy)**: Preserved category tree state machine, clustering crawler, and living category wiki doc reader for full backward compatibility.
+    * Added prominent "Sync Taxonomy from Library" button to populate the 7-tier hierarchy with one click.
+- **REST & Query API Additions (`routers/taxonomy.py`, `context_mesh/store.py`)**:
+  - Added `GET /api/context-mesh/statements` supporting filtering by `url`, `statement_type`, `layer_level`, `eval_status`, `prefix`, and keyword search `query`.
+  - Added `POST /api/context-mesh/statements/{id}/evaluate` to update evaluation status and score ranking.
+  - Added `POST /api/context-mesh/extract-now` for on-demand fact extraction.
+  - Added unit and integration test suite `tests/test_taxonomy_and_facts_display.py` (5 tests passed).
+- **Autonomous Worker Target Execution Tracking & Loop Prevention (`src/kb_web/models_orm.py`, `src/kb_web/worker.py`, `src/kb_web/routers/worker.py`)**:
+  - Implemented persistent target-level execution tracking model `WorkerJobExecution` (`id`, `job_id`, `target_id`, `status`, `items_count`, `error_message`, `executed_at`) with composite index `(job_id, target_id)`.
+  - Added in-memory deduplication tracking `self._recent_targets[job_id]` in `AutonomousWorker` preventing immediate duplicate execution within the same scheduler loop or runtime session.
+  - Hardened candidate selection subqueries in `_run_fact_extraction`, `_run_wiki_curation`, `_run_tag_curation`, and `_run_embedding_refresh`:
+    - Excludes targets already logged with `status IN ('success', 'skipped')` in `WorkerJobExecution`.
+    - Excludes targets present in the runtime `_recent_targets` memory cache.
+    - Added `.nullslast()` to all `order_by` clauses (`FetchedPage.fetched_at.desc().nullslast()` and `asc().nullslast()`) preventing PostgreSQL `NULLS FIRST` sorting quirks on unpopulated timestamps.
+    - Filters out `NULL` and empty values from downstream artifact subqueries.
+  - Automatically logs `status="skipped"` with `items_count=0` whenever an extraction or curation pass produces zero items, permanently preventing infinite loops on un-extractable targets.
+  - Added REST and Admin management endpoints: `GET /api/jobs/{job_id}/executions` to inspect target history, `POST /api/jobs/{job_id}/executions/clear` to reset execution logs, and `POST /admin/jobs/{job_id}/executions/clear` for admin portal resets.
+  - Added unit test suite `tests/test_worker_job_execution_tracking.py` verifying model persistence, helper functions, sequential deduplication, zero-statement skip handling, and API endpoints (5 tests passed).
+- **AI Wiki Versioning, Model Attribution & Historical Restorations (`src/kb_web/models_orm.py`, `routers/admin.py`, `routers/pages.py`, `templates/view_page.j2.html`)**:
+  - Added `WikiVersion` ORM model (`url`, `title`, `wiki_content`, `model_name`, `steering_instructions`, `created_at`) with native foreign key `ON DELETE CASCADE` linked to `fetched_pages.url`.
+  - Added `wiki_model` column to `FetchedPage` and pre-aggregated database view `vw_page_cards` with SQLite PRAGMA and PostgreSQL migrations.
+  - Automatically archive previous AI wiki markdown into `WikiVersion` whenever a page is regenerated (`POST /admin/regenerate/wiki`) or re-fetched (`POST /admin/refetch/page`).
+  - Added `POST /admin/wiki/restore` endpoint allowing instantaneous restoration of historical wiki versions with reciprocal archival of active content.
+  - Display generating model badge (`🤖 Model: <model_name>`) and historical version selector pills (`v1`, `v2`, `Latest`) directly in the article wiki header.
+  - Added historical version preview banner with one-click version restoration button.
+  - Wired cascade deletion across all controllers (`handle_delete_page`, `delete_single_article`, `delete_note_api`, and `_cascade_delete_page_urls`) and enabled `PRAGMA foreign_keys=ON` on SQLite database connections.
+- **On-the-Fly Model Selection & Custom Steering Directives (`src/kb_web/utils.py`, `routers/admin.py`, `templates/view_page.j2.html`)**:
+  - Replaced immediate wiki regeneration with an interactive modal form allowing on-the-fly selection of any locally installed Ollama completion model.
+  - Added optional steering instructions textarea allowing custom prompts (e.g., technical architecture focus, bulleted executive summaries, mathematical proof retention) to be dynamically appended to system curation prompts.
+  - Updated `extract_wiki_content` to accept custom `model` and `steering_instructions` across both short and chunked long-document generation pipelines.
+- **Pseudo-Scheme URL Resolution & Universal Navigation Dispatcher (`src/kb_web/base.py`, `routers/pages.py`, `templates/base.j2.html`, `templates/pages_list.j2.html`)**:
+  - Implemented `resolve_entity_url(url)` resolving synthetic internal schemes into clean internal routes: `note://` to Monaco Notes editor (`/notes/edit?url=...`), `workspace://` to workspace IDE (`/workspaces/{id}`), external `http/https` to original targets, and unrecognized schemes to non-clickable badges.
+  - Registered `resolve_entity_url` as both a Jinja filter and global helper across all templates.
+  - Added universal `GET /open?url=...` redirect dispatcher routing synthetic and external schemes server-side.
+  - Added global client-side link click interceptor in `base.j2.html` seamlessly rerouting internal markdown and page links to `/open?url=...` without browser handler errors.
+  - Updated article profile (`view_page.j2.html`) and article index list (`pages_list.j2.html` across grid, compact, and client-side search) to resolve internal URLs safely.
+  - Added test suite `tests/test_wiki_versions_and_url_routing.py` covering model creation, cascade deletion, URL resolution, dispatcher redirection, modal parameter execution, version restoration, and template rendering (7 tests passed).
+- **7-Tier Biological Taxonomy & Context Fact Extraction Mesh (`src/kb_web/taxonomy/`, `src/kb_web/context_mesh/`, `src/kb_web/models_orm.py`)**:
+  - Implemented 7-tier biological taxonomy architecture (`Kingdom -> Phylum -> Class -> Order -> Family -> Genus -> Species`) inspired by Orcastrator, moving beyond flat folder-like tags to strict personal knowledge classification.
+  - Added `TaxonomyPath` coordinate model supporting canonical delimiter serialization (`to_path_string`), parsing (`from_string`), and Markdown YAML frontmatter generation (`to_yaml_frontmatter`).
+  - Added `TaxonomyClassifier` providing heuristic coordinate inferences for ingested web articles, Git repositories, YouTube videos, and notes.
+  - Added `TaxonomyEntityORM` and `TaxonomyEntityRecord` for persistent indexing of physical assets and view querying (`TaxonomyEngine.list_entities`).
+  - Implemented `ContextMesh` atomic knowledge representation with `ContextStatementORM` supporting both PostgreSQL `SafeVector` and SQLite embeddings.
+  - Added `ContextStatement` schema tracking declarative types (`intent_mapping`, `negative_invariant`, `affordance`, `habit`, `preference`, `fact`), taxonomic layers, clickable source citations (`to_citation_markdown`), and score ranks (0.0 to 5.0).
+  - Created `ContextStore` with composite vector similarity search (`0.65 * sim + 0.35 * norm_rank`), feedback back-propagation (`update_evaluation`), and dynamic exemplar retrieval (`get_exemplars`).
+  - Implemented `FactExtractionPipeline` with live positive/negative exemplar injection in system instructions, unified embedding generation (`get_active_embedding_model`), offline heuristic fallback, and pairwise DPO dataset export (`export_preference_dataset`).
+  - Implemented `BubbleDownRetriever` (`src/kb_web/context_mesh/retriever.py`) providing hierarchical context traversal: routes query domain via `d1` decision model (with regex word-boundary fallback) into target Kingdom & Phylum, conducts layer-by-layer vector search (Principles -> Conventions -> Instances), and renders formatted Markdown context blocks with score badges and clickable citations.
+  - Implemented `SubconsciousContextInjector` (`src/kb_web/context_mesh/injector.py`) automatically wrapping context in `<subconscious_context>` tags and injecting it directly into agent background instructions without manual search queries.
+  - Integrated Stage 4b atomic fact extraction into asynchronous web ingestion pipeline (`src/kb_web/pipeline.py`).
+  - Registered `fact_extraction` ServerJob in `AutonomousWorker` (`src/kb_web/worker.py`) for continuous discovery and context mesh extraction of unextracted library pages.
+  - Added test suite `tests/test_taxonomic_fact_extraction.py` covering path serialization, classifier heuristics, store CRUD, evaluation transitions, composite vector search, dynamic prompts, d1 decision routing, multi-layer hierarchical traversal, prompt injection, and worker job execution (13 tests passed).
 - **Persistent Evaluation Run History & Re-Run Portal (`src/kb_web/models_orm.py`, `routers/evals.py`, `templates/evals.j2.html`)**:
   - Persisted all streaming and batch evaluation executions into new `evaluation_runs` database table (`eval_type`, `title`, `status`, `config_json`, `results_json`, `metrics_json`, `created_at`, `completed_at`).
   - Added dedicated Tab 5 (**Run History**) in the Model Evaluation Studio allowing users to review completed, running, or failed evaluations with latency and token metrics, inspect full model outputs in a modal viewer, delete run records, and restore prompts/model options directly back into the active Studio form.
@@ -40,6 +103,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Completely excluded SystemOne decision models (`d1`, `tev1`) from generative completion and wiki creation model selectors across the entire application.
   - Structurally separated the Admin Agent tab into two distinct sections: **Section 1: SystemOne Decision Gating Models** and **Section 2: Generative LLM & Coding Worker Agents**.
   - Respects SystemOne architecture by completely removing invalid configuration controls (tools, system prompts, thinking mode, temperature, top_p, top_k, num_predict) from SystemOne agents, exposing strictly the `state` template and `questions` criteria.
+
+### Fixed
+- **Embedding Model Unification & Cross-Space Query Collision Fix (`src/kb_web/utils.py`, `rag_agent.py`, `worker.py`, `cli.py`, `models_orm.py`, `routers/cli_api.py`, `routers/admin.py`, `routers/embeddings.py`, `routers/rag_reports.py`)**:
+  - **Root Cause**: Document vectors were indexed using one model (hardcoded `"embeddinggemma"` in `generate_gemma_embeddings_for_page`), while search/RAG queries and article-level embeddings were using another (e.g. `nomic-embed-text` via `config.ollama_embedding_model`). In addition, `find_nearest_chunks` calculated cosine similarity without filtering by `ChunkEmbedding.model_name`, causing distance computations across incompatible vector spaces (e.g. querying with Nomic against Gemma embeddings resulting in degraded or zero matches).
+  - **Resolution**:
+    * Created centralized `get_active_embedding_model(session=None, config=None)` ensuring a single source of truth across all vector creation, query embedding, and similarity search routines.
+    * Refactored `generate_gemma_embeddings_for_page` (aliased as `generate_embeddings_for_page`) to use the active embedding model, explicitly record `ChunkEmbedding.model_name`, and apply prompt prefixes (`search_document: `) dynamically.
+    * Updated `find_nearest_chunks` to strictly filter by `ChunkEmbedding.model_name == emb_model`, preventing cross-model vector distance calculations.
+    * Synchronized `SettingOllama(key="ollama_embedding_model")` and `SettingExternal(key="active_embedding_model")` across Admin Portal updates, REST API endpoints, and worker jobs.
+    * Added `kb-web-cli reindex-embeddings [--model MODEL]` command allowing on-demand reindexing of all document chunks with the active embedding model.
+    * Added comprehensive unit test suite `tests/test_embedding_unification.py`.
+- **Codebase-Wide Security & Vulnerability Hardening**:
+  - `SEC-01`: Converted raw f-string SQL queries in `AgentPrompt` version tracking (`src/kb_web/config.py`) to parameterized queries with bound arguments to prevent SQL injection.
+  - `SEC-02`: Fixed Stored XSS vulnerability in global notifications drawer and toast popups (`src/kb_web/templates/base.j2.html`) by introducing `escapeHtml(str)` utility and sanitizing messages, stages, and timestamps before innerHTML assignment.
+  - `SEC-03`: Fixed Stored XSS in autonomous topic agent wikis and dynamic canvas pages (`src/kb_web/routers/agent_pages.py`) by wrapping markdown conversion output with `sanitize_html()`.
+  - `SEC-04`: Fixed DOM attribute breakout and event injection vulnerabilities in collection viewer, collection editor, and URL import templates (`src/kb_web/templates/view_collection.j2.html`, `collection_editor.j2.html`, `url_import.j2.html`) using HTML entity escaping and `data-url` attributes.
+- **Background Worker & Frontend IDE Bug Fixes**:
+  - `BUG-01`: Fixed infinite re-indexing loop in background worker vector embedding refresh job (`src/kb_web/worker.py`) by filtering for pages lacking `ChunkEmbedding` records.
+  - `BUG-02`: Replaced N-sequential HTTP `DELETE` loop when deleting folders in Workspace IDE (`src/kb_web/templates/workspace_ide.j2.html`) with atomic backend folder prefix deletion request.
+  - `BUG-03`: Added `destroy()` lifecycle teardown to `JinjaHighlighter` (`src/kb_web/static/js/jinja_highlighter.js`) to disconnect `ResizeObserver` and remove window resize listener; updated parameter matching regex to handle Jinja pipe filters (`| default(...)`).
+  - `BUG-04`: Fixed script race condition in Admin Portal (`src/kb_web/templates/admin.j2.html`) by moving `jinja_highlighter.js` into `extra_head`.
+- **Performance Optimizations & Deprecation Notices**:
+  - `CONF-01`: Replaced deprecated `sqlalchemy.ext.declarative.declarative_base()` import in `src/kb_web/models_orm.py` with `sqlalchemy.orm.declarative_base()` to eliminate SQLAlchemy 2.0 `MovedIn20Warning`.
+  - `PERF-01`: Optimized server boot ghost URL cleanup in `src/kb_web/models_orm.py` to use set-based SQL `DELETE FROM ... WHERE ... IN (subquery)` instead of sequential per-row iteration.
+  - `PERF-02`: Batched note vault zip import into single database transaction and throttled concurrent background tasks in `src/kb_web/routers/notes.py`.
+  - `PERF-03`: Optimized taxonomy classification note scanning in `src/kb_web/routers/taxonomy.py` with `with_entities(Note.id, Note.url)` to avoid loading full bodies into memory.
+  - `ARCH-01`: Removed hardcoded magic `ci.collection_id != 1` assumption in `vw_page_cards` view definition in `src/kb_web/models_orm.py`.
+  - `DEPR-01`, `DEPR-02`, `DEPR-03`: Documented formal deprecation paths for legacy 10-item partitioning `taxonomy_state_machine.py`, legacy single-vector tables (`article_embeddings`, `title_embeddings`, `video_embeddings`), and `sqlite_utils` in `src/kb_web/db.py`.
 
 ## [0.5.10] - 2026-10-18
 ### Added

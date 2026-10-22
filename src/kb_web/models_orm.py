@@ -1,7 +1,6 @@
 import json
-from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Table
-from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Table, Index
+from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.types import TypeDecorator
 
 Base = declarative_base()
@@ -92,6 +91,14 @@ class FetchedPage(Base):
     collection_id = Column(Integer)
     exclude_from_general = Column(Integer, default=0)
     is_frozen = Column(Integer, default=0, index=True)
+    wiki_model = Column(String, nullable=True)
+
+    wiki_versions = relationship(
+        "WikiVersion",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        backref="fetched_page",
+    )
 
 
 class PageVersion(Base):
@@ -111,7 +118,21 @@ class PageVersion(Base):
     tags = Column(Text)
 
 
+class WikiVersion(Base):
+    """Stores historical versions of AI-generated or edited wikis for an ingested page."""
+    __tablename__ = "wiki_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    url = Column(String, ForeignKey("fetched_pages.url", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String)
+    wiki_content = Column(Text)
+    model_name = Column(String, nullable=True)
+    steering_instructions = Column(Text, nullable=True)
+    created_at = Column(String)
+
+
 class ArticleEmbedding(Base):
+    """[DEPRECATED] Single-vector article table. Slated for removal in favor of ChunkEmbedding."""
     __tablename__ = "article_embeddings"
 
     url = Column(String, ForeignKey("fetched_pages.url"), primary_key=True)
@@ -120,6 +141,7 @@ class ArticleEmbedding(Base):
 
 
 class TitleEmbedding(Base):
+    """[DEPRECATED] Single-vector title table. Slated for removal in favor of ChunkEmbedding."""
     __tablename__ = "title_embeddings"
 
     url = Column(String, ForeignKey("fetched_pages.url"), primary_key=True)
@@ -209,12 +231,13 @@ class ChunkEmbedding(Base):
     chunk_number = Column(Integer)
     chunk_content = Column(Text)
     chunk_vector = Column(SafeVector())
-    model_name = Column(String, default="embeddinggemma")
+    model_name = Column(String, default="nomic-embed-text")
     created_at = Column(String)
 
 
 
 class VideoEmbedding(Base):
+    """[DEPRECATED] Single-vector video table. Slated for removal in favor of ChunkEmbedding."""
     __tablename__ = "video_embeddings"
 
     url = Column(String, ForeignKey("fetched_pages.url"), primary_key=True)
@@ -366,6 +389,71 @@ class TaxonomyItem(Base):
 
     category = relationship("TaxonomyCategory", backref="items")
 
+
+class ContextStatementORM(Base):
+    """Declarative ORM entity for atomic declarative context statements with 7-tier taxonomy."""
+    __tablename__ = "context_statements"
+
+    id = Column(String, primary_key=True)  # e.g. stmt_abc1234567
+    statement = Column(Text, nullable=False)
+    statement_type = Column(String, nullable=False, index=True)  # intent_mapping, negative_invariant, affordance, habit, fact, preference
+    canonical_path = Column(String, nullable=False, index=True)  # e.g. knowledge/text/human_read/kb-web/architecture/ArticleWiki/embedding_unification
+    layer_level = Column(String, nullable=False, index=True)     # kingdom, phylum, class, order, family, genus, species
+    kingdom = Column(String, index=True)
+    phylum = Column(String, index=True)
+    class_name = Column(String, index=True)
+    order_name = Column(String, index=True)
+    family = Column(String, index=True)
+    genus = Column(String, index=True)
+    species = Column(String, index=True)
+    source_uri = Column(Text, nullable=False)
+    source_title = Column(String, nullable=False)
+    confidence = Column(Float, default=1.0)
+    statement_vector = Column(SafeVector())
+    tags_json = Column(Text, default="[]")
+    metadata_json = Column(Text, default="{}")
+    score_rank = Column(Float, default=3.0, index=True)
+    eval_status = Column(String, default="unreviewed", index=True)
+    eval_feedback = Column(Text)
+    eval_count = Column(Integer, default=0)
+    last_evaluated_at = Column(String)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
+class TaxonomyEntityORM(Base):
+    """Declarative ORM entity for physical entities mapped to 7-tier biological taxonomy coordinates."""
+    __tablename__ = "taxonomy_entities"
+
+    canonical_id = Column(String, primary_key=True)  # taxonomy path identifier
+    taxonomy_path = Column(String, nullable=False, index=True)
+    kingdom = Column(String, index=True)
+    phylum = Column(String, index=True)
+    class_name = Column(String, index=True)
+    order_name = Column(String, index=True)
+    family = Column(String, index=True)
+    genus = Column(String, index=True)
+    species = Column(String, index=True)
+    physical_location = Column(Text, nullable=False)
+    attributes_json = Column(Text, default="{}")
+    updated_at = Column(String, nullable=False)
+
+
+class WorkerJobExecution(Base):
+    """Persistent execution and target audit log for autonomous background worker jobs."""
+    __tablename__ = "worker_job_executions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String, nullable=False, index=True)
+    target_id = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, index=True)  # 'success', 'skipped', 'failed'
+    items_count = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+    executed_at = Column(String, nullable=False, index=True)
+
+    __table_args__ = (
+        Index("ix_worker_job_target", "job_id", "target_id"),
+    )
 
 
 class AgentMessage(Base):
@@ -727,6 +815,7 @@ class PageCardView(Base):
     duration = Column(Integer)
     view_count = Column(Integer)
     thumbnail_url = Column(String)
+    wiki_model = Column(String)
     collection_title = Column(String)
     collection_first_id = Column(Integer)
 
@@ -754,6 +843,10 @@ def ensure_views_and_indexes(engine):
                     pass
                 try:
                     conn.execute(text("ALTER TABLE notes ADD COLUMN IF NOT EXISTS links TEXT DEFAULT '[]';"))
+                except Exception:
+                    pass
+                try:
+                    conn.execute(text("ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS wiki_model VARCHAR;"))
                 except Exception:
                     pass
             else:
@@ -816,23 +909,26 @@ def ensure_views_and_indexes(engine):
                     """))
 
                     # Clean up any orphaned ghost stubs generated during previous SQLite migrations
-                    ghost_urls = conn.execute(text("""
+                    ghost_subq = """
                         SELECT url FROM fetched_pages 
                         WHERE title LIKE 'Archived Item (%%' 
                           AND (html_content IS NULL OR html_content = '')
                           AND (md_content IS NULL OR md_content = '')
-                    """)).fetchall()
-                    for (g_url,) in ghost_urls:
-                        conn.execute(text("DELETE FROM article_embeddings WHERE url = :u"), {"u": g_url})
-                        conn.execute(text("DELETE FROM title_embeddings WHERE url = :u"), {"u": g_url})
-                        conn.execute(text("DELETE FROM video_embeddings WHERE url = :u"), {"u": g_url})
-                        conn.execute(text("DELETE FROM chunk_embeddings WHERE source_id = :u"), {"u": g_url})
-                        conn.execute(text("DELETE FROM youtube_videos WHERE url = :u"), {"u": g_url})
-                        conn.execute(text("DELETE FROM collection_items WHERE source_id = :u"), {"u": g_url})
-                        conn.execute(text("DELETE FROM collection_actions WHERE source_id = :u"), {"u": g_url})
-                        conn.execute(text("DELETE FROM page_versions WHERE url = :u"), {"u": g_url})
-                        conn.execute(text("DELETE FROM links WHERE url = :u"), {"u": g_url})
-                        conn.execute(text("DELETE FROM fetched_pages WHERE url = :u"), {"u": g_url})
+                    """
+                    for tbl, col in [
+                        ("article_embeddings", "url"),
+                        ("title_embeddings", "url"),
+                        ("video_embeddings", "url"),
+                        ("chunk_embeddings", "source_id"),
+                        ("youtube_videos", "url"),
+                        ("collection_items", "source_id"),
+                        ("collection_actions", "source_id"),
+                        ("page_versions", "url"),
+                        ("wiki_versions", "url"),
+                        ("links", "url"),
+                        ("fetched_pages", "url"),
+                    ]:
+                        conn.execute(text(f"DELETE FROM {tbl} WHERE {col} IN ({ghost_subq})"))
 
                     conn.execute(text("""
                         CREATE VIEW vw_page_cards AS
@@ -844,6 +940,7 @@ def ensure_views_and_indexes(engine):
                             f.fetched_at,
                             f.collection_id,
                             f.exclude_from_general,
+                            f.wiki_model,
                             y.creator,
                             y.video_id,
                             y.duration,
@@ -853,10 +950,10 @@ def ensure_views_and_indexes(engine):
                             MIN(c.id) AS collection_first_id
                         FROM fetched_pages f
                         LEFT JOIN youtube_videos y ON f.url = y.url
-                        LEFT JOIN collection_items ci ON f.url = ci.source_id AND ci.collection_id != 1
-                        LEFT JOIN collections c ON ci.collection_id = c.id
+                        LEFT JOIN collection_items ci ON f.url = ci.source_id
+                        LEFT JOIN collections c ON ci.collection_id = c.id AND c.title != 'General Collection'
                         WHERE (f.title NOT LIKE 'Archived Item (%%' OR (f.html_content IS NOT NULL AND f.html_content != '') OR (f.md_content IS NOT NULL AND f.md_content != '') OR (y.video_id IS NOT NULL))
-                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general,
+                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general, f.wiki_model,
                                  y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
                     """))
                 except Exception as e:
@@ -876,6 +973,9 @@ def ensure_views_and_indexes(engine):
                         tbl_cols = [row[1] for row in conn.execute(text(f"PRAGMA table_info({tbl});")).fetchall()]
                         if tbl_cols and "is_frozen" not in tbl_cols:
                             conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN is_frozen INTEGER DEFAULT 0;"))
+                    fp_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(fetched_pages);")).fetchall()]
+                    if fp_cols and "wiki_model" not in fp_cols:
+                        conn.execute(text("ALTER TABLE fetched_pages ADD COLUMN wiki_model TEXT;"))
                 except Exception:
                     pass
                 try:
@@ -891,6 +991,7 @@ def ensure_views_and_indexes(engine):
                             f.fetched_at,
                             f.collection_id,
                             f.exclude_from_general,
+                            f.wiki_model,
                             y.creator,
                             y.video_id,
                             y.duration,
@@ -903,7 +1004,7 @@ def ensure_views_and_indexes(engine):
                         LEFT JOIN collection_items ci ON f.url = ci.source_id AND ci.collection_id != 1
                         LEFT JOIN collections c ON ci.collection_id = c.id
                         WHERE (f.title NOT LIKE 'Archived Item (%%' OR (f.html_content IS NOT NULL AND f.html_content != '') OR (f.md_content IS NOT NULL AND f.md_content != '') OR (y.video_id IS NOT NULL))
-                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general,
+                        GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general, f.wiki_model,
                                  y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
                     """))
                 except Exception:
@@ -990,5 +1091,141 @@ def ensure_views_and_indexes(engine):
                     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ingestion_notif_read ON ingestion_notifications (read)"))
             except Exception as e:
                 print(f"Warning creating ingestion_notifications table: {e}")
+
+            # Ensure context_statements table and indexes exist
+            try:
+                if dialect == "postgresql":
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS context_statements (
+                            id VARCHAR PRIMARY KEY,
+                            statement TEXT NOT NULL,
+                            statement_type VARCHAR NOT NULL,
+                            canonical_path VARCHAR NOT NULL,
+                            layer_level VARCHAR NOT NULL,
+                            kingdom VARCHAR,
+                            phylum VARCHAR,
+                            class_name VARCHAR,
+                            order_name VARCHAR,
+                            family VARCHAR,
+                            genus VARCHAR,
+                            species VARCHAR,
+                            source_uri TEXT NOT NULL,
+                            source_title VARCHAR NOT NULL,
+                            confidence REAL DEFAULT 1.0,
+                            statement_vector vector,
+                            tags_json TEXT DEFAULT '[]',
+                            metadata_json TEXT DEFAULT '{}',
+                            score_rank REAL DEFAULT 3.0,
+                            eval_status VARCHAR DEFAULT 'unreviewed',
+                            eval_feedback TEXT,
+                            eval_count INTEGER DEFAULT 0,
+                            last_evaluated_at VARCHAR,
+                            created_at VARCHAR NOT NULL,
+                            updated_at VARCHAR NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_stmt_path ON context_statements(canonical_path);
+                        CREATE INDEX IF NOT EXISTS idx_stmt_layer ON context_statements(layer_level);
+                        CREATE INDEX IF NOT EXISTS idx_stmt_type ON context_statements(statement_type);
+                        CREATE INDEX IF NOT EXISTS idx_stmt_score ON context_statements(score_rank);
+                        CREATE INDEX IF NOT EXISTS idx_stmt_eval ON context_statements(eval_status);
+                        CREATE INDEX IF NOT EXISTS idx_stmt_order ON context_statements(order_name);
+
+                        CREATE TABLE IF NOT EXISTS taxonomy_entities (
+                            canonical_id VARCHAR PRIMARY KEY,
+                            taxonomy_path VARCHAR NOT NULL,
+                            kingdom VARCHAR,
+                            phylum VARCHAR,
+                            class_name VARCHAR,
+                            order_name VARCHAR,
+                            family VARCHAR,
+                            genus VARCHAR,
+                            species VARCHAR,
+                            physical_location TEXT NOT NULL,
+                            attributes_json TEXT DEFAULT '{}',
+                            updated_at VARCHAR NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_tax_entity_path ON taxonomy_entities(taxonomy_path);
+                        CREATE INDEX IF NOT EXISTS idx_tax_entity_order ON taxonomy_entities(order_name);
+
+                        CREATE TABLE IF NOT EXISTS worker_job_executions (
+                            id SERIAL PRIMARY KEY,
+                            job_id VARCHAR NOT NULL,
+                            target_id VARCHAR NOT NULL,
+                            status VARCHAR NOT NULL,
+                            items_count INTEGER DEFAULT 0,
+                            error_message TEXT,
+                            executed_at VARCHAR NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_worker_job_target ON worker_job_executions(job_id, target_id);
+                        CREATE INDEX IF NOT EXISTS idx_worker_job_status ON worker_job_executions(status);
+                    """))
+                else:
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS context_statements (
+                            id TEXT PRIMARY KEY,
+                            statement TEXT NOT NULL,
+                            statement_type TEXT NOT NULL,
+                            canonical_path TEXT NOT NULL,
+                            layer_level TEXT NOT NULL,
+                            kingdom TEXT,
+                            phylum TEXT,
+                            class_name TEXT,
+                            order_name TEXT,
+                            family TEXT,
+                            genus TEXT,
+                            species TEXT,
+                            source_uri TEXT NOT NULL,
+                            source_title TEXT NOT NULL,
+                            confidence REAL DEFAULT 1.0,
+                            statement_vector TEXT,
+                            tags_json TEXT DEFAULT '[]',
+                            metadata_json TEXT DEFAULT '{}',
+                            score_rank REAL DEFAULT 3.0,
+                            eval_status TEXT DEFAULT 'unreviewed',
+                            eval_feedback TEXT,
+                            eval_count INTEGER DEFAULT 0,
+                            last_evaluated_at TEXT,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_stmt_path ON context_statements(canonical_path);
+                        CREATE INDEX IF NOT EXISTS idx_stmt_layer ON context_statements(layer_level);
+                        CREATE INDEX IF NOT EXISTS idx_stmt_type ON context_statements(statement_type);
+                        CREATE INDEX IF NOT EXISTS idx_stmt_score ON context_statements(score_rank);
+                        CREATE INDEX IF NOT EXISTS idx_stmt_eval ON context_statements(eval_status);
+                        CREATE INDEX IF NOT EXISTS idx_stmt_order ON context_statements(order_name);
+
+                        CREATE TABLE IF NOT EXISTS taxonomy_entities (
+                            canonical_id TEXT PRIMARY KEY,
+                            taxonomy_path TEXT NOT NULL,
+                            kingdom TEXT,
+                            phylum TEXT,
+                            class_name TEXT,
+                            order_name TEXT,
+                            family TEXT,
+                            genus TEXT,
+                            species TEXT,
+                            physical_location TEXT NOT NULL,
+                            attributes_json TEXT DEFAULT '{}',
+                            updated_at TEXT NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_tax_entity_path ON taxonomy_entities(taxonomy_path);
+                        CREATE INDEX IF NOT EXISTS idx_tax_entity_order ON taxonomy_entities(order_name);
+
+                        CREATE TABLE IF NOT EXISTS worker_job_executions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            job_id TEXT NOT NULL,
+                            target_id TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            items_count INTEGER DEFAULT 0,
+                            error_message TEXT,
+                            executed_at TEXT NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_worker_job_target ON worker_job_executions(job_id, target_id);
+                        CREATE INDEX IF NOT EXISTS idx_worker_job_status ON worker_job_executions(status);
+                    """))
+            except Exception as e:
+                print(f"Warning creating context_statements, taxonomy_entities, or worker_job_executions tables: {e}")
+
 
 

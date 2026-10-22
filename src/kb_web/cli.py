@@ -374,5 +374,20 @@ def board_list(
         typer.echo(f"  {m['content']}")
 
 
+@app.command("reindex-embeddings")
+def reindex_embeddings_cmd(
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="Target embedding model (defaults to configured model)"
+    ),
+) -> None:
+    """Reindexes chunk embeddings and article embeddings for all fetched pages with the unified model."""
+    from .base import config as base_config
+    from .routers.embeddings import _reindex_worker
+    target_model = model or getattr(base_config, "ollama_embedding_model", "nomic-embed-text")
+    typer.echo(f"Starting reindex of embeddings using model: {target_model}...")
+    _reindex_worker(target_model)
+    typer.secho(f"Successfully reindexed all documents with embedding model: {target_model}", fg=typer.colors.GREEN)
+
+
 if __name__ == "__main__":
     app()

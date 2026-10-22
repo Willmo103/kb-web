@@ -10,19 +10,20 @@ designated Ollama model (LLM, decision, or embedding), toggle state, and runtime
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 import uuid
 
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 from starlette.concurrency import run_in_threadpool
 
 from .base import _get_ollama_client, config, db_session
 from .models import HTMLPage
-from .models_orm import FetchedPage
+from .models_orm import FetchedPage, ChunkEmbedding, WorkerJobExecution, ContextStatementORM
 from .pipeline import record_notification
 from .utils import (
     extract_tags_content,
@@ -109,7 +110,7 @@ class ServerJob:
     @property
     def model(self) -> str:
         fallback = (
-            getattr(config, "ollama_embedding_model", "embeddinggemma")
+            getattr(config, "ollama_embedding_model", "nomic-embed-text")
             if self.category == "embedding"
             else getattr(config, "ollama_model", "llama3.2")
         )
@@ -198,9 +199,101 @@ class AutonomousWorker:
         self.last_error: Optional[str] = None
         self.last_activity: str = "Worker initialized"
 
+        # In-memory target deduplication tracker per job
+        self._recent_targets: Dict[str, Set[str]] = defaultdict(set)
+
         # Register modular jobs
         self.jobs: Dict[str, ServerJob] = {}
         self._register_default_jobs()
+
+    # -------------------------------------------------------------
+    # Target Execution Tracking & Deduplication
+    # -------------------------------------------------------------
+
+    def log_target_execution(
+        self,
+        job_id: str,
+        target_id: str,
+        status: str,
+        items_count: int = 0,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """Persists target-level execution status and updates in-memory deduplication tracking."""
+        clean_target = str(target_id).strip()
+        self._recent_targets[job_id].add(clean_target)
+        try:
+            with db_session() as session:
+                rec = WorkerJobExecution(
+                    job_id=job_id,
+                    target_id=clean_target,
+                    status=status,
+                    items_count=items_count,
+                    error_message=str(error_message) if error_message else None,
+                    executed_at=datetime.now(timezone.utc).isoformat(),
+                )
+                session.add(rec)
+                session.commit()
+        except Exception as e:
+            logger.warning(f"[AUTONOMOUS WORKER] Failed to persist execution log for {job_id} on {clean_target}: {e}")
+
+    def get_executed_targets(self, job_id: str, statuses: Optional[List[str]] = None) -> Set[str]:
+        """Returns the set of targets that have already been executed for this job."""
+        results = set(self._recent_targets.get(job_id, set()))
+        try:
+            with db_session() as session:
+                q = session.query(WorkerJobExecution.target_id).filter(WorkerJobExecution.job_id == job_id)
+                if statuses:
+                    q = q.filter(WorkerJobExecution.status.in_(statuses))
+                for (tid,) in q.all():
+                    if tid:
+                        results.add(tid.strip())
+        except Exception as e:
+            logger.warning(f"[AUTONOMOUS WORKER] Failed to query executed targets for {job_id}: {e}")
+        return results
+
+    def clear_target_executions(self, job_id: Optional[str] = None) -> int:
+        """Clears target execution records for a specific job or all jobs."""
+        if job_id:
+            self._recent_targets.pop(job_id, None)
+        else:
+            self._recent_targets.clear()
+
+        count = 0
+        try:
+            with db_session() as session:
+                q = session.query(WorkerJobExecution)
+                if job_id:
+                    q = q.filter_by(job_id=job_id)
+                count = q.delete()
+                session.commit()
+        except Exception as e:
+            logger.warning(f"[AUTONOMOUS WORKER] Failed to clear target executions: {e}")
+        return count
+
+    def get_target_executions(self, job_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Returns recent target-level execution records."""
+        try:
+            with db_session() as session:
+                q = session.query(WorkerJobExecution)
+                if job_id:
+                    q = q.filter_by(job_id=job_id)
+                q = q.order_by(WorkerJobExecution.id.desc()).limit(limit)
+                rows = q.all()
+                return [
+                    {
+                        "id": r.id,
+                        "job_id": r.job_id,
+                        "target_id": r.target_id,
+                        "status": r.status,
+                        "items_count": r.items_count,
+                        "error_message": r.error_message,
+                        "executed_at": r.executed_at,
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.warning(f"[AUTONOMOUS WORKER] Failed to fetch target executions: {e}")
+            return []
 
     def _register_default_jobs(self) -> None:
         """Initializes the standard roster of autonomous server jobs."""
@@ -230,7 +323,7 @@ class AutonomousWorker:
             description="Indexes document and chunk vectors into Qdrant for semantic similarity search.",
             category="embedding",
             default_interval_minutes=15,
-            default_model=getattr(config, "ollama_embedding_model", "embeddinggemma"),
+            default_model=getattr(config, "ollama_embedding_model", "nomic-embed-text"),
             runner=self._run_embedding_refresh,
         )
 
@@ -264,6 +357,16 @@ class AutonomousWorker:
             runner=self._run_link_crawler,
         )
 
+        self.jobs["fact_extraction"] = ServerJob(
+            job_id="fact_extraction",
+            name="Context Fact Extraction Agent",
+            description="Extracts atomic context statements, preferences, and declarative intent into the context mesh.",
+            category="llm",
+            default_interval_minutes=15,
+            default_model=getattr(config, "ollama_model", "llama3.2"),
+            runner=self._run_fact_extraction,
+        )
+
     # -------------------------------------------------------------
     # Job Runners
     # -------------------------------------------------------------
@@ -272,18 +375,25 @@ class AutonomousWorker:
         """Curates 1 library item lacking wiki description or containing skipped placeholder."""
         target_page_wiki = None
         with db_session() as session:
-            row = (
+            exec_subq = select(WorkerJobExecution.target_id).filter(
+                WorkerJobExecution.job_id == "wiki_curation",
+                WorkerJobExecution.status.in_(["success", "skipped"]),
+            )
+            recent_in_mem = list(self._recent_targets.get("wiki_curation", set()))
+            q = (
                 session.query(FetchedPage)
                 .filter(
+                    FetchedPage.url.not_in(exec_subq),
                     or_(
                         FetchedPage.description.is_(None),
                         FetchedPage.description == "",
                         FetchedPage.description.ilike("%AI Processing skipped%"),
-                    )
+                    ),
                 )
-                .order_by(FetchedPage.fetched_at.asc())
-                .first()
             )
+            if recent_in_mem:
+                q = q.filter(FetchedPage.url.not_in(recent_in_mem))
+            row = q.order_by(FetchedPage.fetched_at.asc().nullslast()).first()
             if row:
                 target_page_wiki = self._row_to_page_dict(row)
 
@@ -293,6 +403,7 @@ class AutonomousWorker:
 
         url = target_page_wiki["url"]
         title = target_page_wiki.get("title") or url
+        self._recent_targets["wiki_curation"].add(url)
         job.last_activity = f"Generating wiki for {title[:40]}"
         logger.info(f"[JOB wiki_curation] Processing missing wiki for: {url}")
 
@@ -322,15 +433,22 @@ class AutonomousWorker:
 
                 # Generate embeddings
                 try:
+                    emb_target_model = getattr(job_cfg, "ollama_embedding_model", None) or getattr(config, "ollama_embedding_model", "nomic-embed-text")
                     await run_in_threadpool(
-                        update_article_embedding, None, url, job_cfg, client
+                        update_article_embedding, None, url, job_cfg, client, emb_target_model
                     )
                     await run_in_threadpool(
-                        generate_gemma_embeddings_for_page, None, url, job_cfg, client
+                        generate_gemma_embeddings_for_page, None, url, job_cfg, client, emb_target_model
                     )
                 except Exception as emb_err:
                     logger.warning(f"[JOB wiki_curation] Embedding indexing warning for {url}: {emb_err}")
 
+                self.log_target_execution(
+                    job_id="wiki_curation",
+                    target_id=url,
+                    status="success",
+                    items_count=1,
+                )
                 job.items_processed_total += 1
                 job.last_activity = f"Curated wiki for: {extracted_title[:40]}"
                 record_notification(
@@ -344,11 +462,23 @@ class AutonomousWorker:
                 logger.info(f"[JOB wiki_curation] Successfully generated wiki for: {url}")
                 return {"status": "success", "url": url, "title": extracted_title}
             else:
+                self.log_target_execution(
+                    job_id="wiki_curation",
+                    target_id=url,
+                    status="skipped",
+                    items_count=0,
+                )
                 job.last_activity = f"Skipped empty wiki for: {title[:40]}"
                 return {"status": "skipped", "url": url}
         except Exception as e:
             err_msg = f"Wiki generation failed for {url}: {e}"
             logger.warning(err_msg)
+            self.log_target_execution(
+                job_id="wiki_curation",
+                target_id=url,
+                status="failed",
+                error_message=str(e),
+            )
             job.last_error = str(e)
             record_notification(
                 stage="worker",
@@ -364,18 +494,25 @@ class AutonomousWorker:
         """Curates 1 library item lacking taxonomy tags."""
         target_page_tags = None
         with db_session() as session:
-            row = (
+            exec_subq = select(WorkerJobExecution.target_id).filter(
+                WorkerJobExecution.job_id == "tag_curation",
+                WorkerJobExecution.status.in_(["success", "skipped"]),
+            )
+            recent_in_mem = list(self._recent_targets.get("tag_curation", set()))
+            q = (
                 session.query(FetchedPage)
                 .filter(
+                    FetchedPage.url.not_in(exec_subq),
                     or_(
                         FetchedPage.tags.is_(None),
                         FetchedPage.tags == "",
                         FetchedPage.tags == "[]",
-                    )
+                    ),
                 )
-                .order_by(FetchedPage.fetched_at.asc())
-                .first()
             )
+            if recent_in_mem:
+                q = q.filter(FetchedPage.url.not_in(recent_in_mem))
+            row = q.order_by(FetchedPage.fetched_at.asc().nullslast()).first()
             if row:
                 target_page_tags = self._row_to_page_dict(row)
 
@@ -385,6 +522,7 @@ class AutonomousWorker:
 
         url = target_page_tags["url"]
         title = target_page_tags.get("title") or url
+        self._recent_targets["tag_curation"].add(url)
         job.last_activity = f"Extracting tags for {title[:40]}"
         logger.info(f"[JOB tag_curation] Processing missing tags for: {url}")
 
@@ -404,6 +542,12 @@ class AutonomousWorker:
                         rec.tags = json.dumps(tags)
                         session.commit()
 
+                self.log_target_execution(
+                    job_id="tag_curation",
+                    target_id=url,
+                    status="success",
+                    items_count=len(tags),
+                )
                 job.items_processed_total += 1
                 job.last_activity = f"Assigned {len(tags)} tags to: {title[:40]}"
                 tag_preview = ", ".join(tags[:4])
@@ -418,11 +562,23 @@ class AutonomousWorker:
                 logger.info(f"[JOB tag_curation] Successfully extracted tags for: {url} ({tags})")
                 return {"status": "success", "url": url, "tags": tags}
             else:
+                self.log_target_execution(
+                    job_id="tag_curation",
+                    target_id=url,
+                    status="skipped",
+                    items_count=0,
+                )
                 job.last_activity = f"No tags generated for: {title[:40]}"
                 return {"status": "skipped", "url": url}
         except Exception as e:
             err_msg = f"Tag extraction failed for {url}: {e}"
             logger.warning(err_msg)
+            self.log_target_execution(
+                job_id="tag_curation",
+                target_id=url,
+                status="failed",
+                error_message=str(e),
+            )
             job.last_error = str(e)
             record_notification(
                 stage="worker",
@@ -439,12 +595,25 @@ class AutonomousWorker:
         target_url = None
         target_title = None
         with db_session() as session:
-            # Pick the oldest page lacking description or chunk embeddings
-            row = (
-                session.query(FetchedPage)
-                .order_by(FetchedPage.fetched_at.asc())
-                .first()
+            exec_subq = select(WorkerJobExecution.target_id).filter(
+                WorkerJobExecution.job_id == "embedding_refresh",
+                WorkerJobExecution.status == "success",
             )
+            # Pick the oldest page lacking chunk embeddings
+            subq = select(ChunkEmbedding.source_id).filter(
+                ChunkEmbedding.source_type == "pages"
+            )
+            recent_in_mem = list(self._recent_targets.get("embedding_refresh", set()))
+            q = (
+                session.query(FetchedPage)
+                .filter(
+                    FetchedPage.url.not_in(subq),
+                    FetchedPage.url.not_in(exec_subq),
+                )
+            )
+            if recent_in_mem:
+                q = q.filter(FetchedPage.url.not_in(recent_in_mem))
+            row = q.order_by(FetchedPage.fetched_at.asc().nullslast()).first()
             if row:
                 target_url = row.url
                 target_title = row.title or row.url
@@ -453,17 +622,30 @@ class AutonomousWorker:
             job.last_activity = "Idle (no pages available for indexing)"
             return {"status": "noop", "message": "No pages to index"}
 
+        self._recent_targets["embedding_refresh"].add(target_url)
         job.last_activity = f"Generating embeddings for {target_title[:40]}"
         try:
             client = _get_ollama_client()
             job_cfg = JobConfigProxy(config, model=job.model, is_embedding=True)
             await run_in_threadpool(
-                generate_gemma_embeddings_for_page, None, target_url, job_cfg, client
+                generate_gemma_embeddings_for_page, None, target_url, job_cfg, client, job.model
+            )
+            self.log_target_execution(
+                job_id="embedding_refresh",
+                target_id=target_url,
+                status="success",
+                items_count=1,
             )
             job.items_processed_total += 1
             job.last_activity = f"Embeddings synced for: {target_title[:40]}"
             return {"status": "success", "url": target_url}
         except Exception as e:
+            self.log_target_execution(
+                job_id="embedding_refresh",
+                target_id=target_url,
+                status="failed",
+                error_message=str(e),
+            )
             job.last_error = str(e)
             logger.warning(f"[JOB embedding_refresh] Failed: {e}")
             raise
@@ -482,6 +664,124 @@ class AutonomousWorker:
         """Foundation runner for autonomous outbound link discovery."""
         job.last_activity = "Completed link discovery pass"
         return {"status": "noop", "message": "Autonomous link crawler hook active"}
+
+    async def _run_fact_extraction(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
+        """Extracts atomic context statements from 1 library item lacking extracted statements."""
+        from .context_mesh.pipeline import FactExtractionPipeline
+
+        target_page = None
+        with db_session() as session:
+            exec_subq = select(WorkerJobExecution.target_id).filter(
+                WorkerJobExecution.job_id == "fact_extraction",
+                WorkerJobExecution.status.in_(["success", "skipped"]),
+            )
+            stmt_subq = select(ContextStatementORM.source_uri).filter(
+                ContextStatementORM.source_uri.isnot(None),
+                ContextStatementORM.source_uri != "",
+            )
+            recent_in_mem = list(self._recent_targets.get("fact_extraction", set()))
+
+            q = (
+                session.query(FetchedPage)
+                .filter(
+                    FetchedPage.url.not_in(exec_subq),
+                    FetchedPage.url.not_in(stmt_subq),
+                    or_(
+                        FetchedPage.description.isnot(None),
+                        FetchedPage.md_content.isnot(None),
+                    ),
+                )
+            )
+            if recent_in_mem:
+                q = q.filter(FetchedPage.url.not_in(recent_in_mem))
+
+            row = q.order_by(FetchedPage.fetched_at.desc().nullslast()).first()
+            if row:
+                target_page = self._row_to_page_dict(row)
+
+        if not target_page:
+            job.last_activity = "Idle (all pages extracted into context mesh)"
+            return {"status": "noop", "message": "All pages processed for context statements"}
+
+        url = target_page["url"]
+        title = target_page.get("title") or url
+        # Track target immediately in memory to avoid duplicate pickup
+        self._recent_targets["fact_extraction"].add(url)
+        job.last_activity = f"Extracting facts for {title[:40]}"
+        logger.info(f"[JOB fact_extraction] Extracting context statements for: {url}")
+
+        try:
+            client = _get_ollama_client()
+            job_cfg = JobConfigProxy(config, model=job.model, is_embedding=False)
+            pipeline = FactExtractionPipeline(config=job_cfg, client=client)
+
+            tags: List[str] = []
+            if target_page.get("tags"):
+                try:
+                    parsed_tags = json.loads(target_page["tags"])
+                    if isinstance(parsed_tags, list):
+                        tags = parsed_tags
+                except Exception:
+                    pass
+
+            md_content = target_page.get("md_content") or target_page.get("description") or ""
+
+            statements = await run_in_threadpool(
+                pipeline.extract_from_page,
+                url,
+                title,
+                md_content,
+                tags,
+            )
+
+            if statements:
+                self.log_target_execution(
+                    job_id="fact_extraction",
+                    target_id=url,
+                    status="success",
+                    items_count=len(statements),
+                )
+                job.items_processed_total += len(statements)
+                job.last_activity = f"Extracted {len(statements)} statements for: {title[:40]}"
+                record_notification(
+                    stage="worker",
+                    status="success",
+                    message=f"Context Fact Extraction agent extracted {len(statements)} statements for: {title}",
+                    url=url,
+                    title=title,
+                    task_id=cycle_id,
+                )
+                logger.info(f"[JOB fact_extraction] Extracted {len(statements)} statements for: {url}")
+                return {"status": "success", "url": url, "count": len(statements)}
+            else:
+                self.log_target_execution(
+                    job_id="fact_extraction",
+                    target_id=url,
+                    status="skipped",
+                    items_count=0,
+                )
+                job.last_activity = f"Skipped (0 statements) for: {title[:40]}"
+                logger.info(f"[JOB fact_extraction] Zero statements extracted for: {url}. Logged as skipped.")
+                return {"status": "skipped", "url": url, "count": 0}
+        except Exception as e:
+            err_msg = f"Fact extraction failed for {url}: {e}"
+            logger.warning(err_msg)
+            self.log_target_execution(
+                job_id="fact_extraction",
+                target_id=url,
+                status="failed",
+                error_message=str(e),
+            )
+            job.last_error = str(e)
+            record_notification(
+                stage="worker",
+                status="warning",
+                message=f"Fact extraction warning for {title}: {e}. Retrying next cycle.",
+                url=url,
+                title=title,
+                task_id=cycle_id,
+            )
+            return {"status": "warning", "error": err_msg}
 
     # -------------------------------------------------------------
     # Management & Inspection APIs

@@ -29,6 +29,7 @@ from ..models_orm import (
     Note,
 )
 from ..python_kernel import execute_approved_code, reject_code_execution
+from ..utils import sanitize_html
 
 logger = logging.getLogger(__name__)
 
@@ -104,12 +105,13 @@ def view_topic_wiki_page(agent_id: str, request: Request, path: Optional[str] = 
         else:
             title = page.title
             try:
-                rendered_body = markdown.markdown(
+                raw_rendered = markdown.markdown(
                     page.body_markdown or "",
                     extensions=["fenced_code", "tables", "nl2br", "toc"],
                 )
+                rendered_body = sanitize_html(raw_rendered)
             except Exception:
-                rendered_body = page.body_markdown or ""
+                rendered_body = sanitize_html(page.body_markdown or "")
 
             try:
                 references = json.loads(page.references_json or "[]")
@@ -171,12 +173,13 @@ def view_agent_page(hash_id: str, request: Request):
             user_response = {}
 
         try:
-            rendered_body = markdown.markdown(
+            raw_rendered = markdown.markdown(
                 page.body_content or "",
                 extensions=["fenced_code", "tables", "nl2br"],
             )
+            rendered_body = sanitize_html(raw_rendered)
         except Exception:
-            rendered_body = page.body_content or ""
+            rendered_body = sanitize_html(page.body_content or "")
 
         template = _jinja_env.get_template("agent_page_themed.j2.html")
         html_content = template.render(

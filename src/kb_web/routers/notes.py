@@ -32,6 +32,7 @@ from ..models_orm import (
     TitleEmbedding,
     VideoEmbedding,
     PageVersion,
+    WikiVersion,
     Link,
 )
 from ..models import NoteCreateRequest, NoteUpdateRequest, HTMLPage
@@ -344,45 +345,45 @@ async def upload_obsidian_vault(
     media_vault_dir = config.configs_dir.parent / "media" / "notes" / re.sub(r"[^\w\-]", "_", vault_name)
     media_vault_dir.mkdir(parents=True, exist_ok=True)
 
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-        for filename in z.namelist():
-            # Skip hidden files or __MACOSX
-            if "/." in filename or filename.startswith(".") or "__MACOSX" in filename:
-                continue
+    with db_session() as session:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            for filename in z.namelist():
+                # Skip hidden files or __MACOSX
+                if "/." in filename or filename.startswith(".") or "__MACOSX" in filename:
+                    continue
 
-            # If it's a media asset (images, pdfs), unpack to media directory
-            lower_name = filename.lower()
-            if any(lower_name.endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf"]):
-                try:
-                    dest_path = (media_vault_dir / filename).resolve()
-                    # Prevent directory traversal / ZipSlip vulnerability
-                    if not str(dest_path).startswith(str(media_vault_dir.resolve())):
+                # If it's a media asset (images, pdfs), unpack to media directory
+                lower_name = filename.lower()
+                if any(lower_name.endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf"]):
+                    try:
+                        dest_path = (media_vault_dir / filename).resolve()
+                        # Prevent directory traversal / ZipSlip vulnerability
+                        if not str(dest_path).startswith(str(media_vault_dir.resolve())):
+                            continue
+                        dest_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(dest_path, "wb") as f:
+                            f.write(z.read(filename))
+                    except Exception:
                         continue
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(dest_path, "wb") as f:
-                        f.write(z.read(filename))
-                except Exception:
-                    continue
-                continue
-
-            # If it's a markdown note
-            if lower_name.endswith(".md"):
-                path_parts = Path(filename).parts
-                # Prevent directory traversal in note folder paths
-                if ".." in path_parts:
-                    continue
-                try:
-                    content = z.read(filename).decode("utf-8", errors="replace")
-                except Exception:
                     continue
 
-                folder_path = "/".join(path_parts[:-1]) if len(path_parts) > 1 else ""
-                note_title = Path(filename).stem
-                safe_slug = re.sub(r"[^\w\-_\.]", "_", note_title.lower())
-                url = f"note://{vault_name}/{folder_path}/{safe_slug}" if folder_path else f"note://{vault_name}/{safe_slug}"
+                # If it's a markdown note
+                if lower_name.endswith(".md"):
+                    path_parts = Path(filename).parts
+                    # Prevent directory traversal in note folder paths
+                    if ".." in path_parts:
+                        continue
+                    try:
+                        content = z.read(filename).decode("utf-8", errors="replace")
+                    except Exception:
+                        continue
 
-                now = datetime.now().isoformat()
-                with db_session() as session:
+                    folder_path = "/".join(path_parts[:-1]) if len(path_parts) > 1 else ""
+                    note_title = Path(filename).stem
+                    safe_slug = re.sub(r"[^\w\-_\.]", "_", note_title.lower())
+                    url = f"note://{vault_name}/{folder_path}/{safe_slug}" if folder_path else f"note://{vault_name}/{safe_slug}"
+
+                    now = datetime.now().isoformat()
                     existing = session.query(Note).filter_by(url=url).first()
                     if not existing:
                         note = Note(
@@ -396,18 +397,18 @@ async def upload_obsidian_vault(
                             updated_at=now,
                         )
                         session.add(note)
-                        session.commit()
-                        session.refresh(note)
-                        if background_tasks:
-                            background_tasks.add_task(_process_note_in_background, note.id)
-                        ingested_count += 1
+                        session.flush()
+                        target_id = note.id
                     else:
                         existing.content = content
                         existing.updated_at = now
-                        session.commit()
-                        if background_tasks:
-                            background_tasks.add_task(_process_note_in_background, existing.id)
-                        ingested_count += 1
+                        target_id = existing.id
+
+                    ingested_count += 1
+                    if background_tasks and ingested_count <= 25:
+                        background_tasks.add_task(_process_note_in_background, target_id)
+
+        session.commit()
 
     return {
         "status": "success",
@@ -615,6 +616,7 @@ def _cascade_delete_notes(
         session.query(TitleEmbedding).filter_by(url=u).delete(synchronize_session=False)
         session.query(VideoEmbedding).filter_by(url=u).delete(synchronize_session=False)
         session.query(PageVersion).filter_by(url=u).delete(synchronize_session=False)
+        session.query(WikiVersion).filter_by(url=u).delete(synchronize_session=False)
         session.query(Link).filter_by(url=u).delete(synchronize_session=False)
         session.query(FetchedPage).filter_by(url=u).delete(synchronize_session=False)
 
