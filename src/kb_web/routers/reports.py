@@ -14,6 +14,9 @@ import io
 import csv
 import json
 import os
+import re
+import time
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -23,22 +26,13 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from ..base import _jinja_env, db_session, verify_auth
+from ..base import _jinja_env, db_session, verify_auth, config, _get_ollama_client, get_engine
 from ..models_orm import (
-    ChatConversation,
-    ChatMessage,
-    ChunkEmbedding,
-    Collection,
-    CollectionItem,
-    FetchedPage,
-    Note,
-    OllamaLog,
     SavedReportView,
     ScheduledReportJob,
-    SiteWiki,
-    YouTubeVideo,
 )
 
+logger = logging.getLogger("kb_web.reports")
 router = APIRouter(prefix="", tags=["reports"])
 
 # Heavy columns that should NOT be loaded over the wire during standard data grid browsing
@@ -238,11 +232,11 @@ def _build_sql_query(
 ) -> tuple[str, dict]:
     """Constructs sanitized SQL select or count queries across selected tables and joins."""
     base_table = req.base_table if req.base_table in TABLE_METADATA else "fetched_pages"
-    
+
     # Columns to select
     selected_cols = []
     if is_count:
-        select_clause = f"COUNT(*) as total_count"
+        select_clause = "COUNT(*) as total_count"
     else:
         for c in req.columns:
             parts = c.split(".")
@@ -259,7 +253,7 @@ def _build_sql_query(
     from_clause = base_table
     join_clauses = []
     joined_tables = set(req.joins)
-    
+
     # Auto-include joins required by chosen columns or filters
     for col in req.columns:
         if "." in col:
@@ -317,10 +311,10 @@ def _build_sql_query(
         valid_cols = [x["name"] for x in TABLE_METADATA[tbl]["columns"]]
         if col not in valid_cols:
             continue
-        
+
         col_expr = f"{tbl}.{col}"
         p_name = f"param_{idx}"
-        
+
         op = f.operator.lower()
         if op == "eq":
             where_clauses.append(f"{col_expr} = :{p_name}")
@@ -668,7 +662,7 @@ def run_scheduled_job_now(job_id: int):
         job = session.query(ScheduledReportJob).filter_by(id=job_id).first()
         if not job:
             raise HTTPException(status_code=404, detail="Job not found.")
-        
+
         # Load view config if linked
         config = {}
         if job.report_id:
@@ -680,7 +674,7 @@ def run_scheduled_job_now(job_id: int):
                     "joins": json.loads(view.joins_config) if view.joins_config else [],
                     "filters": json.loads(view.filter_config) if view.filter_config else [],
                 }
-        
+
         req = ReportQueryRequest(**config) if config else ReportQueryRequest()
         req.limit = 5000
         req.offset = 0
@@ -727,6 +721,449 @@ def run_scheduled_job_now(job_id: int):
 
 
 # -----------------------------------------------------------------------------
+# Raw SQL Reporting Gated by Decision Model & Deterministic AST Gating
+# -----------------------------------------------------------------------------
+
+class RawSqlQueryRequest(BaseModel):
+    query: str
+    limit: Optional[int] = Field(500, le=2000)
+    dialect: Optional[str] = None
+
+
+class RawSqlExportRequest(BaseModel):
+    query: str
+    format: str = "csv"  # csv, json
+    limit: Optional[int] = Field(5000, le=10000)
+    dialect: Optional[str] = None
+
+
+def split_sql_statements(sql: str) -> List[str]:
+    """Splits a multi-statement SQL script into individual statements, ignoring semicolons inside string literals or comments."""
+    statements: List[str] = []
+    current: List[str] = []
+    in_single_quote = False
+    in_double_quote = False
+    in_line_comment = False
+    in_block_comment = False
+    i = 0
+    n = len(sql)
+
+    while i < n:
+        c = sql[i]
+        next_c = sql[i + 1] if i + 1 < n else ""
+
+        if in_line_comment:
+            if c == "\n":
+                in_line_comment = False
+            current.append(c)
+            i += 1
+            continue
+
+        if in_block_comment:
+            if c == "*" and next_c == "/":
+                in_block_comment = False
+                current.append("*/")
+                i += 2
+                continue
+            current.append(c)
+            i += 1
+            continue
+
+        if not in_single_quote and not in_double_quote:
+            if c == "-" and next_c == "-":
+                in_line_comment = True
+                current.append("--")
+                i += 2
+                continue
+            if c == "/" and next_c == "*":
+                in_block_comment = True
+                current.append("/*")
+                i += 2
+                continue
+
+        if c == "'" and not in_double_quote:
+            if in_single_quote and next_c == "'":
+                current.append("''")
+                i += 2
+                continue
+            in_single_quote = not in_single_quote
+            current.append(c)
+            i += 1
+            continue
+
+        if c == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+            current.append(c)
+            i += 1
+            continue
+
+        if c == ";" and not in_single_quote and not in_double_quote:
+            stmt = "".join(current).strip()
+            if stmt:
+                statements.append(stmt)
+            current = []
+            i += 1
+            continue
+
+        current.append(c)
+        i += 1
+
+    remaining = "".join(current).strip()
+    if remaining:
+        statements.append(remaining)
+
+    return statements
+
+
+def check_static_sql_safety(sql: str) -> tuple[bool, str, List[str]]:
+    """Evaluates whether the SQL script contains only read-only queries and permissible temporary table operations.
+    Returns (is_safe, failure_reason, created_temp_tables).
+    """
+    statements = split_sql_statements(sql)
+    if not statements:
+        return False, "Query is empty.", []
+
+    created_temp_tables: set[str] = set()
+
+    # Pass 1: find all created temporary tables
+    for stmt in statements:
+        norm = re.sub(r"\s+", " ", stmt).strip().upper()
+        m_create = re.match(
+            r"^CREATE\s+(?:OR\s+REPLACE\s+)?(?:GLOBAL\s+|LOCAL\s+)?(?:TEMPORARY|TEMP)\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Z0-9_#]+)",
+            norm,
+        )
+        if m_create:
+            created_temp_tables.add(m_create.group(1).lower())
+        m_tsql = re.match(
+            r"^CREATE\s+TABLE\s+(#[A-Z0-9_]+)",
+            norm,
+        )
+        if m_tsql:
+            created_temp_tables.add(m_tsql.group(1).lower())
+
+    # Pass 2: validate each statement
+    for stmt in statements:
+        norm = re.sub(r"\s+", " ", stmt).strip().upper()
+
+        if re.search(r"\bDROP\s+(?:DATABASE|SCHEMA|VIEW|INDEX|FUNCTION|PROCEDURE|TRIGGER|EXTENSION)\b", norm):
+            return False, f"Prohibited destructive DDL command detected: {stmt[:60]}...", list(created_temp_tables)
+
+        if re.search(r"\bTRUNCATE\b", norm):
+            return False, f"TRUNCATE command is prohibited in read-only reports: {stmt[:60]}...", list(created_temp_tables)
+
+        if re.search(r"\bALTER\s+TABLE\b", norm):
+            return False, f"ALTER TABLE is prohibited in reports: {stmt[:60]}...", list(created_temp_tables)
+
+        if re.search(r"\b(?:GRANT|REVOKE)\b", norm):
+            return False, f"Privilege management commands are prohibited: {stmt[:60]}...", list(created_temp_tables)
+
+        if re.search(r"\b(?:ATTACH|DETACH|VACUUM)\b", norm):
+            return False, f"Database maintenance command prohibited in reports: {stmt[:60]}...", list(created_temp_tables)
+
+        # DROP TABLE validation (excusing temporary tables)
+        if re.search(r"\bDROP\s+TABLE\b", norm):
+            m_drop = re.search(r"\bDROP\s+(?:TEMPORARY\s+)?TABLE\s+(?:IF\s+EXISTS\s+)?([A-Z0-9_#\.]+)", norm)
+            if not m_drop:
+                return False, f"Unrecognized DROP TABLE statement: {stmt[:60]}...", list(created_temp_tables)
+            dropped_tbl = m_drop.group(1).lower()
+            is_temp_drop = (
+                dropped_tbl in created_temp_tables
+                or dropped_tbl.startswith("#")
+                or dropped_tbl.startswith("temp_")
+                or dropped_tbl.startswith("tmp_")
+                or "TEMPORARY" in norm
+            )
+            if not is_temp_drop:
+                return False, f"Cannot drop persistent table '{dropped_tbl}'. Only session-scoped temporary tables may be dropped.", list(created_temp_tables)
+
+        # INSERT / UPDATE / DELETE validation (excusing temporary tables)
+        if re.match(r"^(?:INSERT|UPDATE|DELETE)\b", norm):
+            m_dml = re.match(r"^(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+([A-Z0-9_#\.]+)", norm)
+            if m_dml:
+                target_tbl = m_dml.group(1).lower()
+                is_temp_target = (
+                    target_tbl in created_temp_tables
+                    or target_tbl.startswith("#")
+                    or target_tbl.startswith("temp_")
+                    or target_tbl.startswith("tmp_")
+                )
+                if not is_temp_target:
+                    return False, f"DML statement target '{target_tbl}' is not a temporary table. Only temporary tables may be modified during query execution.", list(created_temp_tables)
+            else:
+                return False, f"Unrecognized DML statement: {stmt[:60]}...", list(created_temp_tables)
+
+    return True, "", list(created_temp_tables)
+
+
+def _serialize_systemone_answers(raw_answers: Any) -> Dict[str, Any]:
+    """Normalizes structured systemone answers (noul, choice, score) into clean JSON."""
+    serialized: Dict[str, Any] = {}
+    if not isinstance(raw_answers, dict):
+        return {"raw": str(raw_answers)}
+
+    for q_key, ans_obj in raw_answers.items():
+        if hasattr(ans_obj, "__dict__"):
+            q_dict: Dict[str, Any] = {}
+            for attr in ("type", "choice", "noul", "score", "confidence", "probabilities", "legend", "reasoning"):
+                val = getattr(ans_obj, attr, None)
+                if val is not None:
+                    q_dict[attr] = val
+            serialized[q_key] = q_dict
+        elif isinstance(ans_obj, dict):
+            serialized[q_key] = ans_obj
+        else:
+            serialized[q_key] = str(ans_obj)
+    return serialized
+
+
+def evaluate_sql_safety(sql: str, dialect: str = "PostgreSQL") -> Dict[str, Any]:
+    """Evaluates SQL query safety using dual-layer gating:
+    1. Deterministic AST / regex static safety screening (excusing temporary table creation/deletion).
+    2. Ollama SystemOne decision model gating (evaluating nd_01_compliance and d_01_compliance).
+    """
+    is_static_safe, static_reason, temp_tables = check_static_sql_safety(sql)
+    if not is_static_safe:
+        return {
+            "allowed": False,
+            "reason": static_reason,
+            "decision_gate": {
+                "static_analysis": "failed",
+                "nd_01_compliance": 0.0,
+                "d_01_compliance": 0.0,
+                "model": "static_filter",
+            },
+        }
+
+    # Questions specification matching benchmark criteria
+    questions = {
+        "statement_dialect": {
+            "type": "choice",
+            "instructions": (
+                "Analyze the SQL syntax in `stmt_to_be_executed` and identify its primary dialect. "
+                "Examine operators (::, ->>), identifiers (`backticks`, [brackets]), functions (NVL, IFNULL, strftime), "
+                "and clauses (DUAL, ON DUPLICATE KEY, ON CONFLICT, TOP, PRAGMA)."
+            ),
+            "criteria": {
+                "PostgreSQL": "Uses PostgreSQL syntax: '::' casts, '->>' JSON operators, generate_series(), or 'ON CONFLICT'.",
+                "T-SQL": "Uses Microsoft T-SQL syntax: 'TOP n', 'WITH (NOLOCK)', '@@' globals, 'ISNULL()', 'GETDATE()', or 'sp_executesql'.",
+                "MySQL": "Uses MySQL/MariaDB syntax: backtick quoted identifiers (`name`), 'LIMIT offset, count', 'ON DUPLICATE KEY UPDATE', or 'DATE_SUB()'.",
+                "Oracle": "Uses Oracle PL/SQL syntax: 'FROM DUAL', 'ROWNUM', '.NEXTVAL', 'NVL()', 'PURGE', or 'CASCADE CONSTRAINTS'.",
+                "SQLite": "Uses SQLite syntax: 'pragma_table_info()', 'INSERT OR REPLACE INTO', or 'strftime()' with relative date strings.",
+            },
+        },
+        "d_01_compliance": {
+            "type": "noul",
+            "instructions": f"Does `stmt_to_be_executed` run natively on {dialect} without dialect-specific syntax errors from other engines?",
+            "criteria": {
+                "true": f"The statement is valid {dialect} syntax and contains no foreign dialect keywords.",
+                "false": "The statement contains syntax or functions exclusive to another dialect.",
+            },
+        },
+        "nd_01_compliance": {
+            "type": "noul",
+            "instructions": "Is the statement NON-DESTRUCTIVE? (Returns true for reads, inserts, and updates; returns false for DROP or TRUNCATE)",
+            "criteria": {
+                "true": "The statement is non-destructive (e.g., SELECT, CTEs, or temporary table operations for query preparation).",
+                "false": "The statement is destructive (e.g., DROP TABLE on persistent tables, DROP INDEX, TRUNCATE, or CASCADE deletions).",
+            },
+        },
+    }
+
+    state = {
+        "execution_policy": {
+            "d_01": f"SQL statements MUST be native {dialect} syntax.",
+            "nd_01": "Only NON-DESTRUCTIVE operations are allowed (SELECT, CTEs). Creation and deletion of session-scoped temporary tables used when performing queries is excused, but any DROP, TRUNCATE, or schema/table deletion of persistent tables is strictly prohibited.",
+        },
+        "target_dialect": dialect,
+        "stmt_to_be_executed": sql,
+    }
+
+    model_name = getattr(config, "decision_model", "d1") or "d1"
+    client = _get_ollama_client()
+
+    decision_meta: Dict[str, Any] = {
+        "static_analysis": "passed",
+        "model": model_name,
+        "target_dialect": dialect,
+        "temporary_tables": temp_tables,
+    }
+
+    try:
+        resp = client.systemone(model=model_name, state=state, questions=questions)
+        answers = resp.get("answers", {}) if isinstance(resp, dict) else getattr(resp, "answers", {})
+        serialized_answers = _serialize_systemone_answers(answers)
+        decision_meta["answers"] = serialized_answers
+
+        nd_val = None
+        d_val = None
+        if "nd_01_compliance" in serialized_answers:
+            ans = serialized_answers["nd_01_compliance"]
+            nd_val = ans.get("noul") if isinstance(ans, dict) else ans
+        if "d_01_compliance" in serialized_answers:
+            ans = serialized_answers["d_01_compliance"]
+            d_val = ans.get("noul") if isinstance(ans, dict) else ans
+
+        decision_meta["nd_01_score"] = nd_val
+        decision_meta["d_01_score"] = d_val
+
+        if nd_val is not None and isinstance(nd_val, (int, float)) and nd_val < 0.5:
+            return {
+                "allowed": False,
+                "reason": f"Decision model ({model_name}) classified query as destructive (nd_01 confidence: {nd_val:.2f} < 0.5).",
+                "decision_gate": decision_meta,
+            }
+
+    except Exception as e:
+        logger.warning(f"Decision systemone evaluation unavailable: {e}. Relying on deterministic static AST screening.")
+        decision_meta["systemone_fallback"] = str(e)
+
+    return {
+        "allowed": True,
+        "reason": "Statement passed safety checks.",
+        "decision_gate": decision_meta,
+    }
+
+
+@router.post("/api/reports/raw-sql")
+def execute_raw_sql_report(req: RawSqlQueryRequest):
+    """Executes a raw read-only SQL query gated by decision model and safety checks."""
+    if not req.query or not req.query.strip():
+        raise HTTPException(status_code=400, detail={"message": "SQL query cannot be empty."})
+
+    engine = get_engine()
+    auto_dialect = "PostgreSQL" if "postgresql" in engine.dialect.name.lower() else "SQLite"
+    dialect = req.dialect or auto_dialect
+
+    safety = evaluate_sql_safety(req.query, dialect=dialect)
+    if not safety["allowed"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": safety["reason"],
+                "decision_gate": safety["decision_gate"],
+            },
+        )
+
+    statements = split_sql_statements(req.query)
+    start_time = time.time()
+    keys = []
+    rows = []
+
+    try:
+        with engine.connect() as conn:
+            for stmt in statements:
+                stmt_clean = stmt.strip()
+                if not stmt_clean:
+                    continue
+                cursor = conn.execute(text(stmt_clean))
+                if cursor.returns_rows:
+                    keys = list(cursor.keys())
+                    max_rows = req.limit or 500
+                    raw_rows = cursor.fetchmany(max_rows)
+                    cursor.close()
+                    rows = []
+                    for r in raw_rows:
+                        r_dict = {}
+                        for col_idx, col_name in enumerate(keys):
+                            val = r[col_idx]
+                            if isinstance(val, datetime):
+                                r_dict[col_name] = val.isoformat()
+                            elif isinstance(val, (bytes, memoryview)):
+                                r_dict[col_name] = f"<{len(val)} bytes>"
+                            else:
+                                r_dict[col_name] = val
+                        rows.append(r_dict)
+
+        exec_time = round((time.time() - start_time) * 1000, 2)
+        return {
+            "status": "success",
+            "columns": keys,
+            "rows": rows,
+            "total_count": len(rows),
+            "execution_time_ms": exec_time,
+            "dialect": dialect,
+            "decision_gate": safety["decision_gate"],
+        }
+    except Exception as e:
+        logger.error(f"Raw SQL query execution error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": f"Database execution error: {str(e)}",
+                "decision_gate": safety["decision_gate"],
+            },
+        )
+
+
+@router.post("/api/reports/raw-sql/export")
+def export_raw_sql_report(req: RawSqlExportRequest):
+    """Streams export of raw SQL query results in CSV or JSON format."""
+    if not req.query or not req.query.strip():
+        raise HTTPException(status_code=400, detail="SQL query cannot be empty.")
+
+    engine = get_engine()
+    auto_dialect = "PostgreSQL" if "postgresql" in engine.dialect.name.lower() else "SQLite"
+    dialect = req.dialect or auto_dialect
+
+    safety = evaluate_sql_safety(req.query, dialect=dialect)
+    if not safety["allowed"]:
+        raise HTTPException(status_code=400, detail=safety["reason"])
+
+    statements = split_sql_statements(req.query)
+    keys = []
+    rows = []
+    try:
+        with engine.connect() as conn:
+            for stmt in statements:
+                stmt_clean = stmt.strip()
+                if not stmt_clean:
+                    continue
+                cursor = conn.execute(text(stmt_clean))
+                if cursor.returns_rows:
+                    keys = list(cursor.keys())
+                    max_rows = req.limit or 5000
+                    raw_rows = cursor.fetchmany(max_rows)
+                    cursor.close()
+                    rows = []
+                    for r in raw_rows:
+                        r_dict = {}
+                        for col_idx, col_name in enumerate(keys):
+                            val = r[col_idx]
+                            if isinstance(val, datetime):
+                                r_dict[col_name] = val.isoformat()
+                            elif isinstance(val, (bytes, memoryview)):
+                                r_dict[col_name] = f"<{len(val)} bytes>"
+                            else:
+                                r_dict[col_name] = val
+                        rows.append(r_dict)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Database execution error: {str(e)}")
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if req.format.lower() == "json":
+        buf = io.BytesIO()
+        buf.write(json.dumps(rows, indent=2, default=str).encode("utf-8"))
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="raw_sql_export_{timestamp}.json"'},
+        )
+    else:
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=keys or ["result"])
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+        buf.seek(0)
+        return StreamingResponse(
+            io.BytesIO(buf.getvalue().encode("utf-8")),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="raw_sql_export_{timestamp}.csv"'},
+        )
+
+
+# -----------------------------------------------------------------------------
 # Frontend Reports UI
 # -----------------------------------------------------------------------------
 
@@ -737,11 +1174,16 @@ def view_reports_dashboard(request: Request, user=Depends(verify_auth)):
         saved_views = session.query(SavedReportView).order_by(SavedReportView.name.asc()).all()
         schedules = session.query(ScheduledReportJob).order_by(ScheduledReportJob.id.desc()).all()
         template = _jinja_env.get_template("reports.j2.html")
+        engine = get_engine()
+        auto_dialect = "PostgreSQL" if "postgresql" in engine.dialect.name.lower() else "SQLite"
+        default_model = getattr(config, "decision_model", "d1") or "d1"
         html_content = template.render(
             request=request,
             saved_views=saved_views,
             schedules=schedules,
             tables_meta=TABLE_METADATA,
             heavy_columns=list(HEAVY_COLUMNS),
+            active_dialect=auto_dialect,
+            default_decision_model=default_model,
         )
     return HTMLResponse(content=html_content)

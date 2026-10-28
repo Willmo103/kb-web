@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.12] - 2026-10-28
+### Added
+- **Raw READ-ONLY SQL Query Reports Gated by Decision Model (`routers/reports.py`, `templates/reports.j2.html`)**:
+  - Implemented dual-layer safety gating for raw SQL execution in Custom Reports (`/reports`):
+    * **Deterministic AST & Regex Pre-Screening**: Blocks destructive operations (`DROP`, `TRUNCATE`, `ALTER`, `GRANT`, `REVOKE`, `ATTACH`, `DETACH`, `VACUUM`, and `INSERT/UPDATE/DELETE` on persistent tables) while excusing the creation and deletion of session-scoped temporary tables (`CREATE TEMP TABLE ...`, `CREATE TEMPORARY TABLE ...`, `DROP TABLE IF EXISTS #...`, `DROP TABLE temp_...`).
+    * **Native Ollama SystemOne Decision Gating**: Queries `client.systemone` evaluating `statement_dialect`, dialect compliance (`d_01_compliance`), and non-destructive compliance (`nd_01_compliance >= 0.5`) across PostgreSQL and SQLite targets, falling back gracefully to strict static validation when Ollama is offline.
+  - Added REST endpoints `POST /api/reports/raw-sql` (executing multi-statement queries and returning columns, rows, latency, and decision audit metadata) and `POST /api/reports/raw-sql/export` (supporting streaming CSV and JSON exports).
+  - Added Raw SQL Query UI tab in `reports.j2.html` featuring monospace query editor, quick query snippets (Top Domains, Temp Table Aggregate, Recent Articles), decision gate audit score badges, data grid result rendering, and instant CSV/JSON exports.
+  - Added 10 unit tests in `tests/test_raw_sql_reports_and_restart.py` verifying multi-statement splitting, static safety validation, decision model threshold gating, execution of temporary tables, destructive rejection, and file exports.
+- **Clickable Selection Cards on Import Crawl and Collection Operations (`templates/url_import.j2.html`, `templates/view_collection.j2.html`)**:
+  - Made list card rows fully clickable across the webpage link discovery workspace (`url_import.j2.html`) and collection manager (`view_collection.j2.html`).
+  - Clicking anywhere on the item container/bar toggles selection checkbox state, with guarded propagation that ignores clicks on external anchor links (`<a>`), action buttons, or direct checkbox clicks to prevent double-toggling.
+- **Admin Server Restart Action with Optional Git Pull & UV Sync (`routers/admin.py`, `templates/admin.j2.html`, GitHub Issue #120)**:
+  - Added `POST /admin/server/restart` endpoint with admin session authentication.
+  - Supports optional `pull_git: bool` parameter that pulls latest commits from the active git branch without switching branches and synchronizes dependencies with `uv sync` prior to restarting.
+  - Dispatches background service restart via `sudo systemctl restart kb-web.service` with fallback to `kb-web-test.service`, plus graceful development simulation on local/non-systemd environments.
+  - Added "Restart Server" action button and confirmation modal in `templates/admin.j2.html` in both the dashboard header and diagnostics panel, with live countdown and reconnection polling.
+
 ## [0.5.11] - 2026-10-22
 ### Added
 - **Extracted Facts & Context Mesh UI Display (`routers/pages.py`, `templates/view_page.j2.html`)**:

@@ -579,8 +579,17 @@
 
             const isChecked = selectedUrls.has(item.url);
             const row = document.createElement('div');
-            row.className = `flex items-center justify-between p-3.5 hover:bg-gray-50 transition text-xs ${isChecked ? 'bg-indigo-50/40' : ''}`;
+            row.className = `flex items-center justify-between p-3.5 hover:bg-gray-50 transition text-xs cursor-pointer select-none ${isChecked ? 'bg-indigo-50/40' : ''}`;
             row.id = `candidate-row-${index}`;
+
+            row.addEventListener('click', (e) => {
+                if (e.target.closest('a, button, input[type="checkbox"], label')) return;
+                const chk = document.getElementById(`chk-${index}`);
+                if (chk) {
+                    chk.checked = !chk.checked;
+                    toggleCandidateSelection(encodeURIComponent(item.url), chk.checked, index);
+                }
+            });
 
             row.innerHTML = `
                 <div class="flex items-center gap-3 min-w-0 pr-4">
