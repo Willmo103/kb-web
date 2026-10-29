@@ -294,9 +294,18 @@
         container.innerHTML = '';
         currentItems.forEach((item, index) => {
             const card = document.createElement('div');
-            card.className = `bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex items-center justify-between gap-4 draggable-item relative transition duration-150 ${item.isNew ? 'item-new' : ''}`;
+            card.className = `bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex items-center justify-between gap-4 draggable-item relative transition duration-150 cursor-pointer select-none ${item.isNew ? 'item-new' : ''}`;
             card.draggable = true;
             card.setAttribute('data-index', index);
+
+            card.addEventListener('click', (e) => {
+                if (e.target.closest('a, button, input[type="checkbox"], label')) return;
+                const cb = card.querySelector('input.item-select');
+                if (cb) {
+                    cb.checked = !cb.checked;
+                    updateSelectionBar();
+                }
+            });
             
             // Drag events on cards
             card.addEventListener('dragstart', (e) => {
@@ -395,8 +404,16 @@
         list.innerHTML = '';
         filtered.forEach(page => {
             const card = document.createElement('div');
-            card.className = "bg-white p-3 border border-gray-200 rounded-lg shadow-sm flex items-center justify-between gap-3 draggable-item transition hover:border-indigo-300";
+            card.className = "bg-white p-3 border border-gray-200 rounded-lg shadow-sm flex items-center justify-between gap-3 draggable-item transition hover:border-indigo-300 cursor-pointer select-none";
             card.draggable = true;
+
+            card.addEventListener('click', (e) => {
+                if (e.target.closest('a, button, input[type="checkbox"], label')) return;
+                const cb = card.querySelector('input.avail-select');
+                if (cb) {
+                    cb.checked = !cb.checked;
+                }
+            });
             
             card.addEventListener('dragstart', (e) => {
                 draggedUrl = page.url;
