@@ -82,8 +82,25 @@
             </div>
         </div>
 
-        <!-- Query Configuration Toolbar -->
-        <div class="pt-4 space-y-4">
+        <!-- Query Mode Switcher (Visual Builder vs Raw SQL Gated) -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-3 pb-3 border-t border-gray-100 mt-2">
+            <div class="flex items-center gap-2">
+                <button type="button" id="tabBtnVisual" onclick="switchReportMode('visual')" class="report-mode-btn active px-3.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 cursor-pointer">
+                    <span>🛠️</span> Visual Query Builder
+                </button>
+                <button type="button" id="tabBtnRawSql" onclick="switchReportMode('raw_sql')" class="report-mode-btn px-3.5 py-1.5 rounded-lg text-xs font-bold text-gray-600 hover:text-gray-900 hover:bg-gray-100 flex items-center gap-1.5 border border-gray-200 cursor-pointer">
+                    <span>💻</span> Raw SQL Query (Decision Gated)
+                </button>
+            </div>
+            <div class="flex items-center gap-2 text-[11px] font-mono text-gray-500">
+                <span>Dialect: <strong class="text-indigo-600">{{ active_dialect }}</strong></span>
+                <span class="text-gray-300">•</span>
+                <span>Gate: <strong class="text-amber-600">{{ default_decision_model }}</strong></span>
+            </div>
+        </div>
+
+        <!-- Visual Query Builder Panel -->
+        <div id="visualQueryBuilderPanel" class="space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                 <!-- Base Table -->
                 <div>
@@ -127,7 +144,7 @@
                         </select>
                     </div>
                     <div class="pt-5">
-                        <button type="button" onclick="runReportQuery(0)" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-sm transition flex items-center gap-1.5 h-[38px]">
+                        <button type="button" onclick="runReportQuery(0)" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-sm transition flex items-center gap-1.5 h-[38px] cursor-pointer">
                             <span>⚡</span> Run Query
                         </button>
                     </div>
@@ -148,12 +165,93 @@
                     <span class="text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
                         <span>🔍</span> Filter Conditions (<span id="filterCountBadge">0</span> active)
                     </span>
-                    <button type="button" onclick="addFilterRow()" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-white hover:bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg transition shadow-sm">
+                    <button type="button" onclick="addFilterRow()" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-white hover:bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg transition shadow-sm cursor-pointer">
                         + Add Condition
                     </button>
                 </div>
                 <div id="filterRowsContainer" class="space-y-2">
                     <!-- Filter rows appended dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Raw SQL Query Panel (Gated by Decision Model) -->
+        <div id="rawSqlBuilderPanel" class="hidden space-y-4 pt-1">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-amber-50/60 border border-amber-200/80 rounded-xl p-3.5 text-xs">
+                <div class="flex items-center gap-2.5">
+                    <span class="text-xl">⚖️</span>
+                    <div>
+                        <span class="font-bold text-amber-900 block">Decision Gated Query Execution</span>
+                        <span class="text-[11px] text-amber-800">
+                            Read-only queries are executed natively on <strong>{{ active_dialect }}</strong>. Creation and deletion of session-scoped temporary tables (<code class="bg-amber-100 px-1 py-0.5 rounded text-[10px]">CREATE TEMP TABLE ...</code>) is excused for intermediate queries. Persistent tables cannot be dropped or modified.
+                        </span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-amber-800 bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-md">
+                        SystemOne Policy: nd_01 & d_01
+                    </span>
+                </div>
+            </div>
+
+            <!-- SQL Query Editor Area -->
+            <div class="space-y-2">
+                <div class="flex justify-between items-center text-xs">
+                    <label for="rawSqlQueryText" class="font-bold text-gray-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                        <span>📝</span> SQL Statement(s)
+                    </label>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-[11px] text-gray-400 font-medium">Quick Snippets:</span>
+                        <button type="button" onclick="insertSqlSnippet('summary')" class="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10px] font-semibold rounded transition cursor-pointer">
+                            Top Domains
+                        </button>
+                        <button type="button" onclick="insertSqlSnippet('temp_table')" class="px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-semibold border border-indigo-200 rounded transition cursor-pointer">
+                            Temp Table Demo
+                        </button>
+                        <button type="button" onclick="insertSqlSnippet('recent_articles')" class="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10px] font-semibold rounded transition cursor-pointer">
+                            Recent Articles
+                        </button>
+                    </div>
+                </div>
+
+                <div class="relative">
+                    <textarea id="rawSqlQueryText" rows="6" class="w-full p-3 font-mono text-xs bg-gray-900 text-emerald-400 rounded-xl border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner" placeholder="SELECT domain, count(*) AS total_pages FROM fetched_pages GROUP BY domain ORDER BY total_pages DESC LIMIT 25;"></textarea>
+                </div>
+
+                <div class="flex flex-wrap justify-between items-center gap-3 pt-1">
+                    <div class="flex items-center gap-3 text-xs">
+                        <div class="flex items-center gap-1.5">
+                            <label for="rawSqlLimit" class="text-gray-500 font-medium text-[11px]">Max Rows:</label>
+                            <input type="number" id="rawSqlLimit" value="500" min="1" max="2000" class="w-20 px-2.5 py-1 text-xs font-mono border border-gray-300 rounded-lg">
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <label for="rawSqlDialect" class="text-gray-500 font-medium text-[11px]">Dialect:</label>
+                            <select id="rawSqlDialect" class="px-2 py-1 text-xs font-mono border border-gray-300 rounded-lg bg-white">
+                                <option value="PostgreSQL" {% if active_dialect == 'PostgreSQL' %}selected{% endif %}>PostgreSQL</option>
+                                <option value="SQLite" {% if active_dialect == 'SQLite' %}selected{% endif %}>SQLite</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="exportRawSql('csv')" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition shadow-sm flex items-center gap-1 cursor-pointer">
+                            <span>📄</span> Export CSV
+                        </button>
+                        <button type="button" onclick="exportRawSql('json')" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition shadow-sm flex items-center gap-1 cursor-pointer">
+                            <span>📦</span> Export JSON
+                        </button>
+                        <button type="button" id="btnRunRawSql" onclick="executeRawSql()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-2 cursor-pointer">
+                            <span id="rawSqlSpinner" class="hidden animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent"></span>
+                            <span id="rawSqlRunText">⚡ Run Raw SQL</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Raw SQL Error / Audit Alert Box -->
+                <div id="rawSqlAlertContainer" class="hidden rounded-xl p-3.5 text-xs font-mono space-y-1">
+                    <div id="rawSqlAlertTitle" class="font-bold flex items-center gap-2"></div>
+                    <div id="rawSqlAlertMessage" class="whitespace-pre-wrap opacity-90 text-[11px]"></div>
+                    <div id="rawSqlAuditBadges" class="flex flex-wrap gap-2 pt-2"></div>
                 </div>
             </div>
         </div>
@@ -377,6 +475,16 @@
 
 <!-- Dynamic Reports Controller Script -->
 <script>
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     const TABLE_META = {{ tables_meta | tojson }};
     const HEAVY_COLS = new Set({{ heavy_columns | tojson }});
     
@@ -1016,6 +1124,187 @@
         .then(res => res.json())
         .then(() => window.location.reload())
         .catch(err => alert("Error: " + err.message));
+    }
+
+    // --- Raw SQL Query Handlers (Decision Gated) ---
+
+    function switchReportMode(mode) {
+        const visualPanel = document.getElementById("visualQueryBuilderPanel");
+        const rawSqlPanel = document.getElementById("rawSqlBuilderPanel");
+        const btnVisual = document.getElementById("tabBtnVisual");
+        const btnRawSql = document.getElementById("tabBtnRawSql");
+
+        if (mode === "raw_sql") {
+            visualPanel.classList.add("hidden");
+            rawSqlPanel.classList.remove("hidden");
+            btnVisual.className = "report-mode-btn px-3.5 py-1.5 rounded-lg text-xs font-bold text-gray-600 hover:text-gray-900 hover:bg-gray-100 flex items-center gap-1.5 border border-gray-200 cursor-pointer";
+            btnRawSql.className = "report-mode-btn active px-3.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 cursor-pointer";
+        } else {
+            rawSqlPanel.classList.add("hidden");
+            visualPanel.classList.remove("hidden");
+            btnRawSql.className = "report-mode-btn px-3.5 py-1.5 rounded-lg text-xs font-bold text-gray-600 hover:text-gray-900 hover:bg-gray-100 flex items-center gap-1.5 border border-gray-200 cursor-pointer";
+            btnVisual.className = "report-mode-btn active px-3.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 cursor-pointer";
+        }
+    }
+
+    function insertSqlSnippet(type) {
+        const ta = document.getElementById("rawSqlQueryText");
+        if (!ta) return;
+        if (type === "summary") {
+            ta.value = "SELECT domain, count(*) AS total_pages, min(fetched_at) AS first_seen, max(fetched_at) AS last_seen\nFROM fetched_pages\nGROUP BY domain\nORDER BY total_pages DESC\nLIMIT 25;";
+        } else if (type === "temp_table") {
+            ta.value = "-- Temporary table demonstration (Excused session-scoped table)\nCREATE TEMP TABLE temp_top_domains AS\nSELECT domain, count(*) as page_count\nFROM fetched_pages\nGROUP BY domain\nHAVING count(*) >= 1;\n\nSELECT * FROM temp_top_domains\nORDER BY page_count DESC\nLIMIT 20;\n\nDROP TABLE IF EXISTS temp_top_domains;";
+        } else if (type === "recent_articles") {
+            ta.value = "SELECT url, title, description, fetched_at\nFROM fetched_pages\nWHERE description IS NOT NULL AND description != ''\nORDER BY fetched_at DESC\nLIMIT 50;";
+        }
+    }
+
+    async function executeRawSql() {
+        const query = document.getElementById("rawSqlQueryText").value.trim();
+        if (!query) {
+            alert("Please enter a SQL query to execute.");
+            return;
+        }
+        const limit = parseInt(document.getElementById("rawSqlLimit").value) || 500;
+        const dialect = document.getElementById("rawSqlDialect").value || "PostgreSQL";
+
+        const btn = document.getElementById("btnRunRawSql");
+        const spinner = document.getElementById("rawSqlSpinner");
+        const runText = document.getElementById("rawSqlRunText");
+        const alertBox = document.getElementById("rawSqlAlertContainer");
+        const alertTitle = document.getElementById("rawSqlAlertTitle");
+        const alertMsg = document.getElementById("rawSqlAlertMessage");
+        const auditBadges = document.getElementById("rawSqlAuditBadges");
+        const tbody = document.getElementById("gridBody");
+
+        btn.disabled = true;
+        spinner.classList.remove("hidden");
+        runText.innerText = "Evaluating Gate & Running...";
+        alertBox.classList.add("hidden");
+
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="15" class="py-12 text-center text-indigo-600 font-bold text-xs">
+                    <span class="inline-block animate-spin mr-2">⚖️</span> Evaluating decision gate (systemone) and executing SQL...
+                </td>
+            </tr>
+        `;
+
+        try {
+            const resp = await fetch("/api/reports/raw-sql", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ query: query, limit: limit, dialect: dialect })
+            });
+            const data = await resp.json();
+
+            if (!resp.ok) {
+                const detail = data && data.detail ? data.detail : { message: `Query execution failed (HTTP ${resp.status})` };
+                const msg = typeof detail === "string" ? detail : (detail.message || JSON.stringify(detail));
+                
+                alertBox.className = "rounded-xl p-3.5 text-xs font-mono space-y-1 bg-red-50 text-red-800 border border-red-200";
+                alertBox.classList.remove("hidden");
+                alertTitle.innerHTML = "<span>❌</span> Decision Gate / Query Safety Rejection";
+                alertMsg.innerText = msg;
+
+                auditBadges.innerHTML = "";
+                if (detail && detail.decision_gate) {
+                    const dg = detail.decision_gate;
+                    if (dg.nd_01_score !== undefined && dg.nd_01_score !== null) {
+                        auditBadges.innerHTML += `<span class="px-2 py-0.5 rounded bg-red-100 text-red-900 border border-red-200">nd_01 non-destructive: ${dg.nd_01_score}</span>`;
+                    }
+                    if (dg.d_01_score !== undefined && dg.d_01_score !== null) {
+                        auditBadges.innerHTML += `<span class="px-2 py-0.5 rounded bg-red-100 text-red-900 border border-red-200">d_01 dialect: ${dg.d_01_score}</span>`;
+                    }
+                }
+
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="15" class="py-12 text-center text-red-600 text-xs font-bold">
+                            Query rejected or failed: ${escapeHtml(msg)}
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            // Success!
+            alertBox.className = "rounded-xl p-3.5 text-xs font-mono space-y-1 bg-emerald-50 text-emerald-900 border border-emerald-200";
+            alertBox.classList.remove("hidden");
+            alertTitle.innerHTML = `<span>✅</span> Query Executed Successfully (${data.rows.length} rows in ${data.execution_time_ms} ms)`;
+            alertMsg.innerText = `Dialect: ${data.dialect} | Non-destructive check passed.`;
+
+            auditBadges.innerHTML = "";
+            const dg = data.decision_gate || {};
+            if (dg.model) {
+                auditBadges.innerHTML += `<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-200">Model: ${escapeHtml(dg.model)}</span>`;
+            }
+            if (dg.nd_01_score !== undefined && dg.nd_01_score !== null) {
+                auditBadges.innerHTML += `<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-200">nd_01 non-destructive: ${dg.nd_01_score}</span>`;
+            }
+            if (dg.d_01_score !== undefined && dg.d_01_score !== null) {
+                auditBadges.innerHTML += `<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-200">d_01 compliance: ${dg.d_01_score}</span>`;
+            }
+            if (dg.temporary_tables && dg.temporary_tables.length) {
+                auditBadges.innerHTML += `<span class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-900 border border-indigo-200">Temp Tables: ${escapeHtml(dg.temporary_tables.join(', '))}</span>`;
+            }
+
+            totalRecords = data.total_count || data.rows.length;
+            lastQueryRows = data.rows;
+            renderDataGrid(data.columns, data.rows);
+            document.getElementById("totalRecordsLabel").innerText = `${totalRecords} records found (${data.execution_time_ms} ms)`;
+            document.getElementById("pageSummaryLabel").innerText = "Raw SQL Result";
+
+        } catch (err) {
+            alertBox.className = "rounded-xl p-3.5 text-xs font-mono space-y-1 bg-red-50 text-red-800 border border-red-200";
+            alertBox.classList.remove("hidden");
+            alertTitle.innerHTML = "<span>❌</span> Network / Server Error";
+            alertMsg.innerText = err.message;
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="15" class="py-12 text-center text-red-600 text-xs font-bold">
+                        Server communication failure: ${escapeHtml(err.message)}
+                    </td>
+                </tr>
+            `;
+        } finally {
+            btn.disabled = false;
+            spinner.classList.add("hidden");
+            runText.innerText = "⚡ Run Raw SQL";
+        }
+    }
+
+    function exportRawSql(format = "csv") {
+        const query = document.getElementById("rawSqlQueryText").value.trim();
+        if (!query) {
+            alert("Please enter a SQL query before exporting.");
+            return;
+        }
+        const limit = parseInt(document.getElementById("rawSqlLimit").value) || 5000;
+        const dialect = document.getElementById("rawSqlDialect").value || "PostgreSQL";
+
+        fetch("/api/reports/raw-sql/export", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: query, format: format, limit: limit, dialect: dialect })
+        })
+        .then(res => {
+            if (!res.ok) throw new Error(`Export failed with HTTP ${res.status}`);
+            return res.blob();
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `raw_sql_export_${Date.now()}.${format}`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        })
+        .catch(err => {
+            alert("Export failed: " + err.message);
+        });
     }
 </script>
 {% endblock %}

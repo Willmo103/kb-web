@@ -84,6 +84,9 @@
                 <p class="text-sm text-gray-500 mt-1">Configure Ollama LLMs, vector database connections, scheduled pipelines, backups, and external CLI access.</p>
             </div>
             <div class="flex items-center gap-2">
+                <button type="button" onclick="openServerRestartModal()" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg transition shadow-sm cursor-pointer">
+                    <span>🔄</span> Restart Server
+                </button>
                 <a href="/admin/logs" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded-lg transition shadow-sm">
                     <span>📄</span> Server Logs
                 </a>
@@ -972,6 +975,23 @@
     <!-- TAB 5: Diagnostics & CLI Client Integration -->
     <div id="tab-diagnostics" class="admin-tab-pane hidden space-y-6">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Server Lifecycle & Process Management -->
+            <div class="col-span-1 md:col-span-2 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                            <span>🔄</span> Server Operations & Lifecycle Control
+                        </h3>
+                        <p class="text-xs text-gray-500 mt-1">
+                            Restart the live application systemd daemon. Optionally pull the latest git commits from the current branch and execute <code class="font-mono text-indigo-600">uv sync</code> prior to restarting.
+                        </p>
+                    </div>
+                    <button type="button" onclick="openServerRestartModal()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow-sm flex items-center gap-2 cursor-pointer flex-shrink-0">
+                        <span>🔄</span> Restart Server
+                    </button>
+                </div>
+            </div>
+
             <!-- Left: CLI API Keys Management -->
             <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
                 <div class="border-b border-gray-100 pb-3 mb-4">
@@ -1615,6 +1635,99 @@
 
     function closeTestRunModal() {
         document.getElementById('testRunModal')?.classList.add('hidden');
+    }
+
+    function openServerRestartModal() {
+        const modal = document.getElementById('serverRestartModal');
+        if (!modal) return;
+        modal.classList.remove('hidden');
+        document.getElementById('restartStatusContainer')?.classList.add('hidden');
+        const stText = document.getElementById('restartStatusText');
+        if (stText) stText.innerText = '';
+        const stLogs = document.getElementById('restartStatusLogs');
+        if (stLogs) stLogs.innerText = '';
+        const btn = document.getElementById('btnConfirmRestart');
+        if (btn) btn.disabled = false;
+        document.getElementById('restartBtnSpinner')?.classList.add('hidden');
+        const btnText = document.getElementById('restartBtnText');
+        if (btnText) btnText.innerText = 'Confirm Restart';
+    }
+
+    function closeServerRestartModal() {
+        document.getElementById('serverRestartModal')?.classList.add('hidden');
+    }
+
+    async function triggerServerRestart() {
+        const pullGit = document.getElementById('restartPullGit')?.checked || false;
+        const btn = document.getElementById('btnConfirmRestart');
+        const spinner = document.getElementById('restartBtnSpinner');
+        const btnText = document.getElementById('restartBtnText');
+        const statusContainer = document.getElementById('restartStatusContainer');
+        const statusText = document.getElementById('restartStatusText');
+        const statusLogs = document.getElementById('restartStatusLogs');
+
+        if (btn) btn.disabled = true;
+        spinner?.classList.remove('hidden');
+        if (btnText) btnText.innerText = pullGit ? 'Pulling & Restarting...' : 'Restarting...';
+
+        if (statusContainer) {
+            statusContainer.className = 'p-4 rounded-xl text-xs space-y-2 font-mono bg-amber-50 text-amber-800 border border-amber-200';
+            statusContainer.classList.remove('hidden');
+        }
+        if (statusText) statusText.innerHTML = '<span>⏳</span> ' + (pullGit ? 'Pulling git updates and syncing packages...' : 'Dispatching service restart...');
+        if (statusLogs) statusLogs.innerText = '';
+
+        try {
+            const resp = await fetch('/admin/server/restart', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pull_git: pullGit })
+            });
+            const data = await resp.json();
+
+            if (data.status === 'success') {
+                if (statusContainer) {
+                    statusContainer.className = 'p-4 rounded-xl text-xs space-y-2 font-mono bg-emerald-50 text-emerald-800 border border-emerald-200';
+                }
+                if (statusText) statusText.innerHTML = '<span>✅</span> ' + escapeHtml(data.message);
+                if (statusLogs && data.logs && data.logs.length) {
+                    statusLogs.innerText = data.logs.join('\n');
+                }
+                if (btnText) btnText.innerText = 'Service reloading... Reloading page';
+
+                let countdown = 6;
+                const timer = setInterval(() => {
+                    countdown--;
+                    if (countdown <= 0) {
+                        clearInterval(timer);
+                        window.location.reload();
+                    } else if (btnText) {
+                        btnText.innerText = `Reloading page in ${countdown}s...`;
+                    }
+                }, 1000);
+            } else {
+                if (statusContainer) {
+                    statusContainer.className = 'p-4 rounded-xl text-xs space-y-2 font-mono bg-red-50 text-red-800 border border-red-200';
+                }
+                if (statusText) statusText.innerHTML = '<span>❌</span> ' + escapeHtml(data.message || 'Restart operation failed.');
+                if (statusLogs && data.logs && data.logs.length) {
+                    statusLogs.innerText = data.logs.join('\n');
+                }
+                if (btn) btn.disabled = false;
+                spinner?.classList.add('hidden');
+                if (btnText) btnText.innerText = 'Try Again';
+            }
+        } catch (err) {
+            // Connection dropped due to service restart
+            if (statusContainer) {
+                statusContainer.className = 'p-4 rounded-xl text-xs space-y-2 font-mono bg-emerald-50 text-emerald-800 border border-emerald-200';
+            }
+            if (statusText) statusText.innerHTML = '<span>🔄</span> Server service restarted. Reconnecting...';
+            if (btnText) btnText.innerText = 'Reloading in 5s...';
+            setTimeout(() => {
+                window.location.reload();
+            }, 5000);
+        }
     }
 
     function openCreateAgentModal() {
@@ -2640,6 +2753,55 @@
         <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end">
             <button type="button" onclick="closeTestRunModal()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition shadow-xs">
                 Close Preview
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Server Restart Confirmation Modal -->
+<div id="serverRestartModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4 animate-fade-in">
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-2xl w-full max-w-md overflow-hidden animate-scale-up">
+        <div class="p-6 border-b border-gray-100 flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+                <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-lg">
+                    🔄
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-gray-900">Restart Server Service</h3>
+                    <p class="text-xs text-gray-500">Lifecycle management for kb-web daemon</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeServerRestartModal()" class="text-gray-400 hover:text-gray-600 font-bold text-lg cursor-pointer">&times;</button>
+        </div>
+
+        <div class="p-6 space-y-4">
+            <p class="text-xs text-gray-600 leading-relaxed">
+                Are you sure you want to restart the application server? Existing connections may be temporarily disrupted while the background service reloads.
+            </p>
+
+            <div class="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                <label class="flex items-start gap-3 cursor-pointer select-none">
+                    <input type="checkbox" id="restartPullGit" class="mt-0.5 h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer">
+                    <div>
+                        <span class="text-xs font-bold text-gray-800 block">Pull latest git changes from current branch</span>
+                        <span class="text-[11px] text-gray-500 block">Executes <code class="text-indigo-600 font-mono">git pull</code> and <code class="text-indigo-600 font-mono">uv sync</code> prior to restarting systemd.</span>
+                    </div>
+                </label>
+            </div>
+
+            <div id="restartStatusContainer" class="hidden p-4 rounded-xl text-xs space-y-2 font-mono">
+                <div id="restartStatusText" class="font-bold flex items-center gap-2"></div>
+                <div id="restartStatusLogs" class="text-[11px] max-h-32 overflow-y-auto whitespace-pre-wrap opacity-80"></div>
+            </div>
+        </div>
+
+        <div class="p-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-2.5">
+            <button type="button" id="btnCancelRestart" onclick="closeServerRestartModal()" class="px-4 py-2 text-xs font-bold bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 rounded-xl transition shadow-sm cursor-pointer">
+                Cancel
+            </button>
+            <button type="button" id="btnConfirmRestart" onclick="triggerServerRestart()" class="px-5 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition shadow-sm flex items-center gap-2 cursor-pointer">
+                <span id="restartBtnSpinner" class="hidden animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent"></span>
+                <span id="restartBtnText">Confirm Restart</span>
             </button>
         </div>
     </div>

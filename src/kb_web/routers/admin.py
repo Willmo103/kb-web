@@ -6,8 +6,12 @@ import os
 import json
 import logging
 import time
+import shutil
+import subprocess
+import threading
+import httpx
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from urllib.parse import unquote_plus, quote_plus, urlparse
 from fastapi import (
@@ -56,7 +60,7 @@ from ..models_orm import (
     SystemLog,
     SettingExternal,
 )
-from sqlalchemy import or_, text, func
+from sqlalchemy import or_, func
 from ..utils import (
     fetch_url,
     extract_first_url,
@@ -66,11 +70,9 @@ from ..utils import (
     update_article_embedding,
     serialize_page_for_db,
     extract_youtube_video_id,
-    generate_gemma_embeddings_for_page,
+    generate_gemma_embeddings_for_page,  # noqa: F401
 )
 from ..gotify import post_to_gotify
-from .pages import background_video_downloader
-from ..config import DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
 
 from bs4 import BeautifulSoup  # type: ignore
 
@@ -1105,7 +1107,7 @@ def handle_refetch_page(
     update_article_embedding(None, decoded_url, config, client)
 
     base_url = str(request.base_url).rstrip("/")
-    view_url = f"/view/page?url={page_data.safe_url}"
+    view_url = f"{base_url}/view/page?url={page_data.safe_url}"
     post_to_gotify(config, _jinja_env, page_data, view_url)
 
     return RedirectResponse(
@@ -1584,7 +1586,7 @@ async def websocket_import(websocket: WebSocket) -> None:
                         pks = [c.name for c in m_cls.__table__.primary_key.columns]
                         if pks and len(pks) == 1:
                             col_obj = m_cls.__table__.columns[pks[0]]
-                            if hasattr(col_obj.type, "python_type") and col_obj.type.python_type == int:
+                            if hasattr(col_obj.type, "python_type") and col_obj.type.python_type is int:
                                 try:
                                     session.execute(
                                         text(
@@ -1806,3 +1808,117 @@ def admin_delete_cli_client(computer_name: str = Form(...)) -> RedirectResponse:
         return RedirectResponse(
             url=f"/admin?msg=Error+removing+client:+{str(e)}", status_code=303
         )
+
+
+class ServerRestartRequest(BaseModel):
+    pull_git: bool = False
+
+
+@router.post("/admin/server/restart", dependencies=[Depends(verify_auth)])
+async def admin_server_restart(
+    request: Request, payload: Optional[ServerRestartRequest] = None
+) -> dict:
+    """Restarts the kb-web application service, optionally pulling latest git changes and syncing packages first."""
+    pull_git = False
+    if payload:
+        pull_git = payload.pull_git
+    else:
+        try:
+            body = await request.json()
+            pull_git = bool(body.get("pull_git", False))
+        except Exception:
+            pass
+
+    logs = []
+    # 1. Pull latest git changes and sync if requested
+    if pull_git:
+        try:
+            logger.info("Executing git pull before server restart...")
+            git_res = subprocess.run(
+                ["git", "pull"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            out_str = (git_res.stdout.strip() + "\n" + git_res.stderr.strip()).strip()
+            logs.append(f"git pull: {out_str}")
+            if git_res.returncode != 0:
+                logger.error(f"git pull failed with code {git_res.returncode}: {out_str}")
+                return {
+                    "status": "error",
+                    "message": f"Git pull failed: {out_str}",
+                    "logs": logs,
+                }
+        except Exception as ge:
+            logger.error(f"git pull exception: {ge}", exc_info=True)
+            return {
+                "status": "error",
+                "message": f"Git pull execution error: {str(ge)}",
+                "logs": logs,
+            }
+
+        try:
+            logger.info("Executing uv sync after git pull...")
+            sync_res = subprocess.run(
+                ["uv", "sync"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            sync_out = (sync_res.stdout.strip() + "\n" + sync_res.stderr.strip()).strip()
+            logs.append(f"uv sync: {sync_out}")
+            if sync_res.returncode != 0:
+                logger.error(f"uv sync failed with code {sync_res.returncode}: {sync_out}")
+                return {
+                    "status": "error",
+                    "message": f"uv sync failed: {sync_out}",
+                    "logs": logs,
+                }
+        except Exception as se:
+            logger.error(f"uv sync exception: {se}", exc_info=True)
+            return {
+                "status": "error",
+                "message": f"uv sync execution error: {str(se)}",
+                "logs": logs,
+            }
+
+    # 2. Trigger service restart in detached background thread
+    has_systemctl = shutil.which("systemctl") is not None
+    if has_systemctl:
+        def _service_restart_task():
+            time.sleep(1.2)
+            logger.info("Dispatching systemctl restart for kb-web service...")
+            try:
+                res = subprocess.run(
+                    ["sudo", "systemctl", "restart", "kb-web.service"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                if res.returncode != 0:
+                    logger.warning("kb-web.service restart failed, attempting kb-web-test.service...")
+                    subprocess.run(
+                        ["sudo", "systemctl", "restart", "kb-web-test.service"],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                        check=False,
+                    )
+            except Exception as re:
+                logger.error(f"Error during systemctl restart dispatch: {re}", exc_info=True)
+
+        threading.Thread(target=_service_restart_task, daemon=True).start()
+        msg = "Server restart initiated. Service will reload shortly."
+    else:
+        logs.append("systemctl not found in environment (local/dev mode). Simulated restart complete.")
+        msg = "Development environment detected. Restart action completed successfully."
+
+    return {
+        "status": "success",
+        "message": msg,
+        "pull_git": pull_git,
+        "logs": logs,
+    }
