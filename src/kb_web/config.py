@@ -84,6 +84,12 @@ DEFAULT_YOUTUBE_DOWNLOAD_FORMAT = (
     "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
 )
 
+MAX_FACT_CHAR_COUNT = 144
+
+DEFAULT_ALLOWED_TOPICS = (
+    "News, Software Documentation, Blogpost/Article, Reference, Resource, Hobby/Leisure"
+)
+
 DEFAULT_YOUTUBE_WIKI_PROMPT = (
     "You are an expert knowledge-base agent. Analyze the provided YouTube video transcript and metadata. "
     "Rewrite it as a clean, highly structured, and objective wiki article. "
@@ -209,6 +215,9 @@ class Config:
         self._similarity_threshold: float = float(
             os.getenv("KB_SIMILARITY_THRESHOLD", "0.8")
         )
+        self._max_fact_char_count: int = int(os.getenv("KB_MAX_FACT_CHAR_COUNT", str(MAX_FACT_CHAR_COUNT)))
+        self._fact_similarity_threshold: float = float(os.getenv("KB_FACT_SIMILARITY_THRESHOLD", "0.85"))
+        self._allowed_topics: str = os.getenv("KB_ALLOWED_TOPICS", DEFAULT_ALLOWED_TOPICS)
         self._max_input_length: int = int(os.getenv("KB_MAX_INPUT_LENGTH", "20000"))
         self._ollama_timeout: float = float(os.getenv("KB_OLLAMA_TIMEOUT", "1200.0"))
         self._ollama_think: bool = os.getenv("KB_OLLAMA_THINK", "false").lower() in (
@@ -1005,6 +1014,66 @@ class Config:
             "settings_external", "youtube_download_format", str(value).strip()
         )
 
+    @property
+    def max_fact_char_count(self) -> int:
+        val = self._read_db_setting(
+            "settings_external", "max_fact_char_count", self._max_fact_char_count
+        )
+        try:
+            return max(32, int(val))
+        except (ValueError, TypeError):
+            return MAX_FACT_CHAR_COUNT
+
+    @max_fact_char_count.setter
+    def max_fact_char_count(self, value: int) -> None:
+        self._max_fact_char_count = max(32, int(value))
+        self._write_db_setting(
+            "settings_external", "max_fact_char_count", str(self._max_fact_char_count)
+        )
+
+    @property
+    def fact_similarity_threshold(self) -> float:
+        val = self._read_db_setting(
+            "settings_external",
+            "fact_similarity_threshold",
+            self._fact_similarity_threshold,
+        )
+        try:
+            return max(0.1, min(1.0, float(val)))
+        except (ValueError, TypeError):
+            return 0.85
+
+    @fact_similarity_threshold.setter
+    def fact_similarity_threshold(self, value: float) -> None:
+        self._fact_similarity_threshold = max(0.1, min(1.0, float(value)))
+        self._write_db_setting(
+            "settings_external",
+            "fact_similarity_threshold",
+            str(self._fact_similarity_threshold),
+        )
+
+    @property
+    def allowed_topics(self) -> str:
+        return str(
+            self._read_db_setting(
+                "settings_external", "allowed_topics", self._allowed_topics
+            )
+            or DEFAULT_ALLOWED_TOPICS
+        )
+
+    @allowed_topics.setter
+    def allowed_topics(self, value: str) -> None:
+        self._allowed_topics = str(value).strip() or DEFAULT_ALLOWED_TOPICS
+        self._write_db_setting(
+            "settings_external", "allowed_topics", self._allowed_topics
+        )
+
+    def get_allowed_topics_list(self) -> List[str]:
+        """Returns normalized list of allowed top-level topics."""
+        raw = self.allowed_topics or DEFAULT_ALLOWED_TOPICS
+        topics = [t.strip() for t in raw.split(",") if t.strip()]
+        return topics if topics else [t.strip() for t in DEFAULT_ALLOWED_TOPICS.split(",")]
+
     def save(self) -> None:
         """Writes current config values back to the ~/.kb/configs/kb-web.json file."""
         try:
@@ -1041,6 +1110,9 @@ class Config:
                 "crawler_default_max_pages": self.crawler_default_max_pages,
                 "repo_import_default_depth": self.repo_import_default_depth,
                 "youtube_download_format": self.youtube_download_format,
+                "max_fact_char_count": self.max_fact_char_count,
+                "fact_similarity_threshold": self.fact_similarity_threshold,
+                "allowed_topics": self.allowed_topics,
                 "gotify_url": self.gotify_url,
                 "gotify_token": self.gotify_token,
                 "qdrant_host_url": self.qdrant_host_url,

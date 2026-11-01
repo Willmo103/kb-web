@@ -25,7 +25,9 @@ class SafeVector(TypeDecorator):
             try:
                 from pgvector.sqlalchemy import Vector
 
-                return dialect.type_descriptor(Vector(self.dim) if self.dim else Vector())
+                return dialect.type_descriptor(
+                    Vector(self.dim) if self.dim else Vector()
+                )
             except ImportError:
                 pass
         return dialect.type_descriptor(Text) if dialect else Text
@@ -63,14 +65,17 @@ class SafeVector(TypeDecorator):
     class comparator_factory(TypeDecorator.Comparator):
         def cosine_distance(self, other):
             from pgvector.sqlalchemy import Vector
+
             return Vector.comparator_factory(self.expr).cosine_distance(other)
 
         def l2_distance(self, other):
             from pgvector.sqlalchemy import Vector
+
             return Vector.comparator_factory(self.expr).l2_distance(other)
 
         def max_inner_product(self, other):
             from pgvector.sqlalchemy import Vector
+
             return Vector.comparator_factory(self.expr).max_inner_product(other)
 
 
@@ -92,6 +97,9 @@ class FetchedPage(Base):
     exclude_from_general = Column(Integer, default=0)
     is_frozen = Column(Integer, default=0, index=True)
     wiki_model = Column(String, nullable=True)
+    topic = Column(String, nullable=True, index=True)
+    sub_topic = Column(String, nullable=True, index=True)
+    topic_status = Column(String, default="unassigned", index=True)
 
     wiki_versions = relationship(
         "WikiVersion",
@@ -120,10 +128,16 @@ class PageVersion(Base):
 
 class WikiVersion(Base):
     """Stores historical versions of AI-generated or edited wikis for an ingested page."""
+
     __tablename__ = "wiki_versions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    url = Column(String, ForeignKey("fetched_pages.url", ondelete="CASCADE"), nullable=False, index=True)
+    url = Column(
+        String,
+        ForeignKey("fetched_pages.url", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     title = Column(String)
     wiki_content = Column(Text)
     model_name = Column(String, nullable=True)
@@ -133,6 +147,7 @@ class WikiVersion(Base):
 
 class ArticleEmbedding(Base):
     """[DEPRECATED] Single-vector article table. Slated for removal in favor of ChunkEmbedding."""
+
     __tablename__ = "article_embeddings"
 
     url = Column(String, ForeignKey("fetched_pages.url"), primary_key=True)
@@ -142,6 +157,7 @@ class ArticleEmbedding(Base):
 
 class TitleEmbedding(Base):
     """[DEPRECATED] Single-vector title table. Slated for removal in favor of ChunkEmbedding."""
+
     __tablename__ = "title_embeddings"
 
     url = Column(String, ForeignKey("fetched_pages.url"), primary_key=True)
@@ -235,9 +251,9 @@ class ChunkEmbedding(Base):
     created_at = Column(String)
 
 
-
 class VideoEmbedding(Base):
     """[DEPRECATED] Single-vector video table. Slated for removal in favor of ChunkEmbedding."""
+
     __tablename__ = "video_embeddings"
 
     url = Column(String, ForeignKey("fetched_pages.url"), primary_key=True)
@@ -385,20 +401,29 @@ class TaxonomyItem(Base):
     item_title = Column(String)
     fit_score = Column(Float, default=1.0)
     assigned_at = Column(String)
-    item_class = Column(String(32), default="Notes", index=True)  # 'Personal', 'Documentation', 'Notes', 'Articles', 'Source Code', 'Unclassifiable'
+    item_class = Column(
+        String(32), default="Notes", index=True
+    )  # 'Personal', 'Documentation', 'Notes', 'Articles', 'Source Code', 'Unclassifiable'
 
     category = relationship("TaxonomyCategory", backref="items")
 
 
 class ContextStatementORM(Base):
     """Declarative ORM entity for atomic declarative context statements with 7-tier taxonomy."""
+
     __tablename__ = "context_statements"
 
     id = Column(String, primary_key=True)  # e.g. stmt_abc1234567
     statement = Column(Text, nullable=False)
-    statement_type = Column(String, nullable=False, index=True)  # intent_mapping, negative_invariant, affordance, habit, fact, preference
-    canonical_path = Column(String, nullable=False, index=True)  # e.g. knowledge/text/human_read/kb-web/architecture/ArticleWiki/embedding_unification
-    layer_level = Column(String, nullable=False, index=True)     # kingdom, phylum, class, order, family, genus, species
+    statement_type = Column(
+        String, nullable=False, index=True
+    )  # intent_mapping, negative_invariant, affordance, habit, fact, preference
+    canonical_path = Column(
+        String, nullable=False, index=True
+    )  # e.g. knowledge/text/human_read/kb-web/architecture/ArticleWiki/embedding_unification
+    layer_level = Column(
+        String, nullable=False, index=True
+    )  # kingdom, phylum, class, order, family, genus, species
     kingdom = Column(String, index=True)
     phylum = Column(String, index=True)
     class_name = Column(String, index=True)
@@ -423,6 +448,7 @@ class ContextStatementORM(Base):
 
 class TaxonomyEntityORM(Base):
     """Declarative ORM entity for physical entities mapped to 7-tier biological taxonomy coordinates."""
+
     __tablename__ = "taxonomy_entities"
 
     canonical_id = Column(String, primary_key=True)  # taxonomy path identifier
@@ -439,21 +465,38 @@ class TaxonomyEntityORM(Base):
     updated_at = Column(String, nullable=False)
 
 
+class TopicGovernanceORM(Base):
+    """Stores governed Top-Level Topics (Kingdom) and Sub-Topics (Phylum/Class) with approval/denial state."""
+
+    __tablename__ = "taxonomy_topics"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False, unique=True, index=True)
+    level = Column(String, default="topic", index=True)  # 'topic' or 'sub_topic'
+    parent_topic = Column(String, nullable=True, index=True)
+    status = Column(
+        String, default="allowed", index=True
+    )  # 'allowed', 'pending', 'denied'
+    created_at = Column(String)
+    updated_at = Column(String)
+
+
 class WorkerJobExecution(Base):
     """Persistent execution and target audit log for autonomous background worker jobs."""
+
     __tablename__ = "worker_job_executions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(String, nullable=False, index=True)
     target_id = Column(String, nullable=False, index=True)
-    status = Column(String, nullable=False, index=True)  # 'success', 'skipped', 'failed'
+    status = Column(
+        String, nullable=False, index=True
+    )  # 'success', 'skipped', 'failed'
     items_count = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
     executed_at = Column(String, nullable=False, index=True)
 
-    __table_args__ = (
-        Index("ix_worker_job_target", "job_id", "target_id"),
-    )
+    __table_args__ = (Index("ix_worker_job_target", "job_id", "target_id"),)
 
 
 class AgentMessage(Base):
@@ -464,7 +507,9 @@ class AgentMessage(Base):
     channel = Column(String, default="general", index=True)
     topic = Column(String)
     content = Column(Text)
-    memory_type = Column(String, default="decision")  # 'decision', 'state_transition', 'milestone', 'coordination', 'knowledge'
+    memory_type = Column(
+        String, default="decision"
+    )  # 'decision', 'state_transition', 'milestone', 'coordination', 'knowledge'
     metadata_json = Column(Text, default="{}")
     created_at = Column(String, index=True)
 
@@ -474,7 +519,9 @@ class ChatConversation(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String)
-    source_type = Column(String, default="article")  # "article", "video", "note", "general"
+    source_type = Column(
+        String, default="article"
+    )  # "article", "video", "note", "general"
     source_id = Column(String, index=True)
     created_at = Column(String)
     updated_at = Column(String)
@@ -484,7 +531,9 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    conversation_id = Column(Integer, ForeignKey("chat_conversations.id", ondelete="CASCADE"), index=True)
+    conversation_id = Column(
+        Integer, ForeignKey("chat_conversations.id", ondelete="CASCADE"), index=True
+    )
     role = Column(String)  # "user", "assistant", "system"
     content = Column(Text)
     timestamp = Column(String)
@@ -524,9 +573,13 @@ class ScheduledReportJob(Base):
 class AgentConfiguration(Base):
     __tablename__ = "agent_configurations"
 
-    id = Column(String, primary_key=True)  # unique string key e.g. "maintenance_agent", "wiki_curation"
+    id = Column(
+        String, primary_key=True
+    )  # unique string key e.g. "maintenance_agent", "wiki_curation"
     name = Column(String, nullable=False)
-    category = Column(String, default="curation")  # curation, crawler, diagnostics, coding, rag, taxonomy
+    category = Column(
+        String, default="curation"
+    )  # curation, crawler, diagnostics, coding, rag, taxonomy
     call_type = Column(String, default="llm")  # llm, decision, embedding, coding
     model = Column(String, default="gemma4:e4b")
     system_prompt = Column(Text, default="")
@@ -539,11 +592,15 @@ class AgentConfiguration(Base):
     top_k = Column(Integer, nullable=True)
     tools = Column(Text, default="[]")  # JSON array of tools
     enabled = Column(Integer, default=1)
-    extra_options = Column(Text, default="{}")  # JSON object for custom question templates or options
+    extra_options = Column(
+        Text, default="{}"
+    )  # JSON object for custom question templates or options
     version = Column(Integer, default=1)
     is_published = Column(Integer, default=0)  # 0 = draft/staging, 1 = published/frozen
     published_at = Column(String, nullable=True)
-    frozen_snapshot_json = Column(Text, nullable=True)  # Immutable snapshot when published
+    frozen_snapshot_json = Column(
+        Text, nullable=True
+    )  # Immutable snapshot when published
     updated_at = Column(String)
 
 
@@ -551,13 +608,20 @@ class EvaluationRun(Base):
     """Stores full historical evaluation runs, execution parameters, metrics,
     and streaming partial/completed results across Prompt Matrix, Decision Gating, and Embeddings.
     """
+
     __tablename__ = "evaluation_runs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    eval_type = Column(String(32), default="matrix", index=True)  # "matrix", "decision", "embedding"
+    eval_type = Column(
+        String(32), default="matrix", index=True
+    )  # "matrix", "decision", "embedding"
     title = Column(String(256), nullable=False)
-    status = Column(String(32), default="running", index=True)  # "running", "completed", "failed", "cancelled"
-    config_json = Column(Text, default="{}")  # models, prompts, dataset_id, sample_limit, randomize, parameters
+    status = Column(
+        String(32), default="running", index=True
+    )  # "running", "completed", "failed", "cancelled"
+    config_json = Column(
+        Text, default="{}"
+    )  # models, prompts, dataset_id, sample_limit, randomize, parameters
     results_json = Column(Text, default="[]")  # live/completed cell outputs
     metrics_json = Column(Text, default="{}")  # latency, tokens, error counts
     created_at = Column(String, index=True)
@@ -588,15 +652,30 @@ class Workspace(Base):
     created_at = Column(String)
     updated_at = Column(String)
 
-    files = relationship("WorkspaceFile", back_populates="workspace", cascade="all, delete-orphan", lazy="joined")
-    snapshots = relationship("WorkspaceSnapshot", back_populates="workspace", cascade="all, delete-orphan", lazy="select")
+    files = relationship(
+        "WorkspaceFile",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+        lazy="joined",
+    )
+    snapshots = relationship(
+        "WorkspaceSnapshot",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
 
 
 class WorkspaceFile(Base):
     __tablename__ = "workspace_files"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    workspace_id = Column(
+        Integer,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     file_path = Column(String, nullable=False)
     content = Column(Text, default="")
     language = Column(String, default="plaintext")
@@ -609,10 +688,17 @@ class WorkspaceSnapshot(Base):
     __tablename__ = "workspace_snapshots"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    workspace_id = Column(
+        Integer,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     version_tag = Column(String, nullable=False)
     description = Column(Text, default="")
-    files_snapshot = Column(Text, nullable=False)  # JSON-encoded dict of file_path -> {content, language}
+    files_snapshot = Column(
+        Text, nullable=False
+    )  # JSON-encoded dict of file_path -> {content, language}
     is_frozen = Column(Integer, default=1)
     created_at = Column(String)
 
@@ -627,7 +713,9 @@ class RagReport(Base):
     title = Column(String, default="RAG Research Report")
     report_markdown = Column(Text, nullable=False)
     sources_json = Column(Text, default="[]")  # JSON-encoded array of cited sources
-    tev1_evaluations_json = Column(Text, default="{}")  # JSON-encoded decision evaluations
+    tev1_evaluations_json = Column(
+        Text, default="{}"
+    )  # JSON-encoded decision evaluations
     model_synthesis = Column(String, default="")
     created_at = Column(String)
 
@@ -651,6 +739,7 @@ class CustomAgent(Base):
     """Represents an autonomous topic-expert custom agent with its own working memory,
     deliberation loop, task queue, and living topic wiki domain.
     """
+
     __tablename__ = "custom_agents"
 
     id = Column(String(64), primary_key=True)  # e.g. "agent_postgres_expert"
@@ -658,7 +747,9 @@ class CustomAgent(Base):
     topic_domain = Column(String(256), nullable=False)
     system_prompt = Column(Text, default="")
     model = Column(String(64), default="qwen2.5:7b")
-    status = Column(String(32), default="idle")  # "idle", "deliberating", "grounding", "paused", "error"
+    status = Column(
+        String(32), default="idle"
+    )  # "idle", "deliberating", "grounding", "paused", "error"
     interval_minutes = Column(Integer, default=30)
     last_run_at = Column(String, nullable=True)
     created_at = Column(String)
@@ -670,16 +761,25 @@ class TopicWikiPage(Base):
     Stores logical paths (e.g. 'architecture/storage', 'indexing/btree'), internal wiki links,
     and citations back to articles in the main library.
     """
+
     __tablename__ = "topic_wiki_pages"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    agent_id = Column(String(64), ForeignKey("custom_agents.id"), index=True, nullable=False)
-    logical_path = Column(String(256), index=True, nullable=False)  # e.g. "overview", "guides/indexing"
+    agent_id = Column(
+        String(64), ForeignKey("custom_agents.id"), index=True, nullable=False
+    )
+    logical_path = Column(
+        String(256), index=True, nullable=False
+    )  # e.g. "overview", "guides/indexing"
     title = Column(String(256), nullable=False)
     body_markdown = Column(Text, default="")
     links_json = Column(Text, default="[]")  # JSON list of internal wiki links
-    references_json = Column(Text, default="[]")  # JSON list of [{url, title, note_id}] citing main library items
-    metadata_json = Column(Text, default="{}")  # JSON metadata (tags, status, category, fit)
+    references_json = Column(
+        Text, default="[]"
+    )  # JSON list of [{url, title, note_id}] citing main library items
+    metadata_json = Column(
+        Text, default="{}"
+    )  # JSON metadata (tags, status, category, fit)
     created_at = Column(String)
     updated_at = Column(String)
 
@@ -689,15 +789,26 @@ class AgentPage(Base):
     Supports both 'themed' mode (rendered within site chrome) and 'raw' mode (pure raw HTML
     without inherited base template), interactive form schemas, and HITL approval dialogs.
     """
+
     __tablename__ = "agent_pages"
 
-    hash_id = Column(String(32), primary_key=True)  # unique 16-32 char hex or urlsafe token
-    agent_id = Column(String(64), ForeignKey("custom_agents.id"), index=True, nullable=False)
+    hash_id = Column(
+        String(32), primary_key=True
+    )  # unique 16-32 char hex or urlsafe token
+    agent_id = Column(
+        String(64), ForeignKey("custom_agents.id"), index=True, nullable=False
+    )
     title = Column(String(256), nullable=False)
     render_mode = Column(String(16), default="themed")  # "themed" or "raw"
-    body_content = Column(Text, default="")  # Markdown for themed, raw HTML for raw mode
-    form_schema_json = Column(Text, default="{}")  # Optional interactive form fields definition
-    user_response_json = Column(Text, default="{}")  # Form submissions or user approvals
+    body_content = Column(
+        Text, default=""
+    )  # Markdown for themed, raw HTML for raw mode
+    form_schema_json = Column(
+        Text, default="{}"
+    )  # Optional interactive form fields definition
+    user_response_json = Column(
+        Text, default="{}"
+    )  # Form submissions or user approvals
     is_temporary = Column(Integer, default=0)  # 1 for ephemeral canvas, 0 for permanent
     expires_at = Column(String, nullable=True)
     created_at = Column(String)
@@ -708,13 +819,18 @@ class AgentPythonApproval(Base):
     """Human-in-the-loop (HITL) approval record for proposed local Python kernel execution.
     Execution in the local .venv is strictly gated until a human reviews and approves.
     """
+
     __tablename__ = "agent_python_approvals"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    agent_id = Column(String(64), ForeignKey("custom_agents.id"), index=True, nullable=False)
+    agent_id = Column(
+        String(64), ForeignKey("custom_agents.id"), index=True, nullable=False
+    )
     code = Column(Text, nullable=False)
     purpose = Column(Text, default="")
-    status = Column(String(32), default="pending")  # "pending", "approved", "rejected", "executed", "failed"
+    status = Column(
+        String(32), default="pending"
+    )  # "pending", "approved", "rejected", "executed", "failed"
     output = Column(Text, default="")  # stdout and stderr after execution
     created_at = Column(String)
     executed_at = Column(String, nullable=True)
@@ -722,11 +838,16 @@ class AgentPythonApproval(Base):
 
 class AgentObservation(Base):
     """Working memory record of knowledge items, key insights, and citations observed by an agent."""
+
     __tablename__ = "agent_observations"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    agent_id = Column(String(64), ForeignKey("custom_agents.id"), index=True, nullable=False)
-    observation_type = Column(String(32), default="insight")  # "insight", "contradiction", "fact", "summary"
+    agent_id = Column(
+        String(64), ForeignKey("custom_agents.id"), index=True, nullable=False
+    )
+    observation_type = Column(
+        String(32), default="insight"
+    )  # "insight", "contradiction", "fact", "summary"
     content = Column(Text, nullable=False)
     source_url = Column(String, nullable=True)
     created_at = Column(String)
@@ -734,12 +855,17 @@ class AgentObservation(Base):
 
 class AgentSelfTask(Base):
     """Autonomous goal-directed task queue item set by the agent for itself during deliberation."""
+
     __tablename__ = "agent_self_tasks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    agent_id = Column(String(64), ForeignKey("custom_agents.id"), index=True, nullable=False)
+    agent_id = Column(
+        String(64), ForeignKey("custom_agents.id"), index=True, nullable=False
+    )
     task_description = Column(Text, nullable=False)
-    status = Column(String(32), default="pending")  # "pending", "in_progress", "completed", "failed", "cancelled"
+    status = Column(
+        String(32), default="pending"
+    )  # "pending", "in_progress", "completed", "failed", "cancelled"
     result = Column(Text, default="")
     created_at = Column(String)
     completed_at = Column(String, nullable=True)
@@ -800,6 +926,7 @@ class PageCardView(Base):
     Excludes heavy html_content and md_content fields, and pre-aggregates
     collections to prevent N+1 queries.
     """
+
     __tablename__ = "vw_page_cards"
     __table_args__ = {"info": dict(is_view=True)}
 
@@ -828,6 +955,7 @@ if PageCardView.__table__ in Base.metadata.tables.values():
 def ensure_views_and_indexes(engine):
     """Ensures that the vw_page_cards view and performance indexes exist on the target database."""
     from sqlalchemy import text
+
     dialect = getattr(engine.dialect, "name", "sqlite")
     with engine.connect() as conn:
         with conn.begin():
@@ -838,66 +966,173 @@ def ensure_views_and_indexes(engine):
 
             if dialect == "postgresql":
                 try:
-                    conn.execute(text("ALTER TABLE chunk_embeddings ADD COLUMN IF NOT EXISTS model_name VARCHAR DEFAULT 'embeddinggemma';"))
+                    conn.execute(
+                        text(
+                            "ALTER TABLE chunk_embeddings ADD COLUMN IF NOT EXISTS model_name VARCHAR DEFAULT 'embeddinggemma';"
+                        )
+                    )
                 except Exception:
                     pass
                 try:
-                    conn.execute(text("ALTER TABLE notes ADD COLUMN IF NOT EXISTS links TEXT DEFAULT '[]';"))
+                    conn.execute(
+                        text(
+                            "ALTER TABLE notes ADD COLUMN IF NOT EXISTS links TEXT DEFAULT '[]';"
+                        )
+                    )
                 except Exception:
                     pass
                 try:
-                    conn.execute(text("ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS wiki_model VARCHAR;"))
+                    conn.execute(
+                        text(
+                            "ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS wiki_model VARCHAR;"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS topic VARCHAR;"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS sub_topic VARCHAR;"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS topic_status VARCHAR DEFAULT 'unassigned';"
+                        )
+                    )
                 except Exception:
                     pass
             else:
                 try:
-                    table_info = conn.execute(text("PRAGMA table_info(chunk_embeddings);")).fetchall()
+                    table_info = conn.execute(
+                        text("PRAGMA table_info(chunk_embeddings);")
+                    ).fetchall()
                     cols = [r[1] for r in table_info]
                     if table_info and "model_name" not in cols:
-                        conn.execute(text("ALTER TABLE chunk_embeddings ADD COLUMN model_name TEXT DEFAULT 'embeddinggemma';"))
+                        conn.execute(
+                            text(
+                                "ALTER TABLE chunk_embeddings ADD COLUMN model_name TEXT DEFAULT 'embeddinggemma';"
+                            )
+                        )
                 except Exception:
                     pass
                 try:
-                    table_info = conn.execute(text("PRAGMA table_info(notes);")).fetchall()
+                    table_info = conn.execute(
+                        text("PRAGMA table_info(notes);")
+                    ).fetchall()
                     cols = [r[1] for r in table_info]
                     if table_info and "links" not in cols:
-                        conn.execute(text("ALTER TABLE notes ADD COLUMN links TEXT DEFAULT '[]';"))
+                        conn.execute(
+                            text(
+                                "ALTER TABLE notes ADD COLUMN links TEXT DEFAULT '[]';"
+                            )
+                        )
                 except Exception:
                     pass
                 try:
-                    table_info = conn.execute(text("PRAGMA table_info(agent_configurations);")).fetchall()
+                    table_info = conn.execute(
+                        text("PRAGMA table_info(agent_configurations);")
+                    ).fetchall()
                     cols = [r[1] for r in table_info]
                     if table_info:
                         if "version" not in cols:
-                            conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN version INTEGER DEFAULT 1;"))
+                            conn.execute(
+                                text(
+                                    "ALTER TABLE agent_configurations ADD COLUMN version INTEGER DEFAULT 1;"
+                                )
+                            )
                         if "is_published" not in cols:
-                            conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN is_published INTEGER DEFAULT 0;"))
+                            conn.execute(
+                                text(
+                                    "ALTER TABLE agent_configurations ADD COLUMN is_published INTEGER DEFAULT 0;"
+                                )
+                            )
                         if "published_at" not in cols:
-                            conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN published_at TEXT;"))
+                            conn.execute(
+                                text(
+                                    "ALTER TABLE agent_configurations ADD COLUMN published_at TEXT;"
+                                )
+                            )
                         if "frozen_snapshot_json" not in cols:
-                            conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN frozen_snapshot_json TEXT;"))
+                            conn.execute(
+                                text(
+                                    "ALTER TABLE agent_configurations ADD COLUMN frozen_snapshot_json TEXT;"
+                                )
+                            )
                 except Exception:
                     pass
 
             if dialect == "postgresql":
                 try:
-                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fetched_pages_fetched_at ON fetched_pages (fetched_at DESC);"))
-                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_source_id ON collection_items (source_id);"))
-                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_col_source ON collection_items (collection_id, source_id);"))
-                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_youtube_videos_creator ON youtube_videos (creator);"))
-                    conn.execute(text("ALTER TABLE taxonomy_items ADD COLUMN IF NOT EXISTS item_class VARCHAR(32) DEFAULT 'Notes';"))
-                    conn.execute(text("ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"))
-                    conn.execute(text("ALTER TABLE notes ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"))
-                    conn.execute(text("ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"))
-                    conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;"))
-                    conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS is_published INTEGER DEFAULT 0;"))
-                    conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS published_at VARCHAR;"))
-                    conn.execute(text("ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS frozen_snapshot_json TEXT;"))
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_fetched_pages_fetched_at ON fetched_pages (fetched_at DESC);"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_collection_items_source_id ON collection_items (source_id);"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_collection_items_col_source ON collection_items (collection_id, source_id);"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_youtube_videos_creator ON youtube_videos (creator);"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE taxonomy_items ADD COLUMN IF NOT EXISTS item_class VARCHAR(32) DEFAULT 'Notes';"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE fetched_pages ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE notes ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS is_frozen INTEGER DEFAULT 0;"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS is_published INTEGER DEFAULT 0;"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS published_at VARCHAR;"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS frozen_snapshot_json TEXT;"
+                        )
+                    )
                 except Exception as e:
                     print(f"Warning creating PostgreSQL indexes or columns: {e}")
 
                 try:
-                    conn.execute(text("""
+                    conn.execute(
+                        text(
+                            """
                         DO $$
                         BEGIN
                             IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'vw_page_cards') THEN
@@ -906,12 +1141,14 @@ def ensure_views_and_indexes(engine):
                                 EXECUTE 'DROP VIEW vw_page_cards CASCADE';
                             END IF;
                         END $$;
-                    """))
+                    """
+                        )
+                    )
 
                     # Clean up any orphaned ghost stubs generated during previous SQLite migrations
                     ghost_subq = """
-                        SELECT url FROM fetched_pages 
-                        WHERE title LIKE 'Archived Item (%%' 
+                        SELECT url FROM fetched_pages
+                        WHERE title LIKE 'Archived Item (%%'
                           AND (html_content IS NULL OR html_content = '')
                           AND (md_content IS NULL OR md_content = '')
                     """
@@ -928,11 +1165,15 @@ def ensure_views_and_indexes(engine):
                         ("links", "url"),
                         ("fetched_pages", "url"),
                     ]:
-                        conn.execute(text(f"DELETE FROM {tbl} WHERE {col} IN ({ghost_subq})"))
+                        conn.execute(
+                            text(f"DELETE FROM {tbl} WHERE {col} IN ({ghost_subq})")
+                        )
 
-                    conn.execute(text("""
+                    conn.execute(
+                        text(
+                            """
                         CREATE VIEW vw_page_cards AS
-                        SELECT 
+                        SELECT
                             f.url,
                             f.title,
                             f.description,
@@ -955,35 +1196,92 @@ def ensure_views_and_indexes(engine):
                         WHERE (f.title NOT LIKE 'Archived Item (%%' OR (f.html_content IS NOT NULL AND f.html_content != '') OR (f.md_content IS NOT NULL AND f.md_content != '') OR (y.video_id IS NOT NULL))
                         GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general, f.wiki_model,
                                  y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
-                    """))
+                    """
+                        )
+                    )
                 except Exception as e:
                     print(f"Warning creating PostgreSQL view: {e}")
             else:
                 try:
-                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fetched_pages_fetched_at ON fetched_pages (fetched_at DESC);"))
-                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_collection_items_source_id ON collection_items (source_id);"))
-                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_youtube_videos_creator ON youtube_videos (creator);"))
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_fetched_pages_fetched_at ON fetched_pages (fetched_at DESC);"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_collection_items_source_id ON collection_items (source_id);"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_youtube_videos_creator ON youtube_videos (creator);"
+                        )
+                    )
                 except Exception:
                     pass
                 try:
-                    cols = [row[1] for row in conn.execute(text("PRAGMA table_info(taxonomy_items);")).fetchall()]
+                    cols = [
+                        row[1]
+                        for row in conn.execute(
+                            text("PRAGMA table_info(taxonomy_items);")
+                        ).fetchall()
+                    ]
                     if cols and "item_class" not in cols:
-                        conn.execute(text("ALTER TABLE taxonomy_items ADD COLUMN item_class VARCHAR(32) DEFAULT 'Notes';"))
+                        conn.execute(
+                            text(
+                                "ALTER TABLE taxonomy_items ADD COLUMN item_class VARCHAR(32) DEFAULT 'Notes';"
+                            )
+                        )
                     for tbl in ["fetched_pages", "notes", "youtube_videos"]:
-                        tbl_cols = [row[1] for row in conn.execute(text(f"PRAGMA table_info({tbl});")).fetchall()]
+                        tbl_cols = [
+                            row[1]
+                            for row in conn.execute(
+                                text(f"PRAGMA table_info({tbl});")
+                            ).fetchall()
+                        ]
                         if tbl_cols and "is_frozen" not in tbl_cols:
-                            conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN is_frozen INTEGER DEFAULT 0;"))
-                    fp_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(fetched_pages);")).fetchall()]
+                            conn.execute(
+                                text(
+                                    f"ALTER TABLE {tbl} ADD COLUMN is_frozen INTEGER DEFAULT 0;"
+                                )
+                            )
+                    fp_cols = [
+                        row[1]
+                        for row in conn.execute(
+                            text("PRAGMA table_info(fetched_pages);")
+                        ).fetchall()
+                    ]
                     if fp_cols and "wiki_model" not in fp_cols:
-                        conn.execute(text("ALTER TABLE fetched_pages ADD COLUMN wiki_model TEXT;"))
+                        conn.execute(
+                            text(
+                                "ALTER TABLE fetched_pages ADD COLUMN wiki_model TEXT;"
+                            )
+                        )
+                    if fp_cols and "topic" not in fp_cols:
+                        conn.execute(
+                            text("ALTER TABLE fetched_pages ADD COLUMN topic TEXT;")
+                        )
+                    if fp_cols and "sub_topic" not in fp_cols:
+                        conn.execute(
+                            text("ALTER TABLE fetched_pages ADD COLUMN sub_topic TEXT;")
+                        )
+                    if fp_cols and "topic_status" not in fp_cols:
+                        conn.execute(
+                            text(
+                                "ALTER TABLE fetched_pages ADD COLUMN topic_status TEXT DEFAULT 'unassigned';"
+                            )
+                        )
                 except Exception:
                     pass
                 try:
                     conn.execute(text("DROP TABLE IF EXISTS vw_page_cards;"))
                     conn.execute(text("DROP VIEW IF EXISTS vw_page_cards;"))
-                    conn.execute(text("""
+                    conn.execute(
+                        text(
+                            """
                         CREATE VIEW vw_page_cards AS
-                        SELECT 
+                        SELECT
                             f.url,
                             f.title,
                             f.description,
@@ -1006,14 +1304,18 @@ def ensure_views_and_indexes(engine):
                         WHERE (f.title NOT LIKE 'Archived Item (%%' OR (f.html_content IS NOT NULL AND f.html_content != '') OR (f.md_content IS NOT NULL AND f.md_content != '') OR (y.video_id IS NOT NULL))
                         GROUP BY f.url, f.title, f.description, f.tags, f.fetched_at, f.collection_id, f.exclude_from_general, f.wiki_model,
                                  y.creator, y.video_id, y.duration, y.view_count, y.thumbnail_url;
-                    """))
+                    """
+                        )
+                    )
                 except Exception:
                     pass
 
             # Ensure server_error_logs table and indexes exist
             try:
                 if dialect == "postgresql":
-                    conn.execute(text("""
+                    conn.execute(
+                        text(
+                            """
                         CREATE TABLE IF NOT EXISTS server_error_logs (
                             id SERIAL PRIMARY KEY,
                             timestamp VARCHAR,
@@ -1030,9 +1332,13 @@ def ensure_views_and_indexes(engine):
                         CREATE INDEX IF NOT EXISTS idx_server_error_logs_timestamp ON server_error_logs (timestamp DESC);
                         CREATE INDEX IF NOT EXISTS idx_server_error_logs_type ON server_error_logs (error_type);
                         CREATE INDEX IF NOT EXISTS idx_server_error_logs_status ON server_error_logs (status);
-                    """))
+                    """
+                        )
+                    )
                 else:
-                    conn.execute(text("""
+                    conn.execute(
+                        text(
+                            """
                         CREATE TABLE IF NOT EXISTS server_error_logs (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             timestamp TEXT,
@@ -1049,14 +1355,18 @@ def ensure_views_and_indexes(engine):
                         CREATE INDEX IF NOT EXISTS idx_server_error_logs_timestamp ON server_error_logs (timestamp DESC);
                         CREATE INDEX IF NOT EXISTS idx_server_error_logs_type ON server_error_logs (error_type);
                         CREATE INDEX IF NOT EXISTS idx_server_error_logs_status ON server_error_logs (status);
-                    """))
+                    """
+                        )
+                    )
             except Exception as e:
                 print(f"Warning creating server_error_logs table: {e}")
 
             # Ensure ingestion_notifications table and indexes exist
             try:
                 if dialect == "postgresql":
-                    conn.execute(text("""
+                    conn.execute(
+                        text(
+                            """
                         CREATE TABLE IF NOT EXISTS ingestion_notifications (
                             id SERIAL PRIMARY KEY,
                             task_id VARCHAR,
@@ -1069,11 +1379,23 @@ def ensure_views_and_indexes(engine):
                             created_at VARCHAR,
                             read INTEGER DEFAULT 0
                         )
-                    """))
-                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ingestion_notif_created_at ON ingestion_notifications (created_at DESC)"))
-                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ingestion_notif_read ON ingestion_notifications (read)"))
+                    """
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_ingestion_notif_created_at ON ingestion_notifications (created_at DESC)"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_ingestion_notif_read ON ingestion_notifications (read)"
+                        )
+                    )
                 else:
-                    conn.execute(text("""
+                    conn.execute(
+                        text(
+                            """
                         CREATE TABLE IF NOT EXISTS ingestion_notifications (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             task_id TEXT,
@@ -1086,16 +1408,28 @@ def ensure_views_and_indexes(engine):
                             created_at TEXT,
                             read INTEGER DEFAULT 0
                         )
-                    """))
-                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ingestion_notif_created_at ON ingestion_notifications (created_at DESC)"))
-                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ingestion_notif_read ON ingestion_notifications (read)"))
+                    """
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_ingestion_notif_created_at ON ingestion_notifications (created_at DESC)"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_ingestion_notif_read ON ingestion_notifications (read)"
+                        )
+                    )
             except Exception as e:
                 print(f"Warning creating ingestion_notifications table: {e}")
 
             # Ensure context_statements table and indexes exist
             try:
                 if dialect == "postgresql":
-                    conn.execute(text("""
+                    conn.execute(
+                        text(
+                            """
                         CREATE TABLE IF NOT EXISTS context_statements (
                             id VARCHAR PRIMARY KEY,
                             statement TEXT NOT NULL,
@@ -1158,9 +1492,25 @@ def ensure_views_and_indexes(engine):
                         );
                         CREATE INDEX IF NOT EXISTS idx_worker_job_target ON worker_job_executions(job_id, target_id);
                         CREATE INDEX IF NOT EXISTS idx_worker_job_status ON worker_job_executions(status);
-                    """))
+
+                        CREATE TABLE IF NOT EXISTS taxonomy_topics (
+                            id SERIAL PRIMARY KEY,
+                            name VARCHAR NOT NULL UNIQUE,
+                            level VARCHAR DEFAULT 'topic',
+                            parent_topic VARCHAR,
+                            status VARCHAR DEFAULT 'allowed',
+                            created_at VARCHAR,
+                            updated_at VARCHAR
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_taxonomy_topics_status ON taxonomy_topics(status);
+                        CREATE INDEX IF NOT EXISTS idx_taxonomy_topics_level ON taxonomy_topics(level);
+                    """
+                        )
+                    )
                 else:
-                    conn.execute(text("""
+                    conn.execute(
+                        text(
+                            """
                         CREATE TABLE IF NOT EXISTS context_statements (
                             id TEXT PRIMARY KEY,
                             statement TEXT NOT NULL,
@@ -1223,9 +1573,22 @@ def ensure_views_and_indexes(engine):
                         );
                         CREATE INDEX IF NOT EXISTS idx_worker_job_target ON worker_job_executions(job_id, target_id);
                         CREATE INDEX IF NOT EXISTS idx_worker_job_status ON worker_job_executions(status);
-                    """))
+
+                        CREATE TABLE IF NOT EXISTS taxonomy_topics (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT NOT NULL UNIQUE,
+                            level TEXT DEFAULT 'topic',
+                            parent_topic TEXT,
+                            status TEXT DEFAULT 'allowed',
+                            created_at TEXT,
+                            updated_at TEXT
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_taxonomy_topics_status ON taxonomy_topics(status);
+                        CREATE INDEX IF NOT EXISTS idx_taxonomy_topics_level ON taxonomy_topics(level);
+                    """
+                        )
+                    )
             except Exception as e:
-                print(f"Warning creating context_statements, taxonomy_entities, or worker_job_executions tables: {e}")
-
-
-
+                print(
+                    f"Warning creating context_statements, taxonomy_entities, or worker_job_executions tables: {e}"
+                )

@@ -1,22 +1,24 @@
 """
 Resilient, isolated asynchronous background ingestion pipeline for kb-web.
 
-Processes web pages and YouTube videos in distinct, re-runnable stages:
+Processes web pages and YouTube videos in distinct, decoupled, re-runnable stages:
 1. Immediate Fetch & Instant Database Persistence (Zero Data Loss)
 2. Isolated AI Wiki Synthesis (with generous 1200s timeout)
 3. Isolated AI Tag Extraction
+3b. Isolated AI Topic & Sub-Topic Assignment & Allowed Topics Check (Issue #128)
 4. Isolated Vector & Chunk Embedding Indexing
+4b. Isolated Context Mesh Atomic Fact Extraction (Decoupled from Wiki retries, Issue #124)
 5. Optional Offline Video Download
 
 Tracks each step's status in the IngestionNotification database table
 and notifies connected clients in real-time.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import logging
 import traceback
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import quote_plus, urlparse
 import uuid
 
@@ -28,9 +30,11 @@ from .config import DEFAULT_RAG_SYSTEM_PROMPT, DEFAULT_TAXONOMY_SYSTEM_PROMPT
 from .models_orm import (
     Collection,
     CollectionItem,
+    ContextStatementORM,
     FetchedPage,
     IngestionNotification,
     PageVersion,
+    WorkerJobExecution,
     YouTubeVideo,
 )
 from .utils import (
@@ -77,6 +81,30 @@ def record_notification(
             session.commit()
     except Exception as e:
         logger.warning(f"Failed to record ingestion notification: {e}")
+
+
+def _log_pipeline_job_execution(
+    job_id: str,
+    target_id: str,
+    status: str,
+    items_count: int = 0,
+    error_message: Optional[str] = None,
+) -> None:
+    """Record stage execution in WorkerJobExecution so the background worker does not duplicate work."""
+    try:
+        with db_session() as session:
+            rec = WorkerJobExecution(
+                job_id=job_id,
+                target_id=str(target_id).strip(),
+                status=status,
+                items_count=items_count,
+                error_message=str(error_message) if error_message else None,
+                executed_at=datetime.now(timezone.utc).isoformat(),
+            )
+            session.add(rec)
+            session.commit()
+    except Exception as e:
+        logger.warning(f"Failed to record WorkerJobExecution for {job_id} on {target_id}: {e}")
 
 
 async def run_ingest_pipeline_background(
@@ -200,6 +228,10 @@ async def run_ingest_pipeline_background(
 
     # Check for content change and archive historical version if necessary
     is_content_unchanged = False
+    existing_has_tags = False
+    existing_has_topic = False
+    existing_has_facts = False
+
     with db_session() as session:
         existing = session.query(FetchedPage).filter_by(url=cleaned_url).first()
         if (
@@ -208,6 +240,14 @@ async def run_ingest_pipeline_background(
             and existing.description
         ):
             is_content_unchanged = True
+
+        if existing:
+            existing_has_tags = bool(existing.tags and existing.tags not in ("", "[]"))
+            existing_has_topic = bool(existing.topic and existing.topic_status in ("approved", "pending"))
+
+        existing_has_facts = (
+            session.query(ContextStatementORM).filter_by(source_uri=cleaned_url).count() > 0
+        )
 
         if existing and existing.md_content_hash != page_data.md_content_hash:
             session.add(
@@ -292,6 +332,7 @@ async def run_ingest_pipeline_background(
     wiki_success = False
 
     if is_content_unchanged:
+        wiki_success = True
         logger.info(
             f"[ASYNC PIPELINE] Content unchanged (hash match). Skipping AI wiki extraction for: {cleaned_url}"
         )
@@ -336,6 +377,7 @@ async def run_ingest_pipeline_background(
 
                 title = extracted_title
                 wiki_success = True
+                _log_pipeline_job_execution("wiki_curation", cleaned_url, "success", items_count=1)
                 record_notification(
                     stage="wiki",
                     status="success",
@@ -361,7 +403,8 @@ async def run_ingest_pipeline_background(
     # -------------------------------------------------------------------------
     # STAGE 3: AI Tag Extraction (Isolated)
     # -------------------------------------------------------------------------
-    if is_content_unchanged:
+    tags: List[str] = list(page_data.tags or []) if page_data else []
+    if is_content_unchanged and existing_has_tags:
         logger.info(
             f"[ASYNC PIPELINE] Content unchanged. Skipping tag extraction for: {cleaned_url}"
         )
@@ -375,8 +418,9 @@ async def run_ingest_pipeline_background(
             task_id=task_id,
         )
         try:
-            tags = await run_in_threadpool(_extract_tags, page_data, config, client)
-            if tags:
+            extracted_tags = await run_in_threadpool(_extract_tags, page_data, config, client)
+            if extracted_tags:
+                tags = extracted_tags
                 page_data.tags = tags
                 with db_session() as session:
                     page_rec = session.query(FetchedPage).filter_by(url=cleaned_url).first()
@@ -384,6 +428,7 @@ async def run_ingest_pipeline_background(
                         page_rec.tags = json.dumps(tags)
                         session.commit()
 
+                _log_pipeline_job_execution("tag_curation", cleaned_url, "success", items_count=len(tags))
                 tag_preview = ", ".join(tags[:4]) if tags else ""
                 record_notification(
                     stage="tags",
@@ -406,6 +451,48 @@ async def run_ingest_pipeline_background(
             )
 
     # -------------------------------------------------------------------------
+    # STAGE 3b: AI Topic & Sub-Topic Assignment & Allowed Topics Check (Issue #128)
+    # -------------------------------------------------------------------------
+    if is_content_unchanged and existing_has_topic:
+        logger.info(f"[ASYNC PIPELINE] Topic already assigned for unchanged content: {cleaned_url}")
+    else:
+        try:
+            from .taxonomy.engine import assign_topic_and_subtopic
+
+            md_for_topic = (
+                (page_data.description if page_data and page_data.description else None)
+                or (page_data.md_content if page_data else "")
+                or ""
+            )
+            topic_res = await run_in_threadpool(
+                assign_topic_and_subtopic,
+                cleaned_url,
+                title,
+                md_for_topic,
+                tags,
+                config,
+                client,
+            )
+            _log_pipeline_job_execution("topic_assignment", cleaned_url, "success", items_count=1)
+            record_notification(
+                stage="topic",
+                status="success",
+                message=(
+                    f"Assigned Topic '{topic_res.get('topic')}' & Sub-Topic "
+                    f"'{topic_res.get('sub_topic')}' ({topic_res.get('topic_status')}) for: {title}"
+                ),
+                url=cleaned_url,
+                title=title,
+                task_id=task_id,
+            )
+            logger.info(
+                f"[ASYNC PIPELINE] Assigned topic={topic_res.get('topic')} "
+                f"sub_topic={topic_res.get('sub_topic')} for: {cleaned_url}"
+            )
+        except Exception as e:
+            logger.warning(f"Topic & sub-topic assignment warning for {cleaned_url}: {e}")
+
+    # -------------------------------------------------------------------------
     # STAGE 4: Vector & Chunk Embeddings Indexing (Isolated)
     # -------------------------------------------------------------------------
     record_notification(
@@ -423,6 +510,7 @@ async def run_ingest_pipeline_background(
         await run_in_threadpool(
             _generate_embeddings, None, cleaned_url, config, client
         )
+        _log_pipeline_job_execution("embedding_refresh", cleaned_url, "success", items_count=1)
         record_notification(
             stage="vector",
             status="success",
@@ -444,50 +532,56 @@ async def run_ingest_pipeline_background(
         )
 
     # -------------------------------------------------------------------------
-    # STAGE 4b: Context Mesh Atomic Fact Extraction & 7-Tier Taxonomy Registration
+    # STAGE 4b: Context Mesh Atomic Fact Extraction (Decoupled - Issue #124)
     # -------------------------------------------------------------------------
-    try:
-        from .taxonomy.engine import TaxonomyClassifier, TaxonomyEngine
-
-        tax_path = TaxonomyClassifier.classify_article(
-            url=cleaned_url,
-            title=title,
-            tags=tags or [],
-            description=(page_data.description if page_data else None),
+    if is_content_unchanged and existing_has_facts:
+        logger.info(
+            f"[ASYNC PIPELINE] Existing facts present for unchanged page {cleaned_url}. Skipping Stage 4b."
         )
-        TaxonomyEngine().register_entity(
-            taxonomy=tax_path,
-            physical_location=cleaned_url,
-            attributes={"title": title, "tags": tags or [], "source_type": "article"},
-        )
-    except Exception as e:
-        logger.warning(f"7-tier taxonomy registration warning for {cleaned_url}: {e}")
+    else:
+        try:
+            from .context_mesh.pipeline import FactExtractionPipeline
 
-    try:
-        from .context_mesh.pipeline import FactExtractionPipeline
-
-        fact_pipeline = FactExtractionPipeline(config=config, client=client)
-        tags_list = tags if tags else []
-        md_text = (page_data.md_content if page_data else None) or (page_data.description if page_data else "")
-        stmts = await run_in_threadpool(
-            fact_pipeline.extract_from_page,
-            cleaned_url,
-            title,
-            md_text,
-            tags_list,
-        )
-        if stmts:
-            record_notification(
-                stage="context_mesh",
-                status="success",
-                message=f"Extracted {len(stmts)} atomic context statements for: {title}",
-                url=cleaned_url,
-                title=title,
-                task_id=task_id,
+            fact_pipeline = FactExtractionPipeline(config=config, client=client)
+            tags_list = tags if tags else []
+            md_text = (
+                (page_data.description if page_data and page_data.description else None)
+                or (page_data.md_content if page_data else "")
+                or ""
             )
-            logger.info(f"[ASYNC PIPELINE] Context statements extracted ({len(stmts)}) for: {cleaned_url}")
-    except Exception as e:
-        logger.warning(f"Context mesh extraction warning for {cleaned_url}: {e}")
+            stmts = await run_in_threadpool(
+                fact_pipeline.extract_from_page,
+                cleaned_url,
+                title,
+                md_text,
+                tags_list,
+                False,
+            )
+            _log_pipeline_job_execution(
+                "fact_extraction",
+                cleaned_url,
+                "success" if stmts else "skipped",
+                items_count=len(stmts) if stmts else 0,
+            )
+            if stmts:
+                record_notification(
+                    stage="context_mesh",
+                    status="success",
+                    message=f"Extracted {len(stmts)} atomic context statements for: {title}",
+                    url=cleaned_url,
+                    title=title,
+                    task_id=task_id,
+                )
+                logger.info(f"[ASYNC PIPELINE] Context statements extracted ({len(stmts)}) for: {cleaned_url}")
+        except Exception as e:
+            logger.warning(f"Context mesh extraction warning for {cleaned_url}: {e}")
+            _log_pipeline_job_execution(
+                "fact_extraction",
+                cleaned_url,
+                "failed",
+                items_count=0,
+                error_message=str(e),
+            )
 
     # -------------------------------------------------------------------------
     # STAGE 5: Offline Video Download (Isolated, if requested)

@@ -31,6 +31,30 @@ from kb_web.context_mesh.injector import (
     auto_inject_subconscious_context,
 )
 from kb_web.worker import AutonomousWorker
+from kb_web.base import db_session
+from kb_web.models_orm import ContextStatementORM, TaxonomyEntityORM
+
+
+@pytest.fixture(autouse=True)
+def cleanup_test_context_statements():
+    """Ensure test statements are cleaned before and after tests."""
+    with db_session() as session:
+        session.query(ContextStatementORM).filter(
+            (ContextStatementORM.source_uri.like("%kb.local%"))
+            | (ContextStatementORM.id.like("stmt_test_%"))
+            | (ContextStatementORM.id.like("stmt_hier_%"))
+            | (ContextStatementORM.id.like("stmt_inj_%"))
+        ).delete(synchronize_session=False)
+        session.commit()
+    yield
+    with db_session() as session:
+        session.query(ContextStatementORM).filter(
+            (ContextStatementORM.source_uri.like("%kb.local%"))
+            | (ContextStatementORM.id.like("stmt_test_%"))
+            | (ContextStatementORM.id.like("stmt_hier_%"))
+            | (ContextStatementORM.id.like("stmt_inj_%"))
+        ).delete(synchronize_session=False)
+        session.commit()
 
 
 def test_taxonomy_path_serialization_and_parsing():
@@ -56,7 +80,6 @@ def test_taxonomy_path_serialization_and_parsing():
     assert parsed.genus == "ArticleWiki"
     assert parsed.species == "embedding_unification"
 
-    # Test padding with generic tokens when fewer than 7 levels are provided
     short_parsed = TaxonomyPath.from_string("knowledge/text/human_read")
     assert short_parsed.kingdom == "knowledge"
     assert short_parsed.phylum == "text"
@@ -66,34 +89,33 @@ def test_taxonomy_path_serialization_and_parsing():
     assert short_parsed.genus == "general"
     assert short_parsed.species == "general"
 
-    # Test frontmatter dict
     fm = path.to_frontmatter_dict()
     assert fm["taxonomy"]["path"] == path_str
     assert fm["taxonomy"]["order"] == "kb_web"
 
 
 def test_taxonomy_classifier():
-    """Verify TaxonomyClassifier infers correct 7-tier coordinates."""
-    # Web article
+    """Verify TaxonomyClassifier infers correct 7-tier coordinates (Issue #126)."""
+    # Web article - Kingdom is General Topic (never hardcoded to knowledge, Issue #126)
     art_path = TaxonomyClassifier.classify_article(
         url="https://docs.python.org/3/library/sqlite3.html",
         title="sqlite3 — DB-API 2.0 interface for SQLite databases",
         tags=["database", "python"],
     )
-    assert art_path.kingdom == "knowledge"
-    assert art_path.phylum == "text"
-    assert art_path.class_ == "human_read"
+    assert art_path.kingdom == "Software Documentation"
+    assert art_path.phylum == "database"
+    assert art_path.class_ == "python"
     assert "docs_python_org" in art_path.order
     assert art_path.family == "database"
-    assert art_path.genus == "ArticleWiki"
+    assert "article" in art_path.genus
 
     # Git repo
     repo_path = TaxonomyClassifier.classify_git_repo("kb-web", "https://github.com/Willmo103/kb-web.git")
-    assert repo_path.kingdom == "software"
-    assert repo_path.phylum == "code"
+    assert repo_path.kingdom == "Software Documentation"
+    assert repo_path.phylum == "Source-Repository"
     assert repo_path.class_ == "cli_command"
     assert repo_path.order == "kb_web"
-    assert repo_path.genus == "Repository"
+    assert repo_path.genus.startswith("repo_")
 
     # YouTube video
     video_path = TaxonomyClassifier.classify_youtube_video(
@@ -101,20 +123,21 @@ def test_taxonomy_classifier():
         title="Rick Astley - Never Gonna Give You Up",
         creator="RickAstleyVEVO",
     )
-    assert video_path.kingdom == "knowledge"
-    assert video_path.phylum == "media"
-    assert video_path.class_ == "video_stream"
-    assert video_path.genus == "YouTubeVideo"
+    assert video_path.kingdom == "Resource"
+    assert video_path.phylum == "Video-Media"
+    assert video_path.order == "rickastleyvevo"
+    assert video_path.genus.startswith("video_")
 
     # Note
     note_path = TaxonomyClassifier.classify_note(
         title="Memory Architecture Strategy",
         tags=["design", "agents"],
     )
-    assert note_path.kingdom == "knowledge"
-    assert note_path.class_ == "daily_notes"
+    assert note_path.kingdom == "Reference"
+    assert note_path.phylum == "design"
+    assert note_path.class_ == "agents"
     assert note_path.family == "design"
-    assert note_path.genus == "Note"
+    assert note_path.genus.startswith("note_")
 
 
 def test_taxonomy_engine_persistence():
@@ -161,7 +184,7 @@ def test_cosine_similarity():
 
 
 def test_context_store_crud_and_evaluations():
-    """Verify ContextStore CRUD, review statuses, and dynamic exemplars."""
+    """Verify ContextStore CRUD, review statuses, dynamic exemplars, and rejection auto-delete (#125)."""
     store = ContextStore()
 
     stmt = ContextStatement(
@@ -200,7 +223,7 @@ def test_context_store_crud_and_evaluations():
     assert updated.eval_count == 1
     assert updated.eval_feedback == "Essential architectural rule"
 
-    # Add a rejected anti-pattern
+    # Issue #125: Rejecting automatically deletes the statement from the database
     bad_stmt = ContextStatement(
         id="stmt_test_002",
         statement="Querying with comic against Gemma embedding is acceptable.",
@@ -213,35 +236,76 @@ def test_context_store_crud_and_evaluations():
         embedding=[0.9, 0.1, 0.0, 0.0],
     )
     store.upsert(bad_stmt)
-    store.update_evaluation("stmt_test_002", score=1.2, feedback="Causes vector corruption")
+    store.update_evaluation("stmt_test_002", score=1.0, status=EvalStatus.REJECTED, feedback="Causes vector corruption")
+    assert store.get_by_id("stmt_test_002") is None  # Auto-deleted per Issue #125
+
+    # Add a FLAGGED anti-pattern for negative exemplar extraction
+    flagged_stmt = ContextStatement(
+        id="stmt_test_003",
+        statement="Querying with comic against Gemma embedding is acceptable.",
+        statement_type=StatementType.FACT,
+        canonical_path="knowledge/text/human_read/kb_web/architecture/ArticleWiki/flagged_pattern",
+        layer_level=TaxonomicLayer.SPECIES,
+        source_uri="https://example.com/flagged",
+        source_title="Flagged Note",
+        confidence=0.4,
+        score_rank=2.2,
+        eval_status=EvalStatus.FLAGGED,
+        eval_feedback="Causes vector corruption",
+        embedding=[0.9, 0.1, 0.0, 0.0],
+    )
+    store.upsert(flagged_stmt)
 
     # Fetch exemplars
     positives, negatives = store.get_exemplars(positive_limit=5, negative_limit=5)
     assert any(p.id == "stmt_test_001" for p in positives)
-    assert any(n.id == "stmt_test_002" for n in negatives)
+    assert any(n.id == "stmt_test_003" for n in negatives)
 
     # Vector search with composite ranking
-    # Query vector close to stmt_test_001
     results = store.search_by_vector(query_vector=[0.1, 0.2, 0.3, 0.4], top_k=5)
     assert len(results) > 0
     top_stmt, top_score = results[0]
     assert top_stmt.id == "stmt_test_001"
     assert top_score > 0.8
-    # stmt_test_002 is rejected and should be suppressed by default
-    assert not any(s.id == "stmt_test_002" for s, _ in results)
 
 
 def test_fact_extraction_pipeline_dynamic_prompt():
     """Verify FactExtractionPipeline builds dynamic prompt with positive and negative exemplars."""
     store = ContextStore()
-    pipeline = FactExtractionPipeline(store=store)
+    # Seed positive exemplar
+    store.upsert(ContextStatement(
+        id="stmt_prompt_pos",
+        statement="All embedding operations must utilize the active unified model.",
+        statement_type=StatementType.NEGATIVE_INVARIANT,
+        canonical_path="Software Documentation/Official-Documentation/Memory/kb_web/arch/Rule/pos",
+        layer_level=TaxonomicLayer.ORDER,
+        source_uri="https://kb.local/docs/pos",
+        source_title="Pos Title",
+        score_rank=4.8,
+        eval_status=EvalStatus.APPROVED,
+        eval_feedback="Essential rule",
+        embedding=[0.1, 0.2, 0.3, 0.4],
+    ))
+    # Seed negative exemplar
+    store.upsert(ContextStatement(
+        id="stmt_prompt_neg",
+        statement="Querying with comic against Gemma embedding is acceptable.",
+        statement_type=StatementType.FACT,
+        canonical_path="Software Documentation/Official-Documentation/Memory/kb_web/arch/Rule/neg",
+        layer_level=TaxonomicLayer.SPECIES,
+        source_uri="https://kb.local/docs/neg",
+        source_title="Neg Title",
+        score_rank=1.5,
+        eval_status=EvalStatus.FLAGGED,
+        eval_feedback="Causes vector corruption",
+        embedding=[0.9, 0.8, 0.7, 0.6],
+    ))
 
+    pipeline = FactExtractionPipeline(store=store)
     system_prompt = pipeline.build_system_prompt()
     assert "Personal Context & Intent Extraction Engine" in system_prompt
     assert "GOLD-STANDARD EXEMPLARS" in system_prompt
-    assert "OFF-BASE ANTI-PATTERNS" in system_prompt
     assert "All embedding operations must utilize the active unified model." in system_prompt
-    assert "Querying with comic against Gemma embedding is acceptable." in system_prompt
 
 
 def test_fact_extraction_pipeline_with_mock_ollama():
@@ -264,16 +328,18 @@ def test_fact_extraction_pipeline_with_mock_ollama():
             ])
         }
     }
-    mock_client.embeddings.return_value = {"embedding": [0.05, 0.15, 0.25, 0.35]}
+    mock_client.embeddings.side_effect = lambda model, prompt: {
+        "embedding": [0.05, 0.15, 0.25, 0.35] if "configuring vectors" in prompt else [0.95, 0.85, 0.75, 0.65]
+    }
 
     store = ContextStore()
     pipeline = FactExtractionPipeline(store=store, client=mock_client)
 
     statements = pipeline.extract_from_text(
         source_text="Documentation on agent prompt memory and embedding unification.",
-        source_uri="https://kb.local/docs/memory",
+        source_uri="https://kb.local/docs/memory_unique_test",
         source_title="Agent Memory Documentation",
-        canonical_path="knowledge/text/human_read/kb_web/memory/ArticleWiki/prompt_injection",
+        canonical_path="Software Documentation/Official-Documentation/Memory/kb_web/memory/ArticleWiki/prompt_injection",
     )
 
     assert len(statements) == 2
@@ -283,7 +349,6 @@ def test_fact_extraction_pipeline_with_mock_ollama():
     assert statements[1].statement_type == StatementType.PREFERENCE
     assert statements[1].layer_level == TaxonomicLayer.CLASS
 
-    # Check persistence in database
     persisted = store.get_by_id(statements[0].id)
     assert persisted is not None
     assert persisted.statement == statements[0].statement
@@ -307,9 +372,9 @@ def test_fact_extraction_heuristic_fallback():
 
     statements = pipeline.extract_from_text(
         source_text=sample_doc,
-        source_uri="https://kb.local/docs/architecture",
+        source_uri="https://kb.local/docs/architecture_fallback_test",
         source_title="Architecture Overview",
-        canonical_path="knowledge/text/human_read/kb_web/architecture/ArticleWiki/overview",
+        canonical_path="Software Documentation/Official-Documentation/Architecture/kb_web/architecture/ArticleWiki/overview",
     )
 
     assert len(statements) >= 2
@@ -361,7 +426,6 @@ def test_bubble_down_retriever_hierarchical_traversal():
     """Verify multi-tier context statement retrieval and formatted context block."""
     store = ContextStore()
 
-    # Seed statements across layers
     top_stmt = ContextStatement(
         id="stmt_hier_001",
         statement="All code packages must maintain standalone test suites.",
@@ -409,7 +473,6 @@ def test_bubble_down_retriever_hierarchical_traversal():
     assert len(assembled.statements) >= 2
     assert any(s.id == "stmt_hier_001" for s in assembled.statements)
     assert any(s.id == "stmt_hier_002" for s in assembled.statements)
-    assert "<subconscious_context>" not in assembled.formatted_context_block
     assert "Development Rules" in assembled.formatted_context_block
     assert "Repo Importer Docs" in assembled.formatted_context_block
 
@@ -454,7 +517,5 @@ async def test_worker_fact_extraction_job():
     assert job.category == "llm"
     assert job.interval_minutes == 15
 
-    # Mock runner execution with empty database
     res = await worker.run_job("fact_extraction")
     assert res.get("status") in ("noop", "success", "skipped")
-

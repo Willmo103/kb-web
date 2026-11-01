@@ -1,0 +1,513 @@
+{% extends "base.j2.html" %}
+
+{% block title %}Taxonomical Fact Management — Knowledge Base{% endblock %}
+
+{% block content %}
+<div class="max-w-[95%] w-full mx-auto px-2 sm:px-4 pb-12">
+    <!-- Top Header Banner -->
+    <div class="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 p-5 sm:p-6 shadow-sm mb-6">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+                <div class="flex items-center gap-2.5">
+                    <span class="text-2xl">🧬</span>
+                    <h1 class="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
+                        Taxonomical Fact Management
+                    </h1>
+                    <span id="facts-total-badge" class="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold px-2.5 py-1 rounded-full">
+                        {{ total_statements }} Facts
+                    </span>
+                </div>
+                <p class="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    Create, search (semantic vector &amp; keyword), edit, evaluate, and curate atomic documental facts mapped to the 7-tier taxonomy.
+                </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2.5">
+                <span class="text-[11px] font-mono bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600">
+                    Max Length: <strong>{{ max_fact_char_count }} chars</strong>
+                </span>
+                <span class="text-[11px] font-mono bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-600">
+                    Dedup Sim: <strong>&ge; {{ fact_similarity_threshold }}</strong>
+                </span>
+                <a href="/taxonomy" class="text-xs font-semibold text-gray-700 dark:text-gray-200 hover:text-indigo-600 border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 py-2 px-3.5 rounded-xl transition">
+                    🗂️ 7-Tier Taxonomy &amp; Topics
+                </a>
+                <button type="button" onclick="openFactModal()" class="text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-4 rounded-xl shadow-sm transition">
+                    + Create Fact
+                </button>
+            </div>
+        </div>
+
+        <!-- Search & Filter Controls -->
+        <div class="mt-5 pt-5 border-t border-gray-100 dark:border-slate-700 grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-4">
+                <label for="fact-search-input" class="block text-[11px] font-semibold text-gray-600 dark:text-gray-400 uppercase mb-1">Search Facts (Statement, Source, or Path)</label>
+                <input type="text" id="fact-search-input" placeholder="Search atomic facts or concepts..." onkeydown="if(event.key==='Enter') runFactSearch()" class="w-full text-xs border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+            </div>
+            <div class="md:col-span-2">
+                <label for="fact-search-mode" class="block text-[11px] font-semibold text-gray-600 dark:text-gray-400 uppercase mb-1">Search Engine</label>
+                <select id="fact-search-mode" class="w-full text-xs border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100">
+                    <option value="hybrid">Hybrid (Vector + Keyword)</option>
+                    <option value="semantic">Semantic Vector Similarity</option>
+                    <option value="lexical">Lexical Keyword Filter</option>
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <label for="filter-kingdom" class="block text-[11px] font-semibold text-gray-600 dark:text-gray-400 uppercase mb-1">Topic (Kingdom)</label>
+                <select id="filter-kingdom" onchange="runFactSearch()" class="w-full text-xs border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100">
+                    <option value="">All Topics</option>
+                    {% for top in allowed_topics %}
+                    <option value="{{ top.replace('/', '-') }}">{{ top }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <label for="filter-type" class="block text-[11px] font-semibold text-gray-600 dark:text-gray-400 uppercase mb-1">Statement Type</label>
+                <select id="filter-type" onchange="runFactSearch()" class="w-full text-xs border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100">
+                    <option value="">All Types</option>
+                    {% for st in statement_types %}
+                    <option value="{{ st }}">{{ st }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="md:col-span-2">
+                <label for="filter-layer" class="block text-[11px] font-semibold text-gray-600 dark:text-gray-400 uppercase mb-1">Taxonomic Layer</label>
+                <select id="filter-layer" onchange="runFactSearch()" class="w-full text-xs border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100">
+                    <option value="">All 7 Tiers</option>
+                    {% for lyr in taxonomic_layers %}
+                    <option value="{{ lyr }}">{{ lyr }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <label class="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
+                    <input type="checkbox" id="select-all-facts" onchange="toggleSelectAllFacts(this.checked)" class="rounded border-gray-300 dark:border-slate-600 text-indigo-600" />
+                    <span>Select All Visible</span>
+                </label>
+                <button type="button" onclick="bulkDeleteSelectedFacts()" class="text-xs font-semibold text-red-600 hover:text-red-800 border border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-900/20 px-3 py-1.5 rounded-lg transition">
+                    🗑️ Delete Selected
+                </button>
+            </div>
+            <div class="flex items-center gap-2">
+                <label for="filter-status" class="text-xs text-gray-500 dark:text-gray-400">Status:</label>
+                <select id="filter-status" onchange="runFactSearch()" class="text-xs border border-gray-300 dark:border-slate-600 rounded-lg p-1.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100">
+                    <option value="">All Statuses</option>
+                    <option value="unreviewed">Unreviewed</option>
+                    <option value="approved">Approved</option>
+                    <option value="flagged">Flagged</option>
+                </select>
+                <button type="button" onclick="runFactSearch()" class="text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white py-1.5 px-4 rounded-lg transition">
+                    🔍 Search
+                </button>
+                <button type="button" onclick="resetFactFilters()" class="text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-gray-900 border border-gray-200 dark:border-slate-600 py-1.5 px-3 rounded-lg transition">
+                    Reset
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Facts List Container -->
+    <div id="facts-list-container" class="space-y-3">
+        {% if statements %}
+            {% for s in statements %}
+            <div id="fact-row-{{ s.id }}" class="fact-item-card bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm hover:border-indigo-400 transition"
+                 data-statement="{{ s.statement | e }}"
+                 data-type="{{ s.statement_type }}"
+                 data-layer="{{ s.layer_level }}"
+                 data-path="{{ s.canonical_path | e }}"
+                 data-uri="{{ s.source_uri | e }}"
+                 data-title="{{ s.source_title | e }}"
+                 data-score="{{ s.score_rank }}"
+                 data-status="{{ s.eval_status }}">
+                <div class="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+                    <div class="flex items-start gap-3 flex-1 min-w-0">
+                        <input type="checkbox" class="fact-select-cb mt-1 rounded border-gray-300 dark:border-slate-600 text-indigo-600" value="{{ s.id }}" aria-label="Select fact {{ s.id }}" />
+                        <div class="flex-1 min-w-0">
+                            <div class="flex flex-wrap items-center gap-2 mb-1.5">
+                                <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                    {{ s.statement_type }}
+                                </span>
+                                <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                    Tier: {{ s.layer_level }}
+                                </span>
+                                <span id="fact-status-{{ s.id }}" class="text-[10px] font-semibold px-2 py-0.5 rounded {% if s.eval_status == 'approved' %}bg-emerald-50 text-emerald-700 border border-emerald-200{% elif s.eval_status == 'flagged' %}bg-amber-50 text-amber-700 border border-amber-200{% else %}bg-gray-100 text-gray-600{% endif %}">
+                                    {{ s.eval_status }} ({{ "%.1f"|format(s.score_rank or 3.0) }}★)
+                                </span>
+                                <span class="text-[10px] font-mono text-gray-400">
+                                    {{ s.statement|length }}/{{ max_fact_char_count }} chars
+                                </span>
+                            </div>
+
+                            <p id="fact-text-{{ s.id }}" class="text-sm font-medium text-gray-900 dark:text-gray-100 break-words">
+                                {{ s.statement }}
+                            </p>
+
+                            <div class="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+                                <span class="font-mono bg-gray-50 dark:bg-slate-900 px-2 py-0.5 rounded border border-gray-200 dark:border-slate-700" title="7-Tier Taxonomic Path">
+                                    🧭 {{ s.canonical_path }}
+                                </span>
+                                {% if s.source_uri and s.source_uri.startswith('http') %}
+                                <a href="/view/page?url={{ s.source_uri | urlencode }}" class="text-indigo-600 dark:text-indigo-400 hover:underline truncate max-w-md">
+                                    📄 {{ s.source_title or s.source_uri }}
+                                </a>
+                                {% else %}
+                                <span class="truncate max-w-md">📄 {{ s.source_title or s.source_uri }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex flex-wrap items-center gap-1.5 flex-shrink-0">
+                        <button type="button" onclick="evaluateFactItem('{{ s.id }}', 'approved', 5.0)" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition" title="Approve Fact">
+                            👍 Approve
+                        </button>
+                        <button type="button" onclick="evaluateFactItem('{{ s.id }}', 'flagged', 2.5)" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 transition" title="Flag Fact">
+                            🚩 Flag
+                        </button>
+                        <button type="button" onclick="evaluateFactItem('{{ s.id }}', 'rejected', 1.0)" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition" title="Reject & Automatically Delete Fact">
+                            👎 Reject
+                        </button>
+                        <button type="button" onclick="openEditFactModal('{{ s.id }}')" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 transition" title="Edit Fact">
+                            ✏️ Edit
+                        </button>
+                        <button type="button" onclick="deleteSingleFact('{{ s.id }}')" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-red-200 bg-white dark:bg-slate-800 text-red-600 hover:bg-red-50 transition" title="Delete Fact">
+                            🗑️
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-8 text-center text-gray-500 dark:text-gray-400">
+                No facts found matching current filters. Click <strong>+ Create Fact</strong> or extract facts from an article.
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Create / Edit Fact Modal -->
+<div id="fact-modal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-2xl max-w-xl w-full p-6">
+        <div class="flex items-center justify-between border-b border-gray-100 dark:border-slate-700 pb-3 mb-4">
+            <h2 id="fact-modal-title" class="text-base font-bold text-gray-900 dark:text-gray-100">Create Taxonomical Fact</h2>
+            <button type="button" onclick="closeFactModal()" class="text-gray-400 hover:text-gray-600 text-lg font-bold" aria-label="Close modal">&times;</button>
+        </div>
+
+        <input type="hidden" id="modal-fact-id" value="" />
+
+        <div class="space-y-4 text-xs">
+            <div>
+                <div class="flex items-center justify-between mb-1">
+                    <label for="modal-fact-statement" class="font-semibold text-gray-700 dark:text-gray-300">Atomic Fact Statement</label>
+                    <span id="modal-char-counter" class="font-mono text-[11px] text-gray-500">0 / {{ max_fact_char_count }} chars</span>
+                </div>
+                <textarea id="modal-fact-statement" rows="3" oninput="updateModalCharCounter()" placeholder="Enter a concise, declarative atomic fact..." class="w-full border border-gray-300 dark:border-slate-600 rounded-lg p-2.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"></textarea>
+                <p class="text-[10px] text-gray-400 mt-1">Statements exceeding {{ max_fact_char_count }} characters are automatically condensed to preserve atomic precision.</p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label for="modal-fact-type" class="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Statement Type</label>
+                    <select id="modal-fact-type" class="w-full border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100">
+                        {% for st in statement_types %}
+                        <option value="{{ st }}">{{ st }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="modal-fact-layer" class="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Taxonomic Layer</label>
+                    <select id="modal-fact-layer" class="w-full border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100">
+                        {% for lyr in taxonomic_layers %}
+                        <option value="{{ lyr }}" {% if lyr == 'species' %}selected{% endif %}>{{ lyr }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label for="modal-fact-path" class="block font-semibold text-gray-700 dark:text-gray-300 mb-1">7-Tier Canonical Path (Topic / SubTopic1 / SubTopic2 / Source / Theme / Genus / Species)</label>
+                <input type="text" id="modal-fact-path" value="Software Documentation/Official-Documentation/Supabase/supabase_com/database/article_guide/fact_entry" class="w-full font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label for="modal-fact-uri" class="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Source URL / URI</label>
+                    <input type="text" id="modal-fact-uri" value="manual://facts" class="w-full font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                </div>
+                <div>
+                    <label for="modal-fact-source-title" class="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Source Title</label>
+                    <input type="text" id="modal-fact-source-title" value="Manual Fact Entry" class="w-full border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label for="modal-fact-score" class="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Score Rank (0.0 – 5.0)</label>
+                    <input type="number" step="0.1" min="0" max="5" id="modal-fact-score" value="4.0" class="w-full font-mono border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100" />
+                </div>
+                <div>
+                    <label for="modal-fact-status" class="block font-semibold text-gray-700 dark:text-gray-300 mb-1">Review Status</label>
+                    <select id="modal-fact-status" class="w-full border border-gray-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100">
+                        <option value="approved">approved</option>
+                        <option value="unreviewed">unreviewed</option>
+                        <option value="flagged">flagged</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-6 flex items-center justify-end gap-2">
+            <button type="button" onclick="closeFactModal()" class="text-xs font-semibold px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-300">
+                Cancel
+            </button>
+            <button type="button" onclick="saveFactModal()" class="text-xs font-bold px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm">
+                💾 Save Fact
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+const MAX_FACT_CHARS = {{ max_fact_char_count or 144 }};
+
+function updateModalCharCounter() {
+    const el = document.getElementById('modal-fact-statement');
+    const counter = document.getElementById('modal-char-counter');
+    if (!el || !counter) return;
+    const len = el.value.length;
+    counter.textContent = `${len} / ${MAX_FACT_CHARS} chars`;
+    counter.className = len > MAX_FACT_CHARS
+        ? 'font-mono text-[11px] text-amber-600 font-bold'
+        : 'font-mono text-[11px] text-gray-500';
+}
+
+function openFactModal() {
+    document.getElementById('modal-fact-id').value = '';
+    document.getElementById('fact-modal-title').textContent = 'Create Taxonomical Fact';
+    document.getElementById('modal-fact-statement').value = '';
+    document.getElementById('modal-fact-type').value = 'fact';
+    document.getElementById('modal-fact-layer').value = 'species';
+    document.getElementById('modal-fact-path').value = 'Software Documentation/Official-Documentation/Supabase/supabase_com/database/article_guide/fact_entry';
+    document.getElementById('modal-fact-uri').value = 'manual://facts';
+    document.getElementById('modal-fact-source-title').value = 'Manual Fact Entry';
+    document.getElementById('modal-fact-score').value = '4.0';
+    document.getElementById('modal-fact-status').value = 'approved';
+    updateModalCharCounter();
+    document.getElementById('fact-modal').classList.remove('hidden');
+}
+
+function openEditFactModal(id) {
+    const card = document.getElementById(`fact-row-${id}`);
+    if (!card) return;
+    document.getElementById('modal-fact-id').value = id;
+    document.getElementById('fact-modal-title').textContent = 'Edit Taxonomical Fact';
+    document.getElementById('modal-fact-statement').value = card.dataset.statement || '';
+    document.getElementById('modal-fact-type').value = card.dataset.type || 'fact';
+    document.getElementById('modal-fact-layer').value = card.dataset.layer || 'species';
+    document.getElementById('modal-fact-path').value = card.dataset.path || '';
+    document.getElementById('modal-fact-uri').value = card.dataset.uri || '';
+    document.getElementById('modal-fact-source-title').value = card.dataset.title || '';
+    document.getElementById('modal-fact-score').value = card.dataset.score || '3.0';
+    document.getElementById('modal-fact-status').value = card.dataset.status || 'unreviewed';
+    updateModalCharCounter();
+    document.getElementById('fact-modal').classList.remove('hidden');
+}
+
+function closeFactModal() {
+    document.getElementById('fact-modal').classList.add('hidden');
+}
+
+async function saveFactModal() {
+    const id = document.getElementById('modal-fact-id').value.trim();
+    const payload = {
+        statement: document.getElementById('modal-fact-statement').value.trim(),
+        statement_type: document.getElementById('modal-fact-type').value,
+        layer_level: document.getElementById('modal-fact-layer').value,
+        canonical_path: document.getElementById('modal-fact-path').value.trim(),
+        source_uri: document.getElementById('modal-fact-uri').value.trim(),
+        source_title: document.getElementById('modal-fact-source-title').value.trim(),
+        score_rank: parseFloat(document.getElementById('modal-fact-score').value || '4.0'),
+        eval_status: document.getElementById('modal-fact-status').value,
+    };
+    if (!payload.statement) {
+        alert('Please enter a fact statement.');
+        return;
+    }
+    const url = id ? `/api/context-mesh/statements/${encodeURIComponent(id)}` : '/api/context-mesh/statements';
+    const method = id ? 'PUT' : 'POST';
+    const res = await fetch(url, {
+        method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+        closeFactModal();
+        await runFactSearch();
+    } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || 'Failed to save fact.');
+    }
+}
+
+async function evaluateFactItem(statementId, evalStatus, scoreRank) {
+    const res = await fetch(`/api/context-mesh/statements/${encodeURIComponent(statementId)}/evaluate`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({eval_status: evalStatus, score_rank: scoreRank}),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.deleted || evalStatus === 'rejected') {
+        const row = document.getElementById(`fact-row-${statementId}`);
+        if (row) row.remove();
+        decrementTotalBadge(1);
+    } else if (data.statement) {
+        const stBadge = document.getElementById(`fact-status-${statementId}`);
+        if (stBadge) {
+            stBadge.textContent = `${data.statement.eval_status} (${Number(data.statement.score_rank).toFixed(1)}★)`;
+        }
+    }
+}
+
+async function deleteSingleFact(statementId) {
+    const res = await fetch(`/api/context-mesh/statements/${encodeURIComponent(statementId)}`, {
+        method: 'DELETE',
+    });
+    if (res.ok) {
+        const row = document.getElementById(`fact-row-${statementId}`);
+        if (row) row.remove();
+        decrementTotalBadge(1);
+    }
+}
+
+function toggleSelectAllFacts(checked) {
+    document.querySelectorAll('.fact-select-cb').forEach(cb => { cb.checked = checked; });
+}
+
+async function bulkDeleteSelectedFacts() {
+    const ids = Array.from(document.querySelectorAll('.fact-select-cb:checked')).map(cb => cb.value);
+    if (!ids.length) return;
+    const res = await fetch('/api/context-mesh/statements/bulk-delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({statement_ids: ids}),
+    });
+    if (res.ok) {
+        ids.forEach(id => {
+            const row = document.getElementById(`fact-row-${id}`);
+            if (row) row.remove();
+        });
+        decrementTotalBadge(ids.length);
+    }
+}
+
+function decrementTotalBadge(delta) {
+    const badge = document.getElementById('facts-total-badge');
+    if (!badge) return;
+    const cur = parseInt(badge.textContent, 10) || 0;
+    badge.textContent = `${Math.max(0, cur - delta)} Facts`;
+}
+
+function resetFactFilters() {
+    document.getElementById('fact-search-input').value = '';
+    document.getElementById('filter-kingdom').value = '';
+    document.getElementById('filter-type').value = '';
+    document.getElementById('filter-layer').value = '';
+    document.getElementById('filter-status').value = '';
+    runFactSearch();
+}
+
+async function runFactSearch() {
+    const q = document.getElementById('fact-search-input').value.trim();
+    const mode = document.getElementById('fact-search-mode').value;
+    const kingdom = document.getElementById('filter-kingdom').value;
+    const stType = document.getElementById('filter-type').value;
+    const layer = document.getElementById('filter-layer').value;
+    const status = document.getElementById('filter-status').value;
+
+    let url = '';
+    if (q && (mode === 'semantic' || mode === 'hybrid')) {
+        const params = new URLSearchParams({query: q, mode: mode, top_k: '100'});
+        if (stType) params.set('statement_type', stType);
+        if (layer) params.set('layer_level', layer);
+        if (kingdom) params.set('prefix', kingdom);
+        url = `/api/context-mesh/search?${params.toString()}`;
+    } else {
+        const params = new URLSearchParams({limit: '100'});
+        if (q) params.set('query', q);
+        if (kingdom) params.set('kingdom', kingdom);
+        if (stType) params.set('statement_type', stType);
+        if (layer) params.set('layer_level', layer);
+        if (status) params.set('eval_status', status);
+        url = `/api/context-mesh/statements?${params.toString()}`;
+    }
+
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    renderFactsList(data.statements || [], data.total || 0);
+}
+
+function escapeHtml(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderFactsList(statements, totalCount) {
+    const badge = document.getElementById('facts-total-badge');
+    if (badge) badge.textContent = `${totalCount} Facts`;
+    const container = document.getElementById('facts-list-container');
+    if (!statements.length) {
+        container.innerHTML = `<div class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-8 text-center text-gray-500 dark:text-gray-400">No facts found matching current criteria.</div>`;
+        return;
+    }
+    container.innerHTML = statements.map(s => {
+        const scoreStr = Number(s.score_rank ?? 3.0).toFixed(1);
+        const simBadge = s.search_score !== undefined
+            ? `<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-50 text-cyan-700 border border-cyan-200">${escapeHtml(s.match_type || 'match')}: ${Number(s.search_score).toFixed(2)}</span>`
+            : '';
+        return `
+        <div id="fact-row-${escapeHtml(s.id)}" class="fact-item-card bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-4 shadow-sm hover:border-indigo-400 transition"
+             data-statement="${escapeHtml(s.statement)}"
+             data-type="${escapeHtml(s.statement_type)}"
+             data-layer="${escapeHtml(s.layer_level)}"
+             data-path="${escapeHtml(s.canonical_path)}"
+             data-uri="${escapeHtml(s.source_uri)}"
+             data-title="${escapeHtml(s.source_title)}"
+             data-score="${scoreStr}"
+             data-status="${escapeHtml(s.eval_status)}">
+            <div class="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+                <div class="flex items-start gap-3 flex-1 min-w-0">
+                    <input type="checkbox" class="fact-select-cb mt-1 rounded border-gray-300 dark:border-slate-600 text-indigo-600" value="${escapeHtml(s.id)}" />
+                    <div class="flex-1 min-w-0">
+                        <div class="flex flex-wrap items-center gap-2 mb-1.5">
+                            <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200">${escapeHtml(s.statement_type)}</span>
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200">Tier: ${escapeHtml(s.layer_level)}</span>
+                            <span id="fact-status-${escapeHtml(s.id)}" class="text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-100 text-gray-700">${escapeHtml(s.eval_status)} (${scoreStr}★)</span>
+                            ${simBadge}
+                            <span class="text-[10px] font-mono text-gray-400">${(s.statement || '').length}/${MAX_FACT_CHARS} chars</span>
+                        </div>
+                        <p id="fact-text-${escapeHtml(s.id)}" class="text-sm font-medium text-gray-900 dark:text-gray-100 break-words">${escapeHtml(s.statement)}</p>
+                        <div class="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+                            <span class="font-mono bg-gray-50 dark:bg-slate-900 px-2 py-0.5 rounded border border-gray-200 dark:border-slate-700">🧭 ${escapeHtml(s.canonical_path)}</span>
+                            <span class="truncate max-w-md">📄 ${escapeHtml(s.source_title || s.source_uri)}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5 flex-shrink-0">
+                    <button type="button" onclick="evaluateFactItem('${escapeHtml(s.id)}', 'approved', 5.0)" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700">👍 Approve</button>
+                    <button type="button" onclick="evaluateFactItem('${escapeHtml(s.id)}', 'flagged', 2.5)" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-amber-200 bg-amber-50 text-amber-700">🚩 Flag</button>
+                    <button type="button" onclick="evaluateFactItem('${escapeHtml(s.id)}', 'rejected', 1.0)" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-red-200 bg-red-50 text-red-700">👎 Reject</button>
+                    <button type="button" onclick="openEditFactModal('${escapeHtml(s.id)}')" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-gray-200 bg-gray-50 text-gray-700">✏️ Edit</button>
+                    <button type="button" onclick="deleteSingleFact('${escapeHtml(s.id)}')" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-red-200 bg-white text-red-600">🗑️</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+</script>
+{% endblock %}
+

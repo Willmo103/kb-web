@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.13] - 2026-11-01
+### Added
+- **Dedicated Taxonomical Fact Management Page & CRUDS API (`/facts`, `routers/taxonomy.py`, `templates/facts_management.j2.html`, GitHub Issue #122)**:
+  - Added full CRUDS REST API endpoints for atomic declarative context statements under `/api/context-mesh/statements`:
+    * `GET /api/context-mesh/statements`: Queries facts with multi-criteria filtering by layer, type, review status, score, topic/kingdom, sub-topic, and pagination.
+    * `POST /api/context-mesh/statements`: Creates manual or extracted context statements with length shortening enforcement and vector embedding generation.
+    * `PUT /api/context-mesh/statements/{id}`: Edits statement text, type, confidence, layer, and review attributes.
+    * `DELETE /api/context-mesh/statements/{id}`: Permanently deletes single statements.
+    * `POST /api/context-mesh/statements/bulk-delete`: Bulk deletes lists of statements with atomic count tracking.
+    * `GET /api/context-mesh/search`: Hybrid, semantic vector similarity, and lexical search across statement text, source title, and taxonomy paths.
+  - Built dedicated, responsive Fact Management UI (`/facts`) accessible via primary navigation menu with:
+    * Search mode selector (Hybrid, Semantic Vector Similarity, Lexical Keyword Filter).
+    * Topic (Kingdom) filter dropdown dynamically populated from allowed topics.
+    * Statement type and evaluation status filters.
+    * Live character counter with visual warning when approaching `max_fact_char_count` (144).
+    * Inline modals for Create Fact, Edit Fact, and Bulk Delete confirmations.
+    * Quick one-click review controls (Approve, Flag, Reject).
+- **Existing Document Facts Context Awareness & Pre-Save Vector Deduplication (`context_mesh/pipeline.py`, `context_mesh/store.py`, GitHub Issue #123)**:
+  - Fact extraction prompt automatically injects existing extracted facts for the source document under an `EXISTING EXTRACTED FACTS FOR THIS DOCUMENT (DO NOT DUPLICATE)` block.
+  - Implemented vector similarity deduplication pre-save gate (`find_similar_statement`) comparing cosine similarity against active threshold `fact_similarity_threshold` (0.85) and normalized text similarity, dropping redundant or overlapping facts.
+- **Decoupled Pipeline Stages & Worker Execution Loop Protection (`pipeline.py`, `worker.py`, GitHub Issue #124)**:
+  - Completely decoupled Stage 3b (Topic Assignment) and Stage 4b (Fact Extraction) from Stage 2 (AI Wiki Generation) in `pipeline.py`.
+  - Failures in wiki generation no longer trigger infinite fact extraction loops.
+  - Worker's `_run_fact_extraction` now checks if facts already exist for a page and skips execution with `WorkerJobExecution` audit logging.
+- **Auto-Deletion of Rejected Facts from Database (`context_mesh/store.py`, `routers/taxonomy.py`, `templates/view_page.j2.html`, GitHub Issue #125)**:
+  - When a fact statement is marked with `eval_status == 'rejected'` (via API, Fact Management UI, or Article Profile review buttons), it is permanently removed from the database instead of lingering as a rejected row.
+  - Updated `get_exemplars()` to query `score_rank < 3.0` or `eval_status == 'flagged'` for negative prompt exemplars.
+  - UI dynamically removes rejected fact cards from DOM with smooth fade-out animation.
+- **7-Tier Biological Taxonomy Pattern Grounding (`taxonomy/engine.py`, `taxonomy/models.py`, GitHub Issue #126)**:
+  - Re-grounded 7-tier biological taxonomy coordinates:
+    * **Tier 1 (Kingdom)**: General Top-Level Topic (e.g. "Software Documentation", "News", "Research", never hardcoded "knowledge").
+    * **Tier 2 (Phylum)** & **Tier 3 (Class)**: 2-level Sub-Topic hierarchy.
+    * **Tier 4 (Order)** & **Tier 5 (Family)**: Source domain and content theme/collection.
+    * **Tier 6 (Genus)** & **Tier 7 (Species)**: Unique article coordinates and slug identifier.
+  - Updated `TaxonomyClassifier.classify_article` and `classify_youtube_video` to enforce the topic-grounded 7-tier hierarchy.
+- **Configurable `MAX_FACT_CHAR_COUNT` & LLM Re-Prompt Shortening (`config.py`, `context_mesh/pipeline.py`, `routers/admin.py`, `templates/admin.j2.html`, GitHub Issue #127)**:
+  - Added configuration setting `max_fact_char_count` (default 144) to `Config` with persistence in `settings_external` and exposure in `/admin`.
+  - Added `FactExtractionPipeline.shorten_fact_statement()` using LLM re-prompt to distill overlong statements into concise atomic sentences under 144 characters, with deterministic word-boundary condensation fallback.
+- **AI Topic & Sub-Topic Assignment Pipeline Step & Governance Table (`taxonomy/engine.py`, `models_orm.py`, `routers/taxonomy.py`, `templates/taxonomy.j2.html`, GitHub Issue #128)**:
+  - Added columns `topic`, `sub_topic`, and `topic_status` (`unassigned`, `pending`, `approved`) to `FetchedPage`.
+  - Created persistent governance table `TopicGovernanceORM` (`taxonomy_topics`) tracking `name`, `level` (`topic`, `sub_topic`), `parent_topic`, and `status` (`allowed`, `pending`, `denied`).
+  - Added `TaxonomyClassifier.assign_topic_and_subtopic()` pipeline and worker job assigning topics against allowed and denied lists.
+  - Exposed Topic Governance management in `/taxonomy` (Tab 3) with endpoints:
+    * `GET /api/taxonomy/topics`: Governance summary.
+    * `POST /api/taxonomy/topics/approve`: Approves proposed topics and marks articles as approved.
+    * `POST /api/taxonomy/topics/deny`: Denies/blocklists topics, clears them from affected articles, and re-queues items for automatic reassignment.
+    * `POST /api/taxonomy/topics/assign-now`: Triggers on-demand AI topic assignment for individual URLs or unassigned batches.
+  - Registered autonomous background worker job `topic_assignment` in `AutonomousWorker`.
+  - Added unit and integration test suite `tests/test_issues_122_to_128.py` (7 tests passed).
+
 ## [0.5.12] - 2026-10-28
 ### Added
 - **Raw READ-ONLY SQL Query Reports Gated by Decision Model (`routers/reports.py`, `templates/reports.j2.html`)**:

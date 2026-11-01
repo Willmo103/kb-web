@@ -60,6 +60,8 @@ Welcome, Agent! This `GEMINI.md` file is the master instruction guide for the `k
 15. **Autonomous Topic-Expert Custom Agents & Living Topic Wikis**: Autonomous topic agents with self-directed task queues, working memory observations (`agent_observations`), living markdown topic wikis with logical paths and citations (`/wiki/{agent_id}/{path}`), and dynamic canvas pages (`/pages/agent/{hash_id}`) supporting themed and raw rendering modes.
 16. **Human-In-The-Loop (HITL) Python Kernel**: Strictly gated execution environment (`src/kb_web/python_kernel.py`) for agents executing Python in the project `.venv`, requiring explicit human review and interactive approval dialogs before execution.
 17. **Perpetual Notification Center & History Portal**: Permanent record of ingestion notifications, agent alerts, and background tasks (`/notifications`), with server-side pagination, stage/status filters, and batch management.
+18. **7-Tier Biological Taxonomy & AI Topic Governance**: Living hierarchical knowledge grounding based on 7 biological tiers (Kingdom = General Topic, Phylum/Class = 2-level Sub-Topics, Order/Family = Source Domain/Collection, Genus/Species = Unique Item Coordinates) coupled with a governance registry (`taxonomy_topics`), allowed topic constraints, approval/denial workflows, and automated reassignment queues.
+19. **Taxonomical Fact Management & Atomic Context Mesh**: Dedicated portal (`/facts`) and CRUDS + search API (`/api/context-mesh/statements`, `/api/context-mesh/search`) for atomic declarative facts, equipped with LLM length condensation (`max_fact_char_count`, default 144), vector similarity deduplication (`fact_similarity_threshold`, 0.85), and automatic deletion of rejected facts.
 
 ---
 
