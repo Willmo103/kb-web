@@ -6,7 +6,17 @@ from pydantic import BaseModel, Field
 
 
 class TaxonomyLevel(str, Enum):
-    """The 7 biological-inspired taxonomic classification levels."""
+    """The 7 taxonomic classification levels.
+
+    Pattern (Issue #126):
+    1. Kingdom: General Topic ('News', 'Software Documentation', 'Blogpost/Article', 'Reference', 'Resource', 'Hobby/Leisure', etc.)
+    2. Phylum: Primary Sub-Topic (e.g., 'Activism', 'Fishing', 'Official-Documentation')
+    3. Class: Secondary Sub-Topic (e.g., 'Removal-Efforts', 'Ultralight', 'Supabase')
+    4. Order: Content Source / Domain / Program Context
+    5. Family: Content Theme / Section / Tag Cluster
+    6. Genus: Unique Article Structural Identity
+    7. Species: Unique Article / Fact Variant Identity
+    """
 
     KINGDOM = "kingdom"
     PHYLUM = "phylum"
@@ -18,14 +28,14 @@ class TaxonomyLevel(str, Enum):
 
 
 class KingdomNodeInfo(BaseModel):
-    """Layer-specific metadata for Kingdom: Spheres of Reality."""
+    """Layer-specific metadata for Kingdom: General Topic of Information."""
 
     sphere: str = Field(
         ...,
-        description="personal | professional | software | knowledge | infrastructure",
+        description="General Topic: News | Software Documentation | Blogpost/Article | Reference | Resource | Hobby/Leisure",
     )
     governing_motive: str = Field(
-        ..., description="The fundamental purpose this sphere serves"
+        ..., description="The fundamental purpose this topic domain serves"
     )
     privacy_boundary: str = Field(
         default="internal",
@@ -38,10 +48,10 @@ class KingdomNodeInfo(BaseModel):
 
 
 class PhylumNodeInfo(BaseModel):
-    """Layer-specific metadata for Phylum: Subsystem Medium & Execution Substrate."""
+    """Layer-specific metadata for Phylum: Primary Sub-Topic."""
 
     substrate: str = Field(
-        ..., description="code | text | hardware | network | currency | biology | media"
+        ..., description="Primary sub-topic category (e.g. Fishing, Activism, Official Documentation)"
     )
     lifecycle: str = Field(
         default="continuous",
@@ -54,15 +64,15 @@ class PhylumNodeInfo(BaseModel):
 
 
 class ClassNodeInfo(BaseModel):
-    """Layer-specific metadata for Class: Modality of Interaction & Technology Stack."""
+    """Layer-specific metadata for Class: Secondary Sub-Topic."""
 
     interaction_pattern: str = Field(
         ...,
-        description="cli_command | rest_api | human_read | automated_poll | video_stream",
+        description="Secondary sub-topic specialization (e.g. Ultralight, Removal-Efforts, Supabase)",
     )
     primary_technology: str = Field(
         ...,
-        description="python | typescript | markdown | docker | homeassistant | sqlite | postgres",
+        description="Domain specialization or subject stack",
     )
     protocol: Optional[str] = Field(
         default=None, description="http | ssh | mqtt | ipc | filesystem"
@@ -70,9 +80,9 @@ class ClassNodeInfo(BaseModel):
 
 
 class OrderNodeInfo(BaseModel):
-    """Layer-specific metadata for Order: Bounded Context, Program & Organization Unit."""
+    """Layer-specific metadata for Order: Article Source / Publisher / Domain."""
 
-    program_slug: str = Field(..., description="Canonical program or initiative slug")
+    program_slug: str = Field(..., description="Canonical source domain, publisher, or repository slug")
     origin_anchor: Optional[str] = Field(
         default=None, description="Git remote, vault root path, or network host"
     )
@@ -84,9 +94,9 @@ class OrderNodeInfo(BaseModel):
 
 
 class FamilyNodeInfo(BaseModel):
-    """Layer-specific metadata for Family: Functional Cohesion & Component Cluster."""
+    """Layer-specific metadata for Family: Article Content Theme & Section Cluster."""
 
-    cluster_name: str = Field(..., description="Functional group identifier")
+    cluster_name: str = Field(..., description="Content theme or tag cluster identifier")
     responsibility: str = Field(
         ..., description="Single crisp sentence on the family's sole responsibility"
     )
@@ -96,11 +106,11 @@ class FamilyNodeInfo(BaseModel):
 
 
 class GenusNodeInfo(BaseModel):
-    """Layer-specific metadata for Genus: Structural Pattern & Template Type."""
+    """Layer-specific metadata for Genus: Unique Article Structural Identity."""
 
     pattern_type: str = Field(
         ...,
-        description="class_declaration | markdown_document | json_schema | executable_script | article_wiki",
+        description="Unique article-level structural identifier",
     )
     template_id: Optional[str] = Field(
         default=None, description="Jinja or frontmatter template identifier"
@@ -111,10 +121,10 @@ class GenusNodeInfo(BaseModel):
 
 
 class SpeciesNodeInfo(BaseModel):
-    """Layer-specific metadata for Species: Concrete Entity Identity."""
+    """Layer-specific metadata for Species: Unique Article Concrete Identity."""
 
     canonical_id: str = Field(
-        ..., description="Unique slug across entire personal context"
+        ..., description="Unique article slug across entire personal context"
     )
     physical_location: str = Field(
         ...,
@@ -131,28 +141,28 @@ class TaxonomyPath(BaseModel):
     """Canonical 7-level taxonomic classification coordinates."""
 
     kingdom: str = Field(
-        ..., description="Sphere of Reality (e.g. software, knowledge, infrastructure)"
+        ..., description="General Topic (e.g. News, Software Documentation, Blogpost/Article, Reference, Resource, Hobby/Leisure)"
     )
     phylum: str = Field(
-        ..., description="Subsystem Medium (e.g. tooling, vault, iot, text, media)"
+        ..., description="Sub-Topic Level 1 (e.g. Activism, Fishing, Official-Documentation)"
     )
     class_: str = Field(
         ...,
         alias="class",
-        description="Interaction Modality (e.g. cli, daily_notes, human_read)",
+        description="Sub-Topic Level 2 (e.g. Removal-Efforts, Ultralight, Supabase)",
     )
     order: str = Field(
-        ..., description="Bounded Program Context (e.g. kb-web, orcastrator, devtul)"
+        ..., description="Source / Domain Context (e.g. docs_python_org, github_com, youtube)"
     )
     family: str = Field(
-        ..., description="Component Cluster (e.g. sources, architecture, routers)"
+        ..., description="Content Theme / Tag Cluster (e.g. sqlite3, authentication, ultralight_gear)"
     )
     genus: str = Field(
-        ..., description="Structural Pattern (e.g. ArticleWiki, RepoScanner, VaultNote)"
+        ..., description="Unique Article Genus Identifier"
     )
     species: str = Field(
         ...,
-        description="Concrete Entity Variant (e.g. embedding_unification, LocalGitScanner)",
+        description="Unique Article Species Identifier",
     )
 
     model_config = {
@@ -176,7 +186,9 @@ class TaxonomyPath(BaseModel):
     @classmethod
     def from_string(cls, path_str: str, delimiter: str = "/") -> "TaxonomyPath":
         """Parse from delimited string."""
-        clean_str = path_str.replace("::", "/").replace(".", "/")
+        clean_str = path_str.replace("::", "/").replace(" > ", "/")
+        if "/" not in clean_str and "." in clean_str:
+            clean_str = clean_str.replace(".", "/")
         parts = [p.strip() for p in clean_str.split(delimiter) if p.strip()]
         if len(parts) < 7:
             while len(parts) < 7:

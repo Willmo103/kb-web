@@ -48,6 +48,9 @@
         </div>
 
         <div class="flex items-center gap-2.5 flex-wrap">
+            <a href="/facts" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-sm" title="Go to dedicated Fact Management & Search Portal">
+                <span>🧬</span> Fact Management (/facts)
+            </a>
             <button id="sync-taxonomy-btn" onclick="triggerSyncEntities()" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-sm" title="Scan entire library of articles and notes to populate 7-tier biological taxonomy coordinates">
                 <span id="sync-spinner" class="hidden animate-spin">🌀</span>
                 <span>⚡ Sync Taxonomy from Library</span>
@@ -63,6 +66,10 @@
         <button id="main-tab-7tier" onclick="switchMainTab('7tier')" class="pb-3 px-1 text-sm font-bold text-indigo-600 border-b-2 border-indigo-600 transition flex items-center gap-2">
             <span>🧬</span> 7-Tier Biological Ontology & Living Facts
             <span class="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-[11px] rounded-full font-mono">{{ total_statements }}</span>
+        </button>
+        <button id="main-tab-topics" onclick="switchMainTab('topics')" class="pb-3 px-1 text-sm font-semibold text-gray-400 hover:text-gray-600 border-b-2 border-transparent transition flex items-center gap-2">
+            <span>🏷️</span> Topic &amp; Sub-Topic Governance (Issue #128)
+            <span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-[11px] rounded-full font-mono">{{ topic_governance.topics|length }}</span>
         </button>
         <button id="main-tab-legacy" onclick="switchMainTab('legacy')" class="pb-3 px-1 text-sm font-semibold text-gray-400 hover:text-gray-600 border-b-2 border-transparent transition flex items-center gap-2">
             <span>🗂️</span> Autonomous Category Clusters (Legacy)
@@ -242,6 +249,105 @@
         </div>
     </div>
 
+
+    <!-- ===================================================================== -->
+    <!-- VIEW 3: Topic & Sub-Topic Governance (Issue #128)                    -->
+    <!-- ===================================================================== -->
+    <div id="view-topics-container" class="hidden flex-col flex-grow space-y-6">
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 mb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                        <span>🏷️</span> Topic &amp; Sub-Topic Governance
+                    </h2>
+                    <p class="text-xs text-gray-500 mt-1">
+                        Governed general topics (Kingdom) and 2-level sub-topic taxonomies (Phylum/Class). Denying a topic blocklists it and automatically re-queues affected items for AI reassignment.
+                    </p>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button type="button" onclick="triggerBatchTopicAssignment()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-sm">
+                        ⚡ Assign Unassigned Items Now ({{ topic_governance.unassigned_count }})
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stats Bar -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-center">
+                    <div class="text-lg font-bold text-indigo-700 font-mono">{{ topic_governance.topics|length }}</div>
+                    <div class="text-[11px] text-indigo-600 font-semibold uppercase">Total Governed</div>
+                </div>
+                <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
+                    <div class="text-lg font-bold text-emerald-700 font-mono">{{ topic_governance.approved_count }}</div>
+                    <div class="text-[11px] text-emerald-600 font-semibold uppercase">Approved Articles</div>
+                </div>
+                <div class="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
+                    <div class="text-lg font-bold text-amber-700 font-mono">{{ topic_governance.pending_count }}</div>
+                    <div class="text-[11px] text-amber-600 font-semibold uppercase">Pending Approval</div>
+                </div>
+                <div class="bg-rose-50 border border-rose-100 rounded-xl p-3 text-center">
+                    <div class="text-lg font-bold text-rose-700 font-mono">{{ topic_governance.unassigned_count }}</div>
+                    <div class="text-[11px] text-rose-600 font-semibold uppercase">Unassigned / Queued</div>
+                </div>
+            </div>
+
+            <!-- Add Allowed Topic Form -->
+            <div class="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-6">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">Add New Allowed Topic</h3>
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <input type="text" id="new-topic-name" placeholder="Topic name (e.g. Science, Philosophy, Gaming)" class="flex-1 text-xs border border-gray-300 rounded-lg p-2 bg-white text-gray-900" />
+                    <button type="button" onclick="submitNewTopic()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition">
+                        + Add Allowed Topic
+                    </button>
+                </div>
+            </div>
+
+            <!-- Topics Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b border-gray-200 bg-gray-50 text-gray-600 font-semibold uppercase text-[10px] tracking-wider">
+                            <th class="py-2.5 px-3">Name</th>
+                            <th class="py-2.5 px-3">Level</th>
+                            <th class="py-2.5 px-3">Status</th>
+                            <th class="py-2.5 px-3">Articles</th>
+                            <th class="py-2.5 px-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for t in topic_governance.topics %}
+                        <tr id="topic-gov-row-{{ t.id }}" class="hover:bg-gray-50 transition">
+                            <td class="py-2.5 px-3 font-semibold text-gray-800">
+                                {{ t.name }}
+                                {% if t.parent_topic %}<span class="text-gray-400 font-normal">({{ t.parent_topic }})</span>{% endif %}
+                            </td>
+                            <td class="py-2.5 px-3 font-mono text-[11px] text-gray-500">{{ t.level }}</td>
+                            <td class="py-2.5 px-3">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase {% if t.status == 'allowed' %}bg-emerald-50 text-emerald-700 border border-emerald-200{% elif t.status == 'pending' %}bg-amber-50 text-amber-700 border border-amber-200{% else %}bg-rose-50 text-rose-700 border border-rose-200{% endif %}">
+                                    {{ t.status }}
+                                </span>
+                            </td>
+                            <td class="py-2.5 px-3 font-mono font-bold text-gray-700">{{ t.article_count }}</td>
+                            <td class="py-2.5 px-3 text-right space-x-1">
+                                {% if t.status != 'allowed' %}
+                                <button type="button" onclick="governanceApproveTopic('{{ t.name }}', '{{ t.level }}')" class="px-2 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded font-semibold text-[11px]">
+                                    Approve
+                                </button>
+                                {% endif %}
+                                {% if t.status != 'denied' %}
+                                <button type="button" onclick="governanceDenyTopic('{{ t.name }}', '{{ t.level }}')" class="px-2 py-1 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded font-semibold text-[11px]">
+                                    Deny &amp; Requeue
+                                </button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- ===================================================================== -->
     <!-- VIEW 2: Autonomous Category Clusters (Legacy State Machine)           -->
     <!-- ===================================================================== -->
@@ -362,20 +468,90 @@ var treeData7Tier = {{ tree_7tier | tojson if tree_7tier else '{}' }};
 
 function switchMainTab(tab) {
     var tab7tierBtn = document.getElementById('main-tab-7tier');
+    var tabTopicsBtn = document.getElementById('main-tab-topics');
     var tabLegacyBtn = document.getElementById('main-tab-legacy');
     var view7tier = document.getElementById('view-7tier-container');
+    var viewTopics = document.getElementById('view-topics-container');
     var viewLegacy = document.getElementById('view-legacy-container');
 
+    var activeClass = 'pb-3 px-1 text-sm font-bold text-indigo-600 border-b-2 border-indigo-600 transition flex items-center gap-2';
+    var inactiveClass = 'pb-3 px-1 text-sm font-semibold text-gray-400 hover:text-gray-600 border-b-2 border-transparent transition flex items-center gap-2';
+
     if (tab === '7tier') {
-        tab7tierBtn.className = 'pb-3 px-1 text-sm font-bold text-indigo-600 border-b-2 border-indigo-600 transition flex items-center gap-2';
-        tabLegacyBtn.className = 'pb-3 px-1 text-sm font-semibold text-gray-400 hover:text-gray-600 border-b-2 border-transparent transition flex items-center gap-2';
+        tab7tierBtn.className = activeClass;
+        if (tabTopicsBtn) tabTopicsBtn.className = inactiveClass;
+        tabLegacyBtn.className = inactiveClass;
         view7tier.classList.remove('hidden');
+        if (viewTopics) viewTopics.classList.add('hidden');
+        viewLegacy.classList.add('hidden');
+    } else if (tab === 'topics') {
+        if (tabTopicsBtn) tabTopicsBtn.className = activeClass;
+        tab7tierBtn.className = inactiveClass;
+        tabLegacyBtn.className = inactiveClass;
+        if (viewTopics) {
+            viewTopics.classList.remove('hidden');
+            viewTopics.classList.add('flex');
+        }
+        view7tier.classList.add('hidden');
         viewLegacy.classList.add('hidden');
     } else {
-        tabLegacyBtn.className = 'pb-3 px-1 text-sm font-bold text-indigo-600 border-b-2 border-indigo-600 transition flex items-center gap-2';
-        tab7tierBtn.className = 'pb-3 px-1 text-sm font-semibold text-gray-400 hover:text-gray-600 border-b-2 border-transparent transition flex items-center gap-2';
+        tabLegacyBtn.className = activeClass;
+        tab7tierBtn.className = inactiveClass;
+        if (tabTopicsBtn) tabTopicsBtn.className = inactiveClass;
         viewLegacy.classList.remove('hidden');
         view7tier.classList.add('hidden');
+        if (viewTopics) viewTopics.classList.add('hidden');
+    }
+}
+
+async function governanceApproveTopic(name, level) {
+    const res = await fetch('/api/taxonomy/topics/approve', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name, level: level})
+    });
+    if (res.ok) {
+        window.location.reload();
+    } else {
+        alert('Failed to approve topic.');
+    }
+}
+
+async function governanceDenyTopic(name, level) {
+    if (!confirm(`Are you sure you want to deny '${name}'? This will blocklist the topic, clear it from all matching items, and re-queue them for AI reassignment.`)) return;
+    const res = await fetch('/api/taxonomy/topics/deny', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name, level: level})
+    });
+    if (res.ok) {
+        const data = await res.json();
+        alert(`Topic '${name}' denied. Requeued ${data.requeued_count} items for reassignment.`);
+        window.location.reload();
+    } else {
+        alert('Failed to deny topic.');
+    }
+}
+
+async function submitNewTopic() {
+    const input = document.getElementById('new-topic-name');
+    const name = input ? input.value.trim() : '';
+    if (!name) return;
+    await governanceApproveTopic(name, 'topic');
+}
+
+async function triggerBatchTopicAssignment() {
+    const res = await fetch('/api/taxonomy/topics/assign-now', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({limit: 25})
+    });
+    if (res.ok) {
+        const data = await res.json();
+        alert(`Processed ${data.assigned_count} items for topic & sub-topic assignment.`);
+        window.location.reload();
+    } else {
+        alert('Failed to trigger batch assignment.');
     }
 }
 

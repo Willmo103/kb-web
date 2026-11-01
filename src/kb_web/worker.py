@@ -2,8 +2,9 @@
 Autonomous Background Server Worker Engine for kb-web.
 
 Provides a modular Server Jobs & Agents framework for independent, continuous
-curation, tagging, embedding indexing, synthetic QA generation, RAG evaluation,
-and autonomous link discovery.
+curation, tagging, topic & sub-topic assignment (#128), embedding indexing,
+synthetic QA generation, RAG evaluation, autonomous link discovery, and
+decoupled context fact extraction (#124).
 
 Each job maintains its own execution schedule (timespan/interval in minutes),
 designated Ollama model (LLM, decision, or embedding), toggle state, and runtime metrics.
@@ -104,7 +105,6 @@ class ServerJob:
     def interval_minutes(self, val: int) -> None:
         val = max(1, int(val))
         config._write_db_setting("settings_ollama", f"job_{self.job_id}_interval_minutes", str(val))
-        # Recalculate next run
         self.next_run = (datetime.now() + timedelta(minutes=val)).isoformat()
 
     @property
@@ -317,6 +317,16 @@ class AutonomousWorker:
             runner=self._run_tag_curation,
         )
 
+        self.jobs["topic_assignment"] = ServerJob(
+            job_id="topic_assignment",
+            name="Topic & Sub-Topic Assignment Agent",
+            description="Assigns governed top-level topics (Kingdom) and 2-level sub-topics (Phylum/Class) to articles and videos.",
+            category="llm",
+            default_interval_minutes=5,
+            default_model=getattr(config, "ollama_model", "llama3.2"),
+            runner=self._run_topic_assignment,
+        )
+
         self.jobs["embedding_refresh"] = ServerJob(
             job_id="embedding_refresh",
             name="Vector Embedding Indexer",
@@ -372,7 +382,11 @@ class AutonomousWorker:
     # -------------------------------------------------------------
 
     async def _run_wiki_curation(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
-        """Curates 1 library item lacking wiki description or containing skipped placeholder."""
+        """Curates 1 library item lacking wiki description or containing skipped placeholder.
+
+        Issue #124: Strictly isolated from fact extraction so failed/retried wikis never
+        trigger duplicate fact generation loops.
+        """
         target_page_wiki = None
         with db_session() as session:
             exec_subq = select(WorkerJobExecution.target_id).filter(
@@ -590,6 +604,97 @@ class AutonomousWorker:
             )
             raise
 
+    async def _run_topic_assignment(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
+        """Assigns governed top-level topic and 2-level sub-topic to 1 unassigned article or video (Issue #128)."""
+        from .taxonomy.engine import assign_topic_and_subtopic
+
+        target_page = None
+        with db_session() as session:
+            exec_subq = select(WorkerJobExecution.target_id).filter(
+                WorkerJobExecution.job_id == "topic_assignment",
+                WorkerJobExecution.status.in_(["success", "skipped"]),
+            )
+            recent_in_mem = list(self._recent_targets.get("topic_assignment", set()))
+            q = (
+                session.query(FetchedPage)
+                .filter(
+                    FetchedPage.url.not_in(exec_subq),
+                    or_(
+                        FetchedPage.topic.is_(None),
+                        FetchedPage.topic == "",
+                        FetchedPage.topic_status == "unassigned",
+                    ),
+                )
+            )
+            if recent_in_mem:
+                q = q.filter(FetchedPage.url.not_in(recent_in_mem))
+            row = q.order_by(FetchedPage.fetched_at.asc().nullslast()).first()
+            if row:
+                target_page = self._row_to_page_dict(row)
+
+        if not target_page:
+            job.last_activity = "Idle (all items have assigned topics)"
+            return {"status": "noop", "message": "All articles and videos have assigned topics"}
+
+        url = target_page["url"]
+        title = target_page.get("title") or url
+        self._recent_targets["topic_assignment"].add(url)
+        job.last_activity = f"Assigning topic for {title[:40]}"
+        logger.info(f"[JOB topic_assignment] Assigning topic & sub-topic for: {url}")
+
+        try:
+            client = _get_ollama_client()
+            job_cfg = JobConfigProxy(config, model=job.model, is_embedding=False)
+            tags = target_page.get("tags") if isinstance(target_page.get("tags"), list) else []
+            md_content = target_page.get("description") or target_page.get("md_content") or ""
+
+            res = await run_in_threadpool(
+                assign_topic_and_subtopic,
+                url,
+                title,
+                md_content,
+                tags,
+                job_cfg,
+                client,
+            )
+
+            self.log_target_execution(
+                job_id="topic_assignment",
+                target_id=url,
+                status="success",
+                items_count=1,
+            )
+            job.items_processed_total += 1
+            assigned_topic = res.get("topic", "")
+            assigned_sub = res.get("sub_topic", "")
+            job.last_activity = f"Assigned {assigned_topic} > {assigned_sub} to: {title[:30]}"
+            record_notification(
+                stage="worker",
+                status="success",
+                message=f"Topic agent assigned '{assigned_topic} / {assigned_sub}' to: {title}",
+                url=url,
+                title=title,
+                task_id=cycle_id,
+            )
+            return {
+                "status": "success",
+                "url": url,
+                "topic": assigned_topic,
+                "sub_topic": assigned_sub,
+                "topic_status": res.get("topic_status"),
+            }
+        except Exception as e:
+            err_msg = f"Topic assignment failed for {url}: {e}"
+            logger.warning(err_msg)
+            self.log_target_execution(
+                job_id="topic_assignment",
+                target_id=url,
+                status="failed",
+                error_message=str(e),
+            )
+            job.last_error = str(e)
+            raise
+
     async def _run_embedding_refresh(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
         """Indexes vector embeddings into Qdrant for 1 page."""
         target_url = None
@@ -599,7 +704,6 @@ class AutonomousWorker:
                 WorkerJobExecution.job_id == "embedding_refresh",
                 WorkerJobExecution.status == "success",
             )
-            # Pick the oldest page lacking chunk embeddings
             subq = select(ChunkEmbedding.source_id).filter(
                 ChunkEmbedding.source_type == "pages"
             )
@@ -666,18 +770,26 @@ class AutonomousWorker:
         return {"status": "noop", "message": "Autonomous link crawler hook active"}
 
     async def _run_fact_extraction(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
-        """Extracts atomic context statements from 1 library item lacking extracted statements."""
+        """Extracts atomic context statements from 1 library item lacking extracted statements.
+
+        Issue #124: Excludes any page that already has facts in ContextStatementORM, has already
+        been processed by fact_extraction, or has a failed/missing wiki awaiting wiki_curation.
+        """
         from .context_mesh.pipeline import FactExtractionPipeline
 
         target_page = None
         with db_session() as session:
             exec_subq = select(WorkerJobExecution.target_id).filter(
                 WorkerJobExecution.job_id == "fact_extraction",
-                WorkerJobExecution.status.in_(["success", "skipped"]),
+                WorkerJobExecution.status.in_(["success", "skipped", "failed"]),
             )
             stmt_subq = select(ContextStatementORM.source_uri).filter(
                 ContextStatementORM.source_uri.isnot(None),
                 ContextStatementORM.source_uri != "",
+            )
+            failed_wiki_subq = select(WorkerJobExecution.target_id).filter(
+                WorkerJobExecution.job_id == "wiki_curation",
+                WorkerJobExecution.status == "failed",
             )
             recent_in_mem = list(self._recent_targets.get("fact_extraction", set()))
 
@@ -686,6 +798,7 @@ class AutonomousWorker:
                 .filter(
                     FetchedPage.url.not_in(exec_subq),
                     FetchedPage.url.not_in(stmt_subq),
+                    FetchedPage.url.not_in(failed_wiki_subq),
                     or_(
                         FetchedPage.description.isnot(None),
                         FetchedPage.md_content.isnot(None),
@@ -705,7 +818,6 @@ class AutonomousWorker:
 
         url = target_page["url"]
         title = target_page.get("title") or url
-        # Track target immediately in memory to avoid duplicate pickup
         self._recent_targets["fact_extraction"].add(url)
         job.last_activity = f"Extracting facts for {title[:40]}"
         logger.info(f"[JOB fact_extraction] Extracting context statements for: {url}")
@@ -717,14 +829,17 @@ class AutonomousWorker:
 
             tags: List[str] = []
             if target_page.get("tags"):
-                try:
-                    parsed_tags = json.loads(target_page["tags"])
-                    if isinstance(parsed_tags, list):
-                        tags = parsed_tags
-                except Exception:
-                    pass
+                if isinstance(target_page["tags"], list):
+                    tags = target_page["tags"]
+                else:
+                    try:
+                        parsed_tags = json.loads(target_page["tags"])
+                        if isinstance(parsed_tags, list):
+                            tags = parsed_tags
+                    except Exception:
+                        pass
 
-            md_content = target_page.get("md_content") or target_page.get("description") or ""
+            md_content = target_page.get("description") or target_page.get("md_content") or ""
 
             statements = await run_in_threadpool(
                 pipeline.extract_from_page,
@@ -732,6 +847,7 @@ class AutonomousWorker:
                 title,
                 md_content,
                 tags,
+                False,
             )
 
             if statements:
@@ -776,7 +892,7 @@ class AutonomousWorker:
             record_notification(
                 stage="worker",
                 status="warning",
-                message=f"Fact extraction warning for {title}: {e}. Retrying next cycle.",
+                message=f"Fact extraction warning for {title}: {e}.",
                 url=url,
                 title=title,
                 task_id=cycle_id,
@@ -880,6 +996,7 @@ class AutonomousWorker:
             errors = [
                 f"[{jid}] {res.get('error')}"
                 for jid, res in results.items()
+                for _ in [0]
                 if isinstance(res, dict) and res.get("status") == "error"
             ]
             return {
@@ -915,7 +1032,6 @@ class AutonomousWorker:
         while not self._stop_event.is_set():
             if self.enabled:
                 try:
-                    # Run any due jobs
                     for job in self.jobs.values():
                         if job.enabled and job.is_due():
                             asyncio.create_task(job.execute())
@@ -923,7 +1039,6 @@ class AutonomousWorker:
                     logger.error(f"[AUTONOMOUS WORKER] Error in scheduler loop: {e}", exc_info=True)
                     self.last_error = str(e)
 
-            # Sleep 5 seconds per tick
             slept = 0
             while slept < 10 and not self._stop_event.is_set():
                 try:

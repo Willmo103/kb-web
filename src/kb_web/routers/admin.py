@@ -685,6 +685,9 @@ def handle_config_update(
     repo_import_default_depth: Optional[int] = Form(None),
     youtube_download_format: Optional[str] = Form(None),
     trusted_proxies: Optional[str] = Form(None),
+    max_fact_char_count: Optional[int] = Form(None),
+    fact_similarity_threshold: Optional[float] = Form(None),
+    allowed_topics: Optional[str] = Form(None),
 ) -> RedirectResponse:
     """Saves updated server settings (Ollama, Gotify, Qdrant, operational thresholds, and media download format) to config."""
     config.ollama_host = ollama_host
@@ -731,6 +734,12 @@ def handle_config_update(
         config.youtube_download_format = youtube_download_format.strip()
     if trusted_proxies is not None and trusted_proxies.strip():
         config.trusted_proxies = trusted_proxies.strip()
+    if max_fact_char_count is not None:
+        config.max_fact_char_count = max_fact_char_count
+    if fact_similarity_threshold is not None:
+        config.fact_similarity_threshold = fact_similarity_threshold
+    if allowed_topics is not None and allowed_topics.strip():
+        config.allowed_topics = allowed_topics.strip()
     config.save()
 
     return RedirectResponse(

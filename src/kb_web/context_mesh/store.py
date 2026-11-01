@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -172,6 +173,29 @@ class ContextStore:
                 return None
             return self._orm_to_model(orm)
 
+    def delete_statement(self, statement_id: str) -> bool:
+        """Permanently delete a context statement by primary key."""
+        with db_session() as session:
+            orm = session.query(ContextStatementORM).filter_by(id=statement_id).first()
+            if not orm:
+                return False
+            session.delete(orm)
+            session.commit()
+            return True
+
+    def bulk_delete_statements(self, statement_ids: List[str]) -> int:
+        """Permanently delete multiple context statements by primary key."""
+        if not statement_ids:
+            return 0
+        with db_session() as session:
+            deleted = (
+                session.query(ContextStatementORM)
+                .filter(ContextStatementORM.id.in_(statement_ids))
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+            return int(deleted or 0)
+
     def update_evaluation(
         self,
         statement_id: str,
@@ -179,7 +203,10 @@ class ContextStore:
         status: Optional[EvalStatus] = None,
         feedback: Optional[str] = None,
     ) -> ContextStatement:
-        """Assign score rank, update review status, and record evaluation feedback."""
+        """Assign score rank, update review status, and record evaluation feedback.
+
+        Issue #125: Rejected facts are automatically deleted from the database.
+        """
         stmt = self.get_by_id(statement_id)
         if not stmt:
             raise KeyError(f"Context statement '{statement_id}' not found.")
@@ -202,6 +229,10 @@ class ContextStore:
         stmt.last_evaluated_at = datetime.now(timezone.utc).isoformat()
         stmt.updated_at = datetime.now(timezone.utc).isoformat()
 
+        if derived_status == EvalStatus.REJECTED:
+            self.delete_statement(statement_id)
+            return stmt
+
         self.upsert(stmt)
         return stmt
 
@@ -214,10 +245,13 @@ class ContextStore:
         min_score: Optional[float] = None,
         source_uri: Optional[str] = None,
         query: Optional[str] = None,
+        kingdom: Optional[str] = None,
+        phylum: Optional[str] = None,
+        class_name: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> List[ContextStatement]:
-        """Query statements filtered by layer, type, status, source URI, or path prefix."""
+        """Query statements filtered by layer, type, status, source URI, topic/sub-topic, or path prefix."""
         with db_session() as session:
             q = session.query(ContextStatementORM)
             if layer:
@@ -232,6 +266,12 @@ class ContextStore:
                 q = q.filter(ContextStatementORM.score_rank >= min_score)
             if source_uri:
                 q = q.filter(ContextStatementORM.source_uri == source_uri)
+            if kingdom:
+                q = q.filter(ContextStatementORM.kingdom == kingdom)
+            if phylum:
+                q = q.filter(ContextStatementORM.phylum == phylum)
+            if class_name:
+                q = q.filter(ContextStatementORM.class_name == class_name)
             if query:
                 pattern = f"%{query}%"
                 q = q.filter(
@@ -254,6 +294,9 @@ class ContextStore:
         eval_status: Optional[EvalStatus] = None,
         source_uri: Optional[str] = None,
         query: Optional[str] = None,
+        kingdom: Optional[str] = None,
+        phylum: Optional[str] = None,
+        class_name: Optional[str] = None,
     ) -> int:
         """Count statements matching the given criteria."""
         with db_session() as session:
@@ -268,6 +311,12 @@ class ContextStore:
                 q = q.filter(ContextStatementORM.eval_status == eval_status.value)
             if source_uri:
                 q = q.filter(ContextStatementORM.source_uri == source_uri)
+            if kingdom:
+                q = q.filter(ContextStatementORM.kingdom == kingdom)
+            if phylum:
+                q = q.filter(ContextStatementORM.phylum == phylum)
+            if class_name:
+                q = q.filter(ContextStatementORM.class_name == class_name)
             if query:
                 pattern = f"%{query}%"
                 q = q.filter(
@@ -276,6 +325,68 @@ class ContextStore:
                     | (ContextStatementORM.canonical_path.ilike(pattern))
                 )
             return q.count()
+
+    def find_similar_statement(
+        self,
+        embedding: Optional[List[float]],
+        statement_text: str,
+        threshold: float = 0.85,
+        source_uri: Optional[str] = None,
+    ) -> Tuple[Optional[ContextStatement], float]:
+        """Check whether an identical or near-duplicate statement already exists (Issue #123)."""
+        norm_target = re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", (statement_text or "").lower())).strip()
+        candidates = self.list_statements(source_uri=source_uri, limit=500)
+        if source_uri:
+            global_candidates = self.list_statements(limit=500)
+            seen_ids = {c.id for c in candidates}
+            for gc in global_candidates:
+                if gc.id not in seen_ids:
+                    candidates.append(gc)
+
+        best_stmt: Optional[ContextStatement] = None
+        best_sim: float = 0.0
+
+        for cand in candidates:
+            norm_cand = re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", (cand.statement or "").lower())).strip()
+            if norm_target and norm_target == norm_cand:
+                return cand, 1.0
+
+            if embedding and cand.embedding:
+                sim = cosine_similarity(embedding, cand.embedding)
+                if sim > best_sim:
+                    best_sim = sim
+                    best_stmt = cand
+
+        if best_stmt and best_sim >= threshold:
+            return best_stmt, round(best_sim, 4)
+        return None, round(best_sim, 4)
+
+    def update_statements_taxonomy_for_source(self, source_uri: str, new_canonical_path: str) -> int:
+        """Update canonical_path and 7-tier columns for all statements belonging to source_uri."""
+        parts = [p.strip() for p in new_canonical_path.replace("::", "/").split("/") if p.strip()]
+        kingdom = parts[0] if len(parts) > 0 else None
+        phylum = parts[1] if len(parts) > 1 else None
+        class_name = parts[2] if len(parts) > 2 else None
+        order_name = parts[3] if len(parts) > 3 else None
+        family = parts[4] if len(parts) > 4 else None
+        genus = parts[5] if len(parts) > 5 else None
+        species = parts[6] if len(parts) > 6 else None
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        with db_session() as session:
+            rows = session.query(ContextStatementORM).filter_by(source_uri=source_uri).all()
+            for r in rows:
+                r.canonical_path = new_canonical_path
+                r.kingdom = kingdom
+                r.phylum = phylum
+                r.class_name = class_name
+                r.order_name = order_name
+                r.family = family
+                r.genus = genus
+                r.species = species
+                r.updated_at = now_iso
+            session.commit()
+            return len(rows)
 
     def get_exemplars(
         self,
@@ -299,7 +410,8 @@ class ContextStore:
                 session.query(ContextStatementORM)
                 .filter(
                     (ContextStatementORM.eval_status == EvalStatus.REJECTED.value)
-                    | (ContextStatementORM.score_rank < 2.0)
+                    | (ContextStatementORM.eval_status == EvalStatus.FLAGGED.value)
+                    | (ContextStatementORM.score_rank < 3.0)
                 )
                 .order_by(ContextStatementORM.score_rank.asc())
                 .limit(negative_limit)
