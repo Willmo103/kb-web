@@ -130,6 +130,15 @@ Research queries trigger a multi-sub-agent retrieval pipeline (`/reports/rag` or
 - **Customizable & Persistent Pipeline**: Fully configurable from the RAG screen (toggles for each search engine, doc retrieval limits, candidate pool size, top sources to synthesize, similarity thresholds, and custom gating questions) with persistence in the database.
 - **Synthesis & Export**: Top evidence sources are synthesized into a publication-grade research report with one-click export into Knowledge Base Notes.
 
+### 8. Dynamic Knowledge Tree, Steered Governance & Bulk Relocation
+The /taxonomy and /facts portals provide a dynamic, multi-tier knowledge graph and personal context mesh:
+- **Hierarchical Knowledge File Tree**: Organizes articles, notes, videos, and atomic context mesh statements into flexible folder nodes and biological coordinates.
+- **Dynamic Tree Building**: Add root or nested folders (+ Folder) with optional qualification gating questions and domain blacklists; prune branches (Delete Folder) with recursive child reassignments.
+- **Direct Topic/Sub-Topic Deletion**: Instantly and permanently delete unwanted topics and subtopics from the Governance registry with automatic DB entity cleanup.
+- **Bulk Item & Fact Relocation**: Multi-select library items or context mesh facts and relocate them to any folder in a single atomic transaction.
+- **Nested Personal VK Context**: Curate personal value-knowledge context (/api/context-mesh/personal-vk) injected into agent and decision prompts.
+
+
 
 ---
 

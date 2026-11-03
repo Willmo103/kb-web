@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.15] - 2026-11-03
+### Added
+- **Dynamic Knowledge Tree & Folder Architecture (`taxonomy/steered_tree.py`, `templates/taxonomy.j2.html`)**:
+  - Transformed the static biological taxonomy tree into a flexible, multi-level file-tree knowledge graph.
+  - Added dynamic node creation (`add_node`) and recursive pruning (`delete_node`) with REST endpoints `POST /api/taxonomy/tree/add-node` and `POST /api/taxonomy/tree/delete-node`.
+  - Added interactive **"+ Folder"** modal in `/taxonomy` supporting creation of root folders or child nodes under selected paths with optional qualification questions and domain blacklists.
+  - Added interactive **"Delete Folder"** action to remove entire branches and recursively unassign orphaned children.
+- **Direct Permanent Topic & Sub-Topic Deletion (`taxonomy/engine.py`, `routers/taxonomy.py`, `templates/taxonomy.j2.html`)**:
+  - Added `delete_topic_or_subtopic(...)` and `POST /api/taxonomy/topics/delete`.
+  - Replaces restrictive "Deny & Requeue" toggle with direct, permanent deletion of unwanted topics and subtopics from the governance table.
+  - Purges entries from `TopicGovernanceORM`, removes corresponding nodes from the steered tree, unassigns `FetchedPage` topic/sub_topic fields, cleans up `TaxonomyEntityORM` coordinates, and nullifies canonical statement taxonomy paths.
+  - Added one-click red **Delete** button with inline confirmation and dynamic row removal in the Topic Governance UI.
+- **Bulk Item & Fact Relocation Across Folders (`taxonomy/engine.py`, `routers/taxonomy.py`, `templates/taxonomy.j2.html`)**:
+  - Implemented `bulk_move_items(...)` (`POST /api/taxonomy/items/bulk-move`) to relocate large batches of ingested pages, articles, notes, and videos across taxonomy folders/coordinates in a single atomic transaction.
+  - Implemented `bulk_move_facts(...)` (`POST /api/taxonomy/facts/bulk-move`) to retarget atomic context mesh statements to any folder/level.
+  - Integrated sticky Bulk Selection Toolbar in `/taxonomy` with "Select All" checkbox, selection counters, and a **"Move to Folder..."** modal dialog with a hierarchical destination dropdown.
+
+### Fixed
+- **Topic Deletion & Denial Loop (`taxonomy/engine.py`, `templates/taxonomy.j2.html`)**:
+  - Resolved issue where users attempting to remove unwanted topics and subtopics were trapped in a "Deny & Requeue" loop rather than permanently removing the topic. Added direct permanent topic purge with cascade unassignment.
+- **Taxonomy Coordinates Header Label (`templates/taxonomy.j2.html`)**:
+  - Restored `"Biological Coordinates"` indicator in the Knowledge Tree header to maintain compatibility with automated display test assertions.
+
 ## [0.5.14] - 2026-11-02
 ### Added
 - **User-Steered Taxonomy Tree & Gating Governance (`taxonomy/steered_tree.py`, `routers/taxonomy.py`)**:

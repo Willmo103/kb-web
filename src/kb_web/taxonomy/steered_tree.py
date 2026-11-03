@@ -11,8 +11,10 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import urlparse
+import uuid
 
 from pydantic import BaseModel, Field
 
@@ -322,6 +324,86 @@ class SteeredTaxonomyTreeManager:
                 continue
             valid.append(cand)
         return valid
+
+
+
+    def add_node(
+        self,
+        name: str,
+        parent_id: Optional[str] = None,
+        level: Optional[str] = None,
+        description: str = "",
+        gating_questions: Optional[List[str]] = None,
+        blacklisted_domains: Optional[List[str]] = None,
+        lifecycle_action: str = "none",
+        refetch_interval_hours: Optional[int] = None,
+        is_frozen: bool = False,
+    ) -> SteeredTaxonomyNode:
+        """Add a dynamic folder/node under parent_id (or at root)."""
+        tree = self.get_tree()
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("Node name cannot be empty.")
+
+        parent = self.find_node(parent_id, tree) if parent_id else None
+        if not level:
+            if not parent:
+                level = "kingdom"
+            elif parent.level == "kingdom":
+                level = "phylum"
+            elif parent.level == "phylum":
+                level = "class"
+            else:
+                level = "family"
+
+        node_slug = re.sub(r"[^\w\s-]", "", clean_name.lower()).replace(" ", "_")[:32]
+        unique_id = f"{level}_{node_slug}_{uuid.uuid4().hex[:6]}"
+
+        new_node = SteeredTaxonomyNode(
+            id=unique_id,
+            name=clean_name,
+            level=level,
+            description=description or f"User curated {level} folder: {clean_name}",
+            is_frozen=is_frozen,
+            gating_questions=gating_questions or [],
+            blacklisted_domains=blacklisted_domains or [],
+            lifecycle_action=lifecycle_action,  # type: ignore
+            refetch_interval_hours=refetch_interval_hours,
+            children=[],
+        )
+
+        if parent:
+            parent.children.append(new_node)
+        else:
+            tree.append(new_node)
+
+        self.save_tree(tree)
+        return new_node
+
+    def delete_node(self, node_id_or_name: str, nodes: Optional[List[SteeredTaxonomyNode]] = None) -> bool:
+        """Recursively delete a node from the tree."""
+        top_level = False
+        if nodes is None:
+            nodes = self.get_tree()
+            top_level = True
+
+        target = node_id_or_name.strip().lower()
+        removed = False
+
+        for i, node in enumerate(list(nodes)):
+            if node.id.lower() == target or node.name.lower() == target:
+                nodes.pop(i)
+                removed = True
+                break
+            if node.children:
+                if self.delete_node(target, node.children):
+                    removed = True
+                    break
+
+        if top_level and removed:
+            self.save_tree(nodes)
+
+        return removed
 
 
 _global_tree_manager: Optional[SteeredTaxonomyTreeManager] = None

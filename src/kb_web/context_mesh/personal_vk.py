@@ -73,11 +73,15 @@ class PersonalVKManager:
                     if isinstance(data, dict):
                         return data
             except Exception as e:
-                logger.warning(f"Failed loading personal VK context from {VK_CONFIG_FILE}: {e}")
+                logger.warning(
+                    f"Failed loading personal VK context from {VK_CONFIG_FILE}: {e}"
+                )
 
         # 2. DB
         try:
-            db_val = self.config._read_db_setting("settings_external", SETTING_EXTERNAL_KEY, None)
+            db_val = self.config._read_db_setting(
+                "settings_external", SETTING_EXTERNAL_KEY, None
+            )
             if db_val:
                 data = json.loads(db_val)
                 if isinstance(data, dict):
@@ -107,7 +111,9 @@ class PersonalVKManager:
 
         # 2. DB
         try:
-            self.config._write_db_setting("settings_external", SETTING_EXTERNAL_KEY, json_str)
+            self.config._write_db_setting(
+                "settings_external", SETTING_EXTERNAL_KEY, json_str
+            )
         except Exception as e:
             logger.error(f"Failed writing personal VK context to DB: {e}")
 
@@ -137,4 +143,3 @@ def get_personal_vk_manager() -> PersonalVKManager:
     if _global_vk_manager is None:
         _global_vk_manager = PersonalVKManager()
     return _global_vk_manager
-

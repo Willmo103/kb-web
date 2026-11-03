@@ -1197,6 +1197,229 @@ def deny_topic_or_subtopic(
     }
 
 
+def delete_topic_or_subtopic(
+    name: str,
+    level: str = "topic",
+    reassign_to: Optional[str] = None,
+    config_obj: Any = None,
+) -> Dict[str, Any]:
+    """Permanently deletes a topic or sub-topic from governance registry and steered tree,
+    re-assigning or unassigning affected library items."""
+    clean_name = (name or "").strip()
+    if not clean_name:
+        raise ValueError("Topic or sub-topic name is required.")
+
+    cfg = config_obj or default_config
+    resolved_level = level.lower().strip()
+    affected_urls: List[str] = []
+
+    with db_session() as session:
+        if resolved_level == "topic":
+            gov_rows = session.query(TopicGovernanceORM).filter(
+                or_(
+                    TopicGovernanceORM.name.ilike(clean_name),
+                    TopicGovernanceORM.parent_topic.ilike(clean_name),
+                )
+            ).all()
+        else:
+            gov_rows = session.query(TopicGovernanceORM).filter(
+                TopicGovernanceORM.name.ilike(clean_name)
+            ).all()
+
+        deleted_names = [r.name for r in gov_rows]
+        for r in gov_rows:
+            session.delete(r)
+
+        if resolved_level == "topic":
+            pages = session.query(FetchedPage).filter(FetchedPage.topic.ilike(clean_name)).all()
+            for p in pages:
+                affected_urls.append(p.url)
+                if reassign_to:
+                    p.topic = reassign_to
+                    p.topic_status = "approved"
+                else:
+                    p.topic = None
+                    p.sub_topic = None
+                    p.topic_status = "unassigned"
+        else:
+            pages = session.query(FetchedPage).filter(FetchedPage.sub_topic.ilike(clean_name)).all()
+            for p in pages:
+                affected_urls.append(p.url)
+                if reassign_to:
+                    p.sub_topic = reassign_to
+                    p.topic_status = "approved"
+                else:
+                    p.sub_topic = "General"
+
+        session.commit()
+
+    try:
+        tree_mgr = get_steered_tree_manager()
+        for dname in deleted_names or [clean_name]:
+            tree_mgr.delete_node(dname)
+    except Exception as e:
+        logger.warning(f"Error purging {clean_name} from steered tree: {e}")
+
+    current_allowed = cfg.get_allowed_topics_list()
+    filtered_allowed = [t for t in current_allowed if t.lower() != clean_name.lower()]
+    if len(filtered_allowed) != len(current_allowed):
+        cfg.allowed_topics = ", ".join(filtered_allowed)
+
+    try:
+        from ..worker import autonomous_worker
+        recent_set = autonomous_worker._recent_targets.get("topic_assignment")
+        if recent_set:
+            for u in affected_urls:
+                recent_set.discard(u)
+    except Exception:
+        pass
+
+    logger.info(f"Permanently deleted topic '{clean_name}' ({resolved_level}); affected {len(affected_urls)} items.")
+    return {
+        "status": "success",
+        "action": "deleted",
+        "name": clean_name,
+        "level": resolved_level,
+        "deleted_count": len(deleted_names),
+        "affected_items_count": len(affected_urls),
+        "reassigned_to": reassign_to,
+    }
+
+
+def bulk_move_items(
+    urls: List[str],
+    target_topic: str,
+    target_sub_topic: Optional[str] = None,
+    config_obj: Any = None,
+) -> Dict[str, Any]:
+    """Bulk moves a list of articles, notes, or videos to a new topic and sub-topic folder."""
+    clean_topic = (target_topic or "").strip()
+    if not clean_topic:
+        raise ValueError("Target topic/folder cannot be empty.")
+    clean_sub_topic = (target_sub_topic or "General").strip()
+
+    if not urls:
+        return {"status": "success", "moved_count": 0, "urls": []}
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    moved_urls = []
+
+    with db_session() as session:
+        top_row = session.query(TopicGovernanceORM).filter(TopicGovernanceORM.name.ilike(clean_topic)).first()
+        if not top_row:
+            top_row = TopicGovernanceORM(
+                name=clean_topic,
+                level="topic",
+                status="allowed",
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+            session.add(top_row)
+
+        sub_row = session.query(TopicGovernanceORM).filter(TopicGovernanceORM.name.ilike(clean_sub_topic)).first()
+        if not sub_row:
+            sub_row = TopicGovernanceORM(
+                name=clean_sub_topic,
+                level="sub_topic",
+                parent_topic=clean_topic,
+                status="allowed",
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+            session.add(sub_row)
+
+        for url in urls:
+            u = url.strip()
+            if not u:
+                continue
+
+            page = session.query(FetchedPage).filter_by(url=u).first()
+            if page:
+                page.topic = clean_topic
+                page.sub_topic = clean_sub_topic
+                page.topic_status = "approved"
+
+            ent = session.query(TaxonomyEntityORM).filter_by(physical_location=u).first()
+            l1, l2 = split_subtopic_levels(clean_sub_topic)
+            if ent:
+                ent.kingdom = clean_topic
+                ent.phylum = l1
+                ent.class_name = l2
+                parts = ent.taxonomy_path.split("/") if ent.taxonomy_path else []
+                if len(parts) >= 7:
+                    parts[0] = clean_topic
+                    parts[1] = l1
+                    parts[2] = l2
+                    ent.taxonomy_path = "/".join(parts)
+                ent.updated_at = now_iso
+
+            stmts = session.query(ContextStatementORM).filter_by(source_uri=u).all()
+            for s in stmts:
+                s.kingdom = clean_topic
+                s.phylum = l1
+                s.class_name = l2
+                cparts = s.canonical_path.split("/") if s.canonical_path else []
+                if len(cparts) >= 3:
+                    cparts[0] = clean_topic
+                    cparts[1] = l1
+                    cparts[2] = l2
+                    s.canonical_path = "/".join(cparts)
+                s.updated_at = now_iso
+
+            moved_urls.append(u)
+
+        session.commit()
+
+    logger.info(f"Bulk moved {len(moved_urls)} items to {clean_topic}/{clean_sub_topic}")
+    return {
+        "status": "success",
+        "moved_count": len(moved_urls),
+        "target_topic": clean_topic,
+        "target_sub_topic": clean_sub_topic,
+        "urls": moved_urls,
+    }
+
+
+def bulk_move_facts(
+    statement_ids: List[str],
+    target_canonical_path: str,
+    target_kingdom: Optional[str] = None,
+    target_phylum: Optional[str] = None,
+    target_class: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Bulk relocates context statements to a new folder/path."""
+    if not statement_ids:
+        return {"status": "success", "moved_count": 0, "statement_ids": []}
+
+    clean_path = target_canonical_path.strip().replace(" > ", "/").replace("::", "/")
+    parts = [p.strip() for p in clean_path.split("/") if p.strip()]
+
+    k = target_kingdom or (parts[0] if len(parts) > 0 else "General")
+    p = target_phylum or (parts[1] if len(parts) > 1 else "General")
+    c = target_class or (parts[2] if len(parts) > 2 else "Overview")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    moved_ids = []
+
+    with db_session() as session:
+        stmts = session.query(ContextStatementORM).filter(ContextStatementORM.id.in_(statement_ids)).all()
+        for stmt in stmts:
+            stmt.canonical_path = clean_path
+            stmt.kingdom = k
+            stmt.phylum = p
+            stmt.class_name = c
+            stmt.updated_at = now_iso
+            moved_ids.append(stmt.id)
+        session.commit()
+
+    return {
+        "status": "success",
+        "moved_count": len(moved_ids),
+        "target_canonical_path": clean_path,
+        "statement_ids": moved_ids,
+    }
+
+
 class TaxonomyEngine:
     """Persistence, template generation, and abstract view querying."""
 

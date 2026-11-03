@@ -43,6 +43,9 @@ from ..taxonomy.engine import (
     deny_topic_or_subtopic,
     classify_steered_hierarchical,
     nuke_all_taxonomy,
+    delete_topic_or_subtopic,
+    bulk_move_items,
+    bulk_move_facts,
 )
 from ..taxonomy.steered_tree import get_steered_tree_manager, SteeredTaxonomyNode
 from ..context_mesh.personal_vk import get_personal_vk_manager
@@ -892,4 +895,99 @@ def api_update_personal_vk(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Updates and validates the curated nested personal VK context layer."""
     saved = get_personal_vk_manager().save_context(payload)
     return {"status": "success", "personal_vk": saved}
+
+
+class DeleteTopicRequest(BaseModel):
+    name: str = Field(..., description="Name of topic or sub-topic to permanently delete")
+    level: str = Field("topic", description="'topic' or 'sub_topic'")
+    reassign_to: Optional[str] = Field(None, description="Optional target topic to reassign affected items to")
+
+
+class BulkMoveItemsRequest(BaseModel):
+    urls: List[str] = Field(..., description="List of URLs to move")
+    target_topic: str = Field(..., description="Destination topic name")
+    target_sub_topic: Optional[str] = Field(None, description="Destination sub-topic name")
+
+
+class BulkMoveFactsRequest(BaseModel):
+    statement_ids: List[str] = Field(..., description="List of statement IDs to relocate")
+    target_path: str = Field(..., description="Destination canonical path")
+    target_kingdom: Optional[str] = Field(None, description="Destination Kingdom")
+    target_phylum: Optional[str] = Field(None, description="Destination Phylum")
+    target_class: Optional[str] = Field(None, description="Destination Class")
+
+
+class AddTreeNodeRequest(BaseModel):
+    name: str = Field(..., description="Name of the new node / folder")
+    parent_id: Optional[str] = Field(None, description="Optional parent node ID")
+    level: Optional[str] = Field(None, description="Optional level (kingdom, phylum, class, etc.)")
+    description: str = Field("", description="Optional node description")
+
+
+class DeleteTreeNodeRequest(BaseModel):
+    node_id: str = Field(..., description="ID or name of node to remove")
+
+
+@router.post("/api/taxonomy/topics/delete", response_model=None)
+def api_delete_topic(payload: DeleteTopicRequest) -> Dict[str, Any]:
+    """Permanently deletes a topic or sub-topic, cascading to children and re-assigning/resetting items."""
+    try:
+        return delete_topic_or_subtopic(
+            name=payload.name,
+            level=payload.level,
+            reassign_to=payload.reassign_to,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/api/taxonomy/items/bulk-move", response_model=None)
+def api_bulk_move_items(payload: BulkMoveItemsRequest) -> Dict[str, Any]:
+    """Moves a batch of articles, notes, or videos to a new destination folder/topic."""
+    try:
+        return bulk_move_items(
+            urls=payload.urls,
+            target_topic=payload.target_topic,
+            target_sub_topic=payload.target_sub_topic,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/api/taxonomy/facts/bulk-move", response_model=None)
+def api_bulk_move_facts(payload: BulkMoveFactsRequest) -> Dict[str, Any]:
+    """Relocates a batch of context statements to a new folder / canonical path."""
+    return bulk_move_facts(
+        statement_ids=payload.statement_ids,
+        target_canonical_path=payload.target_path,
+        target_kingdom=payload.target_kingdom,
+        target_phylum=payload.target_phylum,
+        target_class=payload.target_class,
+    )
+
+
+@router.post("/api/taxonomy/tree/add-node", response_model=None)
+def api_add_tree_node(payload: AddTreeNodeRequest) -> Dict[str, Any]:
+    """Dynamically adds a custom folder / node anywhere in the taxonomy tree."""
+    try:
+        mgr = get_steered_tree_manager()
+        node = mgr.add_node(
+            name=payload.name,
+            parent_id=payload.parent_id,
+            level=payload.level,
+            description=payload.description,
+        )
+        return {"status": "success", "node": node.model_dump()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/api/taxonomy/tree/delete-node", response_model=None)
+def api_delete_tree_node(payload: DeleteTreeNodeRequest) -> Dict[str, Any]:
+    """Deletes a custom node/folder from the taxonomy tree."""
+    mgr = get_steered_tree_manager()
+    removed = mgr.delete_node(payload.node_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Node '{payload.node_id}' not found in tree")
+    return {"status": "success", "deleted_id": payload.node_id}
 
