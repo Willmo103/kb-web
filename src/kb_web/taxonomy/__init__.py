@@ -1,7 +1,8 @@
 """7-Tier Biological Taxonomy Classification & Management Package.
 
 Implements the biological taxonomy hierarchy (Kingdom -> Phylum -> Class -> Order -> Family -> Genus -> Species)
-for organizing knowledge, physical assets, notes, and code repositories.
+for organizing knowledge, physical assets, notes, and code repositories, coupled with
+steered tree governance, gating questions, domain blacklists, and lifecycle controls.
 """
 
 from .models import (
@@ -16,7 +17,19 @@ from .models import (
     SpeciesNodeInfo,
     TaxonomyEntityRecord,
 )
-from .engine import TaxonomyEngine, TaxonomyClassifier
+from .engine import (
+    TaxonomyEngine,
+    TaxonomyClassifier,
+    assign_topic_and_subtopic,
+    classify_steered_hierarchical,
+    nuke_all_taxonomy,
+)
+from .steered_tree import (
+    SteeredTaxonomyNode,
+    SteeredTaxonomyTreeManager,
+    get_steered_tree_manager,
+    get_default_steered_tree,
+)
 
 __all__ = [
     "TaxonomyLevel",
@@ -31,4 +44,11 @@ __all__ = [
     "TaxonomyEntityRecord",
     "TaxonomyEngine",
     "TaxonomyClassifier",
+    "assign_topic_and_subtopic",
+    "classify_steered_hierarchical",
+    "nuke_all_taxonomy",
+    "SteeredTaxonomyNode",
+    "SteeredTaxonomyTreeManager",
+    "get_steered_tree_manager",
+    "get_default_steered_tree",
 ]

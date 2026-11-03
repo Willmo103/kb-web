@@ -24,7 +24,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .base import _get_ollama_client, config, db_session
 from .models import HTMLPage
-from .models_orm import FetchedPage, ChunkEmbedding, WorkerJobExecution, ContextStatementORM
+from .models_orm import FetchedPage, ChunkEmbedding, WorkerJobExecution, ContextStatementORM, TaxonomyEntityORM
 from .pipeline import record_notification
 from .utils import (
     extract_tags_content,
@@ -375,6 +375,16 @@ class AutonomousWorker:
             default_interval_minutes=15,
             default_model=getattr(config, "ollama_model", "llama3.2"),
             runner=self._run_fact_extraction,
+        )
+
+        self.jobs["lifecycle_refetch"] = ServerJob(
+            job_id="lifecycle_refetch",
+            name="Taxonomy Content Refetch Agent",
+            description="Re-fetches and refreshes dynamic pages assigned to auto-refetch taxonomy nodes, dispatching Gotify alerts.",
+            category="crawler",
+            default_interval_minutes=30,
+            default_model="",
+            runner=self._run_lifecycle_refetch,
         )
 
     # -------------------------------------------------------------
@@ -902,6 +912,153 @@ class AutonomousWorker:
     # -------------------------------------------------------------
     # Management & Inspection APIs
     # -------------------------------------------------------------
+
+
+    async def _run_lifecycle_refetch(self, job: ServerJob, cycle_id: str) -> Dict[str, Any]:
+        """Re-fetches and refreshes dynamic pages assigned to auto-refetch taxonomy nodes, dispatching Gotify alerts."""
+        from .utils import fetch_url
+        from kb_core.notifier import Gotify
+
+        target_row = None
+        refetch_hours = 24
+        tax_path_str = ""
+
+        with db_session() as session:
+            entities = session.query(TaxonomyEntityORM).filter(
+                TaxonomyEntityORM.attributes_json.ilike('%"lifecycle_action": "refetch"%')
+            ).all()
+
+            now_dt = datetime.now(timezone.utc)
+            for ent in entities:
+                try:
+                    attr = json.loads(ent.attributes_json) if ent.attributes_json else {}
+                    interval_h = int(attr.get("refetch_interval_hours") or 24)
+                except Exception:
+                    interval_h = 24
+
+                url = ent.physical_location
+                page = session.query(FetchedPage).filter_by(url=url).first()
+                if not page:
+                    continue
+
+                if page.is_frozen:
+                    continue
+
+                should_refetch = False
+                if not page.fetched_at:
+                    should_refetch = True
+                else:
+                    try:
+                        ts_str = page.fetched_at.replace("Z", "+00:00")
+                        fetched_dt = datetime.fromisoformat(ts_str)
+                        if fetched_dt.tzinfo is None:
+                            fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
+                        if (now_dt - fetched_dt) >= timedelta(hours=interval_h):
+                            should_refetch = True
+                    except Exception:
+                        should_refetch = True
+
+                if should_refetch:
+                    target_row = {
+                        "url": page.url,
+                        "title": page.title or page.url,
+                        "interval_hours": interval_h,
+                    }
+                    tax_path_str = ent.taxonomy_path
+                    break
+
+        if not target_row:
+            job.last_activity = "Idle (no items due for refetch)"
+            return {"status": "noop", "message": "No pages due for scheduled refetch"}
+
+        url = target_row["url"]
+        title = target_row["title"]
+        job.last_activity = f"Refetching {title[:40]}"
+        logger.info(f"[JOB lifecycle_refetch] Re-fetching content for: {url}")
+
+        try:
+            page_obj = await run_in_threadpool(fetch_url, url)
+            now_iso = datetime.now(timezone.utc).isoformat()
+
+            with db_session() as session:
+                fp = session.query(FetchedPage).filter_by(url=url).first()
+                if fp:
+                    if page_obj.html_content:
+                        fp.html_content = page_obj.html_content
+                    if page_obj.md_content:
+                        fp.md_content = page_obj.md_content
+                    fp.fetched_at = now_iso
+                    session.commit()
+
+            gotify_sent = False
+            try:
+                notifier = Gotify(config.gotify_url, config.gotify_token)
+                notifier.send(
+                    title="Taxonomy Auto-Refetch Complete",
+                    message=(
+                        f"Auto-refetched content for: {title}\n"
+                        f"URL: {url}\n"
+                        f"Taxonomy Path: {tax_path_str}\n"
+                        f"Refetch Interval: {target_row['interval_hours']}h"
+                    ),
+                    priority=4,
+                )
+                gotify_sent = True
+            except Exception as e:
+                logger.debug(f"[JOB lifecycle_refetch] Gotify alert skipped or failed: {e}")
+
+            self.log_target_execution(
+                job_id="lifecycle_refetch",
+                target_id=url,
+                status="success",
+                items_count=1,
+            )
+            job.items_processed_total += 1
+            job.last_activity = f"Refetched {title[:40]}"
+            record_notification(
+                stage="worker",
+                status="success",
+                message=f"Taxonomy Content Refetch Agent refreshed: {title}",
+                url=url,
+                title=title,
+                task_id=cycle_id,
+            )
+            return {"status": "success", "url": url, "gotify_sent": gotify_sent}
+        except Exception as e:
+            err_msg = f"Lifecycle refetch failed for {url}: {e}"
+            logger.warning(err_msg)
+            self.log_target_execution(
+                job_id="lifecycle_refetch",
+                target_id=url,
+                status="failed",
+                error_message=str(e),
+            )
+            job.last_error = str(e)
+            return {"status": "failed", "error": err_msg}
+
+    def pause_non_core_jobs(self) -> Dict[str, Any]:
+        """Pauses all background worker jobs EXCEPT core features (wiki_curation, tag_curation)."""
+        paused = []
+        for jid, job in self.jobs.items():
+            if jid not in {"wiki_curation", "tag_curation"}:
+                job.enabled = False
+                paused.append(jid)
+        config._write_db_setting("settings_ollama", "worker_core_only_mode", "true")
+        return {"status": "success", "mode": "core_only", "paused_jobs": paused}
+
+    def resume_all_jobs(self) -> Dict[str, Any]:
+        """Resumes all background worker jobs."""
+        resumed = []
+        for jid, job in self.jobs.items():
+            job.enabled = True
+            resumed.append(jid)
+        config._write_db_setting("settings_ollama", "worker_core_only_mode", "false")
+        return {"status": "success", "mode": "all_active", "resumed_jobs": resumed}
+
+    def is_core_only_mode(self) -> bool:
+        """Check if worker is currently in core-only preset mode."""
+        val = config._read_db_setting("settings_ollama", "worker_core_only_mode", "false")
+        return str(val).strip().lower() in ("true", "1", "yes")
 
     def get_jobs(self) -> List[Dict[str, Any]]:
         """Returns the list of all configured jobs with operational status and metrics."""

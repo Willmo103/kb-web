@@ -620,7 +620,17 @@
                         Independent jobs for wiki curation, vector embeddings, synthetic grounding, RAG evaluation, and autonomous link crawling. Configure timespans (minutes) and assigned Ollama models per job.
                     </p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <form action="/admin/jobs/pause-non-core" method="post">
+                        <button type="submit" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold py-2.5 px-3.5 rounded-xl shadow-sm transition flex items-center gap-1.5" title="Pauses all secondary background jobs, preserving Wiki Curation and Tagging as active">
+                            <span>⏸️</span> Pause Non-Core Jobs
+                        </button>
+                    </form>
+                    <form action="/admin/jobs/resume-all" method="post">
+                        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-3.5 rounded-xl shadow-sm transition flex items-center gap-1.5" title="Resumes all registered background jobs">
+                            <span>▶️</span> Resume All Jobs
+                        </button>
+                    </form>
                     <a href="/reports?table=ollama_logs" class="bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-800 dark:text-gray-200 text-xs font-bold py-2.5 px-4 rounded-xl shadow-sm transition flex items-center gap-1.5 border border-gray-300 dark:border-slate-600" title="Inspect raw Ollama LLM requests, durations, options, and responses">
                         <span>📊</span> Ollama Model Logs
                     </a>

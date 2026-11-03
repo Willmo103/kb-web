@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.14] - 2026-11-02
+### Added
+- **User-Steered Taxonomy Tree & Gating Governance (`taxonomy/steered_tree.py`, `routers/taxonomy.py`)**:
+  - Implemented `SteeredTaxonomyNode` schema allowing users to curate, freeze, and steer hierarchical taxonomy trees with:
+    * Per-node gating criteria and qualification questions.
+    * Per-node and per-level domain/source blacklists (e.g. blocking unwanted domains from specific categories).
+    * `is_frozen` boundary enforcement preventing autonomous creation of unauthorized branches under frozen nodes.
+    * REST endpoints `GET /api/taxonomy/steered-tree` and `PUT /api/taxonomy/steered-tree` with persistent JSON and DB storage.
+- **Layer-by-Layer Hierarchical Guided Decision Classification (`taxonomy/engine.py`)**:
+  - Replaced open-ended ungrounded topic/sub-topic string prompts with structured layer-by-layer choice selection.
+  - Evaluates domain blacklists and candidate gating questions at each tier (Kingdom -> Phylum -> Class), strictly presenting only valid child choices of the vetted parent.
+  - Eliminates LLM category hallucinations and enforces placement into user-designated leaves.
+- **Content Lifecycle Controls & Gotify Auto-Refetch Alerts (`taxonomy/engine.py`, `worker.py`)**:
+  - Per-node lifecycle rules:
+    * `lifecycle_action: "freeze"`: Automatically marks ingested items with `is_frozen = 1`.
+    * `lifecycle_action: "refetch"`: Configures scheduled re-fetch intervals (`refetch_interval_hours`).
+  - Added autonomous `lifecycle_refetch` worker job that detects items due for refresh, re-fetches content via `fetch_url`, updates page records, and dispatches formatted push alerts via Gotify.
+- **Taxonomy Nuke & Full Reset System (`taxonomy/engine.py`, `routers/taxonomy.py`, `templates/taxonomy.j2.html`)**:
+  - Added `nuke_all_taxonomy(confirm=True)` and `POST /api/taxonomy/nuke` endpoint.
+  - Atomically deletes all `TaxonomyEntityORM` and `TaxonomyItem` records, resets `FetchedPage` topic/sub_topic to null and `topic_status` to `'unassigned'`, and clears statement taxonomy coordinates.
+  - Added interactive "Reset Taxonomy" button with confirmation dialog on the `/taxonomy` portal.
+- **Granular Worker Pausing & "Core Only" Preset Mode (`worker.py`, `routers/worker.py`, `templates/admin.j2.html`)**:
+  - Added `pause_non_core_jobs()` (`POST /api/jobs/pause-non-core`) and `resume_all_jobs()` (`POST /api/jobs/resume-all`).
+  - Allows one-click suspension of all secondary background tasks (topic assignment, embedding refresh, synthetic QA, RAG eval, crawling, fact extraction) while preserving core features: **AI Wiki Curation** and **Tagging**.
+  - Exposed "Pause Non-Core Jobs" and "Resume All Jobs" preset controls on the Admin Portal (`/admin`).
+- **Curated Nested Personal VK (Value-Knowledge) Context Layer (`context_mesh/personal_vk.py`, `context_mesh/injector.py`, `routers/taxonomy.py`)**:
+  - Added persistent nested JSON manager for user-curated personal values, interests, and operational principles (`GET/PUT /api/context-mesh/personal-vk`).
+  - Integrated into `SubconsciousContextInjector` to inject `<personal_values_context>` alongside subconscious statements into agent system prompts and taxonomic decision models.
+
 ## [0.5.13] - 2026-11-01
 ### Added
 - **Dedicated Taxonomical Fact Management Page & CRUDS API (`/facts`, `routers/taxonomy.py`, `templates/facts_management.j2.html`, GitHub Issue #122)**:

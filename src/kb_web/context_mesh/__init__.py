@@ -1,7 +1,7 @@
 """Context Mesh Package.
 
 Atomic context statements, declarative intent mappings, negative invariants,
-vector persistence, and feedback-loop fact extraction pipelines.
+vector persistence, feedback-loop fact extraction pipelines, and personal VK layer.
 """
 
 from .models import (
@@ -20,6 +20,11 @@ from .injector import (
     get_subconscious_injector,
     auto_inject_subconscious_context,
 )
+from .personal_vk import (
+    PersonalVKManager,
+    get_personal_vk_manager,
+    get_default_personal_vk,
+)
 
 __all__ = [
     "StatementType",
@@ -35,5 +40,7 @@ __all__ = [
     "SubconsciousContextInjector",
     "get_subconscious_injector",
     "auto_inject_subconscious_context",
+    "PersonalVKManager",
+    "get_personal_vk_manager",
+    "get_default_personal_vk",
 ]
-

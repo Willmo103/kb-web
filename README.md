@@ -31,6 +31,7 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - **Model Evaluation Studio & Calibration Suite**: Dedicated evaluation studio (`/evals`) for side-by-side comparative testing across models and prompts (Prompt & Model Matrix), structured multi-question decision gating (`d1` default with 16k context window and `tev1` via `client.systemone`), and embedding retrieval benchmarks before production worker agent deployment.
 - **Taxonomical Fact Management & Context Mesh**: Dedicated portal (`/facts`) and CRUDS + search API (`/api/context-mesh/statements`, `/api/context-mesh/search`) for atomic declarative context statements. Features hybrid, semantic vector, and lexical search, strict character limits (`max_fact_char_count`, default 144) with LLM condensation, vector deduplication (`fact_similarity_threshold`, 0.85), and automatic database purge of rejected statements.
 - **7-Tier Biological Taxonomy & Topic Governance**: Knowledge groundings organized via 7 biological tiers (Kingdom = General Topic, Phylum/Class = 2-tier Sub-Topics, Order/Family = Source/Theme, Genus/Species = Article Coordinates) with an interactive Topic Governance registry (`/taxonomy`), allowed topic enforcement, approval/denial actions, and auto-reassignment queues.
+- **Steered Taxonomy Tree, Gating Governance & Personal VK Layer**: User-steered hierarchical taxonomy tree schema (`SteeredTaxonomyNode`) with per-node gating criteria, domain/source blacklists, and frozen tree boundaries; layer-by-layer guided decision classification (Kingdom -> Phylum -> Class); content lifecycle automation (auto-freeze vs. auto-refetch with Gotify push alerts); complete taxonomy reset/nuke (`/api/taxonomy/nuke`); one-click 'Core Only' worker pause controls (`/api/jobs/pause-non-core`); and curated nested personal VK (value-knowledge) context layer injected into agent prompts.
 
 ---
 
@@ -43,6 +44,8 @@ A standalone web application and CLI wrapper for the Knowledge Base (kb) ecosyst
 - `src/kb_web/taxonomy_state_machine.py`: Autonomous ontology classifier, `tev1` decision gate, 10-item partitioning loop, and crawler.
 - `src/kb_web/agent_memory.py`: Cross-agent memory engine, channel dispatcher, and metrics aggregator.
 - `src/kb_web/agent_tools.py`: Workspace agent primitives (`create_file`, `read_file`, `edit_file`, `post_memory`).
+- `src/kb_web/taxonomy/steered_tree.py`: User-steered hierarchical taxonomy tree schema (`SteeredTaxonomyNode`), per-node gating, blacklists, and lifecycle rules.
+- `src/kb_web/context_mesh/personal_vk.py`: Curated nested personal VK (value-knowledge) context layer management, persistence, and prompt injection.
 - `src/kb_web/routers/rest_api.py`: Public JSON REST API endpoints (`/api/articles`, `/api/videos`, `/api/sites`, `/api/tags`).
 - `src/kb_web/routers/taxonomy.py`: Interactive taxonomy tree browser, 7-tier ontology, Topic Governance, Fact Management UI (`/facts`), and context mesh CRUDS & search API.
 - `src/kb_web/routers/agent_board.py`: Agent memory board UI and REST endpoints.

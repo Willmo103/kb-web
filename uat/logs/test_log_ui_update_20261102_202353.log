@@ -1,0 +1,91 @@
+=== PYTEST OUTPUT LOG ===
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\src\kb-web
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.15.1
+collected 308 items
+
+tests\test_async_ingestion_and_notifications.py ...                      [  0%]
+tests\test_batch_delete_and_freeze.py ........                           [  3%]
+tests\test_cli_auth_and_workspaces.py .......                            [  5%]
+tests\test_crawler.py ....                                               [  7%]
+tests\test_custom_agent_pages.py .......                                 [  9%]
+tests\test_db_cli.py .......                                             [ 11%]
+tests\test_embedding_unification.py .....                                [ 13%]
+tests\test_eval_datasets_and_d1.py ....                                  [ 14%]
+tests\test_evals_datasets_and_worker_agents.py .......                   [ 16%]
+tests\test_evals_freeform_and_per_model.py ....                          [ 18%]
+tests\test_evals_streaming_and_context.py ......                         [ 20%]
+tests\test_evals_studio.py ........                                      [ 22%]
+tests\test_html_cleaner.py .......                                       [ 25%]
+tests\test_issues_122_to_128.py .......                                  [ 27%]
+tests\test_jobs_framework_and_notifications.py .......                   [ 29%]
+tests\test_mobile_articles_and_worker.py .......                         [ 31%]
+tests\test_notes_cascade_and_workspace_ux.py .......                     [ 34%]
+tests\test_notes_taxonomy_prune.py ...                                   [ 35%]
+tests\test_notifications_history.py .....                                [ 36%]
+tests\test_qdrant_sync.py ...                                            [ 37%]
+tests\test_rag_agent_and_reports.py ..........                           [ 40%]
+tests\test_raw_sql_reports_and_restart.py ..........                     [ 44%]
+tests\test_rest_api.py ..........                                        [ 47%]
+tests\test_security_hardening.py ....................                    [ 53%]
+tests\test_server.py ................................................... [ 70%]
+...                                                                      [ 71%]
+tests\test_server_errors_and_maintenance_agent.py ........               [ 74%]
+tests\test_sprint6_features.py .............                             [ 78%]
+tests\test_steered_taxonomy_and_lifecycle.py .............               [ 82%]
+tests\test_system_prompts_admin.py ........                              [ 85%]
+tests\test_taxonomic_fact_extraction.py .............                    [ 89%]
+tests\test_taxonomy_and_agent_memory.py ................                 [ 94%]
+tests\test_taxonomy_and_facts_display.py .....                           [ 96%]
+tests\test_wiki_versions_and_url_routing.py .......                      [ 98%]
+tests\test_worker_job_execution_tracking.py .....                        [100%]
+
+============================== warnings summary ===============================
+.venv\Lib\site-packages\starlette\testclient.py:53
+  C:\src\kb-web\.venv\Lib\site-packages\starlette\testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+tests/test_crawler.py::test_api_crawl_endpoints
+  C:\src\kb-web\.venv\Lib\site-packages\alembic\config.py:604: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+tests/test_db_cli.py: 8 warnings
+tests/test_server.py: 41 warnings
+tests/test_sprint6_features.py: 15 warnings
+  C:\src\kb-web\.venv\Lib\site-packages\starlette\testclient.py:455: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return super().request(
+
+tests/test_server.py::test_bytes_backup_export_and_import[sqlite]
+  C:\src\kb-web\.venv\Lib\site-packages\starlette\testclient.py:671: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    super().request("GET", url, **kwargs)
+
+tests/test_server_errors_and_maintenance_agent.py: 1 warning
+tests/test_sprint6_features.py: 159 warnings
+tests/test_steered_taxonomy_and_lifecycle.py: 24 warnings
+tests/test_system_prompts_admin.py: 343 warnings
+tests/test_taxonomic_fact_extraction.py: 39 warnings
+tests/test_taxonomy_and_agent_memory.py: 14 warnings
+tests/test_taxonomy_and_facts_display.py: 11 warnings
+tests/test_wiki_versions_and_url_routing.py: 10 warnings
+tests/test_worker_job_execution_tracking.py: 50 warnings
+  C:\src\kb-web\src\kb_web\config.py:320: DeprecationWarning: get_db() is deprecated and will be removed; use SQLAlchemy db_session() instead.
+    db = get_db(self)
+
+tests/test_sprint6_features.py: 10 warnings
+tests/test_steered_taxonomy_and_lifecycle.py: 47 warnings
+tests/test_system_prompts_admin.py: 12 warnings
+tests/test_worker_job_execution_tracking.py: 2 warnings
+  C:\src\kb-web\src\kb_web\config.py:376: DeprecationWarning: get_db() is deprecated and will be removed; use SQLAlchemy db_session() instead.
+    db = get_db(self)
+
+tests/test_sprint6_features.py: 17 warnings
+tests/test_system_prompts_admin.py: 142 warnings
+tests/test_taxonomy_and_agent_memory.py: 4 warnings
+  C:\src\kb-web\src\kb_web\config.py:240: DeprecationWarning: get_db() is deprecated and will be removed; use SQLAlchemy db_session() instead.
+    return get_db(self)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================ 308 passed, 952 warnings in 547.14s (0:09:07) ================

@@ -111,10 +111,10 @@ def test_sync_taxonomy_entities_and_tree_generation(client: TestClient, seed_tes
     assert resp_tree.status_code == 200
     tree_data = resp_tree.json()
     assert tree_data["total_entities"] >= 2
-    assert "knowledge" in tree_data["tree"]
-    k_node = tree_data["tree"]["knowledge"]
-    assert k_node["level"] == "kingdom"
-    assert k_node["entity_count"] >= 2
+    assert len(tree_data["tree"]) >= 1
+    for k_name, k_node in tree_data["tree"].items():
+        assert k_node["level"] == "kingdom"
+        assert "phyla" in k_node
 
 
 def test_context_mesh_statements_api(client: TestClient, seed_test_data):

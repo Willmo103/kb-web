@@ -49,6 +49,24 @@ def list_jobs(request: Request) -> Dict[str, Any]:
     return {"jobs": autonomous_worker.get_jobs()}
 
 
+@router.post("/api/jobs/pause-non-core", dependencies=[Depends(verify_auth)], response_model=None)
+def api_pause_non_core_jobs() -> Dict[str, Any]:
+    """Pauses all background worker jobs EXCEPT core features (wiki_curation, tag_curation)."""
+    return autonomous_worker.pause_non_core_jobs()
+
+
+@router.post("/api/jobs/resume-all", dependencies=[Depends(verify_auth)], response_model=None)
+def api_resume_all_jobs() -> Dict[str, Any]:
+    """Resumes all background worker jobs."""
+    return autonomous_worker.resume_all_jobs()
+
+
+@router.get("/api/jobs/mode", response_model=None)
+def api_get_worker_mode() -> Dict[str, Any]:
+    """Returns whether the autonomous worker is in core-only preset mode."""
+    return {"core_only_mode": autonomous_worker.is_core_only_mode()}
+
+
 @router.get("/api/jobs/{job_id}", response_model=None)
 def get_job_detail(job_id: str) -> Dict[str, Any]:
     """Returns status and configuration details for a single server job."""
@@ -163,4 +181,20 @@ async def admin_trigger_worker_now() -> RedirectResponse:
         url="/admin#tab-prompts",
         status_code=303,
     )
+
+
+
+
+@router.post("/admin/jobs/pause-non-core", dependencies=[Depends(verify_auth)], response_class=RedirectResponse)
+def admin_pause_non_core_jobs() -> RedirectResponse:
+    """Admin form endpoint to pause non-core jobs, keeping wiki curation and tagging active."""
+    autonomous_worker.pause_non_core_jobs()
+    return RedirectResponse(url="/admin#tab-prompts", status_code=303)
+
+
+@router.post("/admin/jobs/resume-all", dependencies=[Depends(verify_auth)], response_class=RedirectResponse)
+def admin_resume_all_jobs() -> RedirectResponse:
+    """Admin form endpoint to resume all background worker jobs."""
+    autonomous_worker.resume_all_jobs()
+    return RedirectResponse(url="/admin#tab-prompts", status_code=303)
 

@@ -55,6 +55,9 @@
                 <span id="sync-spinner" class="hidden animate-spin">🌀</span>
                 <span>⚡ Sync Taxonomy from Library</span>
             </button>
+            <button onclick="confirmNukeTaxonomy()" class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition shadow-sm" title="Completely reset and wipe all taxonomy entities, item coordinates, and topic assignments across all items">
+                <span>⚠️</span> Reset Taxonomy
+            </button>
             <button onclick="window.location.reload()" class="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-xs font-semibold transition shadow-sm">
                 <span>🔄</span> Refresh
             </button>
@@ -919,6 +922,29 @@ function triggerCrawler() {
         .catch(function(err) {
             alert('Failed to trigger crawler: ' + err.message);
         });
+}
+
+function confirmNukeTaxonomy() {
+    if (!confirm("Are you sure you want to completely NUKE and reset all taxonomy entities and item assignments across all items? This will reset all page topics to unassigned.")) {
+        return;
+    }
+    fetch('/api/taxonomy/nuke', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            alert('Taxonomy reset successful! Reset ' + data.reset_pages_count + ' pages and deleted ' + data.deleted_entities_count + ' entities.');
+            window.location.reload();
+        } else {
+            alert('Error resetting taxonomy: ' + (data.detail || JSON.stringify(data)));
+        }
+    })
+    .catch(function(err) {
+        alert('Failed to reset taxonomy: ' + err.message);
+    });
 }
 
 function triggerNotesTaxonomyClassification() {

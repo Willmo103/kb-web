@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -22,11 +23,19 @@ from ..models_orm import (
     FetchedPage,
     Note,
     TaxonomyEntityORM,
+    TaxonomyItem,
     TopicGovernanceORM,
     WorkerJobExecution,
 )
 from ..utils import ensure_model_available
 from .models import TaxonomyEntityRecord, TaxonomyLevel, TaxonomyPath
+from .steered_tree import (
+    SteeredTaxonomyNode,
+    SteeredTaxonomyTreeManager,
+    get_steered_tree_manager,
+)
+
+logger = logging.getLogger("kb_web.taxonomy.engine")
 
 
 def slugify(text: str) -> str:
@@ -399,6 +408,383 @@ def get_topic_governance_summary(config_obj: Any = None) -> Dict[str, Any]:
         }
 
 
+def _prompt_choice_selection(
+    level: str,
+    parent_name: Optional[str],
+    candidates: List[SteeredTaxonomyNode],
+    url: str,
+    title: Optional[str],
+    content: Optional[str],
+    tags: Optional[List[str]],
+    client: Any,
+    model_name: str,
+) -> SteeredTaxonomyNode:
+    if len(candidates) == 1:
+        return candidates[0]
+
+    candidate_map = {c.id: c for c in candidates}
+    candidate_lines = []
+    for c in candidates:
+        gating_clause = f" [Gating Criteria: {'; '.join(c.gating_questions)}]" if c.gating_questions else ""
+        desc_clause = f" - {c.description}" if c.description else ""
+        candidate_lines.append(f"- Candidate ID: '{c.id}' | Display Name: '{c.name}'{desc_clause}{gating_clause}")
+
+    parent_clause = f" under '{parent_name}'" if parent_name else ""
+    sys_prompt = (
+        f"You are a Hierarchical Taxonomic Decision Model selecting the best {level.upper()} coordinate{parent_clause}.\n"
+        "Strictly evaluate candidate descriptions and enforce all Gating Criteria.\n"
+        "ALLOWED CANDIDATES:\n" + "\n".join(candidate_lines) + "\n\n"
+        "Rules:\n"
+        "1. Select EXACTLY ONE 'selected_id' from the candidate IDs provided.\n"
+        "2. Do NOT invent new categories outside the candidate choices.\n"
+        "3. If an item fails a candidate's gating criteria, it must not be chosen.\n"
+        "4. Respond with valid JSON only: {\"selected_id\": \"<id>\", \"rationale\": \"...\"}"
+    )
+    user_prompt = (
+        f"URL: {url}\n"
+        f"Title: {title or url}\n"
+        f"Tags: {', '.join(tags or [])}\n"
+        f"Content Snippet:\n{(content or '')[:1500]}\n\n"
+        "Return JSON with selected_id:"
+    )
+    try:
+        if client:
+            ensure_model_available(client, model_name)
+            resp = client.chat(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                options={"temperature": 0.0},
+            )
+            msg_content = ""
+            if isinstance(resp, dict):
+                msg_content = resp.get("message", {}).get("content", "")
+            elif hasattr(resp, "message") and hasattr(resp.message, "content"):
+                msg_content = resp.message.content
+
+            if msg_content:
+                cleaned = msg_content.strip()
+                if cleaned.startswith("```"):
+                    lines = cleaned.splitlines()
+                    if lines and lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].startswith("```"):
+                        lines = lines[:-1]
+                    cleaned = "\n".join(lines).strip()
+                parsed = json.loads(cleaned)
+                selected_id = str(parsed.get("selected_id", "")).strip()
+                if selected_id in candidate_map:
+                    return candidate_map[selected_id]
+                for cid, cnode in candidate_map.items():
+                    if cnode.name.lower() == selected_id.lower():
+                        return cnode
+    except Exception as e:
+        logger.debug(f"Choice selection model invocation failed, using heuristic: {e}")
+
+    # Heuristic fallback among valid candidates:
+    combined = f"{url} {title or ''} {' '.join(tags or [])} {(content or '')[:800]}".lower()
+    for c in candidates:
+        if c.name.lower() in combined or any(q.lower() in combined for q in c.gating_questions):
+            return c
+    return candidates[0]
+
+
+def classify_steered_hierarchical(
+    url: str,
+    title: Optional[str] = None,
+    md_content: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    config_obj: Any = None,
+    client: Any = None,
+    enforce_frozen: bool = True,
+) -> Dict[str, Any]:
+    """Classifies an item strictly layer-by-layer through the user-steered taxonomy tree.
+
+    1. Checks candidate choices at each level (Kingdom -> Phylum -> Class).
+    2. Excludes nodes where URL matches blacklisted domains.
+    3. Prompts decision model with choice set and gating questions.
+    4. Enforces frozen tree boundaries (no dynamic arbitrary categories under frozen nodes).
+    5. Applies node lifecycle actions ('freeze' -> is_frozen=1, 'refetch' -> marks periodic interval).
+    6. Persists taxonomy entity, updates page topic/sub_topic, and coordinates context statements.
+    """
+    cfg = config_obj or default_config
+    ollama_client = client or _get_ollama_client()
+    tree_mgr = get_steered_tree_manager()
+
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=url).first()
+        if page:
+            if not title:
+                title = page.title or url
+            if not md_content:
+                md_content = page.description or page.md_content or ""
+            if tags is None and page.tags:
+                try:
+                    parsed_t = json.loads(page.tags)
+                    if isinstance(parsed_t, list):
+                        tags = parsed_t
+                except Exception:
+                    tags = [t.strip() for t in str(page.tags).split(",") if t.strip()]
+
+    tags = tags or []
+    model_name = getattr(cfg, "ollama_model", "gemma4:latest")
+    parsed_url = urlparse(url or "")
+    domain = parsed_url.netloc or ""
+
+    # Layer 1: Kingdom candidates
+    kingdom_candidates = tree_mgr.get_valid_children(None, url_or_domain=domain)
+    if not kingdom_candidates:
+        with db_session() as session:
+            fp = session.query(FetchedPage).filter_by(url=url).first()
+            if fp:
+                fp.topic_status = f"blacklisted_domain: {domain}"
+            session.commit()
+        return {
+            "status": "blacklisted",
+            "url": url,
+            "reason": f"Domain {domain} is blacklisted across root taxonomy nodes",
+            "topic": None,
+            "sub_topic": None,
+            "topic_status": f"blacklisted_domain: {domain}",
+        }
+
+    selected_kingdom = _prompt_choice_selection(
+        level="kingdom",
+        parent_name=None,
+        candidates=kingdom_candidates,
+        url=url,
+        title=title,
+        content=md_content,
+        tags=tags,
+        client=ollama_client,
+        model_name=model_name,
+    )
+    assigned_topic = selected_kingdom.name
+
+    # Layer 2: Phylum candidates
+    phylum_candidates = tree_mgr.get_valid_children(selected_kingdom, url_or_domain=domain)
+    selected_phylum: Optional[SteeredTaxonomyNode] = None
+    if phylum_candidates:
+        selected_phylum = _prompt_choice_selection(
+            level="phylum",
+            parent_name=selected_kingdom.name,
+            candidates=phylum_candidates,
+            url=url,
+            title=title,
+            content=md_content,
+            tags=tags,
+            client=ollama_client,
+            model_name=model_name,
+        )
+        assigned_phylum = selected_phylum.name
+    else:
+        if selected_kingdom.is_frozen and enforce_frozen:
+            assigned_phylum = "General"
+        else:
+            l1, _ = split_subtopic_levels(None, tags=tags, fallback_l1=slugify(tags[0]) if tags else "General")
+            assigned_phylum = l1
+
+    # Layer 3: Class candidates
+    class_candidates = (
+        tree_mgr.get_valid_children(selected_phylum, url_or_domain=domain)
+        if selected_phylum
+        else []
+    )
+    selected_class: Optional[SteeredTaxonomyNode] = None
+    if class_candidates:
+        selected_class = _prompt_choice_selection(
+            level="class",
+            parent_name=selected_phylum.name if selected_phylum else assigned_phylum,
+            candidates=class_candidates,
+            url=url,
+            title=title,
+            content=md_content,
+            tags=tags,
+            client=ollama_client,
+            model_name=model_name,
+        )
+        assigned_class = selected_class.name
+    else:
+        if (selected_phylum and selected_phylum.is_frozen) or (selected_kingdom.is_frozen and enforce_frozen):
+            assigned_class = "Overview"
+        else:
+            _, l2 = split_subtopic_levels(
+                None,
+                tags=tags,
+                fallback_l2=slugify(tags[1]) if (tags and len(tags) > 1) else clean_tier_token(domain.split(".")[0] if domain else "Overview", "Overview"),
+            )
+            assigned_class = l2
+
+    assigned_sub_topic = f"{assigned_phylum}/{assigned_class}"
+
+    # Determine Lifecycle Action:
+    # Priority: leaf class -> phylum -> kingdom
+    effective_lifecycle = "none"
+    refetch_hours = None
+    for node in [selected_class, selected_phylum, selected_kingdom]:
+        if node and node.lifecycle_action != "none":
+            effective_lifecycle = node.lifecycle_action
+            refetch_hours = node.refetch_interval_hours
+            break
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    topic_status = "approved"
+
+    with db_session() as session:
+        top_row = (
+            session.query(TopicGovernanceORM)
+            .filter(TopicGovernanceORM.name.ilike(assigned_topic))
+            .first()
+        )
+        if not top_row:
+            top_row = TopicGovernanceORM(
+                name=assigned_topic,
+                level="topic",
+                parent_topic=None,
+                status="allowed",
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+            session.add(top_row)
+
+        sub_row = (
+            session.query(TopicGovernanceORM)
+            .filter(TopicGovernanceORM.name.ilike(assigned_sub_topic))
+            .first()
+        )
+        if not sub_row:
+            sub_row = TopicGovernanceORM(
+                name=assigned_sub_topic,
+                level="sub_topic",
+                parent_topic=assigned_topic,
+                status="allowed",
+                created_at=now_iso,
+                updated_at=now_iso,
+            )
+            session.add(sub_row)
+
+        fp = session.query(FetchedPage).filter_by(url=url).first()
+        if fp:
+            fp.topic = assigned_topic
+            fp.sub_topic = assigned_sub_topic
+            fp.topic_status = topic_status
+            if effective_lifecycle == "freeze":
+                fp.is_frozen = 1
+            elif effective_lifecycle == "refetch":
+                fp.is_frozen = 0
+
+        session.commit()
+
+    if "youtube.com" in url or "youtu.be" in url:
+        tax_path = TaxonomyClassifier.classify_youtube_video(
+            url=url,
+            title=title,
+            topic=assigned_topic,
+            sub_topic=assigned_sub_topic,
+            tags=tags,
+        )
+    else:
+        tax_path = TaxonomyClassifier.classify_article(
+            url=url,
+            title=title,
+            tags=tags,
+            description=md_content,
+            topic=assigned_topic,
+            sub_topic=assigned_sub_topic,
+        )
+
+    entity_attributes = {
+        "title": title or url,
+        "tags": tags,
+        "topic": assigned_topic,
+        "sub_topic": assigned_sub_topic,
+        "topic_status": topic_status,
+        "source_type": "video" if ("youtube.com" in url or "youtu.be" in url) else "article",
+        "lifecycle_action": effective_lifecycle,
+        "refetch_interval_hours": refetch_hours,
+        "steered_nodes": {
+            "kingdom": selected_kingdom.id,
+            "phylum": selected_phylum.id if selected_phylum else None,
+            "class": selected_class.id if selected_class else None,
+        },
+    }
+
+    TaxonomyEngine().register_entity(
+        taxonomy=tax_path,
+        physical_location=url,
+        attributes=entity_attributes,
+    )
+
+    try:
+        from ..context_mesh.store import ContextStore
+        ContextStore().update_statements_taxonomy_for_source(url, tax_path.to_path_string("/"))
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "url": url,
+        "topic": assigned_topic,
+        "sub_topic": assigned_sub_topic,
+        "topic_status": topic_status,
+        "taxonomy_path": tax_path.to_path_string("/"),
+        "lifecycle_action": effective_lifecycle,
+        "refetch_interval_hours": refetch_hours,
+    }
+
+
+def nuke_all_taxonomy(confirm: bool = False) -> Dict[str, Any]:
+    """Completely resets and wipes all taxonomy entries across all items."""
+    if not confirm:
+        return {
+            "status": "error",
+            "message": "Nuke confirmation parameter 'confirm=True' is required to wipe all taxonomy data.",
+        }
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with db_session() as session:
+        deleted_entities = session.query(TaxonomyEntityORM).delete(synchronize_session=False)
+        deleted_items = session.query(TaxonomyItem).delete(synchronize_session=False)
+        reset_pages = session.query(FetchedPage).update(
+            {
+                FetchedPage.topic: None,
+                FetchedPage.sub_topic: None,
+                FetchedPage.topic_status: "unassigned",
+            },
+            synchronize_session=False,
+        )
+        reset_statements = session.query(ContextStatementORM).update(
+            {
+                ContextStatementORM.canonical_path: "unassigned",
+                ContextStatementORM.kingdom: None,
+                ContextStatementORM.phylum: None,
+                ContextStatementORM.class_name: None,
+                ContextStatementORM.order_name: None,
+                ContextStatementORM.family: None,
+                ContextStatementORM.genus: None,
+                ContextStatementORM.species: None,
+            },
+            synchronize_session=False,
+        )
+        session.commit()
+
+    logger.info(
+        f"Taxonomy nuked: {deleted_entities} entities deleted, {deleted_items} items deleted, "
+        f"{reset_pages} pages reset, {reset_statements} statements reset."
+    )
+    return {
+        "status": "success",
+        "action": "taxonomy_nuked",
+        "deleted_entities_count": deleted_entities,
+        "deleted_items_count": deleted_items,
+        "reset_pages_count": reset_pages,
+        "reset_statements_count": reset_statements,
+        "timestamp": now_iso,
+    }
+
+
 def assign_topic_and_subtopic(
     url: str,
     title: Optional[str] = None,
@@ -406,13 +792,25 @@ def assign_topic_and_subtopic(
     tags: Optional[List[str]] = None,
     config_obj: Any = None,
     client: Any = None,
+    use_steered_hierarchy: bool = True,
 ) -> Dict[str, Any]:
     """Pipeline & Worker step:
-    1. Assigns a general Topic (Kingdom) to an article or video.
-    2. Checks against allowed topics (and blocklisted denied topics).
-    3. Assigns a 2-level Sub-Topic (Phylum/Class).
-    4. Persists topic, sub_topic, topic_status, and updates 7-tier TaxonomyEntityORM & ContextStatements.
+    1. By default, executes steered layer-by-layer hierarchical decision classification.
+    2. Enforces user tree governance, per-node gating questions, domain blacklists, and lifecycle rules.
+    3. Falls back gracefully to heuristic/legacy path if needed.
     """
+    if use_steered_hierarchy:
+        try:
+            return classify_steered_hierarchical(
+                url=url,
+                title=title,
+                md_content=md_content,
+                tags=tags,
+                config_obj=config_obj,
+                client=client,
+            )
+        except Exception as e:
+            logger.warning(f"Steered hierarchical classification encountered error, falling back: {e}")
     cfg = config_obj or default_config
     ollama_client = client or _get_ollama_client()
     allowed_topics = ensure_default_topics_seeded(cfg)

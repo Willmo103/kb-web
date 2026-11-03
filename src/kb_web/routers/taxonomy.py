@@ -41,7 +41,11 @@ from ..taxonomy.engine import (
     assign_topic_and_subtopic,
     approve_topic_or_subtopic,
     deny_topic_or_subtopic,
+    classify_steered_hierarchical,
+    nuke_all_taxonomy,
 )
+from ..taxonomy.steered_tree import get_steered_tree_manager, SteeredTaxonomyNode
+from ..context_mesh.personal_vk import get_personal_vk_manager
 from ..context_mesh.models import ContextStatement, EvalStatus, StatementType, TaxonomicLayer
 from ..context_mesh.store import ContextStore
 from ..context_mesh.pipeline import FactExtractionPipeline
@@ -832,3 +836,60 @@ def extract_facts_now_endpoint(
             "extracted_count": len(stmts),
             "statements": [s.model_dump() for s in stmts],
         }
+
+
+class NukeTaxonomyRequest(BaseModel):
+    confirm: bool = Field(False, description="Must be true to wipe all taxonomy data")
+
+
+class ClassifySteeredRequest(BaseModel):
+    url: str = Field(..., description="Target page URL")
+
+
+class SteeredTreeUpdateRequest(BaseModel):
+    tree: List[Dict[str, Any]] = Field(..., description="Updated steered taxonomy tree")
+
+
+@router.post("/api/taxonomy/nuke", response_model=None)
+def api_nuke_taxonomy(payload: NukeTaxonomyRequest) -> Dict[str, Any]:
+    """Completely resets and wipes all taxonomy entries, entities, and assignments across all items."""
+    if not payload.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Nuke confirmation parameter 'confirm: true' is strictly required.",
+        )
+    return nuke_all_taxonomy(confirm=True)
+
+
+@router.get("/api/taxonomy/steered-tree", response_model=None)
+def api_get_steered_tree() -> Dict[str, Any]:
+    """Returns the user-steered taxonomy tree with per-node gating, blacklists, and lifecycle rules."""
+    tree = get_steered_tree_manager().get_tree()
+    return {"tree": [node.model_dump() for node in tree], "count": len(tree)}
+
+
+@router.put("/api/taxonomy/steered-tree", response_model=None)
+def api_update_steered_tree(payload: SteeredTreeUpdateRequest) -> Dict[str, Any]:
+    """Updates and saves the user-steered taxonomy tree hierarchy."""
+    saved = get_steered_tree_manager().save_tree(payload.tree)
+    return {"status": "success", "tree": [node.model_dump() for node in saved], "count": len(saved)}
+
+
+@router.post("/api/taxonomy/classify-steered", response_model=None)
+def api_classify_steered(payload: ClassifySteeredRequest) -> Dict[str, Any]:
+    """Executes steered layer-by-layer hierarchical decision classification for a given page."""
+    return classify_steered_hierarchical(url=payload.url)
+
+
+@router.get("/api/context-mesh/personal-vk", response_model=None)
+def api_get_personal_vk() -> Dict[str, Any]:
+    """Retrieves the nested personal VK (value-knowledge) context layer."""
+    return get_personal_vk_manager().get_context()
+
+
+@router.put("/api/context-mesh/personal-vk", response_model=None)
+def api_update_personal_vk(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Updates and validates the curated nested personal VK context layer."""
+    saved = get_personal_vk_manager().save_context(payload)
+    return {"status": "success", "personal_vk": saved}
+
