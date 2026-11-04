@@ -22,6 +22,7 @@ from ..models_orm import (
     ContextStatementORM,
     FetchedPage,
     Note,
+    SettingExternal,
     TaxonomyEntityORM,
     TaxonomyItem,
     TopicGovernanceORM,
@@ -293,12 +294,24 @@ class TaxonomyClassifier:
 
 
 def ensure_default_topics_seeded(config_obj: Any = None) -> List[str]:
-    """Seed default allowed top-level topics into TopicGovernanceORM if not present."""
+    """Seed default allowed top-level topics into TopicGovernanceORM if not present and never initialized."""
     cfg = config_obj or default_config
     allowed_list = cfg.get_allowed_topics_list()
     now_iso = datetime.now(timezone.utc).isoformat()
 
     with db_session() as session:
+        # Check if already initialized once in SettingExternal
+        init_setting = session.query(SettingExternal).filter_by(key="taxonomy_default_topics_initialized").first()
+        if init_setting and init_setting.value == "1":
+            allowed_rows = [
+                r.name
+                for r in session.query(TopicGovernanceORM)
+                .filter_by(level="topic", status="allowed")
+                .order_by(TopicGovernanceORM.id.asc())
+                .all()
+            ]
+            return allowed_rows
+
         existing_rows = session.query(TopicGovernanceORM).all()
         existing_by_lower = {r.name.lower(): r for r in existing_rows}
 
@@ -317,6 +330,11 @@ def ensure_default_topics_seeded(config_obj: Any = None) -> List[str]:
                 )
                 session.add(rec)
                 existing_by_lower[clean_name.lower()] = rec
+
+        if not init_setting:
+            session.add(SettingExternal(key="taxonomy_default_topics_initialized", value="1"))
+        else:
+            init_setting.value = "1"
         session.commit()
 
         final_allowed = [
@@ -1249,7 +1267,7 @@ def delete_topic_or_subtopic(
                     p.sub_topic = reassign_to
                     p.topic_status = "approved"
                 else:
-                    p.sub_topic = "General"
+                    p.sub_topic = None
 
         session.commit()
 
@@ -1640,18 +1658,18 @@ class TaxonomyEngine:
 
             stmt_counts: Dict[str, int] = {}
             for r in stmt_rows:
-                k = r[1] or "General"
-                p = r[2] or "General"
-                o = r[3] or "general"
+                k = r[1] if (r[1] and r[1].strip() and r[1].lower() not in ("general", "unassigned", "none")) else "Unclassified"
+                p = r[2] if (r[2] and r[2].strip() and r[2].lower() not in ("general", "unassigned", "none")) else "Unclassified"
+                o = r[3] if (r[3] and r[3].strip() and r[3].lower() not in ("general", "unassigned", "none")) else "unclassified"
                 stmt_counts[f"{k}"] = stmt_counts.get(f"{k}", 0) + 1
                 stmt_counts[f"{k}/{p}"] = stmt_counts.get(f"{k}/{p}", 0) + 1
                 stmt_counts[f"{k}/{p}/{o}"] = stmt_counts.get(f"{k}/{p}/{o}", 0) + 1
 
             for e in entities:
-                k = e.kingdom or "General"
-                p = e.phylum or "General"
-                o = e.order_name or "general"
-                f = e.family or "general"
+                k = e.kingdom if (e.kingdom and e.kingdom.strip() and e.kingdom.lower() not in ("general", "unassigned", "none")) else "Unclassified"
+                p = e.phylum if (e.phylum and e.phylum.strip() and e.phylum.lower() not in ("general", "unassigned", "none")) else "Unclassified"
+                o = e.order_name if (e.order_name and e.order_name.strip() and e.order_name.lower() not in ("general", "unassigned", "none")) else "unclassified"
+                f = e.family if (e.family and e.family.strip() and e.family.lower() not in ("general", "unassigned", "none")) else "unclassified"
 
                 if k not in tree:
                     tree[k] = {
@@ -1704,10 +1722,10 @@ class TaxonomyEngine:
 
             # Ensure statements whose kingdom/phylum/order don't have a TaxonomyEntityORM yet are still represented
             for r in stmt_rows:
-                k = r[1] or "General"
-                p = r[2] or "General"
-                o = r[3] or "general"
-                f = r[4] or "general"
+                k = r[1] if (r[1] and r[1].strip() and r[1].lower() not in ("general", "unassigned", "none")) else "Unclassified"
+                p = r[2] if (r[2] and r[2].strip() and r[2].lower() not in ("general", "unassigned", "none")) else "Unclassified"
+                o = r[3] if (r[3] and r[3].strip() and r[3].lower() not in ("general", "unassigned", "none")) else "unclassified"
+                f = r[4] if (r[4] and r[4].strip() and r[4].lower() not in ("general", "unassigned", "none")) else "unclassified"
                 if k not in tree:
                     tree[k] = {
                         "name": k,
@@ -1769,3 +1787,257 @@ class TaxonomyEngine:
             f"  species: \"{taxonomy.species}\"\n"
             "---\n"
         )
+
+
+
+def edit_topic(
+    old_name: str,
+    new_name: str,
+    level: Optional[str] = None,
+    status: Optional[str] = None,
+    description: Optional[str] = None,
+    gating_criteria: Optional[List[str]] = None,
+    domain_blacklist: Optional[List[str]] = None,
+    is_frozen: Optional[bool] = None,
+    lifecycle_action: Optional[str] = None,
+    refetch_interval_hours: Optional[int] = None,
+    config_obj: Any = None,
+) -> Dict[str, Any]:
+    """Edit an existing topic or folder node, renaming and cascading to all items and tree nodes."""
+    clean_old = old_name.strip()
+    clean_new = new_name.strip()
+    if not clean_old or not clean_new:
+        raise ValueError("Both old_name and new_name are required.")
+
+    cfg = config_obj or default_config
+    now_iso = datetime.now(timezone.utc).isoformat()
+    affected_pages = 0
+    affected_statements = 0
+
+    with db_session() as session:
+        # 1. Update TopicGovernanceORM
+        gov_row = session.query(TopicGovernanceORM).filter(
+            TopicGovernanceORM.name.ilike(clean_old)
+        ).first()
+
+        if gov_row:
+            gov_row.name = clean_new
+            if status:
+                gov_row.status = status.lower().strip()
+            gov_row.updated_at = now_iso
+            session.add(gov_row)
+
+        # Update children pointing to old_name as parent
+        child_rows = session.query(TopicGovernanceORM).filter(
+            TopicGovernanceORM.parent_topic.ilike(clean_old)
+        ).all()
+        for ch in child_rows:
+            ch.parent_topic = clean_new
+            ch.updated_at = now_iso
+            session.add(ch)
+
+        # 2. Cascade FetchedPage
+        pages_topic = session.query(FetchedPage).filter(FetchedPage.topic.ilike(clean_old)).all()
+        for p in pages_topic:
+            p.topic = clean_new
+            affected_pages += 1
+
+        pages_sub = session.query(FetchedPage).filter(FetchedPage.sub_topic.ilike(clean_old)).all()
+        for p in pages_sub:
+            p.sub_topic = clean_new
+            affected_pages += 1
+
+        # 3. Cascade TaxonomyEntityORM
+        entities = session.query(TaxonomyEntityORM).filter(
+            or_(
+                TaxonomyEntityORM.kingdom.ilike(clean_old),
+                TaxonomyEntityORM.phylum.ilike(clean_old),
+            )
+        ).all()
+        for e in entities:
+            if e.kingdom and e.kingdom.lower() == clean_old.lower():
+                e.kingdom = clean_new
+            if e.phylum and e.phylum.lower() == clean_old.lower():
+                e.phylum = clean_new
+            if e.canonical_path:
+                parts = e.canonical_path.split("/")
+                parts = [clean_new if p.lower() == clean_old.lower() else p for p in parts]
+                e.canonical_path = "/".join(parts)
+            session.add(e)
+
+        # 4. Cascade ContextStatementORM
+        stmts = session.query(ContextStatementORM).filter(
+            or_(
+                ContextStatementORM.kingdom.ilike(clean_old),
+                ContextStatementORM.phylum.ilike(clean_old),
+                ContextStatementORM.canonical_path.ilike(f"%{clean_old}%"),
+            )
+        ).all()
+        for s in stmts:
+            if s.kingdom and s.kingdom.lower() == clean_old.lower():
+                s.kingdom = clean_new
+            if s.phylum and s.phylum.lower() == clean_old.lower():
+                s.phylum = clean_new
+            if s.canonical_path:
+                parts = s.canonical_path.split("/")
+                parts = [clean_new if p.lower() == clean_old.lower() else p for p in parts]
+                s.canonical_path = "/".join(parts)
+            session.add(s)
+            affected_statements += 1
+
+        session.commit()
+
+    # 5. Update SteeredTree
+    try:
+        tree_mgr = get_steered_tree_manager()
+        tree = tree_mgr.get_tree()
+        node = tree_mgr.find_node(clean_old, tree)
+        if node:
+            node.name = clean_new
+            node.id = clean_new
+            if description is not None:
+                node.description = description
+            if gating_criteria is not None:
+                node.gating_questions = gating_criteria
+            if domain_blacklist is not None:
+                node.blacklisted_domains = domain_blacklist
+            if is_frozen is not None:
+                node.is_frozen = is_frozen
+            if lifecycle_action is not None:
+                node.lifecycle_action = lifecycle_action
+            if refetch_interval_hours is not None:
+                node.refetch_interval_hours = refetch_interval_hours
+            tree_mgr.save_tree(tree)
+    except Exception as e:
+        logger.warning(f"Error updating steered tree node {clean_old} -> {clean_new}: {e}")
+
+    # 6. Update config allowed_topics list if applicable
+    allowed_list = cfg.get_allowed_topics_list()
+    new_allowed = [clean_new if t.lower() == clean_old.lower() else t for t in allowed_list]
+    if new_allowed != allowed_list:
+        cfg.allowed_topics = ", ".join(new_allowed)
+
+    logger.info(f"Edited topic '{clean_old}' -> '{clean_new}'; affected {affected_pages} pages, {affected_statements} statements.")
+    return {
+        "status": "success",
+        "action": "edited",
+        "old_name": clean_old,
+        "new_name": clean_new,
+        "affected_pages": affected_pages,
+        "affected_statements": affected_statements,
+    }
+
+
+def get_library_items_summary(
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    source_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """Retrieve imported library items (articles, pages, notes, videos) with taxonomy classification status for search and placement."""
+    with db_session() as session:
+        query = session.query(
+            FetchedPage.url,
+            FetchedPage.title,
+            FetchedPage.topic,
+            FetchedPage.sub_topic,
+            FetchedPage.topic_status,
+            FetchedPage.tags,
+            FetchedPage.fetched_at,
+        )
+
+        if search and search.strip():
+            pat = f"%{search.strip()}%"
+            query = query.filter(
+                or_(
+                    FetchedPage.title.ilike(pat),
+                    FetchedPage.url.ilike(pat),
+                    FetchedPage.tags.ilike(pat),
+                    FetchedPage.topic.ilike(pat),
+                    FetchedPage.sub_topic.ilike(pat),
+                )
+            )
+
+        if status == "unclassified":
+            query = query.filter(
+                or_(
+                    FetchedPage.topic.is_(None),
+                    FetchedPage.topic == "",
+                    FetchedPage.topic.ilike("unclassified"),
+                    FetchedPage.topic.ilike("general"),
+                    FetchedPage.topic_status == "unassigned",
+                )
+            )
+        elif status == "assigned":
+            query = query.filter(
+                FetchedPage.topic.isnot(None),
+                FetchedPage.topic != "",
+                ~FetchedPage.topic.ilike("unclassified"),
+                ~FetchedPage.topic.ilike("general"),
+                FetchedPage.topic_status != "unassigned",
+            )
+
+        if source_type and source_type != "all":
+            if source_type == "video":
+                query = query.filter(or_(FetchedPage.url.ilike("%youtube.com%"), FetchedPage.url.ilike("%youtu.be%")))
+            elif source_type == "note":
+                query = query.filter(FetchedPage.url.like("note://%"))
+            elif source_type == "article":
+                query = query.filter(
+                    ~FetchedPage.url.like("note://%"),
+                    ~FetchedPage.url.ilike("%youtube.com%"),
+                    ~FetchedPage.url.ilike("%youtu.be%"),
+                )
+
+        total = query.count()
+        unclassified_count = session.query(FetchedPage).filter(
+            or_(
+                FetchedPage.topic.is_(None),
+                FetchedPage.topic == "",
+                FetchedPage.topic.ilike("unclassified"),
+                FetchedPage.topic.ilike("general"),
+                FetchedPage.topic_status == "unassigned",
+            )
+        ).count()
+
+        rows = query.order_by(FetchedPage.fetched_at.desc(), FetchedPage.url.asc()).offset(offset).limit(limit).all()
+
+        items = []
+        for r in rows:
+            url_str = r.url or ""
+            domain = ""
+            try:
+                parsed = urlparse(url_str)
+                domain = parsed.netloc or ""
+            except Exception:
+                domain = ""
+
+            is_video = "youtube.com" in url_str or "youtu.be" in url_str
+            stype = "video" if is_video else ("article" if not url_str.startswith("note://") else "note")
+
+            topic_val = r.topic or ""
+            is_unclassified = (not topic_val or topic_val.lower() in ("general", "unclassified") or r.topic_status == "unassigned")
+
+            items.append({
+                "id": url_str,
+                "url": url_str,
+                "title": r.title or url_str,
+                "domain": domain,
+                "source_type": stype,
+                "topic": topic_val,
+                "sub_topic": r.sub_topic or "",
+                "canonical_path": f"{topic_val}/{r.sub_topic}" if (topic_val and r.sub_topic) else (topic_val or "Unclassified"),
+                "topic_status": r.topic_status or "unassigned",
+                "is_unclassified": is_unclassified,
+                "tags": r.tags or "",
+                "created_at": r.fetched_at or "",
+            })
+
+        return {
+            "items": items,
+            "total": total,
+            "unclassified_count": unclassified_count,
+            "limit": limit,
+            "offset": offset,
+        }

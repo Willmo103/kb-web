@@ -46,6 +46,8 @@ from ..taxonomy.engine import (
     delete_topic_or_subtopic,
     bulk_move_items,
     bulk_move_facts,
+    edit_topic,
+    get_library_items_summary,
 )
 from ..taxonomy.steered_tree import get_steered_tree_manager, SteeredTaxonomyNode
 from ..context_mesh.personal_vk import get_personal_vk_manager
@@ -991,3 +993,55 @@ def api_delete_tree_node(payload: DeleteTreeNodeRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Node '{payload.node_id}' not found in tree")
     return {"status": "success", "deleted_id": payload.node_id}
 
+
+
+
+class EditTopicRequest(BaseModel):
+    old_name: str = Field(..., description="Current name of topic/folder")
+    new_name: str = Field(..., description="New name of topic/folder")
+    level: Optional[str] = Field("topic", description="'topic' or 'sub_topic'")
+    status: Optional[str] = Field(None, description="'allowed' or 'denied'")
+    description: Optional[str] = Field(None, description="Updated description")
+    gating_criteria: Optional[List[str]] = Field(None, description="Updated gating criteria questions")
+    domain_blacklist: Optional[List[str]] = Field(None, description="Updated domain blacklist")
+    is_frozen: Optional[bool] = Field(None, description="Whether node is frozen")
+    lifecycle_action: Optional[str] = Field(None, description="'freeze' or 'refetch'")
+    refetch_interval_hours: Optional[int] = Field(None, description="Refetch interval in hours")
+
+
+@router.post("/api/taxonomy/topics/edit", response_model=None)
+def api_edit_topic(payload: EditTopicRequest) -> Dict[str, Any]:
+    """Edits a topic/folder node, updating name and metadata, cascading across pages and statements."""
+    try:
+        return edit_topic(
+            old_name=payload.old_name,
+            new_name=payload.new_name,
+            level=payload.level,
+            status=payload.status,
+            description=payload.description,
+            gating_criteria=payload.gating_criteria,
+            domain_blacklist=payload.domain_blacklist,
+            is_frozen=payload.is_frozen,
+            lifecycle_action=payload.lifecycle_action,
+            refetch_interval_hours=payload.refetch_interval_hours,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/api/taxonomy/library-items", response_model=None)
+def api_get_library_items(
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    source_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """Retrieves imported library items (articles, notes, videos) for search, inspection, and placement."""
+    return get_library_items_summary(
+        search=search,
+        status=status,
+        source_type=source_type,
+        limit=limit,
+        offset=offset,
+    )

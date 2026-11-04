@@ -24,8 +24,10 @@ from .engine import (
     classify_steered_hierarchical,
     nuke_all_taxonomy,
     delete_topic_or_subtopic,
+    edit_topic,
     bulk_move_items,
     bulk_move_facts,
+    get_library_items_summary,
 )
 from .steered_tree import (
     SteeredTaxonomyNode,
@@ -51,8 +53,10 @@ __all__ = [
     "classify_steered_hierarchical",
     "nuke_all_taxonomy",
     "delete_topic_or_subtopic",
+    "edit_topic",
     "bulk_move_items",
     "bulk_move_facts",
+    "get_library_items_summary",
     "SteeredTaxonomyNode",
     "SteeredTaxonomyTreeManager",
     "get_steered_tree_manager",

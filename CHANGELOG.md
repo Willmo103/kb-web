@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.15] - 2026-11-03
 ### Added
 - **Dynamic Knowledge Tree & Folder Architecture (`taxonomy/steered_tree.py`, `templates/taxonomy.j2.html`)**:
-  - Transformed the static biological taxonomy tree into a flexible, multi-level file-tree knowledge graph.
+  - Transformed the static biological taxonomy tree into a flexible, multi-level file-tree knowledge graph with equal folder representation (`📁`).
   - Added dynamic node creation (`add_node`) and recursive pruning (`delete_node`) with REST endpoints `POST /api/taxonomy/tree/add-node` and `POST /api/taxonomy/tree/delete-node`.
   - Added interactive **"+ Folder"** modal in `/taxonomy` supporting creation of root folders or child nodes under selected paths with optional qualification questions and domain blacklists.
   - Added interactive **"Delete Folder"** action to remove entire branches and recursively unassign orphaned children.
@@ -17,12 +17,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Replaces restrictive "Deny & Requeue" toggle with direct, permanent deletion of unwanted topics and subtopics from the governance table.
   - Purges entries from `TopicGovernanceORM`, removes corresponding nodes from the steered tree, unassigns `FetchedPage` topic/sub_topic fields, cleans up `TaxonomyEntityORM` coordinates, and nullifies canonical statement taxonomy paths.
   - Added one-click red **Delete** button with inline confirmation and dynamic row removal in the Topic Governance UI.
+- **Topic & Folder Editing Modal & Cascading API (`taxonomy/engine.py`, `routers/taxonomy.py`, `templates/taxonomy.j2.html`)**:
+  - Added `edit_topic(...)` and `POST /api/taxonomy/topics/edit` (`EditTopicRequest`).
+  - Supports updating topic/folder name, status (`allowed`/`denied`), description, qualification questions (`gating_questions`), and domain blacklists (`blacklisted_domains`).
+  - Atomically cascades name updates across `TopicGovernanceORM`, child topics, `FetchedPage.topic`/`sub_topic`, `TaxonomyEntityORM`, and `ContextStatementORM` canonical paths.
+  - Added interactive **Edit** buttons in the Governance table and an **Edit Folder** action in the Knowledge Tree node inspector with modal `modal-edit-topic`.
+- **Dedicated Library Imports & Placement Portal (`taxonomy/engine.py`, `routers/taxonomy.py`, `templates/taxonomy.j2.html`)**:
+  - Added `GET /api/taxonomy/library-items` supporting live search query across titles, URLs, tags, and topics with status and type filters.
+  - Added 4th main navigation tab **"Library Imports & Placement"** on `/taxonomy` with search bar, status filters (`Unclassified` vs `Assigned`), sticky multi-select toolbar, and single/bulk folder placement dialogs.
 - **Bulk Item & Fact Relocation Across Folders (`taxonomy/engine.py`, `routers/taxonomy.py`, `templates/taxonomy.j2.html`)**:
   - Implemented `bulk_move_items(...)` (`POST /api/taxonomy/items/bulk-move`) to relocate large batches of ingested pages, articles, notes, and videos across taxonomy folders/coordinates in a single atomic transaction.
   - Implemented `bulk_move_facts(...)` (`POST /api/taxonomy/facts/bulk-move`) to retarget atomic context mesh statements to any folder/level.
   - Integrated sticky Bulk Selection Toolbar in `/taxonomy` with "Select All" checkbox, selection counters, and a **"Move to Folder..."** modal dialog with a hierarchical destination dropdown.
 
 ### Fixed
+- **Default Topics Automatic Reseeding Bug (`taxonomy/engine.py`)**:
+  - Resolved issue where clearing all default topics caused them to be automatically re-seeded upon creating a new custom topic. Seed state is now permanently tracked via `SettingExternal(key="taxonomy_default_topics_initialized", value="1")`, ensuring deleted topics stay deleted.
+- **Folder + Button JavaScript Runtime ReferenceError (`templates/taxonomy.j2.html`)**:
+  - Fixed `Uncaught ReferenceError: selected7TierPath is not defined` when clicking `+ Folder` by declaring `selected7TierPath`, `selected7TierTitle`, and `selected7TierLevel` in global script scope and providing null-safe defaults.
+- **Taxonomy Coordinates Defaulting to "General" (`taxonomy/engine.py`)**:
+  - Fixed issue where uncategorized items and context statements were defaulted to a fake `General/General/general/general` taxonomy hierarchy. Unassigned items are now strictly grouped under an explicit `Unclassified` coordinate until user or AI placement.
+- **Outdated Governance Copy & Biological Icons (`templates/taxonomy.j2.html`)**:
+  - Updated Topic Governance title to "Taxonomy Nodes & Folder Governance" and updated copy to describe immutable structural folder layers that agents MUST categorize within.
+  - Replaced biological icons (`👑`, `🔷`) with uniform folder icons (`📁`) for equal folder node semantics.
+- **Sub-Topic Deletion General Fallback (`taxonomy/engine.py`)**:
+  - Fixed sub-topic deletion setting `sub_topic = "General"` instead of setting it to `None` for unassigned classification.
 - **Topic Deletion & Denial Loop (`taxonomy/engine.py`, `templates/taxonomy.j2.html`)**:
   - Resolved issue where users attempting to remove unwanted topics and subtopics were trapped in a "Deny & Requeue" loop rather than permanently removing the topic. Added direct permanent topic purge with cascade unassignment.
 - **Taxonomy Coordinates Header Label (`templates/taxonomy.j2.html`)**:

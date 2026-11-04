@@ -3,7 +3,209 @@
 {% block title %}Knowledge Taxonomy & Living Facts - Knowledge Base{% endblock %}
 
 {% block extra_head %}
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js">
+// --- Topic & Folder Editing ---
+function openEditTopicModal(name, level, status) {
+    document.getElementById('edit-topic-old-name').value = name || '';
+    document.getElementById('edit-topic-new-name').value = name || '';
+    document.getElementById('edit-topic-level').value = level || 'topic';
+    var sel = document.getElementById('edit-topic-status');
+    if (sel) sel.value = status || 'allowed';
+    document.getElementById('edit-topic-desc').value = '';
+    document.getElementById('edit-topic-gating').value = '';
+    document.getElementById('edit-topic-blacklist').value = '';
+    document.getElementById('modal-edit-topic').classList.remove('hidden');
+    document.getElementById('edit-topic-new-name').focus();
+}
+
+function openEditSelectedFolderModal() {
+    if (!selected7TierPath || selected7TierPath === '/') {
+        alert('Please select a folder node from the knowledge tree first.');
+        return;
+    }
+    var nodeName = selected7TierTitle || selected7TierPath;
+    openEditTopicModal(nodeName, selected7TierLevel || 'topic', 'allowed');
+}
+
+function closeEditTopicModal() {
+    document.getElementById('modal-edit-topic').classList.add('hidden');
+}
+
+function submitEditTopic() {
+    var oldName = document.getElementById('edit-topic-old-name').value.trim();
+    var newName = document.getElementById('edit-topic-new-name').value.trim();
+    var level = document.getElementById('edit-topic-level').value.trim();
+    var status = document.getElementById('edit-topic-status').value;
+    var desc = document.getElementById('edit-topic-desc').value.trim();
+    var gatingRaw = document.getElementById('edit-topic-gating').value.trim();
+    var gating = gatingRaw ? gatingRaw.split('\n').map(function(s){return s.trim();}).filter(Boolean) : [];
+    var blRaw = document.getElementById('edit-topic-blacklist').value.trim();
+    var blacklist = blRaw ? blRaw.split(',').map(function(s){return s.trim();}).filter(Boolean) : [];
+
+    if (!newName) {
+        alert('Topic/Folder name cannot be empty.');
+        return;
+    }
+
+    fetch('/api/taxonomy/topics/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            old_name: oldName,
+            new_name: newName,
+            level: level,
+            status: status,
+            description: desc,
+            gating_criteria: gating,
+            domain_blacklist: blacklist
+        })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (data.status === 'success') {
+            closeEditTopicModal();
+            window.location.reload();
+        } else {
+            alert('Error updating topic: ' + (data.detail || JSON.stringify(data)));
+        }
+    })
+    .catch(function(err) {
+        alert('Failed to update topic: ' + err.message);
+    });
+}
+
+// --- Library Search & Placement Portal ---
+var libOffset = 0;
+var libLimit = 50;
+var libTotal = 0;
+var libSelectedUrls = [];
+
+function handleLibSearch(evt) {
+    if (filterTimeout) clearTimeout(filterTimeout);
+    filterTimeout = setTimeout(function() {
+        loadLibraryItems(0);
+    }, 300);
+}
+
+function loadLibraryItems(offset) {
+    libOffset = offset || 0;
+    var search = document.getElementById('lib-search-input') ? document.getElementById('lib-search-input').value.trim() : '';
+    var status = document.getElementById('lib-status-filter') ? document.getElementById('lib-status-filter').value : 'all';
+    var stype = document.getElementById('lib-type-filter') ? document.getElementById('lib-type-filter').value : 'all';
+
+    var tbody = document.getElementById('lib-items-tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-400">Loading library items...</td></tr>';
+
+    var url = '/api/taxonomy/library-items?limit=' + libLimit + '&offset=' + libOffset;
+    if (search) url += '&search=' + encodeURIComponent(search);
+    if (status) url += '&status=' + encodeURIComponent(status);
+    if (stype) url += '&source_type=' + encodeURIComponent(stype);
+
+    fetch(url)
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            libTotal = data.total;
+            renderLibraryItems(data);
+        })
+        .catch(function(err) {
+            if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-rose-500">Error loading library: ' + err.message + '</td></tr>';
+        });
+}
+
+function renderLibraryItems(data) {
+    var tbody = document.getElementById('lib-items-tbody');
+    if (!tbody) return;
+
+    if (!data.items || data.items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="p-8 text-center text-gray-400">No items match your filter criteria.</td></tr>';
+        updateLibPagination();
+        return;
+    }
+
+    var html = '';
+    data.items.forEach(function(item) {
+        var isChecked = libSelectedUrls.indexOf(item.url) !== -1;
+        var unclassBadge = item.is_unclassified
+            ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">Unclassified</span>'
+            : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Assigned</span>';
+
+        var typeBadge = item.source_type === 'video'
+            ? '<span class="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 text-[10px] font-bold">🎬 Video</span>'
+            : (item.source_type === 'note'
+                ? '<span class="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 text-[10px] font-bold">📝 Note</span>'
+                : '<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-bold">🌐 Article</span>');
+
+        var folderPath = item.canonical_path || item.topic || 'Unclassified';
+
+        html += '<tr class="hover:bg-gray-50 transition">';
+        html += '<td class="py-2.5 px-3"><input type="checkbox" value="' + item.url.replace(/"/g, '&quot;') + '" onchange="updateLibrarySelection()" class="lib-item-checkbox rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" ' + (isChecked ? 'checked' : '') + ' /></td>';
+        html += '<td class="py-2.5 px-3 max-w-sm"><div class="font-semibold text-gray-800 truncate" title="' + item.title.replace(/"/g, '&quot;') + '">' + item.title + '</div><a href="' + item.url + '" target="_blank" class="text-[10px] text-gray-400 truncate block hover:text-indigo-600 font-mono">' + item.url + '</a></td>';
+        html += '<td class="py-2.5 px-3">' + typeBadge + '</td>';
+        html += '<td class="py-2.5 px-3 font-mono text-[11px] text-gray-600 truncate max-w-xs" title="' + folderPath + '">📁 ' + folderPath + '</td>';
+        html += '<td class="py-2.5 px-3">' + unclassBadge + '</td>';
+        html += '<td class="py-2.5 px-3 text-right"><button type="button" onclick="openSingleMoveModal(\'' + item.url.replace(/'/g, "\\'") + '\')" class="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded font-semibold text-[11px] transition">Place</button></td>';
+        html += '</tr>';
+    });
+
+    tbody.innerHTML = html;
+    updateLibPagination();
+    updateLibrarySelection();
+}
+
+function updateLibPagination() {
+    var start = libTotal === 0 ? 0 : libOffset + 1;
+    var end = Math.min(libOffset + libLimit, libTotal);
+    var info = document.getElementById('lib-pagination-info');
+    if (info) info.textContent = 'Showing ' + start + '-' + end + ' of ' + libTotal + ' items';
+
+    var prevBtn = document.getElementById('lib-prev-btn');
+    if (prevBtn) prevBtn.disabled = libOffset === 0;
+
+    var nextBtn = document.getElementById('lib-next-btn');
+    if (nextBtn) nextBtn.disabled = end >= libTotal;
+}
+
+function prevLibPage() {
+    if (libOffset > 0) loadLibraryItems(Math.max(0, libOffset - libLimit));
+}
+
+function nextLibPage() {
+    if (libOffset + libLimit < libTotal) loadLibraryItems(libOffset + libLimit);
+}
+
+function toggleSelectAllLibrary(masterCb) {
+    var cbs = document.querySelectorAll('.lib-item-checkbox');
+    cbs.forEach(function(cb) {
+        cb.checked = masterCb.checked;
+    });
+    updateLibrarySelection();
+}
+
+function updateLibrarySelection() {
+    libSelectedUrls = [];
+    document.querySelectorAll('.lib-item-checkbox:checked').forEach(function(cb) {
+        libSelectedUrls.push(cb.value);
+    });
+    var badge = document.getElementById('lib-selected-count-badge');
+    if (badge) badge.textContent = libSelectedUrls.length + ' selected';
+}
+
+function openSingleMoveModal(url) {
+    libSelectedUrls = [url];
+    openBulkMoveFromLibraryModal();
+}
+
+function openBulkMoveFromLibraryModal() {
+    if (libSelectedUrls.length === 0) {
+        alert('Please select at least one item from the library table first.');
+        return;
+    }
+    selectedEntityUrls = libSelectedUrls;
+    document.getElementById('bulk-move-selected-count').textContent = libSelectedUrls.length;
+    document.getElementById('modal-bulk-move').classList.remove('hidden');
+}
+
+</script>
 <style>
     .tree-node-item {
         transition: all 0.15s ease-in-out;
@@ -78,6 +280,9 @@
             <span>🗂️</span> Autonomous Category Clusters (Legacy)
             <span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded-full font-mono">{{ total_categories }}</span>
         </button>
+        <button id="main-tab-library" onclick="switchMainTab('library')" class="pb-3 px-1 text-sm font-semibold text-gray-400 hover:text-gray-600 border-b-2 border-transparent transition flex items-center gap-2">
+            <span>🔎</span> Library Imports &amp; Placement
+        </button>
     </div>
 
     <!-- ===================================================================== -->
@@ -118,7 +323,7 @@
                              onclick="select7TierNode('{{ k_node.path }}', '{{ k_node.name }}', 'kingdom')"
                              id="tier-node-{{ k_node.path | replace('/', '-') }}">
                             <div class="flex items-center gap-2 truncate">
-                                <span class="text-base text-indigo-600">👑</span>
+                                <span class="text-base text-indigo-600">📁</span>
                                 <span class="text-xs text-gray-800 font-bold truncate">{{ k_node.name }}</span>
                             </div>
                             <div class="flex items-center gap-1.5 flex-shrink-0">
@@ -141,7 +346,7 @@
                                      onclick="select7TierNode('{{ p_node.path }}', '{{ p_node.name }}', 'phylum')"
                                      id="tier-node-{{ p_node.path | replace('/', '-') }}">
                                     <div class="flex items-center gap-2 truncate">
-                                        <span class="text-sm text-blue-500">🔷</span>
+                                        <span class="text-sm text-blue-500">📁</span>
                                         <span class="text-xs text-gray-700 font-medium truncate">{{ p_node.name }}</span>
                                     </div>
                                     <div class="flex items-center gap-1.5 flex-shrink-0">
@@ -214,6 +419,9 @@
                         <span id="tier-selected-level-badge" class="px-2 py-0.5 text-xs font-semibold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 uppercase">
                             All Knowledge
                         </span>
+                        <button type="button" onclick="openEditSelectedFolderModal()" class="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-[11px] font-semibold transition ml-2 flex items-center gap-1" title="Edit this folder's name, criteria, or blacklists">
+                            <span>✏️</span> Edit Folder
+                        </button>
                     </div>
                     <div class="flex items-center gap-2 text-xs text-gray-400 font-mono" id="tier-breadcrumb">
                         <span>Path: <strong id="tier-path-display" class="text-indigo-600">/</strong></span>
@@ -283,10 +491,10 @@
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 mb-4">
                 <div>
                     <h2 class="text-lg font-bold text-gray-900 flex items-center gap-2">
-                        <span>🏷️</span> Topic &amp; Sub-Topic Governance
+                        <span>🏷️</span> Taxonomy Nodes &amp; Folder Governance
                     </h2>
                     <p class="text-xs text-gray-500 mt-1">
-                        Governed general topics (Kingdom) and 2-level sub-topic taxonomies (Phylum/Class). Denying a topic blocklists it and automatically re-queues affected items for AI reassignment.
+                        Governed taxonomy nodes and folders. These nodes define the immutable structural folder layers that agents MUST categorize within. Denying a node blocklists it from AI assignment; deleting permanently purges it.
                     </p>
                 </div>
                 <div class="flex items-center gap-2 flex-wrap">
@@ -333,7 +541,7 @@
                     <thead>
                         <tr class="border-b border-gray-200 bg-gray-50 text-gray-600 font-semibold uppercase text-[10px] tracking-wider">
                             <th class="py-2.5 px-3">Name</th>
-                            <th class="py-2.5 px-3">Level</th>
+                            <th class="py-2.5 px-3">Node Type</th>
                             <th class="py-2.5 px-3">Status</th>
                             <th class="py-2.5 px-3">Articles</th>
                             <th class="py-2.5 px-3 text-right">Actions</th>
@@ -364,6 +572,9 @@
                                     Deny &amp; Requeue
                                 </button>
                                 {% endif %}
+                                <button type="button" onclick="openEditTopicModal('{{ t.name }}', '{{ t.level }}', '{{ t.status }}')" class="px-2 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded font-semibold text-[11px]" title="Edit topic name and rules">
+                                    Edit
+                                </button>
                                 <button type="button" onclick="governanceDeleteTopic('{{ t.name }}', '{{ t.level }}', 'topic-gov-row-{{ t.id }}')" class="px-2 py-1 bg-rose-600 text-white hover:bg-rose-700 rounded font-semibold text-[11px] shadow-sm ml-1" title="Permanently delete this topic/subtopic">
                                     Delete
                                 </button>
@@ -489,6 +700,98 @@
 </div>
 
 
+    <!-- ===================================================================== -->
+    <!-- VIEW 4: Library Imports & Placement                                   -->
+    <!-- ===================================================================== -->
+    <div id="view-library-container" class="hidden flex-col flex-grow space-y-4">
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 flex flex-col">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 mb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                        <span>🔎</span> Library Imports &amp; Placement
+                    </h2>
+                    <p class="text-xs text-gray-500 mt-1">
+                        Search and organize all ingested articles, web pages, videos, and notes into your knowledge taxonomy folders.
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="loadLibraryItems(0)" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold transition flex items-center gap-1">
+                        <span>🔄</span> Refresh Library
+                    </button>
+                </div>
+            </div>
+
+            <!-- Search & Filters -->
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 mb-4">
+                <div class="sm:col-span-6 relative">
+                    <input type="text" id="lib-search-input" onkeyup="handleLibSearch(event)" placeholder="Search articles, notes, URLs, tags, or topics..." class="w-full text-xs border border-gray-300 rounded-lg pl-8 pr-3 py-2 bg-white text-gray-900 focus:ring-2 focus:ring-indigo-500" />
+                    <span class="absolute left-2.5 top-2.5 text-gray-400 text-xs">🔍</span>
+                </div>
+                <div class="sm:col-span-3">
+                    <select id="lib-status-filter" onchange="loadLibraryItems(0)" class="w-full text-xs border border-gray-300 rounded-lg p-2 bg-white text-gray-700 font-medium">
+                        <option value="all">All Placement Statuses</option>
+                        <option value="unclassified" selected>Unclassified / Needs Placement</option>
+                        <option value="assigned">Assigned to Folders</option>
+                    </select>
+                </div>
+                <div class="sm:col-span-3">
+                    <select id="lib-type-filter" onchange="loadLibraryItems(0)" class="w-full text-xs border border-gray-300 rounded-lg p-2 bg-white text-gray-700 font-medium">
+                        <option value="all">All Source Types</option>
+                        <option value="article">Web Articles</option>
+                        <option value="video">Videos</option>
+                        <option value="note">Notes</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Sticky Bulk Actions Bar -->
+            <div id="lib-bulk-toolbar" class="bg-indigo-50 border border-indigo-200 rounded-lg p-2.5 mb-4 flex items-center justify-between transition">
+                <div class="flex items-center gap-3">
+                    <label class="flex items-center gap-2 text-xs font-bold text-indigo-900 cursor-pointer">
+                        <input type="checkbox" id="lib-select-all" onchange="toggleSelectAllLibrary(this)" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                        <span>Select All</span>
+                    </label>
+                    <span id="lib-selected-count-badge" class="px-2 py-0.5 bg-indigo-200 text-indigo-800 rounded-full font-mono text-[11px] font-bold">0 selected</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="openBulkMoveFromLibraryModal()" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                        <span>📁</span> Move Selected to Folder...
+                    </button>
+                </div>
+            </div>
+
+            <!-- Library Items Table -->
+            <div class="overflow-x-auto border border-gray-200 rounded-xl mb-4">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b border-gray-200 bg-gray-50 text-gray-600 font-semibold uppercase text-[10px] tracking-wider">
+                            <th class="py-2.5 px-3 w-8"></th>
+                            <th class="py-2.5 px-3">Title &amp; Source</th>
+                            <th class="py-2.5 px-3">Type</th>
+                            <th class="py-2.5 px-3">Folder / Taxonomy Path</th>
+                            <th class="py-2.5 px-3">Status</th>
+                            <th class="py-2.5 px-3 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="lib-items-tbody" class="divide-y divide-gray-100 font-sans">
+                        <tr>
+                            <td colspan="6" class="p-8 text-center text-gray-400">Loading library items...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
+                <span id="lib-pagination-info">Showing 0 items</span>
+                <div class="flex items-center gap-2">
+                    <button type="button" id="lib-prev-btn" onclick="prevLibPage()" disabled class="px-3 py-1 border border-gray-300 rounded-md text-xs font-semibold disabled:opacity-40 hover:bg-gray-50 transition">Previous</button>
+                    <button type="button" id="lib-next-btn" onclick="nextLibPage()" disabled class="px-3 py-1 border border-gray-300 rounded-md text-xs font-semibold disabled:opacity-40 hover:bg-gray-50 transition">Next</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: Add Custom Folder / Layer -->
     <div id="modal-add-folder" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden p-4">
         <div class="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-gray-200 p-6 space-y-4">
@@ -515,6 +818,49 @@
             <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
                 <button type="button" onclick="closeAddFolderModal()" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 transition">Cancel</button>
                 <button type="button" onclick="submitAddFolder()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-sm">Create Folder</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Edit Topic / Folder -->
+    <div id="modal-edit-topic" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-gray-200 p-6 space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+                <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                    <span>✏️</span> Edit Topic / Folder
+                </h3>
+                <button type="button" onclick="closeEditTopicModal()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+            </div>
+            <div class="space-y-3">
+                <input type="hidden" id="edit-topic-old-name" />
+                <input type="hidden" id="edit-topic-level" value="topic" />
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Topic / Folder Name</label>
+                    <input type="text" id="edit-topic-new-name" class="w-full text-xs border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Status</label>
+                    <select id="edit-topic-status" class="w-full text-xs border border-gray-300 rounded-lg p-2 bg-white text-gray-700">
+                        <option value="allowed">Allowed</option>
+                        <option value="denied">Denied</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Description (Optional)</label>
+                    <textarea id="edit-topic-desc" rows="2" placeholder="Description of this topic/folder..." class="w-full text-xs border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500"></textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Qualification Questions (1 per line)</label>
+                    <textarea id="edit-topic-gating" rows="2" placeholder="e.g. Does this document directly pertain to Python or FastAPI?" class="w-full text-xs border border-gray-300 rounded-lg p-2.5 font-mono text-[11px] focus:ring-2 focus:ring-indigo-500"></textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Domain Blacklist (comma-separated)</label>
+                    <input type="text" id="edit-topic-blacklist" placeholder="e.g. spam.com, untrusted.io" class="w-full text-xs border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-indigo-500" />
+                </div>
+            </div>
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                <button type="button" onclick="closeEditTopicModal()" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold hover:bg-gray-50 transition">Cancel</button>
+                <button type="button" onclick="submitEditTopic()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-sm">Save Changes</button>
             </div>
         </div>
     </div>
@@ -547,6 +893,9 @@
     </div>
 
 <script>
+var selected7TierPath = '';
+var selected7TierTitle = '';
+var selected7TierLevel = '';
 var activePrefix = '';
 var activeStatementType = '';
 var filterTimeout = null;
@@ -557,8 +906,10 @@ function switchMainTab(tab) {
     var tabTopicsBtn = document.getElementById('main-tab-topics');
     var tabLegacyBtn = document.getElementById('main-tab-legacy');
     var view7tier = document.getElementById('view-7tier-container');
+    var tabLibBtn = document.getElementById('main-tab-library');
     var viewTopics = document.getElementById('view-topics-container');
     var viewLegacy = document.getElementById('view-legacy-container');
+    var viewLib = document.getElementById('view-library-container');
 
     var activeClass = 'pb-3 px-1 text-sm font-bold text-indigo-600 border-b-2 border-indigo-600 transition flex items-center gap-2';
     var inactiveClass = 'pb-3 px-1 text-sm font-semibold text-gray-400 hover:text-gray-600 border-b-2 border-transparent transition flex items-center gap-2';
@@ -567,26 +918,45 @@ function switchMainTab(tab) {
         tab7tierBtn.className = activeClass;
         if (tabTopicsBtn) tabTopicsBtn.className = inactiveClass;
         tabLegacyBtn.className = inactiveClass;
+        if (tabLibBtn) tabLibBtn.className = inactiveClass;
         view7tier.classList.remove('hidden');
         if (viewTopics) viewTopics.classList.add('hidden');
         viewLegacy.classList.add('hidden');
+        if (viewLib) viewLib.classList.add('hidden');
     } else if (tab === 'topics') {
         if (tabTopicsBtn) tabTopicsBtn.className = activeClass;
         tab7tierBtn.className = inactiveClass;
         tabLegacyBtn.className = inactiveClass;
+        if (tabLibBtn) tabLibBtn.className = inactiveClass;
         if (viewTopics) {
             viewTopics.classList.remove('hidden');
             viewTopics.classList.add('flex');
         }
         view7tier.classList.add('hidden');
         viewLegacy.classList.add('hidden');
+        if (viewLib) viewLib.classList.add('hidden');
+    } else if (tab === 'library') {
+        if (tabLibBtn) tabLibBtn.className = activeClass;
+        tab7tierBtn.className = inactiveClass;
+        if (tabTopicsBtn) tabTopicsBtn.className = inactiveClass;
+        tabLegacyBtn.className = inactiveClass;
+        if (viewLib) {
+            viewLib.classList.remove('hidden');
+            viewLib.classList.add('flex');
+        }
+        view7tier.classList.add('hidden');
+        if (viewTopics) viewTopics.classList.add('hidden');
+        viewLegacy.classList.add('hidden');
+        loadLibraryItems(0);
     } else {
         tabLegacyBtn.className = activeClass;
         tab7tierBtn.className = inactiveClass;
         if (tabTopicsBtn) tabTopicsBtn.className = inactiveClass;
+        if (tabLibBtn) tabLibBtn.className = inactiveClass;
         viewLegacy.classList.remove('hidden');
         view7tier.classList.add('hidden');
         if (viewTopics) viewTopics.classList.add('hidden');
+        if (viewLib) viewLib.classList.add('hidden');
     }
 }
 
@@ -642,6 +1012,9 @@ async function triggerBatchTopicAssignment() {
 }
 
 function select7TierNode(path, name, level) {
+    selected7TierPath = path || '';
+    selected7TierTitle = name || path;
+    selected7TierLevel = level || 'node';
     activePrefix = path || '';
 
     // Highlight selected node
