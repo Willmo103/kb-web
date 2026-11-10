@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.16] - Unreleased
+### Added
+- **Comprehensive `./docs` Architecture, Codebase Mapping & Dangling Code Audit**:
+  - Authored complete technical documentation library in `docs/`:
+    - `docs/README.md`: Central documentation portal and navigation matrix.
+    - `docs/architecture/overview.md`: End-to-end system topology, data flow sequence diagrams, and 3-tier Git release lifecycle.
+    - `docs/architecture/database_schema.md`: Complete PostgreSQL & pgvector schema specification covering all 50 ORM models, indexes, and `vw_page_cards` materialized view.
+    - `docs/architecture/codebase_map.md`: File-by-file codebase inventory across all 68 Python source files (34,130 LOC), detailing responsibilities, classes, and dependencies.
+    - `docs/architecture/dangling_code_audit.md`: In-depth dead code, legacy path, and archival candidate analysis (~2,000 LOC identified for safe archival).
+  - Authored 8 subsystem deep dive specifications in `docs/modules/`:
+    - `docs/modules/core_runtime.md`
+    - `docs/modules/ingestion_pipelines.md`
+    - `docs/modules/taxonomy_and_context_mesh.md`
+    - `docs/modules/agents_and_rag.md`
+    - `docs/modules/background_workers.md`
+    - `docs/modules/api_and_routers.md`
+    - `docs/modules/client_and_integrations.md`
+    - `docs/modules/evals_studio.md`
+
 ## [0.5.15] - 2026-11-10
 ### Added
 - **Dynamic Knowledge Tree & Folder Architecture (`taxonomy/steered_tree.py`, `templates/taxonomy.j2.html`)**:
