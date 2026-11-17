@@ -317,6 +317,17 @@
                     <iframe class="absolute top-0 left-0 w-full h-full" src="https://www.youtube.com/embed/{{ video_id }}" frameborder="0" allowfullscreen></iframe>
                     {% endif %}
                 </div>
+                <div id="yt-audio-container" class="mt-4 pt-3 border-t border-gray-100 {% if not is_audio_offline %}hidden{% endif %}">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider text-gray-600 flex items-center gap-1.5">
+                            <span>🎵</span> Audio Player (Audio-Only Stream)
+                        </span>
+                        <a id="yt-audio-download-link" href="{{ local_audio_url or '#' }}" download class="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline">
+                            ⬇️ Save Audio File
+                        </a>
+                    </div>
+                    <audio id="yt-audio-player" controls class="w-full" src="{{ local_audio_url or '' }}"></audio>
+                </div>
             </div>
             {% endif %}
 
@@ -671,6 +682,11 @@
                             </button>
                         </form>
                         {% endif %}
+                        {% if not is_audio_offline %}
+                        <button id="btn-download-audio" type="button" onclick="downloadAudioOnly({{ page.url | tojson }})" class="w-full text-left text-xs bg-violet-50 hover:bg-violet-100 text-violet-700 font-bold py-2 px-3 border border-violet-200 rounded transition shadow-sm flex items-center gap-2">
+                            <span>🎵</span> Download Audio Only
+                        </button>
+                        {% endif %}
                     {% endif %}
                     {% if page.is_frozen == 1 %}
                     <button disabled class="w-full text-left text-xs bg-gray-100 text-gray-400 font-bold py-2 px-3 border border-gray-200 rounded cursor-not-allowed opacity-60 flex items-center gap-2" title="Content is frozen and immutable to modifications.">
@@ -864,6 +880,52 @@
             console.error(err);
             alert("An error occurred starting download: " + err);
         });
+    }
+
+    async function downloadAudioOnly(url) {
+        const btn = document.getElementById('btn-download-audio');
+        const container = document.getElementById('yt-audio-container');
+        const player = document.getElementById('yt-audio-player');
+        const dlLink = document.getElementById('yt-audio-download-link');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span>⏳</span> Downloading Audio...';
+        }
+        try {
+            const resp = await fetch('/api/youtube/download-audio', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ url })
+            });
+            const data = await resp.json();
+            if (data.status === 'success' && data.audio_url) {
+                if (player) {
+                    player.src = data.audio_url;
+                }
+                if (dlLink) {
+                    dlLink.href = data.audio_url;
+                }
+                if (container) {
+                    container.classList.remove('hidden');
+                    container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+                if (btn) {
+                    btn.classList.add('hidden');
+                }
+            } else {
+                alert('Audio download failed: ' + (data.message || 'unknown error'));
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>🎵</span> Download Audio Only';
+                }
+            }
+        } catch (err) {
+            alert('Error downloading audio: ' + err);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span>🎵</span> Download Audio Only';
+            }
+        }
     }
 
     // Auto-scroll on hash anchors

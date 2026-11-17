@@ -161,6 +161,17 @@ def deploy_single(engine, alembic_cfg, target_label: str = "current"):
                     except Exception:
                         pass
 
+    # Ensure youtube_videos.audio_path exists on upgraded databases
+    try:
+        insp_yt = inspect(engine)
+        if "youtube_videos" in insp_yt.get_table_names():
+            yt_cols = [c["name"] for c in insp_yt.get_columns("youtube_videos")]
+            if "audio_path" not in yt_cols:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE youtube_videos ADD COLUMN audio_path VARCHAR;"))
+    except Exception:
+        pass
+
     # 2. Seed database defaults
     seed_database()
 

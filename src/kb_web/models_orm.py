@@ -184,6 +184,7 @@ class YouTubeVideo(Base):
     view_count = Column(Integer)
     thumbnail_url = Column(String)
     local_path = Column(String)
+    audio_path = Column(String, nullable=True)
     is_frozen = Column(Integer, default=0, index=True)
     updated_at = Column(String)
 
