@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.16] - Unreleased
 ### Added
+- **YouTube Audio-Only Download & In-Browser Playback (`utils.py`, `routers/pages.py`, `templates/view_page.j2.html`, `templates/url_import.j2.html`)**:
+  - Added `download_youtube_audio()` using `DEFAULT_YOUTUBE_AUDIO_FORMAT` (`ba[ext=m4a]/ba[ext=mp3]/ba/bestaudio`) to download **only** the native audio stream directly into `media/audio/` without downloading video tracks.
+  - Added `audio_path` column to `YouTubeVideo` (`models_orm.py`, `deploy_migrations.py`).
+  - Added `POST /api/youtube/download-audio` (supports both DB-ingested videos and standalone YouTube URLs/IDs) and `GET /api/youtube/audio-list`.
+  - Added **"🎵 Download Audio Only"** button and inline HTML5 `<audio controls>` player on ingested YouTube pages (`view_page.j2.html`).
+  - Added **"🎵 YouTube Audio Player"** tab on `/import` (`url_import.j2.html`) for downloading, playing, and browsing standalone YouTube audio tracks.
 - **Obsidian Vault ZIP Export (`src/kb_web/obsidian_export.py`, `GET /admin/export/obsidian`, `kb-web-cli export-obsidian`)**:
   - Exports all ingested web articles and YouTube transcripts (explicitly excluding `note://` Obsidian notes) into a single downloadable ZIP archive containing:
     - `_sources/<site>/<dot.joined.path>.md`: Raw scraped Markdown with YAML frontmatter (`url`, `site`, `date_scraped`, `version`).

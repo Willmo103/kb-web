@@ -84,6 +84,10 @@ DEFAULT_YOUTUBE_DOWNLOAD_FORMAT = (
     "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
 )
 
+DEFAULT_YOUTUBE_AUDIO_FORMAT = (
+    "ba[ext=m4a]/ba[ext=mp3]/ba/bestaudio"
+)
+
 MAX_FACT_CHAR_COUNT = 144
 
 DEFAULT_ALLOWED_TOPICS = (
@@ -1012,6 +1016,20 @@ class Config:
     def youtube_download_format(self, value: str) -> None:
         self._write_db_setting(
             "settings_external", "youtube_download_format", str(value).strip()
+        )
+
+    @property
+    def youtube_audio_download_format(self) -> str:
+        return self._read_db_setting(
+            "settings_external",
+            "youtube_audio_download_format",
+            DEFAULT_YOUTUBE_AUDIO_FORMAT,
+        )
+
+    @youtube_audio_download_format.setter
+    def youtube_audio_download_format(self, value: str) -> None:
+        self._write_db_setting(
+            "settings_external", "youtube_audio_download_format", str(value).strip()
         )
 
     @property

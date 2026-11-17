@@ -23,6 +23,9 @@
         <button type="button" id="tabRepoBtn" onclick="switchTab('repo')" class="py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2">
             <span>📦</span> Pull & Import Git Repo
         </button>
+        <button type="button" id="tabAudioBtn" onclick="switchTab('audio')" class="py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2">
+            <span>🎵</span> YouTube Audio Player
+        </button>
     </div>
 
     <!-- TAB 1: Single Page Ingest (Existing Pipeline) -->
@@ -332,6 +335,53 @@
         </div>
     </div>
 
+    <!-- TAB 4: Standalone YouTube Audio Downloader & Player -->
+    <div id="audioIngestView" class="hidden bg-white p-8 rounded-xl border border-gray-200 shadow-sm space-y-6">
+        <div>
+            <h1 class="text-2xl font-extrabold text-gray-900 mb-2">🎵 YouTube Audio-Only Downloader & Player</h1>
+            <p class="text-sm text-gray-500">
+                Downloads <strong>only</strong> the native audio stream directly via <code>yt-dlp</code> (without downloading video) so you can listen immediately in the browser—for any YouTube URL, whether ingested or standalone.
+            </p>
+        </div>
+
+        <form id="ytAudioForm" onsubmit="handleAudioDownload(event)" class="space-y-4">
+            <div>
+                <label for="ytAudioUrlInput" class="block text-sm font-semibold text-gray-700 mb-2">YouTube URL or Video ID:</label>
+                <div class="flex gap-2">
+                    <input type="text" id="ytAudioUrlInput" required placeholder="https://www.youtube.com/watch?v=..." class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition shadow-sm" />
+                    <button type="submit" id="btnYtAudioDownload" class="bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 px-6 rounded-lg shadow transition flex items-center gap-2 whitespace-nowrap">
+                        <span>🎵</span> Download & Listen
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <div id="ytAudioLoading" class="hidden flex items-center gap-2 text-violet-700 text-sm font-semibold">
+            <svg class="animate-spin h-4 w-4 text-violet-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+            <span>Downloading audio-only stream...</span>
+        </div>
+
+        <div id="ytAudioError" class="hidden p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg text-sm"></div>
+
+        <div id="ytAudioPlayerCard" class="hidden p-5 bg-violet-50 border border-violet-200 rounded-xl space-y-3">
+            <div class="flex items-center justify-between">
+                <span id="ytAudioNowPlayingTitle" class="text-sm font-bold text-violet-900 truncate">Now Playing</span>
+                <a id="ytAudioSaveLink" href="#" download class="text-xs font-semibold text-violet-700 hover:underline whitespace-nowrap">⬇️ Save File</a>
+            </div>
+            <audio id="standaloneAudioPlayer" controls class="w-full"></audio>
+        </div>
+
+        <div class="pt-4 border-t border-gray-100">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-bold text-gray-800 uppercase tracking-wider">Saved Audio Library</h3>
+                <button type="button" onclick="loadSavedAudioList()" class="text-xs font-semibold text-indigo-600 hover:underline">🔄 Refresh</button>
+            </div>
+            <div id="savedAudioList" class="space-y-2 text-xs text-gray-500">
+                Click Refresh or switch to this tab to load saved audio tracks.
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <script>
@@ -340,9 +390,11 @@
         const singleBtn = document.getElementById('tabSingleBtn');
         const crawlBtn = document.getElementById('tabCrawlBtn');
         const repoBtn = document.getElementById('tabRepoBtn');
+        const audioBtn = document.getElementById('tabAudioBtn');
         const singleView = document.getElementById('singleIngestView');
         const crawlView = document.getElementById('crawlIngestView');
         const repoView = document.getElementById('repoIngestView');
+        const audioView = document.getElementById('audioIngestView');
 
         const activeClass = "py-3 px-4 font-bold text-sm border-b-2 border-indigo-600 text-indigo-660 focus:outline-none transition flex items-center gap-2";
         const inactiveClass = "py-3 px-4 font-bold text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none transition flex items-center gap-2";
@@ -350,10 +402,12 @@
         singleBtn.className = inactiveClass;
         crawlBtn.className = inactiveClass;
         repoBtn.className = inactiveClass;
+        if (audioBtn) audioBtn.className = inactiveClass;
 
         singleView.classList.add('hidden');
         crawlView.classList.add('hidden');
         repoView.classList.add('hidden');
+        if (audioView) audioView.classList.add('hidden');
 
         if (tab === 'crawl') {
             crawlBtn.className = activeClass;
@@ -361,10 +415,97 @@
         } else if (tab === 'repo') {
             repoBtn.className = activeClass;
             repoView.classList.remove('hidden');
+        } else if (tab === 'audio' && audioBtn && audioView) {
+            audioBtn.className = activeClass;
+            audioView.classList.remove('hidden');
+            loadSavedAudioList();
         } else {
             singleBtn.className = activeClass;
             singleView.classList.remove('hidden');
         }
+    }
+
+    async function handleAudioDownload(event) {
+        if (event) event.preventDefault();
+        const urlInput = document.getElementById('ytAudioUrlInput');
+        const loading = document.getElementById('ytAudioLoading');
+        const errDiv = document.getElementById('ytAudioError');
+        const card = document.getElementById('ytAudioPlayerCard');
+        const player = document.getElementById('standaloneAudioPlayer');
+        const titleEl = document.getElementById('ytAudioNowPlayingTitle');
+        const saveLink = document.getElementById('ytAudioSaveLink');
+        const btn = document.getElementById('btnYtAudioDownload');
+
+        const url = urlInput.value.trim();
+        if (!url) return;
+
+        errDiv.classList.add('hidden');
+        loading.classList.remove('hidden');
+        btn.disabled = true;
+
+        try {
+            const resp = await fetch('/api/youtube/download-audio', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ url })
+            });
+            const data = await resp.json();
+            if (data.status === 'success' && data.audio_url) {
+                titleEl.textContent = data.filename || data.video_id;
+                saveLink.href = data.audio_url;
+                player.src = data.audio_url;
+                card.classList.remove('hidden');
+                player.play().catch(() => {});
+                loadSavedAudioList();
+            } else {
+                errDiv.textContent = data.message || 'Audio download failed.';
+                errDiv.classList.remove('hidden');
+            }
+        } catch (err) {
+            errDiv.textContent = 'Request failed: ' + err;
+            errDiv.classList.remove('hidden');
+        } finally {
+            loading.classList.add('hidden');
+            btn.disabled = false;
+        }
+    }
+
+    async function loadSavedAudioList() {
+        const listEl = document.getElementById('savedAudioList');
+        if (!listEl) return;
+        try {
+            const resp = await fetch('/api/youtube/audio-list');
+            const data = await resp.json();
+            if (!data.items || data.items.length === 0) {
+                listEl.innerHTML = '<div class="text-gray-400 italic">No standalone audio tracks downloaded yet.</div>';
+                return;
+            }
+            listEl.innerHTML = data.items.map(item => `
+                <div class="flex items-center justify-between gap-3 p-2.5 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div class="min-w-0 flex-1">
+                        <div class="font-semibold text-gray-800 truncate">${escapeHtml(item.filename)}</div>
+                        <div class="text-[11px] text-gray-400">${item.size_mb} MB</div>
+                    </div>
+                    <button type="button" onclick="playSavedAudio('${escapeHtml(item.audio_url)}', '${escapeHtml(item.filename)}')" class="px-3 py-1 bg-violet-600 hover:bg-violet-700 text-white rounded font-semibold whitespace-nowrap">
+                        ▶ Play
+                    </button>
+                </div>
+            `).join('');
+        } catch (e) {
+            listEl.innerHTML = '<div class="text-red-500">Failed to load saved audio tracks.</div>';
+        }
+    }
+
+    function playSavedAudio(audioUrl, filename) {
+        const card = document.getElementById('ytAudioPlayerCard');
+        const player = document.getElementById('standaloneAudioPlayer');
+        const titleEl = document.getElementById('ytAudioNowPlayingTitle');
+        const saveLink = document.getElementById('ytAudioSaveLink');
+        titleEl.textContent = filename;
+        saveLink.href = audioUrl;
+        player.src = audioUrl;
+        card.classList.remove('hidden');
+        player.play().catch(() => {});
     }
 
     async function handleRepoImport(event) {
@@ -814,6 +955,12 @@
             if (seed) {
                 document.getElementById('crawlSeedUrl').value = seed;
                 handleCrawlDiscovery();
+            }
+        } else if (urlParams.get('mode') === 'audio' || urlParams.get('tab') === 'audio') {
+            switchTab('audio');
+            const ytUrl = urlParams.get('url');
+            if (ytUrl) {
+                document.getElementById('ytAudioUrlInput').value = ytUrl;
             }
         }
     });
