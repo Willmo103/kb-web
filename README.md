@@ -234,6 +234,7 @@ uv run kb-web db reindex-videos
   - `kb-web-cli workspace agent <ws_id>`: Launch interactive terminal coding agent paired with native `ollama.systemone` `tev1` decision routing and file tool execution.
 - **Autonomous Agentic RAG Reports**:
   - `kb-web-cli rag report "<query>"`: Run multi-sub-agent retrieval (taxonomy tags, vector embeddings, full-text) with `tev1` decision matrix vetting (up to 64 questions per turn) and synthesize publication-grade research reports. Supports `--purpose`, `--output`, `--model`, and `--save-notes`.
+  - `kb-web-cli export-obsidian --output kb_obsidian_vault.zip`: Export all ingested articles and YouTube transcripts (excluding Obsidian notes) into a structured ZIP vault (`_sources/` + `articles/` with frontmatter, Obsidian tags, and nearest-neighbor backlinks).
 
 ---
 
