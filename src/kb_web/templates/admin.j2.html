@@ -740,15 +740,20 @@
                     </h3>
                     <p class="text-xs text-gray-500 mb-4">Download a full multi-table JSON database backup or save a snapshot to the server backup directory.</p>
                 </div>
-                <div class="flex gap-2">
-                    <a href="/admin/export" target="_blank" class="flex-1 text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2.5 px-3 rounded-xl transition shadow-sm flex items-center justify-center gap-1">
-                        <span>⬇️</span> Download
+                <div class="flex flex-col gap-2">
+                    <div class="flex gap-2">
+                        <a href="/admin/export" target="_blank" class="flex-1 text-center bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 text-xs font-bold py-2.5 px-3 rounded-xl transition shadow-sm flex items-center justify-center gap-1">
+                            <span>⬇️</span> Download JSON
+                        </a>
+                        <form action="/admin/backups/create" method="post" class="flex-1">
+                            <button type="submit" class="w-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-2.5 px-3 rounded-xl transition shadow-sm flex items-center justify-center gap-1">
+                                <span>💾</span> Save Local
+                            </button>
+                        </form>
+                    </div>
+                    <a href="/admin/export/obsidian" target="_blank" class="w-full text-center bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-2.5 px-3 rounded-xl transition shadow-sm flex items-center justify-center gap-1.5">
+                        <span>🗂️</span> Export Obsidian Vault (ZIP)
                     </a>
-                    <form action="/admin/backups/create" method="post" class="flex-1">
-                        <button type="submit" class="w-full bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold py-2.5 px-3 rounded-xl transition shadow-sm flex items-center justify-center gap-1">
-                            <span>💾</span> Save Local
-                        </button>
-                    </form>
                 </div>
             </div>
 

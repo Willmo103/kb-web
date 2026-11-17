@@ -748,3 +748,60 @@ def view_notifications_history(request: Request):
     )
     return HTMLResponse(content=html_content)
 
+
+@router.post("/api/pages/cache-images", dependencies=[Depends(verify_auth)])
+async def lazy_cache_page_images(request: Request) -> dict:
+    """Lazy backfill endpoint triggered when viewing original markdown or page load.
+
+    Scans the page's md_content for external http(s) images, downloads and caches them
+    into `cached_images` keyed by SHA-256, syncs to `/static/cached_images/`, and
+    rewrites the markdown links in place.
+    """
+    import hashlib
+    from pydantic import BaseModel
+    from ..image_cache import cache_and_rewrite_markdown_images, has_external_images
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    url = (body.get("url") or "").strip()
+    if not url:
+        return {"status": "error", "message": "Missing 'url' parameter."}
+
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=url).first()
+        if not page:
+            return {"status": "error", "message": "Page not found."}
+
+        md_content = page.md_content or ""
+        if not has_external_images(md_content):
+            return {"status": "ok", "updated": False, "cached_count": 0}
+
+        rewritten_md, cached_count = cache_and_rewrite_markdown_images(
+            md_content,
+            base_url=url,
+            session=session,
+            max_bytes=getattr(config, "image_cache_max_bytes", 10485760),
+            allow_internal=getattr(config, "allow_internal_urls", False),
+        )
+        if cached_count > 0:
+            page.md_content = rewritten_md
+            page.md_content_hash = hashlib.sha256(rewritten_md.encode("utf-8")).hexdigest()
+            rendered_html = sanitize_html(
+                markdown.markdown(
+                    preprocess_markdown(rewritten_md),
+                    extensions=["fenced_code", "tables"],
+                )
+            )
+            return {
+                "status": "ok",
+                "updated": True,
+                "cached_count": cached_count,
+                "rendered_html": rendered_html,
+            }
+
+        return {"status": "ok", "updated": False, "cached_count": 0}
+
+

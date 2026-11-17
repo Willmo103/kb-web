@@ -539,15 +539,41 @@
             {% endif %}
 
             <!-- Collapsible Original Markdown (rendered as HTML) -->
-            <details class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden group mb-6">
+            <details id="original-markdown-details" class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden group mb-6" ontoggle="if (this.open) triggerLazyImageCache(this)">
                 <summary class="bg-gray-100 px-4 sm:px-6 py-3 font-semibold text-sm text-gray-700 cursor-pointer select-none group-hover:bg-gray-200 transition flex justify-between items-center">
                     <span>📋 View Original Scraped Markdown Content</span>
-                    <span class="text-xs text-gray-400 font-normal">click to expand</span>
+                    <span id="original-md-cache-status" class="text-xs text-gray-400 font-normal">click to expand</span>
                 </summary>
-                <div class="p-4 sm:p-6 border-t border-gray-200 bg-gray-50 prose max-w-none max-h-128 overflow-y-auto break-words overflow-x-auto">
+                <div id="original-markdown-body" class="p-4 sm:p-6 border-t border-gray-200 bg-gray-50 prose max-w-none max-h-128 overflow-y-auto break-words overflow-x-auto">
                     {{ rendered_md_html | safe }}
                 </div>
             </details>
+            <script>
+            let _imageCacheTriggered = false;
+            async function triggerLazyImageCache(detailsEl) {
+                if (_imageCacheTriggered) return;
+                _imageCacheTriggered = true;
+                const statusEl = document.getElementById('original-md-cache-status');
+                const bodyEl = document.getElementById('original-markdown-body');
+                try {
+                    const resp = await fetch('/api/pages/cache-images', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ url: {{ page.url | tojson }} })
+                    });
+                    if (!resp.ok) return;
+                    const data = await resp.json();
+                    if (data.updated && data.rendered_html && bodyEl) {
+                        bodyEl.innerHTML = data.rendered_html;
+                        if (statusEl) {
+                            statusEl.textContent = `Cached ${data.cached_count} image(s) locally`;
+                        }
+                    }
+                } catch (e) {
+                    console.debug('Lazy image cache check skipped:', e);
+                }
+            }
+            </script>
 
             <!-- Collapsible Document Chunks & Vector Segments -->
             {% if chunks %}

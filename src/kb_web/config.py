@@ -1068,6 +1068,39 @@ class Config:
             "settings_external", "allowed_topics", self._allowed_topics
         )
 
+    @property
+    def cache_images_on_import(self) -> bool:
+        val = self._read_db_setting("settings_external", "cache_images_on_import", "1")
+        return str(val).strip().lower() in ("1", "true", "yes", "on")
+
+    @cache_images_on_import.setter
+    def cache_images_on_import(self, value: bool) -> None:
+        self._write_db_setting("settings_external", "cache_images_on_import", "1" if value else "0")
+
+    @property
+    def image_cache_max_bytes(self) -> int:
+        val = self._read_db_setting("settings_external", "image_cache_max_bytes", 10485760)
+        try:
+            return max(1024, int(val))
+        except (ValueError, TypeError):
+            return 10485760
+
+    @image_cache_max_bytes.setter
+    def image_cache_max_bytes(self, value: int) -> None:
+        self._write_db_setting("settings_external", "image_cache_max_bytes", max(1024, int(value)))
+
+    @property
+    def obsidian_export_neighbor_k(self) -> int:
+        val = self._read_db_setting("settings_external", "obsidian_export_neighbor_k", 5)
+        try:
+            return max(0, min(50, int(val)))
+        except (ValueError, TypeError):
+            return 5
+
+    @obsidian_export_neighbor_k.setter
+    def obsidian_export_neighbor_k(self, value: int) -> None:
+        self._write_db_setting("settings_external", "obsidian_export_neighbor_k", max(0, min(50, int(value))))
+
     def get_allowed_topics_list(self) -> List[str]:
         """Returns normalized list of allowed top-level topics."""
         raw = self.allowed_topics or DEFAULT_ALLOWED_TOPICS
