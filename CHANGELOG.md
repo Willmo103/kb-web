@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.16] - Unreleased
 ### Added
+- **Obsidian Vault ZIP Export (`src/kb_web/obsidian_export.py`, `GET /admin/export/obsidian`, `kb-web-cli export-obsidian`)**:
+  - Exports all ingested web articles and YouTube transcripts (explicitly excluding `note://` Obsidian notes) into a single downloadable ZIP archive containing:
+    - `_sources/<site>/<dot.joined.path>.md`: Raw scraped Markdown with YAML frontmatter (`url`, `site`, `date_scraped`, `version`).
+    - `articles/<collection>/<site>/<title>.md`: AI-generated wiki Markdown with full YAML frontmatter (`title`, `url`, `site`, `collection`, `date_scraped`, `model_used`, `tags`), Obsidian inline `#tags` rendered below `# Title`, source link under `/_sources/`, and top-K nearest-neighbor backlinks computed via vector cosine similarity under `/reference/articles/`.
+    - Automatic duplicate title conflict resolution via LLM re-titling (`resolve_title_conflict`) with deterministic URL-hash fallback.
+  - Added **"Export Obsidian Vault (ZIP)"** button in `/admin` (`templates/admin.j2.html`) and `export-obsidian` command in `cli.py`.
+- **Database-Backed Image Caching & Public Asset Sync (`src/kb_web/image_cache.py`, `models_orm.py`, `POST /api/pages/cache-images`)**:
+  - Added `CachedImage` ORM model (`cached_images` table) storing image binaries keyed by SHA-256 content hash alongside original URL, content type, and extension.
+  - Syncs cached images to the public `static/cached_images/` directory (`/static/cached_images/<hash>.<ext>`) on startup and during imports.
+  - Automatically downloads, caches, and rewrites external image URLs in Markdown during `pipeline.py` and `utils.py` ingestion.
+  - Added lazy backfill endpoint `POST /api/pages/cache-images` triggered automatically when expanding "View Original Scraped Markdown Content" in `templates/view_page.j2.html`.
 - **Comprehensive `./docs` Architecture, Codebase Mapping & Dangling Code Audit**:
   - Authored complete technical documentation library in `docs/`:
     - `docs/README.md`: Central documentation portal and navigation matrix.

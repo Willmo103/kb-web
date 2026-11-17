@@ -1,5 +1,5 @@
 import json
-from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Table, Index
+from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Table, Index, LargeBinary
 from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.types import TypeDecorator
 
@@ -918,6 +918,20 @@ valid_repo_files = Table(
     Column("file_path", String),
     Column("repo_path", String),
 )
+
+
+class CachedImage(Base):
+    """Stores locally cached web images keyed by their SHA-256 content hash."""
+
+    __tablename__ = "cached_images"
+
+    image_hash = Column(String, primary_key=True)
+    original_url = Column(String, nullable=False, index=True)
+    content_type = Column(String, nullable=False)
+    extension = Column(String, nullable=False, default="png")
+    data = Column(LargeBinary, nullable=False)
+    size_bytes = Column(Integer, nullable=False, default=0)
+    created_at = Column(String, nullable=False)
 
 
 class PageCardView(Base):

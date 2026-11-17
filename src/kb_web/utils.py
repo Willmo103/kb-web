@@ -1375,6 +1375,27 @@ def ingest_url_sync(db, url: str, config=None, client=None) -> dict:
 
     serialized, creator = serialize_page_for_db(page_data)
     with db_session() as session:
+        if getattr(config, "cache_images_on_import", True) and page_data.md_content:
+            try:
+                from .image_cache import cache_and_rewrite_markdown_images
+
+                rewritten_md, cached_img_count = cache_and_rewrite_markdown_images(
+                    page_data.md_content,
+                    base_url=page_data.url,
+                    session=session,
+                    max_bytes=getattr(config, "image_cache_max_bytes", 10485760),
+                    allow_internal=getattr(config, "allow_internal_urls", False),
+                )
+                if cached_img_count > 0:
+                    page_data.md_content = rewritten_md
+                    page_data.md_content_hash = hashlib.sha256(
+                        rewritten_md.encode("utf-8")
+                    ).hexdigest()
+                    serialized["md_content"] = page_data.md_content
+                    serialized["md_content_hash"] = page_data.md_content_hash
+            except Exception:
+                pass
+
         page = session.query(FetchedPage).filter_by(url=url).first()
         if page:
             for k, v in serialized.items():
