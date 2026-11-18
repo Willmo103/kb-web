@@ -80,6 +80,18 @@ async def lifespan(app: FastAPI):
             "Please configure a unique KB_API_KEY in production."
         )
 
+    # Sync cached images from database to static/cached_images
+    try:
+        from kb_web.base import db_session
+        from kb_web.image_cache import sync_cached_images_to_disk
+
+        with db_session() as session:
+            synced = sync_cached_images_to_disk(session)
+            if synced:
+                logger.info(f"Synced {synced} cached image(s) to public static directory.")
+    except Exception as e:
+        logger.debug(f"Cached image disk sync skipped: {e}")
+
     # Start autonomous background worker engine
     try:
         from .worker import autonomous_worker

@@ -38,6 +38,7 @@ from ..utils import (
     preprocess_markdown,
     get_similar_articles,
     download_youtube_video,
+    download_youtube_audio,
     sanitize_html,
     _get_ollama_client,
 )
@@ -361,6 +362,8 @@ def view_saved_page(
         video_metadata = None
         is_offline = False
         local_video_url = None
+        is_audio_offline = False
+        local_audio_url = None
         video_id = extract_youtube_video_id(decoded_url)
         if video_id:
             try:
@@ -391,6 +394,25 @@ def view_saved_page(
             if has_file and filename:
                 is_offline = True
                 local_video_url = f"/media/videos/{filename}"
+
+            # Check for downloaded audio-only file
+            audio_exts = {".m4a", ".mp3", ".webm", ".opus", ".ogg", ".aac", ".wav"}
+            db_audio_path = video_metadata.get("audio_path") if video_metadata else None
+            audio_dir = config.configs_dir.parent / "media" / "audio"
+            audio_filename = None
+            if db_audio_path and os.path.exists(db_audio_path):
+                audio_filename = os.path.basename(db_audio_path)
+            elif audio_dir.exists():
+                matching_audio = [
+                    f for f in audio_dir.glob(f"*{video_id}*")
+                    if f.is_file() and f.suffix.lower() in audio_exts
+                ]
+                if matching_audio:
+                    audio_filename = matching_audio[0].name
+
+            if audio_filename:
+                is_audio_offline = True
+                local_audio_url = f"/media/audio/{audio_filename}"
 
         current_fetched_at = None
         current_wiki_model = None
@@ -578,6 +600,8 @@ def view_saved_page(
             collections=collections_list,
             is_offline=is_offline,
             local_video_url=local_video_url,
+            is_audio_offline=is_audio_offline,
+            local_audio_url=local_audio_url,
             assigned_collections=assigned_collections,
             assigned_collection_ids=assigned_collection_ids,
             chunks=chunks,
@@ -735,6 +759,95 @@ def start_video_download(
     }
 
 
+@router.post("/api/youtube/download-audio", dependencies=[Depends(verify_auth)])
+async def download_youtube_audio_api(request: Request) -> dict:
+    """Downloads ONLY the audio stream of a YouTube video (for DB-ingested videos
+    or standalone YouTube URLs) and returns the playable `/media/audio/...` URL.
+    """
+    import re
+    from urllib.parse import quote
+
+    url = ""
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            url = (body.get("url") or "").strip()
+        except Exception:
+            url = ""
+    else:
+        try:
+            form = await request.form()
+            url = str(form.get("url") or "").strip()
+        except Exception:
+            url = ""
+
+    video_id = extract_youtube_video_id(url)
+    if not video_id and re.fullmatch(r"[a-zA-Z0-9_-]{11}", url):
+        video_id = url
+
+    if not video_id:
+        return {"status": "error", "message": "Invalid YouTube URL or video ID."}
+
+    try:
+        local_audio_path = download_youtube_audio(video_id, config)
+        filename = os.path.basename(local_audio_path)
+
+        # Update YouTubeVideo.audio_path if a DB row exists (non-fatal if standalone)
+        try:
+            url1 = f"https://www.youtube.com/watch?v={video_id}"
+            url2 = f"https://youtube.com/watch?v={video_id}"
+            with db_session() as session:
+                yt = (
+                    session.query(YouTubeVideo)
+                    .filter(YouTubeVideo.url.in_([url, url1, url2]))
+                    .first()
+                )
+                if yt:
+                    yt.audio_path = local_audio_path
+        except Exception:
+            pass
+
+        return {
+            "status": "success",
+            "video_id": video_id,
+            "filename": filename,
+            "audio_url": f"/media/audio/{quote(filename)}",
+            "message": f"Audio ready for {video_id}.",
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to download audio: {e}"}
+
+
+@router.get("/api/youtube/audio-list", dependencies=[Depends(verify_auth)])
+def list_downloaded_audio() -> dict:
+    """Lists all locally downloaded YouTube audio tracks in `media/audio/`."""
+    from urllib.parse import quote
+    from ..video_manager import extract_video_id_from_filename
+
+    audio_dir = config.configs_dir.parent / "media" / "audio"
+    audio_exts = {".m4a", ".mp3", ".webm", ".opus", ".ogg", ".aac", ".wav"}
+    items = []
+    if audio_dir.exists():
+        files = [
+            f for f in audio_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in audio_exts
+        ]
+        files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        for f in files:
+            stat = f.stat()
+            vid = extract_video_id_from_filename(f.name)
+            items.append(
+                {
+                    "filename": f.name,
+                    "video_id": vid,
+                    "audio_url": f"/media/audio/{quote(f.name)}",
+                    "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                }
+            )
+    return {"status": "ok", "items": items}
+
+
 @router.get("/notifications", response_class=HTMLResponse)
 def view_notifications_history(request: Request):
     """HTML Dashboard displaying the complete notification archive and ingestion history in perpetuity."""
@@ -747,4 +860,61 @@ def view_notifications_history(request: Request):
         is_admin=is_admin,
     )
     return HTMLResponse(content=html_content)
+
+
+@router.post("/api/pages/cache-images", dependencies=[Depends(verify_auth)])
+async def lazy_cache_page_images(request: Request) -> dict:
+    """Lazy backfill endpoint triggered when viewing original markdown or page load.
+
+    Scans the page's md_content for external http(s) images, downloads and caches them
+    into `cached_images` keyed by SHA-256, syncs to `/static/cached_images/`, and
+    rewrites the markdown links in place.
+    """
+    import hashlib
+    from pydantic import BaseModel
+    from ..image_cache import cache_and_rewrite_markdown_images, has_external_images
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    url = (body.get("url") or "").strip()
+    if not url:
+        return {"status": "error", "message": "Missing 'url' parameter."}
+
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=url).first()
+        if not page:
+            return {"status": "error", "message": "Page not found."}
+
+        md_content = page.md_content or ""
+        if not has_external_images(md_content):
+            return {"status": "ok", "updated": False, "cached_count": 0}
+
+        rewritten_md, cached_count = cache_and_rewrite_markdown_images(
+            md_content,
+            base_url=url,
+            session=session,
+            max_bytes=getattr(config, "image_cache_max_bytes", 10485760),
+            allow_internal=getattr(config, "allow_internal_urls", False),
+        )
+        if cached_count > 0:
+            page.md_content = rewritten_md
+            page.md_content_hash = hashlib.sha256(rewritten_md.encode("utf-8")).hexdigest()
+            rendered_html = sanitize_html(
+                markdown.markdown(
+                    preprocess_markdown(rewritten_md),
+                    extensions=["fenced_code", "tables"],
+                )
+            )
+            return {
+                "status": "ok",
+                "updated": True,
+                "cached_count": cached_count,
+                "rendered_html": rendered_html,
+            }
+
+        return {"status": "ok", "updated": False, "cached_count": 0}
+
 

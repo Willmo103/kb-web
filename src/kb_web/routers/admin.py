@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from urllib.parse import unquote_plus, quote_plus, urlparse
+from fastapi.responses import Response
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -1274,6 +1275,26 @@ def export_database() -> FileResponse:
         filename=dest_file.name,
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename={dest_file.name}"},
+    )
+
+
+@router.get("/admin/export/obsidian", dependencies=[Depends(verify_auth)], response_model=None)
+def export_obsidian_vault() -> Response:
+    """Exports all ingested articles and YouTube transcripts (excluding Obsidian notes)
+    into a structured ZIP vault containing `_sources/` and `articles/` with frontmatter,
+    Obsidian tags, and nearest-neighbor backlinks.
+    """
+    from ..obsidian_export import build_obsidian_vault_zip
+
+    with db_session() as session:
+        zip_bytes = build_obsidian_vault_zip(session=session, config=config)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"kb_obsidian_vault_{ts}.zip"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 

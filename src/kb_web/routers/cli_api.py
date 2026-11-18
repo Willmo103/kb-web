@@ -1,11 +1,11 @@
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, Header, HTTPException, Depends, status, Form
+from fastapi import APIRouter, Header, HTTPException, Depends, Request, status, Form
 from pydantic import BaseModel
 from sqlalchemy import or_
 
@@ -29,16 +29,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cli", tags=["CLI API"])
 
 
-def verify_cli_api_key(x_api_key: str = Header(...)) -> str:
-    with db_session() as session:
-        key_exists = session.query(CliApiKey).filter_by(key=x_api_key).first() is not None
-
-    if not key_exists:
+def verify_cli_api_key(request: Request) -> str:
+    try:
+        return verify_api_key(request)
+    except HTTPException as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid or revoked CLI API Key.",
-        )
-    return x_api_key
+        ) from exc
 
 
 class RegistrationRequest(BaseModel):
@@ -690,3 +688,136 @@ def restart_server(api_key: str = Depends(verify_api_key)):
         "status": "restarting",
         "message": "Server restart scheduled. Service manager will restart the process automatically.",
     }
+
+
+@router.post("/pages/action")
+def cli_page_action(
+    url: str = Form(...),
+    action: str = Form(...),
+    api_key: str = Depends(verify_api_key),
+):
+    """Executes an administrative page action (`regenerate-wiki`, `regenerate-tags`,
+    `download-video`, `download-audio`) on behalf of the CLI client.
+    """
+    from ..models import HTMLPage
+    from ..models_orm import WikiVersion
+    from ..utils import download_youtube_audio
+
+    action_norm = action.strip().lower()
+    with db_session() as session:
+        page = session.query(FetchedPage).filter_by(url=url).first()
+        if not page and action_norm not in ("download-video", "download-audio"):
+            raise HTTPException(status_code=404, detail=f"Page not found: {url}")
+
+        if action_norm == "regenerate-wiki":
+            hp = HTMLPage(
+                url=page.url,
+                title=page.title,
+                html_content=page.html_content or "",
+                md_content=page.md_content or "",
+                fetched_at=page.fetched_at or "",
+            )
+            client = _get_ollama_client()
+            new_wiki = extract_wiki_content(hp, config, client)
+            page.description = new_wiki
+            page.wiki_model = config.ollama_model
+            session.add(
+                WikiVersion(
+                    url=page.url,
+                    title=page.title,
+                    wiki_content=new_wiki,
+                    model_name=config.ollama_model,
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                )
+            )
+            return {"status": "success", "message": "Wiki regenerated.", "wiki": new_wiki}
+
+        if action_norm == "regenerate-tags":
+            hp = HTMLPage(
+                url=page.url,
+                title=page.title,
+                html_content=page.html_content or "",
+                md_content=page.md_content or "",
+                fetched_at=page.fetched_at or "",
+            )
+            client = _get_ollama_client()
+            tags = extract_tags_content(hp, config, client)
+            page.tags = json.dumps(tags)
+            return {"status": "success", "message": "Tags regenerated.", "tags": tags}
+
+        if action_norm == "download-video":
+            vid = extract_youtube_video_id(url)
+            if not vid:
+                raise HTTPException(status_code=400, detail="Invalid YouTube URL.")
+            local_path = download_youtube_video(vid, config)
+            yt = session.query(YouTubeVideo).filter_by(url=url).first()
+            if yt:
+                yt.local_path = local_path
+            return {"status": "success", "message": "Video downloaded.", "local_path": local_path}
+
+        if action_norm == "download-audio":
+            vid = extract_youtube_video_id(url)
+            if not vid:
+                raise HTTPException(status_code=400, detail="Invalid YouTube URL.")
+            local_path = download_youtube_audio(vid, config)
+            yt = session.query(YouTubeVideo).filter_by(url=url).first()
+            if yt:
+                yt.audio_path = local_path
+            return {"status": "success", "message": "Audio downloaded.", "local_path": local_path}
+
+    raise HTTPException(status_code=400, detail=f"Unsupported action: {action}")
+
+
+class ObsidianConfigPayload(BaseModel):
+    vault_path: Optional[str] = None
+    sources_subpath: Optional[str] = None
+    articles_subpath: Optional[str] = None
+
+
+@router.get("/obsidian/config")
+def get_obsidian_cli_config(api_key: str = Depends(verify_api_key)):
+    """Returns the server-persisted Obsidian vault path and export subpaths."""
+    return {
+        "status": "ok",
+        "vault_path": config.obsidian_vault_path,
+        "sources_subpath": config.obsidian_sources_subpath,
+        "articles_subpath": config.obsidian_articles_subpath,
+    }
+
+
+@router.post("/obsidian/config")
+def update_obsidian_cli_config(
+    payload: ObsidianConfigPayload,
+    api_key: str = Depends(verify_api_key),
+):
+    """Updates the server-persisted Obsidian vault path and export subpaths."""
+    if payload.vault_path is not None:
+        config.obsidian_vault_path = payload.vault_path
+    if payload.sources_subpath is not None:
+        config.obsidian_sources_subpath = payload.sources_subpath
+    if payload.articles_subpath is not None:
+        config.obsidian_articles_subpath = payload.articles_subpath
+
+    return {
+        "status": "success",
+        "vault_path": config.obsidian_vault_path,
+        "sources_subpath": config.obsidian_sources_subpath,
+        "articles_subpath": config.obsidian_articles_subpath,
+    }
+
+
+@router.get("/export/obsidian")
+def cli_export_obsidian_vault(api_key: str = Depends(verify_api_key)):
+    """Streams the Obsidian vault ZIP export directly to authenticated CLI clients."""
+    from fastapi.responses import Response
+    from ..obsidian_export import build_obsidian_vault_zip
+
+    with db_session() as session:
+        zip_bytes = build_obsidian_vault_zip(session=session, config=config)
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=kb_obsidian_vault_{ts}.zip"},
+    )

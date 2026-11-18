@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.16] - Unreleased
 ### Added
+- **Obsidian Vault CLI Sync & Server Path Configuration (`kb-web-cli`, `routers/cli_api.py`, `config.py`, `obsidian_export.py`)**:
+  - Added `kb-cli obsidian config` (`--vault`, `--sources-dir`, `--articles-dir`) and `kb-cli obsidian sync` (`--dry-run`, `--delete-stale`) in `kb-web-cli`.
+  - Fetches fresh Obsidian vault ZIP exports from `GET /api/cli/export/obsidian`, unpacks `_sources/` and `articles/` into configurable vault subpaths (default `/_sources` and `/reference/articles`), and diffs SHA-256 hashes to sync only added/changed files without touching unrelated user notes.
+  - Added server-persisted settings (`obsidian_vault_path`, `obsidian_sources_subpath`, `obsidian_articles_subpath`) exposed via `GET/POST /api/cli/obsidian/config` and respected by `obsidian_export.py` backlink generation.
+  - Added `kb-cli status` command to verify server connectivity and API key authentication.
+- **Browser Extension Connection Testing (`browser_extension/`)**:
+  - Added **"Test Connection & Credentials"** button in `options.html` / `options.js` and automatic `/api/import/html` path normalization in `background.js`.
+
+### Fixed
+- **Browser Extension `/api/import/html` Ollama `ReadTimeout` Crash (`routers/api.py`)**:
+  - Updated `handle_html_import` to persist the scraped `FetchedPage` (and cache page images) immediately before scheduling LLM wiki/tag/embedding curation in `BackgroundTasks` (`_curate_imported_html_page`), wrapped in graceful error handling so an Ollama `httpx.ReadTimeout` logs cleanly and leaves the page ready for the background worker instead of failing with HTTP 500.
+- **CLI API Key Authentication & Missing Action Endpoint (`routers/cli_api.py`)**:
+  - Unified `verify_cli_api_key` with `verify_api_key` (preserving HTTP 403 on invalid CLI keys) so CLI endpoints accept both master `KB_API_KEY` and registered `CliApiKey` tokens.
+  - Implemented missing `POST /api/cli/pages/action` endpoint (`regenerate-wiki`, `regenerate-tags`, `download-video`, `download-audio`) required by `kb-cli action`.
+
+### Added
+- **YouTube Audio-Only Download & In-Browser Playback (`utils.py`, `routers/pages.py`, `templates/view_page.j2.html`, `templates/url_import.j2.html`)**:
+  - Added `download_youtube_audio()` using `DEFAULT_YOUTUBE_AUDIO_FORMAT` (`ba[ext=m4a]/ba[ext=mp3]/ba/bestaudio`) to download **only** the native audio stream directly into `media/audio/` without downloading video tracks.
+  - Added `audio_path` column to `YouTubeVideo` (`models_orm.py`, `deploy_migrations.py`).
+  - Added `POST /api/youtube/download-audio` (supports both DB-ingested videos and standalone YouTube URLs/IDs) and `GET /api/youtube/audio-list`.
+  - Added **"🎵 Download Audio Only"** button and inline HTML5 `<audio controls>` player on ingested YouTube pages (`view_page.j2.html`).
+  - Added **"🎵 YouTube Audio Player"** tab on `/import` (`url_import.j2.html`) for downloading, playing, and browsing standalone YouTube audio tracks.
+- **Obsidian Vault ZIP Export (`src/kb_web/obsidian_export.py`, `GET /admin/export/obsidian`, `kb-web-cli export-obsidian`)**:
+  - Exports all ingested web articles and YouTube transcripts (explicitly excluding `note://` Obsidian notes) into a single downloadable ZIP archive containing:
+    - `_sources/<site>/<dot.joined.path>.md`: Raw scraped Markdown with YAML frontmatter (`url`, `site`, `date_scraped`, `version`).
+    - `articles/<collection>/<site>/<title>.md`: AI-generated wiki Markdown with full YAML frontmatter (`title`, `url`, `site`, `collection`, `date_scraped`, `model_used`, `tags`), Obsidian inline `#tags` rendered below `# Title`, source link under `/_sources/`, and top-K nearest-neighbor backlinks computed via vector cosine similarity under `/reference/articles/`.
+    - Automatic duplicate title conflict resolution via LLM re-titling (`resolve_title_conflict`) with deterministic URL-hash fallback.
+  - Added **"Export Obsidian Vault (ZIP)"** button in `/admin` (`templates/admin.j2.html`) and `export-obsidian` command in `cli.py`.
+- **Database-Backed Image Caching & Public Asset Sync (`src/kb_web/image_cache.py`, `models_orm.py`, `POST /api/pages/cache-images`)**:
+  - Added `CachedImage` ORM model (`cached_images` table) storing image binaries keyed by SHA-256 content hash alongside original URL, content type, and extension.
+  - Syncs cached images to the public `static/cached_images/` directory (`/static/cached_images/<hash>.<ext>`) on startup and during imports.
+  - Automatically downloads, caches, and rewrites external image URLs in Markdown during `pipeline.py` and `utils.py` ingestion.
+  - Added lazy backfill endpoint `POST /api/pages/cache-images` triggered automatically when expanding "View Original Scraped Markdown Content" in `templates/view_page.j2.html`.
 - **Comprehensive `./docs` Architecture, Codebase Mapping & Dangling Code Audit**:
   - Authored complete technical documentation library in `docs/`:
     - `docs/README.md`: Central documentation portal and navigation matrix.

@@ -389,5 +389,39 @@ def reindex_embeddings_cmd(
     typer.secho(f"Successfully reindexed all documents with embedding model: {target_model}", fg=typer.colors.GREEN)
 
 
+@app.command("export-obsidian")
+def export_obsidian_cmd(
+    output: Path = typer.Option(
+        Path("kb_obsidian_vault.zip"),
+        "--output",
+        "-o",
+        help="Destination path for the exported Obsidian vault ZIP archive.",
+    ),
+    neighbors: Optional[int] = typer.Option(
+        None,
+        "--neighbors",
+        "-k",
+        help="Number of nearest-neighbor backlinks per article.",
+    ),
+) -> None:
+    """Exports all ingested articles and YouTube transcripts (excluding notes) into an Obsidian ZIP vault."""
+    from .base import config as base_config, db_session
+    from .obsidian_export import build_obsidian_vault_zip
+
+    with db_session() as session:
+        zip_bytes = build_obsidian_vault_zip(
+            session=session,
+            config=base_config,
+            neighbor_k=neighbors,
+        )
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(zip_bytes)
+    typer.secho(
+        f"Exported Obsidian vault ZIP ({len(zip_bytes)} bytes) to {output}",
+        fg=typer.colors.GREEN,
+    )
+
+
 if __name__ == "__main__":
     app()

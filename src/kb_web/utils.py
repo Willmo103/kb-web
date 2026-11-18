@@ -1375,6 +1375,27 @@ def ingest_url_sync(db, url: str, config=None, client=None) -> dict:
 
     serialized, creator = serialize_page_for_db(page_data)
     with db_session() as session:
+        if getattr(config, "cache_images_on_import", True) and page_data.md_content:
+            try:
+                from .image_cache import cache_and_rewrite_markdown_images
+
+                rewritten_md, cached_img_count = cache_and_rewrite_markdown_images(
+                    page_data.md_content,
+                    base_url=page_data.url,
+                    session=session,
+                    max_bytes=getattr(config, "image_cache_max_bytes", 10485760),
+                    allow_internal=getattr(config, "allow_internal_urls", False),
+                )
+                if cached_img_count > 0:
+                    page_data.md_content = rewritten_md
+                    page_data.md_content_hash = hashlib.sha256(
+                        rewritten_md.encode("utf-8")
+                    ).hexdigest()
+                    serialized["md_content"] = page_data.md_content
+                    serialized["md_content_hash"] = page_data.md_content_hash
+            except Exception:
+                pass
+
         page = session.query(FetchedPage).filter_by(url=url).first()
         if page:
             for k, v in serialized.items():
@@ -1492,3 +1513,104 @@ def download_youtube_video(video_id: str, config_obj=None) -> str:
         return str(first_file)
 
     raise RuntimeError(f"Failed to download video {video_id} with yt-dlp.")
+
+
+def download_youtube_audio(video_id: str, config_obj=None) -> str:
+    """Downloads ONLY the audio stream of a YouTube video to ~/.kb/media/audio/
+    using yt-dlp without downloading the video track.
+
+    Returns the absolute local path to the downloaded audio file.
+    """
+    import yt_dlp
+
+    if config_obj is None:
+        config_obj = default_config
+
+    audio_dir = config_obj.configs_dir.parent / "media" / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+
+    audio_exts = {".m4a", ".mp3", ".webm", ".opus", ".ogg", ".aac", ".wav"}
+    existing_files = [
+        f for f in audio_dir.glob(f"*{video_id}*")
+        if f.is_file() and f.suffix.lower() in audio_exts
+    ]
+    if existing_files:
+        return str(existing_files[0])
+
+    def _sanitize_filename(name: str) -> str:
+        return re.sub(r'[\\/*?:"<>|]', "", name).strip()
+
+    creator = None
+    title = None
+
+    url1 = f"https://www.youtube.com/watch?v={video_id}"
+    url2 = f"https://youtube.com/watch?v={video_id}"
+    try:
+        from .base import db_session
+        from .models_orm import FetchedPage, YouTubeVideo
+
+        with db_session() as session:
+            yt_rec = session.query(YouTubeVideo).filter(YouTubeVideo.url.in_([url1, url2])).first()
+            if yt_rec:
+                creator = yt_rec.creator
+            page_rec = session.query(FetchedPage).filter(FetchedPage.url.in_([url1, url2])).first()
+            if page_rec:
+                title = page_rec.title
+    except Exception:
+        pass
+
+    if not creator or not title:
+        try:
+            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+                info = ydl.extract_info(url1, download=False)
+                if info:
+                    if not creator:
+                        creator = info.get("uploader") or info.get("channel")
+                    if not title:
+                        title = info.get("title")
+        except Exception:
+            pass
+
+    creator_clean = _sanitize_filename(creator) if creator else ""
+    title_clean = _sanitize_filename(title) if title else ""
+
+    if creator_clean and title_clean:
+        filename_base = f"[{creator_clean}] - {title_clean} [{video_id}]"
+    elif title_clean:
+        filename_base = f"{title_clean} [{video_id}]"
+    else:
+        filename_base = f"{video_id}"
+
+    from .config import DEFAULT_YOUTUBE_AUDIO_FORMAT
+
+    audio_format = (
+        getattr(config_obj, "youtube_audio_download_format", DEFAULT_YOUTUBE_AUDIO_FORMAT)
+        or DEFAULT_YOUTUBE_AUDIO_FORMAT
+    )
+
+    ydl_opts = {
+        "format": audio_format,
+        "outtmpl": str(audio_dir / f"{filename_base}.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url1])
+
+    downloaded_files = [
+        f for f in audio_dir.iterdir()
+        if f.is_file() and f.name.startswith(filename_base) and f.suffix.lower() in audio_exts
+    ]
+    if downloaded_files:
+        return str(downloaded_files[0])
+
+    # Fallback: any matching file with video_id
+    fallback_files = [
+        f for f in audio_dir.glob(f"*{video_id}*")
+        if f.is_file()
+    ]
+    if fallback_files:
+        return str(fallback_files[0])
+
+    raise RuntimeError(f"Failed to download audio for video {video_id} with yt-dlp.")

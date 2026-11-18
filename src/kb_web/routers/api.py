@@ -3,9 +3,11 @@ FastAPI Router for extension/external programmatic imports.
 """
 
 import hashlib
+import json
+import logging
 from urllib.parse import urlparse, urljoin
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Query
 from html2text import HTML2Text
 from bs4 import BeautifulSoup  # type: ignore
 
@@ -30,13 +32,75 @@ from ..utils import (
 )
 from ..gotify import post_to_gotify
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _curate_imported_html_page(page_data: HTMLPage, view_url: str) -> None:
+    """Runs LLM wiki generation, tag extraction, and embedding indexing with
+    graceful timeout/error handling so an Ollama timeout never loses the saved page.
+    """
+    client = _get_ollama_client()
+    wiki_entry = None
+    tags = None
+
+    try:
+        wiki_entry = extract_wiki_content(page_data, config, client)
+        if wiki_entry:
+            page_data.description = wiki_entry
+            if wiki_entry.strip().startswith("#"):
+                first_line = wiki_entry.strip().split("\n")[0]
+                page_data.title = first_line.replace("#", "").strip()
+    except Exception as e:
+        logger.warning(f"Wiki extraction failed/timed out for {page_data.url} (will retry via worker): {e}")
+
+    try:
+        tags = extract_tags_content(page_data, config, client)
+        if tags:
+            page_data.tags = tags
+    except Exception as e:
+        logger.warning(f"Tag extraction failed/timed out for {page_data.url} (will retry via worker): {e}")
+
+    serialized, creator = serialize_page_for_db(page_data)
+    try:
+        with db_session() as session:
+            page = session.query(FetchedPage).filter_by(url=page_data.url).first()
+            if page:
+                if wiki_entry:
+                    page.description = serialized.get("description")
+                    page.title = serialized.get("title")
+                    page.wiki_model = serialized.get("wiki_model")
+                if tags:
+                    page.tags = serialized.get("tags")
+            else:
+                session.add(FetchedPage(**serialized))
+    except Exception as e:
+        logger.error(f"Failed updating curated fields for {page_data.url}: {e}")
+
+    for fn_name, fn in (
+        ("save_youtube_metadata_helper", lambda: save_youtube_metadata_helper(None, page_data.url, creator)),
+        ("update_article_embedding", lambda: update_article_embedding(None, page_data.url, config, client)),
+        ("generate_gemma_embeddings_for_page", lambda: generate_gemma_embeddings_for_page(None, page_data.url, config, client)),
+    ):
+        try:
+            fn()
+        except Exception as e:
+            logger.warning(f"{fn_name} failed for {page_data.url}: {e}")
+
+    try:
+        post_to_gotify(config, _jinja_env, page_data, view_url)
+    except Exception as e:
+        logger.warning(f"Gotify notification failed for {page_data.url}: {e}")
 
 
 @router.post(
     "/api/import/html", dependencies=[Depends(verify_api_key)], response_model=None
 )
-def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
+def handle_html_import(
+    payload: HTMLImportPayload,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict:
     """Accepts raw HTML posts directly from browser extensions and processes them."""
     try:
         url = payload.url
@@ -124,19 +188,29 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
     except Exception:
         pass
 
-    client = _get_ollama_client()
-    wiki_entry = extract_wiki_content(page_data, config, client)
-    page_data.description = wiki_entry
-
-    if wiki_entry.strip().startswith("#"):
-        first_line = wiki_entry.strip().split("\n")[0]
-        page_data.title = first_line.replace("#", "").strip()
-
-    tags = extract_tags_content(page_data, config, client)
-    page_data.tags = tags
-
     serialized, creator = serialize_page_for_db(page_data)
     with db_session() as session:
+        if getattr(config, "cache_images_on_import", True) and page_data.md_content:
+            try:
+                from ..image_cache import cache_and_rewrite_markdown_images
+
+                rewritten_md, cached_img_count = cache_and_rewrite_markdown_images(
+                    page_data.md_content,
+                    base_url=page_data.url,
+                    session=session,
+                    max_bytes=getattr(config, "image_cache_max_bytes", 10485760),
+                    allow_internal=getattr(config, "allow_internal_urls", False),
+                )
+                if cached_img_count > 0:
+                    page_data.md_content = rewritten_md
+                    page_data.md_content_hash = hashlib.sha256(
+                        rewritten_md.encode("utf-8")
+                    ).hexdigest()
+                    serialized["md_content"] = page_data.md_content
+                    serialized["md_content_hash"] = page_data.md_content_hash
+            except Exception:
+                pass
+
         page = session.query(FetchedPage).filter_by(url=page_data.url).first()
         if page:
             for k, v in serialized.items():
@@ -144,11 +218,7 @@ def handle_html_import(payload: HTMLImportPayload, request: Request) -> dict:
         else:
             session.add(FetchedPage(**serialized))
 
-    save_youtube_metadata_helper(None, page_data.url, creator)
-    update_article_embedding(None, page_data.url, config, client)
-    generate_gemma_embeddings_for_page(None, page_data.url, config, client)
-
-    post_to_gotify(config, _jinja_env, page_data, view_url)
+    background_tasks.add_task(_curate_imported_html_page, page_data, view_url)
 
     return {"status": "success", "url": url, "view_url": view_url}
 
