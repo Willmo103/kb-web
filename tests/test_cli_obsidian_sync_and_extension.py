@@ -233,3 +233,42 @@ def test_cli_obsidian_config_and_sync_end_to_end(client, tmp_path):
         assert res_sync2.exit_code == 0, res_sync2.output
         assert "Added:     0" in res_sync2.output
         assert "Updated:   0" in res_sync2.output
+
+
+def test_browser_extension_html_import_survives_ollama_timeout(client):
+    """Verifies /api/import/html saves the page and returns 200 even if Ollama times out."""
+    import httpx
+
+    url = "https://ext-test.example.com/timeout-test"
+    payload = {
+        "url": url,
+        "title": "Timeout Resilience Page",
+        "html_content": "<html><head><title>Timeout Resilience Page</title></head><body><article><p>Saved even when Ollama times out.</p></article></body></html>",
+    }
+
+    with db_session() as session:
+        session.add(CliApiKey(key="cli-test-key-xyz", name="Ext Timeout Key"))
+        session.commit()
+
+    try:
+        with patch("kb_web.routers.api.extract_wiki_content", side_effect=httpx.ReadTimeout("timed out")), patch(
+            "kb_web.routers.api.extract_tags_content", side_effect=httpx.ReadTimeout("timed out")
+        ), patch("kb_web.routers.api.update_article_embedding"), patch(
+            "kb_web.routers.api.generate_gemma_embeddings_for_page"
+        ), patch("kb_web.routers.api.post_to_gotify"):
+            res = client.post(
+                "/api/import/html",
+                headers={"X-API-Key": "cli-test-key-xyz"},
+                json=payload,
+            )
+
+        assert res.status_code == 200
+        assert res.json()["status"] == "success"
+        with db_session() as session:
+            page = session.query(FetchedPage).filter_by(url=url).first()
+            assert page is not None
+            assert "Saved even when Ollama times out." in (page.md_content or "")
+    finally:
+        with db_session() as session:
+            session.query(FetchedPage).filter_by(url=url).delete(synchronize_session=False)
+            session.commit()

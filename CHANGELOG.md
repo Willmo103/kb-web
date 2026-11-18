@@ -16,8 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added **"Test Connection & Credentials"** button in `options.html` / `options.js` and automatic `/api/import/html` path normalization in `background.js`.
 
 ### Fixed
+- **Browser Extension `/api/import/html` Ollama `ReadTimeout` Crash (`routers/api.py`)**:
+  - Updated `handle_html_import` to persist the scraped `FetchedPage` (and cache page images) immediately before scheduling LLM wiki/tag/embedding curation in `BackgroundTasks` (`_curate_imported_html_page`), wrapped in graceful error handling so an Ollama `httpx.ReadTimeout` logs cleanly and leaves the page ready for the background worker instead of failing with HTTP 500.
 - **CLI API Key Authentication & Missing Action Endpoint (`routers/cli_api.py`)**:
-  - Unified `verify_cli_api_key` with `verify_api_key` so CLI endpoints accept both master `KB_API_KEY` and registered `CliApiKey` tokens.
+  - Unified `verify_cli_api_key` with `verify_api_key` (preserving HTTP 403 on invalid CLI keys) so CLI endpoints accept both master `KB_API_KEY` and registered `CliApiKey` tokens.
   - Implemented missing `POST /api/cli/pages/action` endpoint (`regenerate-wiki`, `regenerate-tags`, `download-video`, `download-audio`) required by `kb-cli action`.
 
 ### Added
