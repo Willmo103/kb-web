@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.16] - Unreleased
 ### Added
+- **Obsidian Vault CLI Sync & Server Path Configuration (`kb-web-cli`, `routers/cli_api.py`, `config.py`, `obsidian_export.py`)**:
+  - Added `kb-cli obsidian config` (`--vault`, `--sources-dir`, `--articles-dir`) and `kb-cli obsidian sync` (`--dry-run`, `--delete-stale`) in `kb-web-cli`.
+  - Fetches fresh Obsidian vault ZIP exports from `GET /api/cli/export/obsidian`, unpacks `_sources/` and `articles/` into configurable vault subpaths (default `/_sources` and `/reference/articles`), and diffs SHA-256 hashes to sync only added/changed files without touching unrelated user notes.
+  - Added server-persisted settings (`obsidian_vault_path`, `obsidian_sources_subpath`, `obsidian_articles_subpath`) exposed via `GET/POST /api/cli/obsidian/config` and respected by `obsidian_export.py` backlink generation.
+  - Added `kb-cli status` command to verify server connectivity and API key authentication.
+- **Browser Extension Connection Testing (`browser_extension/`)**:
+  - Added **"Test Connection & Credentials"** button in `options.html` / `options.js` and automatic `/api/import/html` path normalization in `background.js`.
+
+### Fixed
+- **CLI API Key Authentication & Missing Action Endpoint (`routers/cli_api.py`)**:
+  - Unified `verify_cli_api_key` with `verify_api_key` so CLI endpoints accept both master `KB_API_KEY` and registered `CliApiKey` tokens.
+  - Implemented missing `POST /api/cli/pages/action` endpoint (`regenerate-wiki`, `regenerate-tags`, `download-video`, `download-audio`) required by `kb-cli action`.
+
+### Added
 - **YouTube Audio-Only Download & In-Browser Playback (`utils.py`, `routers/pages.py`, `templates/view_page.j2.html`, `templates/url_import.j2.html`)**:
   - Added `download_youtube_audio()` using `DEFAULT_YOUTUBE_AUDIO_FORMAT` (`ba[ext=m4a]/ba[ext=mp3]/ba/bestaudio`) to download **only** the native audio stream directly into `media/audio/` without downloading video tracks.
   - Added `audio_path` column to `YouTubeVideo` (`models_orm.py`, `deploy_migrations.py`).

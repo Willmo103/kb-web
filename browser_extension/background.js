@@ -25,8 +25,11 @@ chrome.action.onClicked.addListener(async (tab) => {
 
         // 3. Fetch endpoint/keys configurations from options storage
         const settings = await chrome.storage.sync.get(["apiEndpoint", "apiKey"]);
-        const endpoint = settings.apiEndpoint || "http://localhost:8050/api/import/html";
-        const apiKey = settings.apiKey || "";
+        let endpoint = (settings.apiEndpoint || "http://localhost:8050/api/import/html").trim().replace(/\/+$/, "");
+        if (!endpoint.endsWith("/api/import/html")) {
+            endpoint = `${endpoint}/api/import/html`;
+        }
+        const apiKey = (settings.apiKey || "").trim();
 
         const payload = {
             url: tab.url,
@@ -48,7 +51,8 @@ chrome.action.onClicked.addListener(async (tab) => {
         if (response.ok) {
             showBadge("OK", "#10B981"); // Green success badge
         } else {
-            console.error("HTTP error response returned: Status", response.status);
+            const errText = await response.text().catch(() => "");
+            console.error("HTTP error response returned: Status", response.status, errText);
             showBadge("ERR", "#EF4444");
         }
     } catch (error) {
