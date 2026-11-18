@@ -1119,6 +1119,34 @@ class Config:
     def obsidian_export_neighbor_k(self, value: int) -> None:
         self._write_db_setting("settings_external", "obsidian_export_neighbor_k", max(0, min(50, int(value))))
 
+    @property
+    def obsidian_vault_path(self) -> str:
+        return str(self._read_db_setting("settings_external", "obsidian_vault_path", "") or "").strip()
+
+    @obsidian_vault_path.setter
+    def obsidian_vault_path(self, value: str) -> None:
+        self._write_db_setting("settings_external", "obsidian_vault_path", str(value or "").strip())
+
+    @property
+    def obsidian_sources_subpath(self) -> str:
+        val = str(self._read_db_setting("settings_external", "obsidian_sources_subpath", "_sources") or "_sources").strip().strip("/")
+        return val or "_sources"
+
+    @obsidian_sources_subpath.setter
+    def obsidian_sources_subpath(self, value: str) -> None:
+        cleaned = str(value or "_sources").strip().strip("/") or "_sources"
+        self._write_db_setting("settings_external", "obsidian_sources_subpath", cleaned)
+
+    @property
+    def obsidian_articles_subpath(self) -> str:
+        val = str(self._read_db_setting("settings_external", "obsidian_articles_subpath", "reference/articles") or "reference/articles").strip().strip("/")
+        return val or "reference/articles"
+
+    @obsidian_articles_subpath.setter
+    def obsidian_articles_subpath(self, value: str) -> None:
+        cleaned = str(value or "reference/articles").strip().strip("/") or "reference/articles"
+        self._write_db_setting("settings_external", "obsidian_articles_subpath", cleaned)
+
     def get_allowed_topics_list(self) -> List[str]:
         """Returns normalized list of allowed top-level topics."""
         raw = self.allowed_topics or DEFAULT_ALLOWED_TOPICS

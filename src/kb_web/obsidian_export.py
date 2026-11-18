@@ -133,7 +133,11 @@ def resolve_title_conflict(
                 ollama_client = Client(host=config.ollama_host, timeout=15)
 
             if ollama_client is not None:
-                model = getattr(config, "ollama_model", "gemma4:latest") if config else "gemma4:latest"
+                model = (
+                    getattr(config, "ollama_model", "gemma4:latest")
+                    if config
+                    else "gemma4:latest"
+                )
                 snippet = (wiki_content or "")[:600]
                 prompt = (
                     f"The title '{base_title}' is already used by another document in the vault. "
@@ -276,6 +280,19 @@ def build_obsidian_vault_zip(
                         embeddings[url] = unit
 
     default_model = getattr(config, "ollama_model", "unknown") if config else "unknown"
+    sources_subpath = (
+        (getattr(config, "obsidian_sources_subpath", "_sources") or "_sources").strip("/")
+        if config
+        else "_sources"
+    )
+    articles_subpath = (
+        (
+            getattr(config, "obsidian_articles_subpath", "reference/articles")
+            or "reference/articles"
+        ).strip("/")
+        if config
+        else "reference/articles"
+    )
 
     # Precompute target paths for every included page so backlinks resolve accurately
     page_records: List[Dict[str, Any]] = []
@@ -284,7 +301,9 @@ def build_obsidian_vault_zip(
 
     for page in pages:
         parsed = urlparse(page.url)
-        site = _sanitize_fs_segment(parsed.netloc or "unknown-site", fallback="unknown-site")
+        site = _sanitize_fs_segment(
+            parsed.netloc or "unknown-site", fallback="unknown-site"
+        )
         col_name = (
             collections_by_id.get(page.collection_id)
             or url_to_collection.get(page.url)
@@ -303,7 +322,11 @@ def build_obsidian_vault_zip(
 
         # Wiki content & model metadata
         wv = latest_wiki.get(page.url)
-        wiki_md = (wv.wiki_content if wv and wv.wiki_content else None) or page.description or ""
+        wiki_md = (
+            (wv.wiki_content if wv and wv.wiki_content else None)
+            or page.description
+            or ""
+        )
         model_used = (
             (wv.model_name if wv and wv.model_name else None)
             or page.wiki_model
@@ -326,8 +349,8 @@ def build_obsidian_vault_zip(
         used_in_dir.add(clean_title.lower())
 
         article_rel_path = f"articles/{col_name}/{site}/{clean_title}.md"
-        obsidian_article_path = f"/reference/{article_rel_path}"
-        obsidian_source_path = f"/{src_rel_path}"
+        obsidian_article_path = f"/{articles_subpath}/{col_name}/{site}/{clean_title}.md"
+        obsidian_source_path = f"/{sources_subpath}/{site}/{src_filename}"
 
         page_records.append(
             {
@@ -417,9 +440,7 @@ def build_obsidian_vault_zip(
             header_block = f"# {rec['title']}\n"
             if inline_tags:
                 header_block += f"{inline_tags}\n"
-            header_block += (
-                f"\n*Source: [{rec['src_rel_path']}]({_encode_vault_link(rec['obsidian_source_path'])})*\n\n"
-            )
+            header_block += f"\n*Source: [{rec['src_rel_path']}]({_encode_vault_link(rec['obsidian_source_path'])})*\n\n"
 
             wiki_body = rec["wiki_md"].strip()
             # Avoid duplicating top-level H1 if wiki already starts with `# Title`
