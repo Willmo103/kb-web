@@ -5,7 +5,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from fastapi import APIRouter, Header, HTTPException, Depends, status, Form
+from fastapi import APIRouter, Header, HTTPException, Depends, Request, status, Form
 from pydantic import BaseModel
 from sqlalchemy import or_
 
@@ -29,8 +29,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cli", tags=["CLI API"])
 
 
-def verify_cli_api_key(api_key: str = Depends(verify_api_key)) -> str:
-    return api_key
+def verify_cli_api_key(request: Request) -> str:
+    try:
+        return verify_api_key(request)
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or revoked CLI API Key.",
+        ) from exc
 
 
 class RegistrationRequest(BaseModel):
